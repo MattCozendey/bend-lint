@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Book, LTerm, Span } from "bend2/bend.ts";
-import { BEND2, Bend, Comp, applyFixes, bendRule, findConfig, lint, mapper, render, walk } from "../src/lint.ts";
-import type { Diag, Edit, Fact, LintRule, RuleContext, Source, SourceFile } from "../src/lint.ts";
-import { DriftError, bendDir, fetchBend, installedTag, latestTag, patch, relative, resolve, seeCheck, seeInfer } from "../src/patch.ts";
+import { BEND2, Bend, Comp, applyFixes, bendRule, findConfig, lint, mapper, render, walk } from "./lint.ts";
+import type { Diag, Edit, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
+import { DriftError, bendDir, fetchBend, installedTag, latestTag, patch, relative, resolve, seeCheck, seeInfer } from "./patch.ts";
 
 // Types
 // =====
@@ -114,15 +114,15 @@ const DRIFT = [
   "import/base_prelude", "import/string_literal", "import/alias_shadow", "import/duplicate_name",
 ];
 
-// Inside the repo, so a Bend rule here can import ../../../src/lint.bend;
+// Inside the repo, so a Bend rule here can import ../../lint.bend;
 // .tmp/ is ignored by git.
 const TMP = fileURLToPath(new URL("./.tmp", import.meta.url));
 const DIR = (fs.mkdirSync(TMP, { recursive: true }), fs.mkdtempSync(path.join(TMP, "run-")));
-const CLI = fileURLToPath(new URL("../src/lint.ts", import.meta.url));
+const CLI = fileURLToPath(new URL("./lint.ts", import.meta.url));
 
 // The comma-space rule, written in Bend: source text only.
 const COMMA_BEND = String.raw`import Base
-import ../../../src/lint.bend as Lint
+import ../../lint.bend as Lint
 
 def id() -> String:
   "style/comma-space"
@@ -201,7 +201,7 @@ def main() -> IO(Unit):
 // form, whether the checker finds it equal to its binder's, its text, how
 // many times it is demanded, and what it uses.
 const TYPES_BEND = String.raw`import Base
-import ../../../src/lint.bend as Lint
+import ../../lint.bend as Lint
 
 def id() -> String:
   "test/types"
@@ -369,7 +369,7 @@ const spacing: LintRule = {
 
 // A Bend rule that reports its options, read with defaults.
 const OPTIONS_BEND = String.raw`import Base
-import ../../../src/lint.bend as Lint
+import ../../lint.bend as Lint
 
 def id() -> String:
   "test/options"
@@ -392,7 +392,7 @@ def main() -> IO(Unit):
 // A Bend rule that counts the facts it pulls, from the linted file and its
 // imports: the Vars.
 const COUNT_BEND = String.raw`import Base
-import ../../../src/lint.bend as Lint
+import ../../lint.bend as Lint
 
 def id() -> String:
   "test/count"

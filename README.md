@@ -169,7 +169,7 @@ a fact with effects (`Lint.view`, `type_of`, `binder`, `same`, `show`,
 characters. bend-lint compiles a rule once; each run then takes about 10 ms.
 A rule runs on bend's JS runtime, where only tail calls run as loops: walk
 a long text or list with a tail call, or the stack overflows.
-`COMMA_BEND`, `TYPES_BEND` and `COUNT_BEND` in `test/lint.test.ts` are
+`COMMA_BEND`, `TYPES_BEND` and `COUNT_BEND` in `src/lint.test.ts` are
 complete examples.
 
 ## Rules shipped here
@@ -237,7 +237,7 @@ A library picks its bend with `$BEND_DIR`, set before it imports bend-lint.
   return, and bend.ts gets an `fs` and `path` whose real paths use `/` (so
   imports resolve on Windows; on POSIX they act as node's). comp.ts exports
   `RUNTIME_MAIN` and `js_sat`, so a Bend rule is compiled once.
-- `src/lint.bend`, `src/lint.js`: the contract for Bend rules, and its
+- `src/lint.bend`, `src/effects.js`: the contract for Bend rules, and its
   effects.
 
 bend-lint is not pinned to a bend version; it checks what it depends on

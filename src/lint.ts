@@ -108,7 +108,7 @@ export type Position = { line: number; character: number };
 // A span as lint.bend has it: a file's path and two code-point offsets.
 type Spot = { path: string; beg: number; end: number };
 
-// What a Bend rule reports, as lint.js reads it.
+// What a Bend rule reports, as effects.js reads it.
 type Reported = {
   severity: Severity;
   message: string;
@@ -116,7 +116,7 @@ type Reported = {
   fixes: Array<{ title: string; applicability: Applicability; edits: Array<{ span: Spot; text: string }> }>;
 };
 
-// What lint.js asks of bend-lint while a Bend rule runs. Facts and types
+// What effects.js asks of bend-lint while a Bend rule runs. Facts and types
 // cross as indexes into the run's tables.
 type Channel = {
   input(): { sources: Array<{ path: string; text: string; root: boolean }>; options: Options };
@@ -559,7 +559,7 @@ export function position(spn: Span): { start: Position; end: Position } {
 
 // A rule written in Bend: a file built on ./lint.bend (see there). It is
 // checked and compiled once, as comp.ts io_run does; each run calls its
-// main with bend's own IO runtime, while lint.js reaches bend-lint through
+// main with bend's own IO runtime, while effects.js reaches bend-lint through
 // globalThis.BEND_LINT. Offsets cross as code points.
 export async function bendRule(file: string): Promise<LintRule> {
   const { book, failure } = await check(file, [], new AbortController().signal);
