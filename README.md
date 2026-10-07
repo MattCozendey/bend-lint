@@ -179,16 +179,41 @@ complete examples.
 
 | File | Rule | What | Fix |
 | --- | --- | --- | --- |
-| `trailing_whitespace.ts` | `style/trailing-whitespace` | spaces or tabs at the end of a line | safe: delete them |
-| `line_length.bend` | `style/line-length` | a line longer than `max` characters (default 100) | none |
+| `format.ts` | `format/layout` | indentation, spacing (including comments), declaration gaps, trailing whitespace, final newline, and syntax-aware wrapping | safe: format the whole file |
+| `file_length.bend` | `style/file-length` | a file longer than `maxLines` physical lines (default 500) | none |
 
 ```sh
-bun tools/bend-lint/src/lint.ts file.bend --rules tools/bend-lint/rules/trailing_whitespace.ts --rules tools/bend-lint/rules/line_length.bend
+bun src/lint.ts file.bend --rules rules/format.ts --fix
+bun src/lint.ts file.bend --rules rules/file_length.bend
 ```
 
+The formatter replaces the trailing-whitespace and line-length rules. Its
+defaults are `tabWidth: 2` (spaces per indentation level) and
+`wrapAtWidth: 100`. Both numeric values must be positive integers; use
+`"never"` to disable optional wrapping. Invalid or unknown settings are
+configuration errors. The formatter validates its own options when it runs.
+
+```json
+{ "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
+```
+
+The wrap width is a target: literals, comments and other indivisible text
+may exceed it. Wrapped lists use one item per line, and continuations use
+one extra indentation level. It adds a space after `#` when missing, while
+preserving empty comments, `#|` test expectations, `#!` directives and `##`
+headings. Other comment text and literal contents are preserved.
+The formatter reparses changed source before offering a fix; if it would
+change the parsed program, it reports a warning without a fix. It does not
+reorder declarations. Tests live beside the rule in `rules/format.test.ts`.
+
+`file_length.bend` is an example rule written in Bend. It uses `shared.bend`
+to find the root source and count physical lines. A final newline does not
+add an extra line, and an empty file has zero lines. It does not count
+imports or offer a fix: splitting a large file is a design choice. Its
+tests are in `rules/file_length.test.ts`.
+
 To add a rule, add one file: a `.ts` file that exports `rules`, or a `.bend`
-file as above. Helpers used by more than one rule go in `rules/shared.ts`
-or `rules/shared.bend`.
+file as above. Helpers for Bend rules live in `rules/shared.bend`.
 
 ## From code
 

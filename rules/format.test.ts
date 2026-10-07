@@ -77,6 +77,30 @@ def main() -> String:
     expect(output).toContain("456  # second\n");
   });
 
+  test("comment markers get a space, while literals and special markers stay intact", async () => {
+    const source = String.raw`import Base #import-comment
+#header
+##Heading
+#!directive
+#|expectation
+#
+# already spaced
+def apostrophe() -> Char:
+  '\''
+def main() -> String:
+  "${String.fromCodePoint(0x1f600)}#inside \"#escaped\"" #tail
+`;
+    const output = await fixed(source.replaceAll("\n", "\r\n"));
+    expect(output).toContain("import Base  # import-comment");
+    expect(output).toContain("# header\n##Heading\n#!directive\n#|expectation\n#\n# already spaced");
+    const literal = source.split("\n").find((line) => line.includes("#inside"))!.split(" #tail")[0].trim();
+    expect(output).toContain(literal);
+    expect(output).toContain(String.fromCodePoint(0x1f600));
+    expect(output).toContain("  # tail");
+    const multiline = 'import Base\ndef main() -> String:\n  "first line\n#inside literal\nlast line" #outside\n';
+    expect(await fixed(multiline)).toContain('#inside literal\nlast line"  # outside');
+  });
+
   test("handles nested type arguments, successors, quantities and templates", async () => {
     await fixed("import Base\ndef identity(~T: Type, x: T) -> T:\n  x\ndef main() -> List<List<U32>>:\n  identity(~List<List<U32>>, [[1, 2], [3]])\n", { tabWidth: 2, wrapAtWidth: 25 });
     await fixed("import Base\ndef successor(+x: Nat) -> Nat:\n  1n+x\ndef main() -> Nat:\n  successor(2n)\n");

@@ -152,7 +152,7 @@ function sequence(nodes: Node[], source: string, opts: FormatOptions, base: numb
 }
 
 function nodeDoc(n: Node, source: string, opts: FormatOptions, base: number): Doc {
-  if (!("open" in n)) return n.kind === "newline" ? "" : n.text;
+  if (!("open" in n)) return n.kind === "newline" ? "" : n.kind === "comment" ? commentText(n.text) : n.text;
   const children = n.children;
   if (!children.length) return n.open.text + n.close.text;
   // Embedded statement bodies have significant line/column boundaries.
@@ -187,6 +187,11 @@ function nodeDoc(n: Node, source: string, opts: FormatOptions, base: number): Do
   // '>' is parsed as a comparison by Bend, even across a newline.
   const closing: Doc = n.close.text === ">" ? "" : comments ? hard() : soft("");
   return group([n.open.text, nest([comments ? hard() : soft(""), content], opts.tabWidth), closing, n.close.text]);
+}
+
+function commentText(text: string): string {
+  // Keep empty comments, whitespace, test expectations, directives and headings.
+  return /^#[^\s#!|]/u.test(text) ? "# " + text.slice(1) : text;
 }
 
 // A small document printer: a group is entirely flat if it fits; otherwise
@@ -264,7 +269,7 @@ export function format(source: string, opts: FormatOptions): string {
       const text = source.slice(head.beg, last(record[record.length - 1]).end).trimEnd();
       const at = text.indexOf("#");
       doc = (at < 0 ? text : text.slice(0, at)).trim().replace(/^import\s+/, "import ").replace(/\s+as\s+/, " as ");
-      if (at >= 0) doc = [doc, "  ", text.slice(at)];
+      if (at >= 0) doc = [doc, "  ", commentText(text.slice(at))];
     } else {
       // Canonicalize an inline declaration body into the indented body form.
       const colon = col === 0 && declaration ? record.findIndex((n) => !("open" in n) && n.text === ":") : -1;

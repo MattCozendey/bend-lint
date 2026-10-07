@@ -67,3 +67,29 @@ def root(srcs: List<&2, Lint.Source>) -> Maybe<&2, Lint.Source>:
       None{}
     case Con{+s, rest}:
       root_or(is_root(s), s, root(rest))
+
+# Count physical lines, excluding the empty sentinel after a final newline.
+# An empty file has zero lines. Both list walks use tail recursion.
+def lines.count(xs: List<&2, Line>, acc: U32) -> U32:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{line, rest}:
+      lines.count(rest, U32.add(acc, 1))
+
+def lines.count_last(len: U32, rest: List<&2, Line>) -> U32:
+  match len:
+    case 0:
+      lines.count(rest, 0)
+    case _:
+      lines.count(rest, 1)
+
+def lines.total(xs: List<&2, Line>) -> U32:
+  match xs:
+    case Nil{}:
+      0
+    case Con{Line{beg, len}, rest}:
+      lines.count_last(len, rest)
+
+def line_count(text: String) -> U32:
+  lines.total(lines(text))
