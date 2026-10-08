@@ -27,6 +27,7 @@ import {
   starts,
 } from "./seam.ts";
 import type { Loaded, Unstable } from "./seam.ts";
+import { suppress } from "./suppress.ts";
 
 // Types
 // =====
@@ -167,9 +168,12 @@ export type LintRule = {
 };
 
 // root: the linted file, unless bend could not read it. facts: those kept
-// for the rules.
+// for the rules. suppressed: the findings a directive in the linted file
+// covers (see ./suppress.ts); diags has the rest, and the findings about
+// the directives themselves.
 export type LintResult = {
   diags: Diag[];
+  suppressed: Diag[];
   sources: Source[];
   root?: Source;
   facts: Fact[];
@@ -266,6 +270,8 @@ const HEAD: Record<Severity, string> = {
   information: "Information",
   hint: "Hint",
 };
+
+const isSeverity = (s: string): s is Severity => Object.hasOwn(HEAD, s);
 
 const shared = globalThis as typeof globalThis & { BEND_LINT?: Channel };
 
@@ -492,7 +498,7 @@ const settings = (
     throw fault("config", where + ' must be "off" or an object');
   }
   const { severity, ...options } = given;
-  if (severity !== undefined && !Object.hasOwn(HEAD, severity)) {
+  if (severity !== undefined && !isSeverity(severity)) {
     throw fault("config", where + ": severity must be one of " + Object.keys(HEAD).join(", "));
   }
   for (const [key, value] of Object.entries(options)) {
@@ -565,7 +571,7 @@ const lintWith = async (
   const failed = failure === undefined ? [] : [failure];
   const root = sources.find((s) => s.root);
   if (root === undefined) {
-    return { diags: failed, sources, facts, unstable: ops.unstable };
+    return { diags: failed, suppressed: [], sources, facts, unstable: ops.unstable };
   }
   // What one rule finds; a rule that throws or reports a bad fix fails.
   const run = async (
@@ -623,12 +629,14 @@ const lintWith = async (
   // Without the checker's facts, only the rules that need none run.
   const runnable = plans.filter((p) => failure === undefined || p.want === undefined);
   let diags: Diag[] = failed;
+  const crashed = new Set<string>();
   for (const plan of runnable) {
     signal.throwIfAborted();
     const found = await run(plan, diags).catch((e: unknown): Diag[] => {
       if (signal.aborted) {
         throw signal.reason;
       }
+      crashed.add(plan.rule.id);
       return [
         {
           code: CRASH,
@@ -640,7 +648,12 @@ const lintWith = async (
     });
     diags = [...diags, ...found];
   }
-  return { diags, sources, root, facts, unstable: ops.unstable };
+  const shown = suppress(root, diags, {
+    known: new Set(rules.map((r) => r.id)),
+    ran: new Set(runnable.map((p) => p.rule.id).filter((id) => !crashed.has(id))),
+    isSeverity,
+  });
+  return { ...shown, sources, root, facts, unstable: ops.unstable };
 };
 
 const validRange = (beg: number, end: number, length: number): boolean =>
