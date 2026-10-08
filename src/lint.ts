@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // bend-lint checks a Bend file with bend's checker, then runs rules over
 // its source and the checker's results. Rules are TS modules, or Bend files
-// built on ./lint.bend. It loads bend2 through ./patch.ts; anything there
+// built on ./lint.bend. It reaches bend2 only through ./seam.ts; anything there
 // it cannot follow stops it with a DriftError. As a CLI, it exits 0 when
 // ok, 1 when it found an error, 2 on bad usage or a tool failure.
 
@@ -9,9 +9,27 @@ import * as url from "node:url";
 import * as util from "node:util";
 
 import type * as BendModule from "bend2/bend.ts";
-import type * as CompModule from "bend2/comp.ts";
-import type { Ann, Book, Ctx, Err, HTerm, LTerm, Name, Quant, Span, Uses } from "bend2/bend.ts";
-import { DriftError, MARK, PATCHED, bendDir, fs, hook, patch, path, unsaved } from "./patch.ts";
+import type { Ann, Book, Ctx, HTerm, LTerm, Name, Quant, Span, Uses } from "bend2/bend.ts";
+import {
+  binder,
+  check,
+  compile,
+  fs,
+  layout,
+  line,
+  load,
+  matches,
+  normal,
+  path,
+  same,
+  shape,
+  show,
+  starts,
+  uses,
+  view,
+  walk,
+} from "./seam.ts";
+import type { Mapper } from "./seam.ts";
 
 // Types
 // =====
@@ -173,26 +191,6 @@ type Channel = {
   text(span: Spot): string;
 };
 
-// comp.ts as patch.ts exports it.
-type Comp = typeof CompModule & { RUNTIME_MAIN: string; js_sat(k: Name): string };
-
-// What bend-lint uses of main.ts, as patch.ts exports it: book_read throws
-// a Check_Fail holding why the check failed.
-type Main = {
-  book_read(file: string, base?: Book, seen?: Map<string, string | null>): Promise<Book>;
-  book_err(e: unknown): string;
-  Check_Fail: new (why: unknown) => { why: unknown };
-};
-
-type Mapper = { (s: Span): Span; (s: Span | undefined): Span | undefined };
-type Checked = {
-  book: Book;
-  sources: Source[];
-  span: Mapper;
-  facts?: Map<LTerm, Fact>;
-  failure?: Diag;
-};
-
 // Constants
 // =========
 
@@ -200,7 +198,6 @@ const RULE_ID = /^[^/\s]+\/[^/\s]+$/;
 const SCOPES = ["file", "program"];
 const CONFIG_FILES = ["bend-lint.json", "bend-lint.js", "bend-lint.ts"];
 const LINE = /[^\n]*\n|[^\n]+$/g;
-const SAMPLE = "type N is Data:\n  Z{}\n\ndef id(x: N) -> N:\n  x\n";
 const HEAD: Record<Severity, string> = {
   error: "Error",
   warning: "Warning",
@@ -209,42 +206,6 @@ const HEAD: Record<Severity, string> = {
 };
 
 const shared = globalThis as typeof globalThis & { BEND_LINT?: Channel };
-
-// Checked base.bend books, by the text of base.bend: Base is checked once
-// per process, and again only if base.bend changes.
-const BASES = new Map<string, Promise<Book>>();
-
-// The check running now, or done; the next check waits for it.
-let queue: Promise<unknown> = Promise.resolve();
-
-// Line starts per file object (see starts).
-const STARTS = new WeakMap<object, number[]>();
-
-// Binders are explicit in checked terms, so Var.v cells are not followed.
-// A new term kind is a type error here, and a DriftError when walked.
-const CHILDREN: { [K in LTerm["$"]]: (tm: Extract<LTerm, { $: K }>) => LTerm[] } = {
-  Let: (tm) => [...tm.v, tm.f],
-  Lam: (tm) => [tm.f],
-  Sub: (tm) => [tm.f],
-  App: (tm) => [tm.f, tm.x],
-  Ctr: (tm) => tm.x,
-  ADT: (tm) => tm.x,
-  Mat: (tm) => [tm.h, tm.m],
-  Rwt: (tm) => [tm.e, tm.p, tm.f],
-  Typ: (tm) => [tm.g],
-  Min: (tm) => [tm.a, tm.b],
-  All: (tm) => [tm.A, tm.B],
-  Eql: (tm) => [tm.a, tm.b, tm.T],
-  Ann: (tm) => [tm.x, tm.T],
-  Var: () => [],
-  Ref: () => [],
-  Qnt: () => [],
-  Qua: () => [],
-  Lit: () => [],
-  Efq: () => [],
-  Rfl: () => [],
-  Hol: () => [],
-};
 
 const OPTIONS = {
   rules: { type: "string", multiple: true },
@@ -271,246 +232,6 @@ const FIXES: ReadonlyArray<
 
 // Functions
 // =========
-
-// Every sub-term, parents first, with an explicit stack: linear in the
-// size of the term, at any depth.
-export function* walk(tm: LTerm): Generator<LTerm> {
-  const stack = [tm];
-  for (let t = stack.pop(); t !== undefined; t = stack.pop()) {
-    const children = (CHILDREN as Record<string, ((tm: LTerm) => LTerm[]) | undefined>)[t.$];
-    if (children === undefined) {
-      throw new DriftError(
-        "unknown term kind " + t.$ + "; update CHILDREN in tools/bend-lint/src/lint.ts",
-      );
-    }
-    yield t;
-    const next = children(t);
-    for (let i = next.length - 1; i >= 0; i--) {
-      stack.push(next[i]);
-    }
-  }
-}
-
-// Where each line of a file starts, computed once per file object.
-function starts(file: Span["file"]): number[] {
-  const known = STARTS.get(file);
-  if (known !== undefined) {
-    return known;
-  }
-  const out = [0, ...[...file.str.matchAll(/\n/g)].map((m) => m.index! + 1)];
-  STARTS.set(file, out);
-  return out;
-}
-
-// The index of the line that holds `off`, given each line's start.
-function line(starts: number[], off: number): number {
-  let [lo, hi] = [0, starts.length - 1];
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    [lo, hi] = starts[mid] <= off ? [mid, hi] : [lo, mid - 1];
-  }
-  return lo;
-}
-
-// bend.ts parses a copy of each file with its import lines blanked, so a
-// span moves to the file on disk by line and column. The copy's namespace,
-// folder and lines pick the file; a copy that matches no file, or two, is
-// a DriftError.
-export function mapper(sources: Source[]): Mapper {
-  const own = new Set<unknown>(sources.map((s) => s.file));
-  const memo = new WeakMap<object, { file: SourceFile; from: number[]; to: number[] }>();
-  function map(s: Span): Span;
-  function map(s: Span | undefined): Span | undefined;
-  function map(s: Span | undefined): Span | undefined {
-    if (s === undefined || own.has(s.file)) {
-      return s;
-    }
-    const f = s.file as Span["file"] & { dir?: string };
-    if (!memo.has(f)) {
-      const lines = f.str.split("\n");
-      const found = sources.filter((src) => {
-        const theirs = src.text.split("\n");
-        return (
-          f.ns === src.ns &&
-          (f.dir === undefined || f.dir === src.path.slice(0, src.path.lastIndexOf("/") + 1)) &&
-          lines.length === theirs.length &&
-          lines.every(
-            (l, i) => l === theirs[i] || (l.trim() === "" && /^\s*import(\s|$)/.test(theirs[i])),
-          )
-        );
-      });
-      if (found.length !== 1) {
-        throw new DriftError(
-          "cannot map a bend.ts span to a file on disk (" +
-            found.length +
-            " candidates); bend.ts may mask imports another way now",
-        );
-      }
-      Object.assign(found[0].file.al, f.al);
-      memo.set(f, { file: found[0].file, from: starts(f), to: starts(found[0].file) });
-    }
-    const { file, from, to } = memo.get(f)!;
-    const at = (off: number): number => {
-      const i = line(from, off);
-      return to[i] + off - from[i];
-    };
-    return { file, beg: at(s.beg), end: at(s.end) };
-  }
-  return map;
-}
-
-function isErr(e: unknown): e is Err {
-  return typeof e === "object" && e !== null && (e as { $?: unknown }).$ === "Err";
-}
-
-// Checks a book with bend2/main.ts book_read, as `bend <file>` does; it
-// does not give main.ts's verdict on @unsafe and foreign code. A file with
-// a line exactly `import Base` starts from the checked Base, as `bend
-// --checkup` does. `text` (unsaved editor text) is read in place of the
-// files on disk. The hook and the text are global to bend, so checks run
-// one at a time, in the order asked. A fact is kept as the checker gives
-// it only if a filter wants it; with scope file, only if it is from the
-// linted file's folder and namespace. After the check, only facts whose
-// span maps to the linted file (or, with scope program, to any file but
-// Base) stay.
-function check(
-  file: string,
-  filters: FactFilter[],
-  signal: AbortSignal,
-  text?: ReadonlyMap<string, string>,
-): Promise<Checked> {
-  const turn = queue.then(async (): Promise<Checked> => {
-    signal.throwIfAborted();
-    for (const [at, str] of text ?? []) {
-      if (fs.existsSync(at)) {
-        unsaved.set(fs.realpathSync(at), str);
-      }
-    }
-    try {
-      return await checked(file, filters, signal);
-    } finally {
-      hook.see = undefined;
-      unsaved.clear();
-    }
-  });
-  queue = turn.catch(() => undefined);
-  return turn;
-}
-
-// check's work, in its turn.
-async function checked(file: string, filters: FactFilter[], signal: AbortSignal): Promise<Checked> {
-  const seen = new Map<string, string | null>();
-  const found: Array<Omit<Fact, "inst">> = [];
-  const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
-  const home = real.slice(0, real.lastIndexOf("/") + 1);
-  const far = filters.filter((f) => f.scope === "program");
-  const program = far.length > 0;
-  const seeded = real !== "" && /^import Base$/m.test(fs.readFileSync(real, "utf8"));
-  const key = fs.readFileSync(Bend.BASE_BEND, "utf8");
-  if (seeded && !BASES.has(key)) {
-    BASES.set(key, Main.book_read(Bend.BASE_BEND));
-  }
-  let book: Book = Bend.book_nil();
-  const caught = await Promise.resolve(seeded ? BASES.get(key) : undefined)
-    .then(async (base) => {
-      hook.see =
-        filters.length > 0
-          ? (bok, tm, ty, ctx, dep, def, spn, qt, us) => {
-              const at = spn?.file as { dir?: string; ns?: string } | undefined;
-              const near = at?.dir === home && at.ns === "" ? filters : far;
-              const { kind, name } = near.length > 0 ? shape(tm) : { kind: "", name: "" };
-              if (near.some((f) => matches(f, kind, def, name))) {
-                found.push({ tm, ty, bok, ctx, dep, def, spn, qt, us });
-              }
-            }
-          : undefined;
-      book = await Main.book_read(file, base, seen);
-    })
-    .then(
-      () => undefined,
-      (e: unknown) => ({ e: e instanceof Main.Check_Fail ? e.why : e }),
-    );
-  signal.throwIfAborted();
-  const root = [...seen.keys()].find((real) => real !== Bend.BASE_BEND || !seeded);
-  const sources = [...seen.keys()]
-    .filter((real) => fs.existsSync(real))
-    .map((real): Source => {
-      const text = fs.readFileSync(real, "utf8");
-      const ns = seen.get(real) ?? "";
-      return {
-        path: real,
-        ns,
-        text,
-        root: real === root,
-        base: real === Bend.BASE_BEND,
-        file: { str: text, ns, al: {}, path: real },
-      };
-    });
-  const span = mapper(sources);
-  if (caught === undefined) {
-    const insts = new Set(Object.values(book.tmps).flatMap((m) => [...m.values()]));
-    const own = new Set<unknown>(
-      sources.filter((s) => (program ? !s.base : s.root)).map((s) => s.file),
-    );
-    const facts = found.flatMap((f): Array<[LTerm, Fact]> => {
-      const spn = span(f.spn);
-      return spn !== undefined && own.has(spn.file)
-        ? [[f.tm, { ...f, inst: insts.has(f.def), spn }]]
-        : [];
-    });
-    return { book, sources, span, facts: filters.length > 0 ? new Map(facts) : undefined };
-  }
-  const err = isErr(caught.e) ? caught.e : undefined;
-  // bend's words, its location aside (a finding has its own): expected and
-  // observed, with the names in scope, and the note.
-  const show = (x: Err["exp"]): string =>
-    Bend.expr_show(err!.bok, x, Bend.ctx_scope(err!.ctx), err!.spn?.file);
-  const message =
-    err === undefined
-      ? Main.book_err(caught.e).replace(/^Error: /, "")
-      : (err.obs === undefined
-          ? show(err.exp)
-          : "expected: " + show(err.exp) + "\nobserved: " + show(err.obs)) +
-        (err.nte === undefined ? "" : "\n" + err.nte);
-  // A file bend did not finish loading may not map; the failure still reports.
-  let spn: Span | undefined;
-  try {
-    spn = span(err?.spn);
-  } catch {
-    spn = undefined;
-  }
-  return {
-    book,
-    sources,
-    span,
-    failure: {
-      code: "bend/check",
-      severity: "error",
-      message,
-      spn,
-      def: err?.def,
-      fixes: [],
-      core: caught.e,
-    },
-  };
-}
-
-// A term's kind, annotations stripped, and the name a Var or Ref points to.
-function shape(tm: LTerm): { kind: string; name: Name } {
-  const t = Bend.term_strip(tm);
-  return { kind: t.$, name: t.$ === "Var" || t.$ === "Ref" ? t.k : "" };
-}
-
-// Whether a fact passes a filter, its scope aside.
-function matches(f: FactFilter, kind: string, def: Name, name: Name): boolean {
-  const all = (xs: string[] | undefined, x: string): boolean =>
-    xs === undefined || xs.length === 0 || xs.includes(x);
-  return (
-    all(f.kinds, kind) &&
-    (all(f.defs, def) || all(f.defs, def.replace(/~\d+$/, ""))) &&
-    all(f.names, name)
-  );
-}
 
 export function readConfig(file: string): Config {
   try {
@@ -632,6 +353,7 @@ export async function lint(
     .filter((p) => !p.off);
   const program = plans.some((p) => p.want?.scope === "program");
   const { book, sources, span, facts, failure } = await check(
+    loaded,
     file,
     plans.flatMap((p) => (p.want === undefined ? [] : [p.want])),
     signal,
@@ -663,19 +385,16 @@ export async function lint(
               : new Map(
                   [...facts].filter(([tm, f]) => {
                     if (want.scope !== "program" && f.spn?.file !== root.file) return false;
-                    const { kind, name } = shape(tm);
+                    const { kind, name } = shape(loaded, tm);
                     return matches(want, kind, f.def, name);
                   }),
                 ),
         prior: diags,
-        binder: (fact, v) => (v.$ === "Var" ? Bend.pmap_get(fact.ctx, v.i) : null),
-        show: (fact, ty) => Bend.term_show(Bend.term_lower(ty, fact.dep)),
-        same: (fact, a, b) => Bend.term_compare("EQ", fact.bok, a, b, fact.dep),
-        normal: (fact, ty) => Bend.term_snf(fact.bok, ty),
-        uses: (fact) =>
-          Bend.pmap_to_array(fact.us).flatMap(([v, quantity]) =>
-            quantity.$ === "None" ? [] : [{ name: Bend.pmap_get(fact.ctx, v)?.k ?? "", quantity }],
-          ),
+        binder: (fact, v) => binder(loaded, fact, v),
+        show: (fact, ty) => show(loaded, fact, ty),
+        same: (fact, a, b) => same(loaded, fact, a, b),
+        normal: (fact, ty) => normal(loaded, fact, ty),
+        uses: (fact) => uses(loaded, fact),
         diag: (d) => ({
           code: rule.id,
           severity: d.severity ?? "warning",
@@ -780,16 +499,6 @@ export function applyFixes(
 // bend's own error layout; the head names the severity and the code, and
 // each fix follows as a unified diff of the lines it touches.
 export function render(d: Diag): string {
-  const err = isErr(d.core)
-    ? d.core
-    : Bend.Err(
-        d.bok ?? Bend.book_nil(),
-        d.ctx ?? Bend.ctx_nil(),
-        d.message,
-        undefined,
-        d.spn,
-        d.def,
-      );
   const fixes = d.fixes.map(
     (fix) =>
       "\n\nFix: " +
@@ -839,7 +548,7 @@ export function render(d: Diag): string {
         .join(""),
   );
   return (
-    Bend.err_show(err).replace(/^Error:/, HEAD[d.severity] + " [" + d.code + "]:") + fixes.join("")
+    layout(loaded, d).replace(/^Error:/, HEAD[d.severity] + " [" + d.code + "]:") + fixes.join("")
   );
 }
 
@@ -858,71 +567,14 @@ export function position(spn: Span): { start: Position; end: Position } {
 // main with bend's own IO runtime, while effects.js reaches bend-lint through
 // globalThis.BEND_LINT. Offsets cross as code points.
 export async function bendRule(file: string): Promise<LintRule> {
-  const { book, failure } = await check(file, [], new AbortController().signal);
+  const { book, failure } = await check(loaded, file, [], new AbortController().signal);
   if (failure !== undefined) {
     throw new Error(file + " does not check:\n" + render(failure));
   }
-  const value = (k: Name): LTerm | undefined => {
-    const tld = book.tlds[k];
-    return tld?.$ === "Def" && tld.n === 0 && tld.v !== null
-      ? Bend.term_lower(Bend.term_snf(book, tld.v))
-      : undefined;
-  };
-  const shown = value("id");
-  const id = shown === undefined ? undefined : Bend.term_show(shown).match(/^"([^"\\]*)"$/)?.[1];
-  // facts(), checked: NoFacts{} gives null, Want{...} a filter; else undefined.
-  const args = (t: LTerm | undefined, ctr: string): LTerm[] | undefined =>
-    t?.$ === "Ctr" && (t.k === ctr || t.k.endsWith(":" + ctr)) ? t.x : undefined;
-  const texts = (t: LTerm | undefined): string[] | undefined => {
-    const out: string[] = [];
-    for (let at = t; ; at = args(at, "Con")?.[1]) {
-      const [head] = args(at, "Con") ?? [];
-      if (args(at, "Nil") !== undefined) {
-        return out;
-      }
-      if (head?.$ !== "Lit" || typeof head.v !== "string") {
-        return undefined;
-      }
-      out.push(head.v);
-    }
-  };
-  const asked = value("facts");
-  const [scope, kinds, defs, names] = args(asked, "Want") ?? [];
-  const want =
-    args(asked, "NoFacts") !== undefined
-      ? null
-      : {
-          scope:
-            args(scope, "File") !== undefined
-              ? ("file" as const)
-              : args(scope, "Program") !== undefined
-                ? ("program" as const)
-                : undefined,
-          kinds: texts(kinds),
-          defs: texts(defs),
-          names: texts(names),
-        };
-  if (
-    id === undefined ||
-    Comp.io_type(book) === null ||
-    (want !== null && [want.scope, want.kinds, want.defs, want.names].includes(undefined))
-  ) {
-    throw new Error(
-      file + " must define id() -> String, facts() -> Lint.Want and main() -> IO(Unit)",
-    );
-  }
-  const main = new Function(
-    "require",
-    Comp.js_lib(book) +
-      "\n" +
-      Comp.RUNTIME_MAIN +
-      "\nreturn (args) => { cli_args = args; return io_run(" +
-      Comp.js_sat("main") +
-      "); };",
-  )(import.meta.require) as (args: string[]) => number;
+  const { id, want, main } = compile(loaded, book, file);
   return {
     id,
-    ...(want === null ? {} : { facts: want as FactFilter }),
+    ...(want === null ? {} : { facts: want }),
     run: (cx) => {
       // Built once per text: the character at each UTF-16 offset (points),
       // and the UTF-16 offset of each character (units); both end at the end.
@@ -1000,21 +652,12 @@ export async function bendRule(file: string): Promise<LintRule> {
         next: () => (given < facts.length ? given++ : undefined),
         report: (diags) => void found.push(diags),
         view: (i) => {
-          const f = pick(facts, i, "fact");
-          const t = Bend.term_strip(f.tm);
-          return {
-            owner: f.def,
-            inst: f.inst,
-            ...shape(f.tm),
-            quantity: f.qt.$,
-            span: spot(f.spn),
-            inner: spot(cx.span(t.s)),
-          };
+          const { spn, inner, ...rest } = view(loaded, pick(facts, i, "fact"), cx.span);
+          return { ...rest, span: spot(spn), inner: spot(inner) };
         },
         type: (i) => keep(pick(facts, i, "fact").ty),
         binder: (i) => {
-          const f = pick(facts, i, "fact");
-          const ann = cx.binder(f, Bend.term_strip(f.tm));
+          const ann = binder(loaded, pick(facts, i, "fact"));
           return ann === null ? undefined : keep(ann.T);
         },
         same: (i, a, b) =>
@@ -1066,98 +709,6 @@ export async function bendRule(file: string): Promise<LintRule> {
       );
     },
   };
-}
-
-// Finds bend2 (see bendDir), patches its PATCHED files as Bun loads them,
-// then checks what the wrappers record for `x` in a tiny program.
-async function instrument(
-  given: string | undefined,
-): Promise<{ Bend: Bend; Comp: Comp; Main: Main; BEND2: string }> {
-  const dir = await bendDir(given);
-  // Bun.plugin is process-wide: match this checkout's files by full path.
-  const patched = new Map(
-    PATCHED.map((f) => [path.join(dir, f), patch(f, fs.readFileSync(path.join(dir, f), "utf8"))]),
-  );
-  const exact = dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("/", "[\\\\/]");
-  const names = PATCHED.map((f) => f.replace(/\.ts$/, "")).join("|");
-  const filter = new RegExp(
-    "^" + exact + "[\\\\/](" + names + ")\\.ts$",
-    process.platform === "win32" ? "i" : "",
-  );
-  Bun.plugin({
-    name: "bend-lint",
-    setup: (build) => {
-      build.onLoad({ filter }, (args) => {
-        const contents = patched.get(fs.realpathSync(args.path));
-        if (contents === undefined) {
-          throw new DriftError("bend-lint matched " + args.path + " but did not patch it");
-        }
-        return { contents, loader: "ts" };
-      });
-    },
-  });
-  // Imported, main.ts also registers bend's own loader for `import "x.bend"`.
-  const [B, C, M]: [
-    Bend & { [MARK]?: number },
-    Comp & { [MARK]?: number },
-    Main & { [MARK]?: number },
-  ] = await Promise.all([
-    import(url.pathToFileURL(path.join(dir, "bend.ts")).href),
-    import(url.pathToFileURL(path.join(dir, "comp.ts")).href),
-    import(url.pathToFileURL(path.join(dir, "main.ts")).href),
-  ]);
-  if (B[MARK] !== 1 || C[MARK] !== 1 || M[MARK] !== 1) {
-    throw new DriftError(
-      "bend2 was loaded before bend-lint could patch it; import bend-lint first",
-    );
-  }
-  const sample = B.book_nil();
-  const seen: Fact[] = [];
-  hook.see = (bok, tm, ty, ctx, dep, def, spn, qt, us) =>
-    void seen.push({ tm, ty, bok, ctx, dep, def, spn, qt, us, inst: false });
-  try {
-    B.parse_book(sample, "/", SAMPLE, "", {});
-    B.book_valid(sample);
-  } finally {
-    hook.see = undefined;
-  }
-  const xs = seen.filter((f) => f.def === "id" && B.term_strip(f.tm).$ === "Var");
-  const kind = (f: Fact, t: HTerm) => (B.term_wnf(f.bok, t) as { k?: string }).k;
-  const tagged = (x: unknown, tags: string[]) =>
-    tags.includes((x as { $?: string } | null)?.$ ?? "");
-  const wrong =
-    xs.length < 2
-      ? ["facts (one from each wrapper)"]
-      : xs.flatMap((x) => {
-          if (
-            typeof x.dep !== "number" ||
-            !tagged(x.ctx, ["Emp", "Bin"]) ||
-            !tagged(x.us, ["Emp", "Bin"]) ||
-            !tagged(x.qt, ["None", "Lone", "Many"])
-          ) {
-            return ["kinds of values"];
-          }
-          const v = B.term_strip(x.tm) as Extract<LTerm, { $: "Var" }>;
-          const bound = B.pmap_get(x.ctx, v.i);
-          return (
-            [
-              ["type", kind(x, x.ty) === "N"],
-              ["depth", x.dep === 1],
-              ["scope", bound?.k === "x" && kind(x, bound.T) === "N"],
-              ["quantity", x.qt.$ === "Lone"],
-              ["uses", B.pmap_get(x.us, v.i)?.$ === "Lone"],
-              ["span", x.spn !== undefined && x.spn.file.str.slice(x.spn.beg, x.spn.end) === "x"],
-            ] as const
-          ).flatMap(([what, ok]) => (ok ? [] : [what]));
-        });
-  if (wrong.length > 0) {
-    throw new DriftError(
-      "self-check failed: the patched bend.ts recorded the wrong " +
-        [...new Set(wrong)].join(", ") +
-        " for `x` in `def id(x: N) -> N: x`; update tools/bend-lint/src/patch.ts",
-    );
-  }
-  return { Bend: B, Comp: C, Main: M, BEND2: dir };
 }
 
 async function cli(argv: string[]): Promise<number> {
@@ -1252,12 +803,11 @@ const given = import.meta.main
     }).values.bend
   : undefined;
 
-const loaded = await instrument(typeof given === "string" ? given : undefined).catch(
-  (e: unknown) => (import.meta.main ? fail(e) : Promise.reject(e)),
+const loaded = await load(typeof given === "string" ? given : undefined).catch((e: unknown) =>
+  import.meta.main ? fail(e) : Promise.reject(e),
 );
 
-export const { Bend, Comp, BEND2 }: { Bend: Bend; Comp: Comp; BEND2: string } = loaded;
-const { Main } = loaded;
+export const { Bend, Comp, BEND2 } = loaded;
 
 if (import.meta.main) {
   process.exit(await cli(process.argv.slice(2)).catch(fail));

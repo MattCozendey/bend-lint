@@ -4,7 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Bend, lint, applyFixes, walk, render } from "../src/lint.ts";
+import { Bend, lint, applyFixes, render } from "../src/lint.ts";
+import { walk } from "../src/seam.ts";
 import { format, formatOptions, rules, sameProgram } from "./format.ts";
 import type { FormatOptions } from "./format.ts";
 

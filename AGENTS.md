@@ -55,8 +55,10 @@ the script finishes; there is no background service.
 
 ## Files
 
-- `src/lint.ts`: checker hookup, rule runner, diagnostics, fixes, library API, CLI
-- `src/patch.ts`: finding Bend, downloading it, patching it as it loads
+- `src/lint.ts`: rule runner, diagnostics, fixes, library API, CLI
+- `src/seam.ts`: everything about Bend's internals: finding Bend, downloading it,
+  patching it as it loads, checking a file, and every call into it
+- `src/sample.bend`: the program the startup self-check reads
 - `src/lint.bend`: what a Bend rule imports
 - `src/effects.js`: the effects Bend rules call into
 - `rules/`: bundled rules, one per file, tests next to them
@@ -89,9 +91,9 @@ A `safe` fix must keep the program's behavior. The formatter reparses its output
 and compares it to the original before offering a fix, and it keeps literals,
 comments and declaration order as they are.
 
-Everything that touches Bend's internals goes in `src/patch.ts`, with exact
+Everything that touches Bend's internals goes in `src/seam.ts`, with exact
 matches, full argument forwarding and the startup checks. If Bend changes, fix
-the patch. Let `DriftError` come through.
+the seam. Let `DriftError` come through.
 
 Every behavior change gets a regression test. Engine and CLI tests go in
 `src/lint.test.ts`, rule tests next to the rule. Test what it does, not how.
@@ -353,7 +355,7 @@ A cached release without `main.ts` downloads again.
 ### Patching
 
 Bun patches Bend's modules while they load. `term_infer` and `term_check` are
-renamed and wrapped to record what they return to `hook.see` in patch.ts. The
+renamed and wrapped to record what they return to `hook.see` in seam.ts. The
 wrappers pass every argument on. The hook is global, so checks run one at a
 time. The `fs` and `path` adapters, in `bend.ts` and `main.ts`, turn real paths
 into `/` paths so imports resolve on Windows. `comp.ts` also exports
@@ -378,8 +380,11 @@ alike:
   have to be declared
 - wrapper signatures are checked against Bend's at type-check time, and argument
   counts at runtime
-- a self-check looks at the type, depth, scope, quantity, uses and span recorded
-  for `x` in `def id(x: N) -> N: x`
+- `book_read`, `book_err` and `Check_Fail` from `main.ts` must take the
+  arguments bend-lint gives them
+- a self-check reads `src/sample.bend` with `book_read`, and looks at the type,
+  depth, scope, quantity, uses and span recorded for `x` in
+  `def id(x: N) -> N: x`; a missing file must fail with a `Check_Fail`
 
 Any mismatch throws `DriftError` and loading stops. The tests add more, including
 drift against the chosen checkout's own tests.

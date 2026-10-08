@@ -13,24 +13,25 @@ import {
   bendRule,
   findConfig,
   lint,
-  mapper,
   readConfig,
   render,
-  walk,
 } from "./lint.ts";
 import type { Diag, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
 import {
   DriftError,
   bendDir,
   fetchBend,
+  guardMain,
   installedTag,
   latestTag,
+  mapper,
   patch,
   relative,
   resolve,
   seeCheck,
   seeInfer,
-} from "./patch.ts";
+  walk,
+} from "./seam.ts";
 
 // Types
 // =====
@@ -568,8 +569,8 @@ describe("patch", () => {
     expect(out).toContain("export const term_infer = seeInfer(unseen_term_infer);");
     expect(out).toContain("export const term_check = seeCheck(unseen_term_check);");
     expect(out).not.toMatch(/^export function term_(infer|check)\(/m);
-    expect(out).toMatch(/^import \{ fs \} from "file:.*patch\.ts";/m);
-    expect(out).toMatch(/^import \{ path \} from "file:.*patch\.ts";/m);
+    expect(out).toMatch(/^import \{ fs \} from "file:.*seam\.ts";/m);
+    expect(out).toMatch(/^import \{ path \} from "file:.*seam\.ts";/m);
   });
 
   test("comp.ts: exports RUNTIME_MAIN and js_sat", () => {
@@ -579,8 +580,8 @@ describe("patch", () => {
   test("main.ts: exports how bend reads a book and words a failure, with the same fs and path", () => {
     const out = patch("main.ts", main);
     expect(out).toContain("export { book_read, book_err, Check_Fail };");
-    expect(out).toMatch(/^import \{ fs \} from "file:.*patch\.ts";/m);
-    expect(out).toMatch(/^import \{ path \} from "file:.*patch\.ts";/m);
+    expect(out).toMatch(/^import \{ fs \} from "file:.*seam\.ts";/m);
+    expect(out).toMatch(/^import \{ path \} from "file:.*seam\.ts";/m);
     expect(() =>
       patch("main.ts", main.replace("async function book_read(", "async function book_load_file(")),
     ).toThrow(/main\.ts: found 0 of a declaration of book_read/);
@@ -599,6 +600,25 @@ describe("patch", () => {
     expect(() => patch("comp.ts", comp.replace("function js_sat(", "function js_name("))).toThrow(
       /comp\.ts: found 0 of a declaration of js_sat/,
     );
+  });
+
+  test("main.ts must give book_read, book_err and Check_Fail as bend-lint calls them", () => {
+    const Check_Fail = function (this: { why: unknown }, why: unknown) {
+      this.why = why;
+    } as unknown as new (why: unknown) => { why: unknown };
+    const good = {
+      book_read: (_file: string, _base?: unknown) => Promise.reject(),
+      book_err: (_e: unknown) => "",
+      Check_Fail,
+    };
+    expect(() => guardMain(good as never)).not.toThrow();
+    expect(() =>
+      guardMain({ ...good, book_read: (_file: string) => Promise.reject() } as never),
+    ).toThrow(/main\.ts no longer has book_read\(file, base, seen = \.\.\.\)/);
+    expect(() => guardMain({ ...good, Check_Fail: function () {} } as never)).toThrow(
+      /main\.ts no longer has new Check_Fail\(why\)\.why/,
+    );
+    expect(() => guardMain({ ...good, Check_Fail: function () {} } as never)).toThrow(DriftError);
   });
 
   test("the loaded bend.ts and comp.ts are the patched ones", () => {
