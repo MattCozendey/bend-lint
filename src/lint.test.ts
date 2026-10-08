@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Book, LTerm, Span } from "bend2/bend.ts";
-import { BEND2, Bend, Comp, applyFixes, bendRule, findConfig, lint, mapper, render, walk } from "./lint.ts";
+import { BEND2, Bend, Comp, applyFixes, bendRule, findConfig, lint, mapper, readConfig, render, walk } from "./lint.ts";
 import type { Diag, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
 import { DriftError, bendDir, fetchBend, installedTag, latestTag, patch, relative, resolve, seeCheck, seeInfer } from "./patch.ts";
 
@@ -827,6 +827,61 @@ describe("options", () => {
     expect(await messages({}, file)).toEqual([["hint", '{"tabWidth":2,"breakLines":false}']]);
   });
 
+  for (const extension of ["js", "ts"]) {
+    test(`bend-lint.${extension} loads a named config export and relative imports`, async () => {
+      const top = path.join(DIR, "config_" + extension);
+      fs.mkdirSync(path.join(top, "nested"), { recursive: true });
+      fs.writeFileSync(path.join(top, "width.ts"), "export const width: number = 8;");
+      fs.writeFileSync(path.join(top, "bend-lint." + extension),
+        'import { width } from "./width.ts"; export const config = { rules: { "test/echo": { tabWidth: width, severity: "warning" } } };');
+      const file = path.join(top, "nested", "file.bend");
+      fs.writeFileSync(file, USERLAND);
+      expect(findConfig(file)).toEqual({ rules: { "test/echo": { tabWidth: 8, severity: "warning" } } });
+      expect(await messages(undefined, file)).toEqual([["warning", '{"tabWidth":8,"breakLines":false}']]);
+      expect(await messages({}, file)).toEqual([["hint", '{"tabWidth":2,"breakLines":false}']]);
+    });
+  }
+
+  test("nearest config wins; JSON precedes JS, then TS in the same directory", () => {
+    const configs = [
+      ["bend-lint.ts", 'export const config = { rules: { "test/echo": { tabWidth: 6 } } };', { tabWidth: 6 }],
+      ["bend-lint.js", 'export const config = { rules: { "test/echo": { tabWidth: 8 } } };', { tabWidth: 8 }],
+      ["bend-lint.json", '{"rules":{"test/echo":"off"}}', "off"],
+    ] as const;
+    for (let count = 1; count <= configs.length; count++) {
+      const top = path.join(DIR, "config_precedence_" + count);
+      const child = path.join(top, "child");
+      fs.mkdirSync(child, { recursive: true });
+      fs.writeFileSync(path.join(top, "bend-lint.json"), '{"rules":{"test/echo":{"tabWidth":4}}}');
+      for (const [name, text] of configs.slice(0, count)) {
+        fs.writeFileSync(path.join(child, name), text);
+      }
+      expect(findConfig(path.join(child, "file.bend"))).toEqual({ rules: { "test/echo": configs[count - 1][2] } });
+    }
+  });
+
+  test("module configs require a named object export and preserve load errors", () => {
+    for (const extension of ["js", "ts"]) {
+      for (const [name, text, error] of [
+        ["default", "export default {};", /must export a named `config` object/],
+        ["missing", "export const rules = {};", /must export a named `config` object/],
+        ["null", "export const config = null;", /`config` must be an object/],
+        ["array", "export const config = [];", /`config` must be an object/],
+        ["function", "export const config = () => ({});", /`config` must be an object/],
+        ["throws", 'throw new Error("config exploded");', /config exploded/],
+      ] as const) {
+        const file = fixture(`config_${name}.${extension}`, text);
+        expect(() => readConfig(file)).toThrow(error);
+        expect(() => readConfig(file)).toThrow(file);
+      }
+    }
+  });
+
+  test("module configs use the same rule option validation as JSON", async () => {
+    const file = fixture("invalid_options.ts", 'export const config = { rules: { "test/echo": { tabWidth: "4" } } };');
+    await expect(messages(readConfig(file))).rejects.toThrow(/tabWidth must be a number/);
+  });
+
   test("a Bend rule reads its options with defaults", async () => {
     const rule = await bendRule(fixture("options_rule.bend", OPTIONS_BEND));
     const said = async (config: object) => (await lint(userland, [rule], { config })).diags.map((d) => d.message);
@@ -1102,11 +1157,17 @@ describe("cli", () => {
     expect(run(input, "--bend", DIR)).toMatchObject({ status: 2, stderr: expect.stringContaining("no bend2 at") });
   });
 
-  test("--config gives the config", () => {
+  test("--config selects JSON, JS or TS explicitly", () => {
     const echoes = module("echo.js", `[{ id: "test/echo", options: { tabWidth: 2 }, run: (cx) => [cx.diag({ message: "w" + cx.options.tabWidth })] }]`);
-    const config = fixture("cli_config.json", JSON.stringify({ rules: { "test/echo": { tabWidth: 6, severity: "hint" } } }));
-    const out = run(input, "--rules", echoes, "--config", config, "--json");
-    expect(JSON.parse(out.stdout).findings.map((f: { severity: string; message: string }) => [f.severity, f.message])).toEqual([["hint", "w6"]]);
+    const settings = JSON.stringify({ rules: { "test/echo": { tabWidth: 6, severity: "hint" } } });
+    for (const extension of ["json", "js", "ts"]) {
+      const config = fixture("cli_config." + extension, extension === "json" ? settings : "export const config = " + settings + ";");
+      const out = run(input, "--rules", echoes, "--config", config, "--json");
+      expect(out.status).toBe(0);
+      expect(JSON.parse(out.stdout).findings.map((f: { severity: string; message: string }) => [f.severity, f.message])).toEqual([["hint", "w6"]]);
+    }
+    const invalid = fixture("cli_default_config.ts", "export default {};");
+    expect(run(input, "--config", invalid)).toMatchObject({ status: 2, stderr: expect.stringContaining("must export a named `config` object") });
   });
 
   test("--fix writes only the linted file, and prints findings when fixes clash", () => {

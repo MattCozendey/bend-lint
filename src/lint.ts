@@ -88,7 +88,7 @@ export type RuleContext = {
 export type OptionValue = number | boolean | string;
 export type Options = Record<string, OptionValue>;
 
-// bend-lint.json: per rule id, "off", or a severity and option values.
+// Config: per rule id, "off", or a severity and option values.
 export type Config = { rules?: Record<string, "off" | ({ severity?: Severity } & Options)> };
 
 export type LintOptions = { signal?: AbortSignal; config?: Config };
@@ -143,7 +143,7 @@ type Checked = { book: Book; sources: Source[]; span: Mapper; facts?: Map<LTerm,
 
 const RULE_ID = /^[^/\s]+\/[^/\s]+$/;
 const SCOPES = ["file", "program"];
-const CONFIG = "bend-lint.json";
+const CONFIG_FILES = ["bend-lint.json", "bend-lint.js", "bend-lint.ts"];
 const LINE = /[^\n]*\n|[^\n]+$/g;
 const STACK = "the machine stack overflowed (a deep recursion, or a literal too large to expand)";
 const SAMPLE = "type N is Data:\n  Z{}\n\ndef id(x: N) -> N:\n  x\n";
@@ -195,7 +195,7 @@ const OPTIONS = {
   help: { type: "boolean", short: "h" },
 } as const;
 
-const USAGE = "usage: bun tools/bend-lint/src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <bend-lint.json>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--bend <dir>]";
+const USAGE = "usage: bun src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--bend <dir>]";
 
 // The fix levels each flag applies; the widest flag given wins.
 const FIXES: ReadonlyArray<readonly ["fix" | "fix-suggested" | "fix-dangerously", Applicability[]]> = [
@@ -382,17 +382,28 @@ function matches(f: FactFilter, kind: string, def: Name, name: Name): boolean {
 
 export function readConfig(file: string): Config {
   try {
+    if ([".js", ".ts"].includes(path.extname(file))) {
+      const module = import.meta.require(url.pathToFileURL(path.resolve(file)).href);
+      if (!Object.hasOwn(module, "config")) {
+        throw new Error("must export a named `config` object");
+      }
+      if (typeof module.config !== "object" || module.config === null || Array.isArray(module.config)) {
+        throw new Error("`config` must be an object");
+      }
+      return module.config;
+    }
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (e) {
     throw new Error(file + ": " + (e instanceof Error ? e.message : String(e)));
   }
 }
 
-// The bend-lint.json in the file's folder, or the nearest one above it.
+// The nearest config; JSON, JS, then TS within each directory.
 export function findConfig(file: string): Config {
   for (let dir = path.dirname(path.resolve(file)); ; dir = path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, CONFIG))) {
-      return readConfig(path.join(dir, CONFIG));
+    const config = CONFIG_FILES.map((name) => path.join(dir, name)).find((candidate) => fs.existsSync(candidate));
+    if (config !== undefined) {
+      return readConfig(config);
     }
     if (path.dirname(dir) === dir) {
       return {};
@@ -404,7 +415,7 @@ export function findConfig(file: string): Config {
 // defaults, with the given values, which must be known and of their type).
 function settings(rule: LintRule, config: Config): { off: boolean; severity?: Severity; options: Options } {
   const given = config.rules?.[rule.id];
-  const where = CONFIG + ": " + rule.id;
+  const where = "bend-lint config: " + rule.id;
   if (given === undefined || given === "off") {
     return { off: given === "off", options: { ...rule.options } };
   }

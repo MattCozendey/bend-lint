@@ -243,6 +243,15 @@ Pass `{ config, signal }` as the third argument to `lint` to supply
 configuration or cancellation. Otherwise, configuration is discovered
 from the linted file's directory. `position(span)` returns an LSP range.
 
+`findConfig(file)` searches that directory and its ancestors for
+`bend-lint.json`, `bend-lint.js` or `bend-lint.ts`. The nearest directory
+wins; within a directory, JSON precedes JS, then TS. Configs are not merged.
+`readConfig(file)` loads an explicit path. Both helpers remain synchronous.
+JS and TS configs require a named `config` object and use Bun's module
+loader, including its module cache. They can import relative dependencies;
+default exports and config functions are not accepted. All formats use the
+same rule settings and option validation.
+
 ### JSON output
 
 `--json` writes a JSON object to stdout. Status and failure messages may

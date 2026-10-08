@@ -59,8 +59,12 @@ imports. A final newline does not add a line; an empty file has zero lines.
 
 ## Configuration
 
-Put `bend-lint.json` in the linted file's directory or an ancestor, or select
-one with `--config /path/to/bend-lint.json`:
+Put `bend-lint.json`, `bend-lint.js` or `bend-lint.ts` in the linted file's
+directory or an ancestor, or select a file with `--config /path/to/config.ts`.
+The nearest directory wins; within it, JSON takes precedence over JS, then
+TS. Only one config is loaded.
+
+For JSON:
 
 ```json
 {
@@ -70,6 +74,19 @@ one with `--config /path/to/bend-lint.json`:
   }
 }
 ```
+
+For JS or TS, export a named `config` object with the same format:
+
+```ts
+export const config = {
+  rules: {
+    "format/layout": { tabWidth: 2, wrapAtWidth: 100 },
+    "style/file-length": { maxLines: 400, severity: "warning" },
+  },
+};
+```
+
+Default exports are not accepted. Module configs can import other files.
 
 Configuration adjusts rules loaded with `--rules`; it does not load them.
 Set a rule to `"off"` to disable it. Severities are `error`, `warning`,
