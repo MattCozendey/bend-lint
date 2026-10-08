@@ -82,8 +82,8 @@ down the options, what it reports and what it fixes.
 Some behavior is load-bearing, so if you change it, change the tests and docs
 with it:
 
-- a file that fails Bend's checker gets no rules
-- the first `error` finding ends the run
+- a file that fails Bend's checker gets only the rules that ask for no facts
+- no finding ends the run; a rule that throws is a `bend-lint/rule-crash` finding
 - facts are only collected when a rule asks for them
 - the CLI writes fixes to the root file only
 
@@ -113,12 +113,12 @@ Make them idempotent.
 
 A module exports `rules: LintRule[]`. A rule has an `id` (`namespace/name`, it
 becomes the finding's `code`) and `run(cx, signal)`, which returns diagnostics
-and can be async. It can also have `facts` and `options`. If `run` throws or the
-signal aborts, the error goes to whoever called the library.
+and can be async. It can also have `facts` and `options`. If `run` throws, or
+returns a bad fix, the run gets a `bend-lint/rule-crash` error and goes on. If
+the signal aborts, the abort goes to whoever called the library.
 
 Build findings with `cx.diag()`. Severity defaults to `warning`. Rules run in
-order and see earlier findings in `cx.prior`. The first `error` ends the run:
-the rest of that rule's findings and every later rule are dropped.
+order and see earlier findings in `cx.prior`.
 
 What's on `cx`:
 

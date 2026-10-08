@@ -1074,12 +1074,18 @@ describe("lint", () => {
     }
   });
 
-  test("a failed check is one bend/check error, and no rule runs", async () => {
+  test("a failed check is one bend/check error; only rules without facts run", async () => {
     const parse = await lint(fixture("parse.bend", "type N is Data:\n  Z{}\ndef broken(\n"), [
       neverRun,
+      commaSpace,
     ]);
     expect(parse.ok).toBe(false);
     expect(parse.diags.map((d) => d.code)).toEqual(["bend/check"]);
+    const commas = await lint(fixture("comma.bend", "def broken(a,b) -> N:\n  a\n"), [
+      neverRun,
+      commaSpace,
+    ]);
+    expect(commas.diags.map((d) => d.code)).toEqual(["bend/check", commaSpace.id]);
     expect(render(parse.diags[0])).toStartWith("Error [bend/check]:");
     expect(
       (
@@ -1107,7 +1113,7 @@ describe("lint", () => {
     expect((await lint(path.join(DIR, "missing.bend"), [neverRun])).ok).toBe(false);
   });
 
-  test("an error finding stops later rules; the code is always the rule's id", async () => {
+  test("an error finding does not stop later rules; the code is always the rule's id", async () => {
     const stamp: LintRule = {
       id: "test/stamp",
       run: (cx) => [{ ...cx.diag({ message: "stamped", severity: "hint" }), code: "other/code" }],
@@ -1117,12 +1123,12 @@ describe("lint", () => {
       id: "test/error",
       run: (cx) => [cx.diag({ message: "failed", severity: "error" })],
     };
-    const res = await lint(userland, [stop, neverRun]);
+    const res = await lint(userland, [stop, stamp]);
     expect(res.ok).toBe(false);
-    expect(res.diags.map((d) => d.code)).toEqual([stop.id]);
+    expect(res.diags.map((d) => d.code)).toEqual([stop.id, stamp.id]);
   });
 
-  test("a bad rule, a rule that throws, and an abort reach the caller", async () => {
+  test("a bad rule and an abort reach the caller; a rule that fails is a finding", async () => {
     await expect(lint(userland, [{ id: "bad", run: () => [] }])).rejects.toThrow(/invalid rule/);
     await expect(lint(userland, [undefined as unknown as LintRule])).rejects.toThrow(
       /invalid rule at 0/,
@@ -1148,19 +1154,22 @@ describe("lint", () => {
         ];
       },
     };
-    await expect(lint(userland, [broken])).rejects.toThrow(
-      /fix "two" has an edit out of bounds, or two that clash/,
-    );
-    await expect(
-      lint(userland, [
-        {
-          id: "test/boom",
-          run: async () => {
-            throw new Error("rule failed");
-          },
-        },
-      ]),
-    ).rejects.toThrow("rule failed");
+    const boom: LintRule = {
+      id: "test/boom",
+      run: async () => {
+        throw new Error("rule failed");
+      },
+    };
+    const res = await lint(userland, [broken, boom, commaSpace]);
+    expect(res.ok).toBe(false);
+    expect(res.diags.filter((d) => d.code === "bend-lint/rule-crash")).toMatchObject([
+      {
+        severity: "error",
+        message: 'test/broken-fix: fix "two" has an edit out of bounds, or two that clash',
+      },
+      { severity: "error", message: "test/boom: rule failed" },
+    ]);
+    expect(res.diags.some((d) => d.code === commaSpace.id)).toBe(true);
     const controller = new AbortController();
     const abort: LintRule = {
       id: "test/abort",
@@ -1251,7 +1260,10 @@ describe("lint", () => {
           }),
         ],
       };
-      await expect(lint(userland, [rule])).rejects.toThrow("out of bounds");
+      expect((await lint(userland, [rule])).diags[0]).toMatchObject({
+        code: "bend-lint/rule-crash",
+        message: expect.stringContaining("out of bounds"),
+      });
     }
     expect(fs.readFileSync(userland, "utf8")).toBe(USERLAND);
   });
@@ -1733,9 +1745,10 @@ describe("rules written in Bend", () => {
       );
       const rule = await bendRule(fixture("bad_offset_rule.bend", code));
       const file = fixture("bad_offset_input.bend", source);
-      await expect(lint(file, [rule])).rejects.toThrow(
-        'fix "Insert space" has an edit out of bounds',
-      );
+      expect((await lint(file, [rule])).diags[0]).toMatchObject({
+        code: "bend-lint/rule-crash",
+        message: expect.stringContaining('fix "Insert space" has an edit out of bounds'),
+      });
       expect(fs.readFileSync(file, "utf8")).toBe(source);
       const diagnosticOnly = code.replace(
         '[Lint.Fix{"Insert space", Lint.Safe{}, [Lint.Edit{span, " "}]}]',

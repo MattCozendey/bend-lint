@@ -214,6 +214,7 @@ type Channel = {
 // =========
 
 const RULE_ID = /^[^/\s]+\/[^/\s]+$/;
+const CRASH = "bend-lint/rule-crash";
 const SCOPES = ["file", "program"];
 const CONFIG_FILES = ["bend-lint.json", "bend-lint.js", "bend-lint.ts"];
 const LINE = /[^\n]*\n|[^\n]+$/g;
@@ -394,9 +395,9 @@ const settings = (
 };
 
 // The given rules run in order, then the config's `load` files' that are
-// not given already; the config may turn one off, set its severity, and give its
-// options. A finding with severity error stops the run. A rule
-// that throws, and an abort, reach the caller.
+// not given already; the config may turn one off, set its severity, and
+// give its options. A rule that throws is a bend-lint/rule-crash finding,
+// and the run goes on; an abort reaches the caller.
 export async function lint(
   file: string,
   given: LintRule[],
@@ -444,13 +445,20 @@ export async function lint(
   );
   const { sources, facts, failure } = checked;
   const ops = operations(loaded, checked);
-  if (failure !== undefined) {
-    return { ok: false, diags: [failure], sources, unstable: ops.unstable };
+  const root = sources.find((s) => s.root);
+  if (root === undefined) {
+    return {
+      ok: false,
+      diags: failure === undefined ? [] : [failure],
+      sources,
+      unstable: ops.unstable,
+    };
   }
-  const root = sources.find((s) => s.root)!;
-  let diags: Diag[] = [];
-  for (const { rule, severity, options, want } of plans) {
-    signal.throwIfAborted();
+  // What one rule finds; a rule that throws or reports a bad fix fails.
+  const run = async (
+    { rule, severity, options, want }: (typeof plans)[number],
+    prior: Diag[],
+  ): Promise<Diag[]> => {
     const mine = want === undefined ? undefined : select(loaded, checked, want, wide);
     const asked = new Set(mine);
     const out = await rule.run(
@@ -464,7 +472,7 @@ export async function lint(
           const fact = ops.fact(node);
           return fact !== undefined && asked.has(fact) ? fact : undefined;
         },
-        prior: diags,
+        prior,
         diag: (d) => ({
           code: rule.id,
           severity: d.severity ?? "warning",
@@ -477,9 +485,8 @@ export async function lint(
       },
       signal,
     );
-    signal.throwIfAborted();
     if (!Array.isArray(out)) {
-      throw new TypeError("rule " + rule.id + " must return an array of diagnostics");
+      throw new TypeError("it must return an array of diagnostics");
     }
     const settled = out.map((d): Diag => ({
       ...d,
@@ -497,20 +504,38 @@ export async function lint(
       );
     if (broken !== undefined) {
       throw new TypeError(
-        "rule " +
-          rule.id +
-          ': fix "' +
-          broken.title +
-          '" has an edit out of bounds, or two that clash',
+        'fix "' + broken.title + '" has an edit out of bounds, or two that clash',
       );
     }
-    const stop = settled.findIndex((d) => d.severity === "error");
-    diags = [...diags, ...(stop < 0 ? settled : settled.slice(0, stop + 1))];
-    if (stop >= 0) {
-      return { ok: false, diags, sources, facts, unstable: ops.unstable };
-    }
+    return settled;
+  };
+  // Without the checker's facts, only the rules that need none run.
+  const runnable = plans.filter((p) => failure === undefined || p.want === undefined);
+  let diags: Diag[] = failure === undefined ? [] : [failure];
+  for (const plan of runnable) {
+    signal.throwIfAborted();
+    const found = await run(plan, diags).catch((e: unknown): Diag[] => {
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      return [
+        {
+          code: CRASH,
+          severity: "error",
+          message: plan.rule.id + ": " + (e instanceof Error ? e.message : String(e)),
+          fixes: [],
+        },
+      ];
+    });
+    diags = [...diags, ...found];
   }
-  return { ok: true, diags, sources, facts, unstable: ops.unstable };
+  return {
+    ok: !diags.some((d) => d.severity === "error"),
+    diags,
+    sources,
+    facts,
+    unstable: ops.unstable,
+  };
 }
 
 function validRange(beg: number, end: number, length: number): boolean {

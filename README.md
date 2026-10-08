@@ -114,15 +114,16 @@ export const config = {
 
 `load` lists rule files, relative to the config file. They run after the ones
 from `--rules`. `rules` sets their options and severity. `"off"` turns a rule
-off. Severities are `error`, `warning`, `information` and `hint`, and an
-`error` stops the rules after it.
+off. Severities are `error`, `warning`, `information` and `hint`.
 
 Each rule declares the options it accepts. Unknown keys and values that don't
 match are rejected.
 
 ## What you get back
 
-If Bend's checker rejects the file you get a `bend/check` error and no rules
+If Bend's checker rejects the file you get a `bend/check` error, and only the
+rules that read just the text run (`format/layout` and `style/file-length` do).
+A rule that crashes is a `bend-lint/rule-crash` error, and the other rules still
 run.
 
 ## Writing your own rule

@@ -76,6 +76,16 @@ describe("format/layout", () => {
     await expect(run({ breakLines: true })).rejects.toThrow("no option breakLines");
   });
 
+  test("formats a file with a type error, but not one that does not parse", async () => {
+    const run = async (text: string) =>
+      (await lint(fixture("import Base\n\n\ndef main() -> U32:\n    " + text + "\n"), rules)).diags;
+    const typed = await run('"x"');
+    expect(typed.map((d) => d.code)).toEqual(["bend/check", "format/layout"]);
+    expect(typed[1].fixes.length).toBe(1);
+    const parsed = await run("(1");
+    expect(parsed.map((d) => [d.code, d.fixes.length])).not.toContainEqual(["format/layout", 1]);
+  });
+
   test("one sweep formats spacing, indentation, gaps, CRLF and final newline", async () => {
     const output = await fixed(
       "import   Base\r\n\r\n\r\ntype N is Data:\r\n    Z{}  \r\n    S{p:N}\r\ndef id(x:N)->N:\r\n\tx  \r\ndef main()->N: id(S{Z{}})",
