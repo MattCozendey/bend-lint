@@ -6,14 +6,13 @@ import { fileURLToPath } from "node:url";
 
 import type { Book, LTerm, Span } from "bend2/bend.ts";
 import { BEND2, Bend, Comp, applyFixes, bendRule, findConfig, lint, mapper, render, walk } from "./lint.ts";
-import type { Diag, Edit, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
+import type { Diag, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
 import { DriftError, bendDir, fetchBend, installedTag, latestTag, patch, relative, resolve, seeCheck, seeInfer } from "./patch.ts";
 
 // Types
 // =====
 
 type Loose = Fact & { tm: { x?: { $: string; k?: string; i?: number } } };
-type Token = { text: string; beg: number; end: number };
 type Seen = { kind: string; def: string; name: string; path: string };
 
 // Constants
@@ -80,30 +79,6 @@ def required_constructor() -> N:
 
 def main() -> N:
   direct(alias(generic(~N, required_lambda(required_constructor()))))
-`;
-
-const FORMAT = String.raw`import Base
-
-type Sample is Data:
-  SampleValue{}
-
-def choose(x: Sample,y: Sample) -> Sample:
-  x
-
-def text() -> String:
-  "a,b=c # still text; escaped quote: \"x,y=z\""
-
-def marker() -> Char:
-  '='
-
-def proof(-x: Sample) -> {x==x : Sample}:
-  {==}
-
-def main() -> Sample:
-  a : Sample=SampleValue{} # preserve,this=comment
-  b : Sample  =SampleValue{}
-  f : Sample -> Sample=y=>y
-  f(choose(a,b))
 `;
 
 // Tests in the bend checkout (bend2/../tests) whose first expected line
@@ -356,17 +331,6 @@ const redundantAnnotation: LintRule = {
   }),
 };
 
-// One space after a comma and on each side of an assignment, in the file
-// linted. Quoted literals, comments and compound operators stay whole.
-const spacing: LintRule = {
-  id: "format/spacing",
-  run: (cx) => spacingEdits(cx.root.file).map((edit) => cx.diag({
-    message: "Use one space after a comma and on each side of an assignment.",
-    severity: "hint", spn: edit.spn,
-    fixes: [{ title: "Normalize spacing", applicability: "safe", edits: [edit] }],
-  })),
-};
-
 // A Bend rule that reports its options, read with defaults.
 const OPTIONS_BEND = String.raw`import Base
 import ../../lint.bend as Lint
@@ -447,25 +411,6 @@ function bodies(book: Book): Record<string, string> {
 
 function root(sources: Source[]): Source {
   return sources.find((s) => s.root)!;
-}
-
-function tokens(source: string): Token[] {
-  const pattern = /#[^\r\n]*|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|==|=>|!=|<=|>=|[^\s]/g;
-  return [...source.matchAll(pattern)].map((m) => ({ text: m[0], beg: m.index!, end: m.index! + m[0].length }));
-}
-
-function spacingEdits(file: SourceFile): Edit[] {
-  const stream = tokens(file.str);
-  const gap = (left?: Token, right?: Token): Edit[] => {
-    const between = left === undefined || right === undefined ? "#" : file.str.slice(left.end, right.beg);
-    return right?.text.startsWith("#") || !/^[ \t]*$/.test(between) || between === " "
-      ? [] : [{ spn: { file, beg: left!.end, end: right!.beg }, text: " " }];
-  };
-  return stream.flatMap((token, i) => [
-    ...(token.text === "=" ? gap(stream[i - 1], token) : []),
-    ...((token.text === "=" || token.text === ",") && !["}", ")", "]"].includes(stream[i + 1]?.text ?? "}")
-      ? gap(token, stream[i + 1]) : []),
-  ]);
 }
 
 // The facts a rule with this filter gets: kind, def, name and file.
@@ -714,6 +659,18 @@ describe("lint", () => {
     expect(() => walk({ $: "Nope" } as unknown as LTerm).next()).toThrow(DriftError);
   });
 
+  test("walk preserves constructor and type argument order across traversals", () => {
+    const children: LTerm[] = [{ $: "Ref", k: "first" }, { $: "Ref", k: "second" }];
+    for (const $ of ["Ctr", "ADT"] as const) {
+      const term = { $, k: "Pair", x: children } as LTerm;
+      const original = [...children];
+      expect([...walk(term)]).toEqual([term, ...original]);
+      expect(children).toEqual(original);
+      expect([...walk(term)]).toEqual([term, ...original]);
+      expect(children).toEqual(original);
+    }
+  });
+
   test("a failed check is one bend/check error, and no rule runs", async () => {
     const parse = await lint(fixture("parse.bend", "type N is Data:\n  Z{}\ndef broken(\n"), [neverRun]);
     expect(parse.ok).toBe(false);
@@ -769,6 +726,17 @@ describe("lint", () => {
     const res = await lint(main, [look]);
     expect(res.diags.map(render)).toEqual([]);
     expect(res.sources.length).toBe(2);
+  });
+
+  test("fix offsets must be integers within the source file", async () => {
+    for (const [beg, end] of [[NaN, 0], [0, NaN], [Infinity, Infinity], [0.5, 1], [0, 0.5], [-1, 0], [2, 1], [0, 1000000]]) {
+      const rule: LintRule = { id: "test/bad-offset", run: (cx) => [cx.diag({
+        message: "bad offset", fixes: [{ title: "bad offset", applicability: "safe",
+          edits: [{ spn: { file: cx.root.file, beg, end }, text: "X" }] }],
+      })] };
+      await expect(lint(userland, [rule])).rejects.toThrow("out of bounds");
+    }
+    expect(fs.readFileSync(userland, "utf8")).toBe(USERLAND);
   });
 
   test("Base is reused, its facts are left out, and it stays out of files that do not import it", async () => {
@@ -957,33 +925,6 @@ describe("rules", () => {
     expect(fs.readFileSync(file, "utf8")).toBe(ERASURE);
   });
 
-  test("format: strings, characters, comments, operators and CRLF stay whole", () => {
-    const source = String.raw`a= "x,y=z#text\"still,string" # comment,a=b` + "\r\n"
-      + String.raw`b= '='` + "\r\n" + "c= ','\r\nd= '#'\r\n" + String.raw`e= '\''` + "\r\n"
-      + "f(a,\r\n  b)\r\nx==y\r\nx=>y\r\nx!=y\r\nx<=y\r\nx>=y\r\nf(a,)\r\n";
-    const file: SourceFile = { str: source, ns: "", al: {}, path: "<lexical>" };
-    const diags = spacingEdits(file).map((edit): Diag =>
-      ({ code: spacing.id, severity: "hint", message: "", fixes: [{ title: "", applicability: "safe", edits: [edit] }] }));
-    const formatted = applyFixes(file, diags).text;
-    expect(formatted).toBe(source.replace(/^([abcde])=/gm, "$1 ="));
-    expect(tokens(formatted).map((t) => t.text)).toEqual(tokens(source).map((t) => t.text));
-    expect(applyFixes(file, [diags[0], diags[0]])).toEqual({ text: applyFixes(file, [diags[0]]).text, skipped: 0 });
-  });
-
-  test("format: one rule gives editor findings and formatter edits", async () => {
-    const res = await lint(fixture("format.bend", FORMAT), [spacing]);
-    expect(res.facts).toBeUndefined();
-    expect(res.diags.length).toBe(8);
-    const formatted = applyFixes(root(res.sources).file, res.diags).text;
-    for (const line of ["def choose(x: Sample, y: Sample)", "a : Sample = SampleValue{} # preserve,this=comment",
-      "b : Sample = SampleValue{}", "f : Sample -> Sample = y=>y", "f(choose(a, b))"]) {
-      expect(formatted).toContain(line);
-    }
-    expect(tokens(formatted).map((t) => t.text)).toEqual(tokens(FORMAT).map((t) => t.text));
-    const after = await lint(fixture("format_fixed.bend", formatted), [spacing]);
-    expect(after.diags).toEqual([]);
-    expect(bodies(after.book)).toEqual(bodies(res.book));
-  });
 });
 
 describe("drift: the copy of book_read agrees with bend's own tests", () => {
@@ -1014,6 +955,22 @@ describe("rules written in Bend", () => {
     const res = await lint(userland, [rule, rule]);
     expect(res.diags.map((d) => d.message)).toEqual(Array(2).fill("x: Alias = N (same as its binder), text x, demanded once, uses x once"));
     expect(res.diags.every((d) => d.spn?.file === root(res.sources).file)).toBe(true);
+  });
+
+  test("Bend fixes reject out-of-bounds code-point offsets instead of clamping them", async () => {
+    for (const source of [USERLAND, "# 😀\n" + USERLAND]) {
+      const end = [...source].length + 1;
+      const code = COMMA_BEND.replace("Lint.Span{path, at, at}", "Lint.Span{path, at, " + end + "}");
+      const rule = await bendRule(fixture("bad_offset_rule.bend", code));
+      const file = fixture("bad_offset_input.bend", source);
+      await expect(lint(file, [rule])).rejects.toThrow('fix "Insert space" has an edit out of bounds');
+      expect(fs.readFileSync(file, "utf8")).toBe(source);
+      const diagnosticOnly = code.replace('[Lint.Fix{"Insert space", Lint.Safe{}, [Lint.Edit{span, " "}]}]', "[]");
+      const diagnosticRule = await bendRule(fixture("clamped_diagnostic_rule.bend", diagnosticOnly));
+      const result = await lint(file, [diagnosticRule]);
+      expect(result.ok).toBe(true);
+      expect(result.diags[0].spn!.end).toBe(source.length);
+    }
   });
 });
 

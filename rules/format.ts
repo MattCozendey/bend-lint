@@ -14,6 +14,7 @@ type Node = Token | { open: Token; close: Token; children: Node[] };
 type Doc = string | { kind: "line"; flat: string; hard?: boolean; offset?: number }
   | { kind: "group" | "nest"; doc: Doc; amount?: number } | Doc[];
 type Frame = { doc: Doc; indent: number; flat: boolean };
+const DELIMITERS = new Map([["(", ")"], ["[", "]"], ["{", "}"], ["<", ">"]]);
 
 export function formatOptions(options: Options): FormatOptions {
   const { tabWidth = 2, wrapAtWidth = 100 } = options;
@@ -71,7 +72,7 @@ function tree(ts: Token[]): Node[] {
   const stack: Array<{ children: Node[]; group?: Extract<Node, { open: Token }> }> = [{ children: root }];
   for (let i = 0; i < ts.length; i++) {
     const t = ts[i], prev = ts[i - 1];
-    const close = { "(": ")", "[": "]", "{": "}", "<": ">" }[t.text];
+    const close = DELIMITERS.get(t.text);
     // Bend distinguishes type arguments from comparisons by a glued '<'.
     const angle = t.text === "<" && prev?.end === t.beg && /^[\w.]+$/.test(prev.text);
     const frame = stack[stack.length - 1];
@@ -97,13 +98,17 @@ const group = (doc: Doc): Doc => ({ kind: "group", doc });
 const OPERATORS = new Set(["+", "-", "*", "/", "%", "^", "++", "&&", "||", "<&>",
   ".&.", ".|.", ".^.", "<<", ">>", "<>", "<", ">", "<=", ">=", "==", "!=", "&", "|"]);
 
+function gluedPrefix(a: Token, b: Node | undefined): boolean {
+  return ["+", "-", "%", "&"].includes(a.text) && b !== undefined && a.end === first(b).beg;
+}
+
 function separator(a: Node, b: Node): string {
   const x = last(a), y = first(b), l = x.text, r = y.text;
   if (y.kind === "comment") return "  ";
   if (r === "," || r === ";" || r === ":" || r === "?" || r === "!" || r === ".") return "";
   if (l === "," || l === ";" || l === ":") return " ";
   if (["~", "@", "?", "!", "\\"].includes(l)) return "";
-  if (["+", "-", "%", "&"].includes(l) && x.end === y.beg) return "";
+  if (gluedPrefix(x, b)) return "";
   if (/n\+$/.test(l)) return "";
   // A constructor brace must be glued to its name; a separated brace can
   // instead be the next (annotated) argument in a comma-optional call.
@@ -139,7 +144,7 @@ function sequence(nodes: Node[], source: string, opts: FormatOptions, base: numb
       continue;
     }
     if (prev) {
-      const prefix = ["+", "-", "%", "&"].includes(t.text) && t.end === first(nodes[i + 1] ?? n).beg;
+      const prefix = gluedPrefix(t, nodes[i + 1]);
       if (!raw && !("open" in n) && OPERATORS.has(t.text) && !prefix) {
         if (!continuation) { continuation = []; out.push(nest(continuation, opts.tabWidth)); }
         continuation.push(soft());
@@ -240,8 +245,7 @@ export function format(source: string, opts: FormatOptions): string {
     const n = nodes[i];
     if (!("open" in n) && n.kind === "newline") {
       const next = nodes[i + 1], following = nodes[i + 2];
-      const prefix = next && ["+", "-", "%", "&"].includes(first(next).text)
-        && following && last(next).end === first(following).beg;
+      const prefix = next && gluedPrefix(first(next), following);
       const previous = records[records.length - 1].at(-1);
       if (next && previous && last(previous).kind !== "comment" && first(next).kind !== "comment"
         && (!prefix && !("open" in next) && OPERATORS.has(next.text)

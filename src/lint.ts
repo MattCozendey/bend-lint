@@ -195,9 +195,7 @@ const OPTIONS = {
   help: { type: "boolean", short: "h" },
 } as const;
 
-const USAGE = [
-  "usage: bun tools/bend-lint/src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <bend-lint.json>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--bend <dir>]",
-].join("\n");
+const USAGE = "usage: bun tools/bend-lint/src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <bend-lint.json>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--bend <dir>]";
 
 // The fix levels each flag applies; the widest flag given wins.
 const FIXES: ReadonlyArray<readonly ["fix" | "fix-suggested" | "fix-dangerously", Applicability[]]> = [
@@ -219,7 +217,10 @@ export function* walk(tm: LTerm): Generator<LTerm> {
       throw new DriftError("unknown term kind " + t.$ + "; update CHILDREN in tools/bend-lint/src/lint.ts");
     }
     yield t;
-    stack.push(...children(t).reverse());
+    const next = children(t);
+    for (let i = next.length - 1; i >= 0; i--) {
+      stack.push(next[i]);
+    }
   }
 }
 
@@ -455,8 +456,11 @@ export async function lint(file: string, rules: LintRule[],
       // A filter that matches all, in the scope of every kept fact, gets the map as is.
       facts: want === undefined || facts === undefined ? undefined
         : [want.kinds, want.defs, want.names].every((xs) => !xs?.length) && (want.scope === "program" || !program) ? facts
-          : new Map([...facts].filter(([tm, f]) => (want.scope === "program" || f.spn?.file === root.file)
-            && matches(want, shape(tm).kind, f.def, shape(tm).name))),
+          : new Map([...facts].filter(([tm, f]) => {
+            if (want.scope !== "program" && f.spn?.file !== root.file) return false;
+            const { kind, name } = shape(tm);
+            return matches(want, kind, f.def, name);
+          })),
       prior: diags,
       binder: (fact, v) => v.$ === "Var" ? Bend.pmap_get(fact.ctx, v.i) : null,
       show: (fact, ty) => Bend.term_show(Bend.term_lower(ty, fact.dep)),
@@ -478,7 +482,7 @@ export async function lint(file: string, rules: LintRule[],
       fixes: d.fixes.map((f) => ({ ...f, edits: f.edits.map((e) => ({ ...e, spn: span(e.spn) })) })),
     }));
     const broken = settled.flatMap((d) => d.fixes).find((f) => f.edits.some(({ spn }, i) =>
-      spn.beg < 0 || spn.beg > spn.end || spn.end > spn.file.str.length || f.edits.some((o, j) => j !== i && clash(f.edits[i], o))));
+      !validRange(spn.beg, spn.end, spn.file.str.length) || f.edits.some((o, j) => j !== i && clash(f.edits[i], o))));
     if (broken !== undefined) {
       throw new TypeError("rule " + rule.id + ": fix \"" + broken.title + "\" has an edit out of bounds, or two that clash");
     }
@@ -489,6 +493,10 @@ export async function lint(file: string, rules: LintRule[],
     }
   }
   return { ok: true, diags, sources, book, facts };
+}
+
+function validRange(beg: number, end: number, length: number): boolean {
+  return Number.isInteger(beg) && Number.isInteger(end) && beg >= 0 && beg <= end && end <= length;
 }
 
 // Whether two edits to one file cannot both apply: their ranges overlap,
@@ -688,7 +696,13 @@ export async function bendRule(file: string): Promise<LintRule> {
       }
       return found[0].map((d) => cx.diag({
         message: d.message, severity: d.severity, spn: d.span && span(d.span),
-        fixes: d.fixes.map((f) => ({ ...f, edits: f.edits.map((e) => ({ spn: span(e.span), text: e.text })) })),
+        fixes: d.fixes.map((f) => ({ ...f, edits: f.edits.map((e) => {
+          const spn = span(e.span);
+          if (!validRange(e.span.beg, e.span.end, table(spn.file.str).units.length - 1)) {
+            throw new TypeError("rule " + id + ": fix \"" + f.title + "\" has an edit out of bounds");
+          }
+          return { spn, text: e.text };
+        }) })),
       }));
     },
   };

@@ -25,10 +25,19 @@ async function fixed(text: string, options = opts as { tabWidth: number; wrapAtW
   expect(format(output, options)).toBe(output);
   const again = await lint(fixture(output), rules, { config: { rules: { "format/layout": options } } });
   expect([again.ok, again.diags]).toEqual([true, []]);
+  const bodies = [result.book, again.book].map((book) => Object.fromEntries(book.order.flatMap((name) => {
+    const tld = book.tlds[name];
+    return tld.$ === "Def" && tld.e !== undefined && !tld.b ? [[name, Bend.term_show(tld.e)]] : [];
+  })));
+  expect(bodies[1]).toEqual(bodies[0]);
   return output;
 }
 
 describe("format/layout", () => {
+  test("ordinary names cannot open delimiter groups", () => {
+    const source = "import Base\ndef constructor() -> U32: 1\ndef toString() -> U32: 2\ndef valueOf() -> U32: 3\n";
+    expect(format(source, opts)).toBe("import Base\n\ndef constructor() -> U32:\n  1\n\ndef toString() -> U32:\n  2\n\ndef valueOf() -> U32:\n  3\n");
+  });
   test("validates its own defaults, union and unknown options", () => {
     expect(formatOptions({})).toEqual(opts);
     expect(formatOptions({ wrapAtWidth: "never" })).toEqual({ ...opts, wrapAtWidth: "never" });
