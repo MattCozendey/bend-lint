@@ -2,14 +2,22 @@
 
 A linter and formatter for Bend 2.
 
-It runs your file through Bend's type checker first. If that passes, it runs
-whatever rules you loaded. Rules are TypeScript or Bend files, and they can see
-the source text, the types, variable scope and how often each variable is used.
-A rule can also suggest a fix.
+```sh
+bun src/lint.ts main.bend --rules rules/format.ts --fix
+```
+
+## What it does
+
+1. It checks each file with Bend's own type checker.
+2. It runs the rules you load. A rule sees the source text and what the
+   checker found: types, scope, and how often each variable is used.
+3. It prints the findings. With a fix flag, it writes the fixes.
+
+No rule runs by default. Load rules with `--rules` or with the config.
 
 ## Setup
 
-Use Bun 1.4.2, pinned in `package.json`.
+Use Bun 1.4.2.
 
 ```sh
 git clone https://github.com/MattCozendey/bend-lint.git
@@ -17,81 +25,63 @@ cd bend-lint
 bun install
 ```
 
-## Running it
+## Run it
 
 ```sh
-bun src/lint.ts file.bend --rules rules/format.ts
-```
-
-Nothing runs by default. Pass `--rules`, more than once if you like, or list
-rule files in the config (see Config):
-
-```sh
-bun src/lint.ts file.bend --rules rules/format.ts --rules rules/file_length.bend
-```
-
-Add `--fix` to write the fixes back to the file.
-
-```
-bun src/lint.ts <file.bend> [--rules <file>]... [--config <file>]
+bun src/lint.ts <glob>... [--imports] [--rules <file>]... [--config <file>]
                 [--fix | --fix-suggested | --fix-dangerously]
                 [--json] [--show-suppressed] [--bend <dir>]
 ```
 
-Every fix is marked `safe`, `suggested` or `dangerous`:
+| You want        | Command                                                       |
+| --------------- | ------------------------------------------------------------- |
+| One file        | `bun src/lint.ts main.bend --rules rules/format.ts`           |
+| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/format.ts`     |
+| A whole program | `bun src/lint.ts main.bend --imports --rules rules/format.ts` |
 
-- `--fix` applies the safe ones. They shouldn't change what the program does.
-- `--fix-suggested` adds the suggested ones, which might.
-- `--fix-dangerously` applies everything. Expect breakage sometimes.
+### Which files get linted
 
-Fixes go into the file you passed in, even if the run had errors. A fix that
-also edits another file is skipped. When two fixes overlap, the later one is
-skipped. Run it again to get it.
+- Each input is a glob. A plain path matches only that file.
+- Use `/` in paths, on every system. An input with `\` is an error.
+- Quote globs, so bend-lint expands them the same way in every shell.
+- An input that matches no file is an error.
+- Each named file gets its own check. Findings appear only in that file.
+- `--imports` takes one entry file. It lints the entry and every file it
+  imports, Base aside, with one check.
 
-Exit code is 0 if there were no errors (warnings don't count), 1 for a checker
-or rule error, and 2 for bad arguments or a crash.
+### Fixes
 
-`--json` prints the findings as JSON, and the ones a comment covers under
-`suppressed`. The format is in [AGENTS.md](AGENTS.md#json-output).
-`--show-suppressed` prints those covered findings too.
+Each fix is `safe`, `suggested` or `dangerous`.
 
-## Where Bend comes from
+| Flag                | Applies                                                  |
+| ------------------- | -------------------------------------------------------- |
+| `--fix`             | `safe` fixes. They keep what the program does.           |
+| `--fix-suggested`   | `safe` and `suggested` fixes. These can change behavior. |
+| `--fix-dangerously` | All fixes. These can break code.                         |
 
-bend-lint loads Bend's TypeScript source and patches it in memory. To find that
-source it tries, in order:
+- Fixes are written to the linted files, also when the run has errors.
+- A fix that edits more than one file is skipped.
+- When two fixes overlap, the later one is skipped. Run again to apply it.
 
-1. `--bend <dir>` or `$BEND_DIR`. A Bend checkout or its `bend2` folder both work.
-2. The Bend checkout around it, if you put bend-lint at `tools/bend-lint`.
-3. A release downloaded from GitHub. It matches `bend version` if Bend is on
-   your PATH, otherwise it takes the latest.
+### Output and exit code
 
-Downloads are cached in `~/.cache/bend-lint/`. `XDG_CACHE_HOME` moves that, and
-on Windows it's under `LOCALAPPDATA`. With no network it falls back to the
-newest cached release.
+- `--json` prints one JSON object: `ok`, `findings` and `suppressed`.
+  [AGENTS.md](AGENTS.md#json-output) shows the format.
+- `--show-suppressed` also prints the findings a comment covers.
 
-## Rules included
-
-`format/layout` (`rules/format.ts`) is the formatter. It fixes indentation,
-spacing, comments, blank lines between declarations, wrapping and the final
-newline. Options: `tabWidth` (default 2) and `wrapAtWidth` (default 100). Both
-must be positive integers, or `"never"` for `wrapAtWidth`. The width is a target;
-long literals and comments can run past it. `endOfLine` is `"lf"` (default),
-`"crlf"` or `"preserve"`; preserve uses the first line ending, or LF if there
-is none. Line endings inside literals stay as written. Its fix is `safe`.
-
-Declaration order and literals stay as written. The only comment change is a
-space added after `#` when it's missing. Before offering a fix it parses
-its own output and compares that to the original program. If they differ you
-get a warning and no fix.
-
-`style/file-length` (`rules/file_length.bend`) warns when the file has more than
-`maxLines` lines (default 500). Imports don't count. No fix.
+| Exit code | Meaning                              |
+| --------- | ------------------------------------ |
+| 0         | No errors. Warnings do not count.    |
+| 1         | A checker error or an error finding. |
+| 2         | Bad arguments, or bend-lint failed.  |
 
 ## Config
 
-Put a `bend-lint.json`, `bend-lint.js` or `bend-lint.ts` next to the file you're
-linting or in any parent folder, or point at one with `--config`. The closest
-folder wins. Inside a folder, JSON beats JS beats TS. Only one file is read.
+bend-lint reads one config file:
+
+1. The file `--config` names, or else
+2. the nearest `bend-lint.json`, `bend-lint.js` or `bend-lint.ts`, from the
+   linted file's folder up. In one folder, JSON wins, then JS, then TS.
 
 ```json
 {
@@ -103,27 +93,45 @@ folder wins. Inside a folder, JSON beats JS beats TS. Only one file is read.
 }
 ```
 
-JS and TS configs export the same thing as a named `config`.
+- `load`: rule files, relative to the config. They run after `--rules`.
+- `rules`: per rule, `"off"`, or its options and a `severity`.
+- Severities: `error`, `warning`, `information`, `hint`.
+- An unknown option, or a value that does not fit, is an error.
+
+A JS or TS config exports the same object as `config`:
 
 ```ts
-export const config = {
-  rules: {
-    "style/file-length": { maxLines: 400 },
-  },
-};
+export const config = { rules: { "style/file-length": { maxLines: 400 } } };
 ```
 
-`load` lists rule files, relative to the config file. They run after the ones
-from `--rules`. `rules` sets their options and severity. `"off"` turns a rule
-off. Severities are `error`, `warning`, `information` and `hint`.
+## Bundled rules
 
-Each rule declares the options it accepts. Unknown keys and values that don't
-match are rejected.
+### `format/layout` (`rules/format.ts`)
 
-## Suppressing findings
+The formatter. It fixes indentation, spacing, comments, blank lines between
+declarations, line wrapping and the final newline. Its fix is `safe`.
 
-A comment in the file silences a rule (`disable`) or demands that it fires
-(`expect`):
+| Option        | Default | Values                           |
+| ------------- | ------- | -------------------------------- |
+| `tabWidth`    | `2`     | a positive integer               |
+| `wrapAtWidth` | `100`   | a positive integer, or `"never"` |
+| `endOfLine`   | `"lf"`  | `"lf"`, `"crlf"`, `"preserve"`   |
+
+- `wrapAtWidth` is a target. Long literals and comments can go past it.
+- `"preserve"` keeps the first line ending, or LF if there is none.
+- It keeps literals, comments and declaration order. It only adds a space
+  after a `#` that has none.
+- It parses its own output and compares it with the original. If they
+  differ, you get a warning and no fix.
+
+### `style/file-length` (`rules/file_length.bend`)
+
+A warning when a file has more than `maxLines` lines (default 500). Import
+lines do not count. No fix.
+
+## Suppress findings
+
+A comment can silence a rule (`disable`) or require a finding (`expect`):
 
 ```
 # bend-lint: disable-file style/file-length -- generated tables
@@ -133,71 +141,82 @@ A comment in the file silences a rule (`disable`) or demands that it fires
 # bend-lint: expect-next my/rule@hint -- the sample must report this
 ```
 
-The form is `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
-A directive names one rule and needs a reason. An `expect` pins the severity the
-finding must have, after the config's changes; a `disable` takes none.
+Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`
 
-- `file` covers the whole file. Findings that report on line 1, like
-  `format/layout` and `style/file-length`, need it, or a region that starts there.
-- `begin` and `end` cover the lines between them. Regions of one rule nest.
-- `next` covers the next line that holds code, past blank and comment lines.
-- `line` covers its own line; it follows code on that line.
+| Scope           | Covers                                                |
+| --------------- | ----------------------------------------------------- |
+| `file`          | the whole file                                        |
+| `begin` … `end` | the lines between them; regions of one rule nest      |
+| `next`          | the next line with code, past blank and comment lines |
+| `line`          | its own line; it must follow code                     |
 
-A finding is covered when it starts on a covered line. An `expect` that gets no
-finding is a `bend-lint/unmet-expectation` error, and a `disable` that covers
-nothing is a `bend-lint/unused-disable` warning. A directive that is wrong is a
-`bend-lint/directive` error. Directives stacked on consecutive comment lines
-must be ordered by rule, then severity, then keyword; the safe fix sorts them.
-A comment covers the findings in its own file. A rule that looks at the imports
-too (`program` scope) can report in an imported file, and that file's comments
-apply there. Comments in an import are checked for form like the linted file's,
-but an unused `disable` or unmet `expect` there is judged only for such rules. The findings of Bend's checker
-(`bend/...`) and of bend-lint itself (`bend-lint/...`) cannot be suppressed.
+- One directive names one rule and needs a reason. `end` takes none.
+- `expect` names the severity the finding must have. `disable` names none.
+- A finding is covered when it starts on a covered line of its own file.
+- Only the comments of linted files count.
+- `format/layout` and `style/file-length` report on line 1. Use `file`, or a
+  region that starts on line 1.
+- Directives on consecutive comment lines must be sorted: by rule, then
+  severity, then keyword. The `safe` fix sorts them.
+- The findings of the checker (`bend/...`) and of bend-lint
+  (`bend-lint/...`) cannot be suppressed.
 
-## What you get back
+bend-lint reports problems with the directives:
 
-If Bend's checker rejects the file you get a `bend/check` error, and only the
-rules that read just the text run (`format/layout` and `style/file-length` do).
-A rule that crashes is a `bend-lint/rule-crash` error, and the other rules still
-run.
+| Code                          | Severity | When                                 |
+| ----------------------------- | -------- | ------------------------------------ |
+| `bend-lint/directive`         | error    | a directive is wrong or out of order |
+| `bend-lint/unmet-expectation` | error    | an `expect` got no finding           |
+| `bend-lint/unused-disable`    | warning  | a `disable` covered nothing          |
 
-## Writing your own rule
+## What can go wrong
+
+- **The checker rejects a file.** You get a `bend/check` error, also when the
+  error is in an import. Only the rules that read just text still run.
+- **A rule crashes.** You get a `bend-lint/rule-crash` error. The other rules
+  still run.
+
+## Where Bend comes from
+
+bend-lint loads Bend's TypeScript source and patches it in memory. It does not
+run the `bend` binary. It looks, in this order:
+
+1. `--bend <dir>`, or `$BEND_DIR`: a Bend checkout or its `bend2` folder.
+2. The Bend checkout around it, when bend-lint is at `tools/bend-lint`.
+3. A release from GitHub: the one `bend version` names, or the latest.
+
+Downloads go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%`
+on Windows). Offline, it uses the newest cached release.
+
+## Write a rule
 
 Save this as `no-tabs.ts` in the repo root:
 
 ```ts
 import type { LintRule } from "./src/lint.ts";
 
-export const rules: LintRule[] = [{
-  id: "style/no-tabs",
-  run(cx) {
-    return [...cx.root.text.matchAll(/\t/g)].map((match) => cx.diag({
-      message: "Use spaces instead of a tab.",
-      span: { file: cx.root, beg: match.index!, end: match.index! + 1 },
-    }));
+export const rules: LintRule[] = [
+  {
+    id: "style/no-tabs",
+    run: (cx) =>
+      [...cx.root.text.matchAll(/\t/g)].map((match) =>
+        cx.diag({
+          message: "Use spaces instead of a tab.",
+          span: { file: cx.root, beg: match.index!, end: match.index! + 1 },
+        }),
+      ),
   },
-}];
+];
 ```
 
 ```sh
 bun src/lint.ts file.bend --rules no-tabs.ts
 ```
 
-That one reads raw text, so it also flags tabs inside literals and comments. For types and scope you ask for checker facts. Rules can be written in
-Bend too, see `rules/file_length.bend`. The rest (facts, fixes, options, using
-bend-lint as a library) is in [AGENTS.md](AGENTS.md#writing-rules).
+This rule reads raw text, so it also finds tabs in literals and comments. To
+read types and scope, a rule asks for the checker's facts. Rules can also be
+written in Bend. [AGENTS.md](AGENTS.md#writing-rules) explains both.
 
-## Hacking on it
+## Work on bend-lint
 
-```sh
-bun run lint
-bun run format:check
-bun test
-bun run typecheck
-```
-
-`bun run format` writes formatting changes. Oxlint and oxfmt both exclude
-`.bend` files.
-
-Type checking needs a Bend checkout. Setup and house rules are in
-[AGENTS.md](AGENTS.md).
+See [AGENTS.md](AGENTS.md).

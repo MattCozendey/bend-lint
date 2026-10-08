@@ -25,8 +25,9 @@ import {
   path,
   select,
   starts,
+  unstable,
 } from "./seam.ts";
-import type { Loaded, Unstable } from "./seam.ts";
+import type { Loaded, Operations, Unstable } from "./seam.ts";
 import { suppress } from "./suppress.ts";
 
 // Types
@@ -37,7 +38,7 @@ export type Severity = "error" | "warning" | "information" | "hint";
 export type Applicability = "safe" | "suggested" | "dangerous";
 
 // A file of the book, as it is on disk (or as the editor holds it unsaved).
-export type Source = { path: string; text: string; root: boolean; base: boolean };
+export type Source = { path: string; text: string; base: boolean };
 
 // A range of a source, in UTF-16 offsets.
 export type Span = { file: Source; beg: number; end: number };
@@ -98,22 +99,22 @@ export type DiagInit = {
 // absent or empty list matches all. In defs, a template's instances
 // (generic~0) count as the template.
 export type FactFilter = {
-  scope?: "file" | "program"; // file (the default): the linted file; program: its imports too, never Base
+  scope?: "file" | "program"; // file (the default): the linted file; program: every file checked but Base
   kinds?: string[]; // the term's kind, annotations stripped: Var, Ref, App, ...
   defs?: string[]; // the def whose body holds the term
   names?: string[]; // the name a Var or Ref points to
-  instances?: boolean; // true: also the facts of template instances (generic~0)
+  instances?: boolean; // true (scope program only): also the facts of template instances (generic~0)
 };
 
 // `same`, `show` and `normal` work in the scope of the (first) type.
 // `unstable` is bend2's own objects: code that uses it breaks when bend2
 // changes.
 export type RuleContext = {
-  sources: Source[];
-  root: Source;
+  sources: Source[]; // every file the check read
+  root: Source; // the file this run is for
   options: Options; // the rule's defaults, with the config's values
   facts: Fact[]; // the facts it asked for; none if it asked for none
-  prior: readonly Diag[]; // what earlier rules found
+  prior: readonly Diag[]; // what earlier rules found in the files this run reaches
   signal: AbortSignal; // aborts with the run
   body(name: string): Node | undefined; // a def's checked body
   shape(node: Node): Shape;
@@ -153,11 +154,13 @@ export type Config = {
 };
 
 // `unsaved` maps file paths to text an editor holds but has not saved. bend
-// and the rules read it in place of the file, for that run only.
+// and the rules read it in place of the file, for that run only. `imports`
+// lints every file the check reads too, Base aside.
 export type LintOptions = {
   signal?: AbortSignal;
   config?: Config;
   unsaved?: ReadonlyMap<string, string>;
+  imports?: boolean;
 };
 
 export type LintRule = {
@@ -167,15 +170,17 @@ export type LintRule = {
   run(cx: RuleContext): Diag[] | Promise<Diag[]>;
 };
 
-// root: the linted file, unless bend could not read it. facts: those kept
-// for the rules. suppressed: the findings a directive in the linted file
-// covers (see ./suppress.ts); diags has the rest, and the findings about
-// the directives themselves.
+// root: the file checked, unless bend could not read it. linted: the files
+// findings can be in (root, and with `imports` the rest but Base). facts:
+// those kept for the rules. suppressed: the findings a directive covers
+// (see ./suppress.ts); diags has the rest, and the findings about the
+// directives themselves.
 export type LintResult = {
   diags: Diag[];
   suppressed: Diag[];
   sources: Source[];
   root?: Source;
+  linted: Source[];
   facts: Fact[];
   unstable: Unstable;
 };
@@ -297,6 +302,7 @@ const OPTIONS = {
   "fix-suggested": { type: "boolean" },
   "fix-dangerously": { type: "boolean" },
   json: { type: "boolean" },
+  imports: { type: "boolean" },
   "show-suppressed": { type: "boolean" },
   config: { type: "string" },
   bend: { type: "string" },
@@ -304,7 +310,10 @@ const OPTIONS = {
 } as const;
 
 const USAGE =
-  "usage: bun src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
+  "usage: bun src/lint.ts <glob>... [--imports] [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
+
+// A path part with one of these is a glob.
+const GLOB = /[*?[\]{}!]/;
 
 // The fix levels each flag applies; the widest flag given wins.
 const FIXES: ReadonlyArray<
@@ -473,7 +482,8 @@ const validFacts = (f: LintRule["facts"]): boolean =>
     strings(f.kinds) &&
     strings(f.defs) &&
     strings(f.names) &&
-    [undefined, true, false].includes(f.instances));
+    [undefined, true, false].includes(f.instances) &&
+    (f.instances !== true || f.scope === "program"));
 
 const validOptions = (o: LintRule["options"]): boolean =>
   o === undefined ||
@@ -520,8 +530,11 @@ const settings = (
 
 // The given rules run in order, then the config's `load` files' that are
 // not given already; the config may turn one off, set its severity, and
-// give its options. A rule that throws is a bend-lint/rule-crash finding,
-// and the run goes on; an abort reaches the caller.
+// give its options. A rule of program scope runs once, and its findings
+// outside the linted files are dropped; any other rule runs once per
+// linted file, and reports only in it. A rule that throws is a
+// bend-lint/rule-crash finding, and the run goes on; an abort reaches the
+// caller.
 const lintWith = async (
   m: Loaded,
   file: string,
@@ -530,6 +543,7 @@ const lintWith = async (
     signal = new AbortController().signal,
     config = nearestConfig(file),
     unsaved: held,
+    imports = false,
   }: LintOptions,
 ): Promise<LintResult> => {
   const extra = await rulesFrom(m, config.load ?? []).catch((e: unknown) => {
@@ -546,7 +560,7 @@ const lintWith = async (
   if (bad >= 0) {
     throw fault(
       "rule-module",
-      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter, and options, if given, schemas their defaults match`,
+      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter (instances only with scope program), and options, if given, schemas their defaults match`,
     );
   }
   const plans = rules
@@ -557,7 +571,7 @@ const lintWith = async (
     }))
     .filter((p) => !p.off);
   const wide = {
-    program: plans.some((p) => p.want?.scope === "program"),
+    beyond: imports || plans.some((p) => p.want?.scope === "program"),
     instances: plans.some((p) => p.want?.instances === true),
   };
   const checked = await check(
@@ -565,34 +579,47 @@ const lintWith = async (
     file,
     plans.flatMap((p) => (p.want === undefined ? [] : [p.want])),
     signal,
-    held,
+    { text: held, imports },
   );
-  const { sources, facts, failure } = checked;
-  const ops = operations(m, checked);
+  const { sources, root, facts, failure } = checked;
+  const internals = unstable(m, checked);
   const failed = failure === undefined ? [] : [failure];
-  const root = sources.find((s) => s.root);
   if (root === undefined) {
-    return { diags: failed, suppressed: [], sources, facts, unstable: ops.unstable };
+    return {
+      diags: failed,
+      suppressed: [],
+      sources,
+      linted: [],
+      facts,
+      unstable: internals,
+    };
   }
-  // What one rule finds; a rule that throws or reports a bad fix fails.
+  const linted = imports ? sources.filter((s) => !s.base) : [root];
+  const views = new Map<Source, Operations>();
+  const opsOf = (on: Source): Operations => {
+    const known = views.get(on) ?? operations(m, checked, on);
+    views.set(on, known);
+    return known;
+  };
+  // What one rule finds in a run on `on`; a rule that throws or reports a
+  // bad fix fails.
   const run = async (
     { rule, severity, options, want }: (typeof plans)[number],
+    on: Source,
     prior: Diag[],
   ): Promise<Diag[]> => {
-    const mine = want === undefined ? [] : select(m, checked, want, wide);
-    const asked = new Set(mine);
+    const mine = want === undefined ? [] : select(m, checked, want, wide, on);
+    const byNode = new Map(mine.map((f) => [f.node, f]));
     const out = await rule.run({
-      ...ops,
+      ...opsOf(on),
       sources,
-      root,
+      root: on,
       options,
       facts: mine,
-      fact: (node) => {
-        const fact = ops.fact(node);
-        return fact !== undefined && asked.has(fact) ? fact : undefined;
-      },
+      fact: (node) => byNode.get(node),
       prior,
       signal,
+      unstable: internals,
       diag: (d) => ({
         code: rule.id,
         severity: d.severity ?? "warning",
@@ -625,38 +652,73 @@ const lintWith = async (
         'fix "' + broken.title + '" has an edit out of bounds, or two that clash',
       );
     }
+    const astray =
+      want?.scope === "program" ? undefined : settled.find((d) => d.span && d.span.file !== on);
+    if (astray !== undefined) {
+      throw new TypeError(
+        "it reported in " +
+          astray.span!.file.path +
+          "; a rule of file scope reports only in " +
+          on.path,
+      );
+    }
     return settled;
   };
-  // Without the checker's facts, only the rules that need none run.
+  // Without the checker's facts, only the rules that need none run. A rule
+  // of program scope runs once, on the root, and reaches every linted file;
+  // any other runs on each linted file and reaches only it. Each file holds
+  // its findings in the order found; one outside the linted files is dropped.
   const runnable = plans.filter((p) => failure === undefined || p.want === undefined);
-  let diags: Diag[] = failed;
-  const crashed = new Set<string>();
+  const homes = new Map(linted.map((s) => [s, [] as Diag[]]));
+  homes.get(root)!.push(...failed);
+  // Each rule and file whose run ended without a crash.
+  const done = new Set<string>();
+  const key = (rule: string, file: Source): string => rule + "\0" + file.path;
   for (const plan of runnable) {
-    signal.throwIfAborted();
-    const found = await run(plan, diags).catch((e: unknown): Diag[] => {
-      if (signal.aborted) {
-        throw signal.reason;
-      }
-      crashed.add(plan.rule.id);
-      return [
-        {
-          code: CRASH,
-          severity: "error",
-          message: plan.rule.id + ": " + message(e),
-          fixes: [],
+    const runs =
+      plan.want?.scope === "program"
+        ? [{ on: root, reach: linted }]
+        : linted.map((on) => ({ on, reach: [on] }));
+    for (const { on, reach } of runs) {
+      signal.throwIfAborted();
+      const got = await run(
+        plan,
+        on,
+        reach.flatMap((f) => homes.get(f)!),
+      ).then(
+        (diags) => {
+          reach.forEach((f) => done.add(key(plan.rule.id, f)));
+          return diags;
         },
-      ];
-    });
-    diags = [...diags, ...found];
+        (e: unknown): Diag[] => {
+          if (signal.aborted) {
+            throw signal.reason;
+          }
+          const span = { file: on, beg: 0, end: 0 };
+          return [
+            {
+              code: CRASH,
+              severity: "error",
+              message: plan.rule.id + ": " + message(e),
+              span,
+              fixes: [],
+            },
+          ];
+        },
+      );
+      got.forEach((diag) => homes.get(diag.span?.file ?? on)?.push(diag));
+    }
   }
-  const survived = runnable.filter((p) => !crashed.has(p.rule.id));
-  const shown = suppress(root, sources, diags, {
-    known: new Set(rules.map((r) => r.id)),
-    ran: new Set(survived.map((p) => p.rule.id)),
-    program: new Set(survived.filter((p) => p.want?.scope === "program").map((p) => p.rule.id)),
-    isSeverity,
-  });
-  return { ...shown, sources, root, facts, unstable: ops.unstable };
+  const shown = suppress(
+    [...homes].flatMap(([home, diags]) => diags.map((diag) => ({ diag, home }))),
+    linted,
+    {
+      known: new Set(rules.map((r) => r.id)),
+      ran: (file, rule) => done.has(key(rule, file)),
+      isSeverity,
+    },
+  );
+  return { ...shown, sources, root, linted, facts, unstable: internals };
 };
 
 const validRange = (beg: number, end: number, length: number): boolean =>
@@ -852,7 +914,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       const found: Array<Array<Reported<number>>> = [];
       shared.BEND_LINT = {
         input: () => ({
-          sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s.root })),
+          sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s === cx.root })),
           options: cx.options,
           prior: cx.prior.map((d) => ({
             code: d.code,
@@ -936,6 +998,37 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
   };
 };
 
+// The files the inputs name. Each is a glob with / between its parts (a
+// plain path matches itself), expanded here so every shell gets the same.
+const named = (inputs: string[]): string[] => {
+  const backslash = inputs.find((input) => input.includes("\\"));
+  if (backslash !== undefined) {
+    throw new Error("use / in paths: " + backslash);
+  }
+  const found = inputs.flatMap((input) => {
+    const parts = input.split("/");
+    const at = parts.findIndex((p) => GLOB.test(p));
+    const files =
+      at < 0
+        ? fs.existsSync(input) && fs.statSync(input).isFile()
+          ? [path.resolve(input)]
+          : []
+        : [
+            ...new Bun.Glob(parts.slice(at).join("/")).scanSync({
+              cwd: parts.slice(0, at).join("/") || ".",
+              absolute: true,
+            }),
+          ]
+            .map((f) => path.resolve(f))
+            .sort();
+    if (files.length === 0) {
+      throw new Error(input + " matches no file");
+    }
+    return files;
+  });
+  return [...new Set(found)];
+};
+
 const cli = async (argv: string[]): Promise<number> => {
   const { values, positionals } = util.parseArgs({
     args: argv,
@@ -946,14 +1039,17 @@ const cli = async (argv: string[]): Promise<number> => {
     console.log(USAGE);
     return 0;
   }
-  if (positionals.length !== 1) {
-    throw new Error("give one .bend file\n" + USAGE);
+  if (positionals.length === 0) {
+    throw new Error("give the .bend files to lint\n" + USAGE);
+  }
+  const files = named(positionals);
+  if (values.imports && files.length !== 1) {
+    throw new Error("--imports takes one entry file; " + files.length + " match\n" + USAGE);
   }
   const linter = unwrap(await createLinter({ bend: values.bend }));
   const rules = unwrap(await linter.loadRules(values.rules ?? []));
   const config = values.config === undefined ? undefined : unwrap(await readConfig(values.config));
-  const res = unwrap(await linter.lint(positionals[0], rules, { config }));
-  const failed = res.diags.some((d) => d.severity === "error");
+  const levels = FIXES.find(([flag]) => values[flag])?.[1];
   const where = (span: Span) => ({ path: span.file.path, range: position(span) });
   const finding = (d: Diag) => ({
     code: d.code,
@@ -966,47 +1062,52 @@ const cli = async (argv: string[]): Promise<number> => {
       edits: f.edits.map((e) => ({ ...where(e.span), text: e.text })),
     })),
   });
-  const { suppressed } = res;
+  const show = (d: Diag): unknown => (values.json ? finding(d) : linter.render(d));
+  // Each file is linted, fixed and shown in turn, so only one check is held.
+  const reports: Array<{ failed: boolean; diags: unknown[]; suppressed: unknown[] }> = [];
+  for (const file of files) {
+    const res = unwrap(await linter.lint(file, rules, { config, imports: values.imports }));
+    for (const at of levels === undefined ? [] : res.linted) {
+      const { text, skipped, elsewhere } = applyFixes(at, res.diags, levels);
+      if (text !== at.text) {
+        fs.writeFileSync(at.path, text);
+        console.error("bend-lint: fixed " + at.path);
+      }
+      const notes: Array<[number, string]> = [
+        [skipped, "clash with earlier ones; run the fix again to apply them"],
+        [elsewhere, "also edit other files; a fix edits one file"],
+      ];
+      notes
+        .filter(([n]) => n > 0)
+        .forEach(([n, why]) =>
+          console.error(`bend-lint: skipped ${n} fix(es) in ${at.path} that ${why}`),
+        );
+    }
+    reports.push({
+      failed: res.diags.some((d) => d.severity === "error"),
+      diags: res.diags.map(show),
+      suppressed: res.suppressed.map(show),
+    });
+  }
+  const failed = reports.some((r) => r.failed);
+  const diags = reports.flatMap((r) => r.diags);
+  const suppressed = reports.flatMap((r) => r.suppressed);
   console.log(
     values.json
-      ? JSON.stringify(
-          { ok: !failed, findings: res.diags.map(finding), suppressed: suppressed.map(finding) },
-          null,
-          2,
-        )
+      ? JSON.stringify({ ok: !failed, findings: diags, suppressed }, null, 2)
       : [
-          ...res.diags.map(linter.render),
+          ...diags,
           ...(values["show-suppressed"] && suppressed.length > 0
-            ? ["bend-lint: suppressed", ...suppressed.map(linter.render)]
+            ? ["bend-lint: suppressed", ...suppressed]
             : []),
           failed
             ? "bend-lint: FAIL"
             : "bend-lint: " +
-              res.diags.length +
+              diags.length +
               " finding(s)" +
               (suppressed.length > 0 ? ", " + suppressed.length + " suppressed" : ""),
         ].join("\n\n"),
   );
-  const { root } = res;
-  const levels = FIXES.find(([flag]) => values[flag])?.[1];
-  if (levels === undefined || root === undefined) {
-    return failed ? 1 : 0;
-  }
-  const { text, skipped, elsewhere } = applyFixes(root, res.diags, levels);
-  if (text !== root.text) {
-    fs.writeFileSync(root.path, text);
-    console.error("bend-lint: fixed " + root.path);
-  }
-  if (skipped > 0) {
-    console.error(
-      `bend-lint: skipped ${skipped} fix(es) that clash with earlier ones; run the fix again to apply them`,
-    );
-  }
-  if (elsewhere > 0) {
-    console.error(
-      `bend-lint: skipped ${elsewhere} fix(es) that also edit other files; --fix writes only ${root.path}`,
-    );
-  }
   return failed ? 1 : 0;
 };
 

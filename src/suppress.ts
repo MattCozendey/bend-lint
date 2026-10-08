@@ -1,15 +1,13 @@
-// Suppressions and expectations: comments in the linted file that silence
+// Suppressions and expectations: comments in a linted file that silence
 // findings (disable) or demand them (expect). One directive names one rule,
-// as SYNTAX says. An expect pins a severity and a disable takes none. file covers the whole
-// file; begin and end bound a region; line covers its own line; next covers
-// the next line that holds code. A finding is covered when its span starts on
-// a covered line (a finding without a span counts as line 1). Directives that
-// stack on consecutive comment-only lines must be in order, by rule, severity
-// and keyword. A comment covers the findings of its own file: the linted
-// file, or an import that a rule reports in. Every file read is checked for
-// form and order, and an unused or unmet directive is judged where the rule
-// could look: in the linted file, and for a rule of program scope in imports.
-// The checker's and bend-lint's own findings cannot be suppressed.
+// as SYNTAX says. An expect pins a severity and a disable takes none. file
+// covers the whole file; begin and end bound a region; line covers its own
+// line; next covers the next line that holds code. A finding is covered when
+// its span starts on a covered line of its file (a finding without a span
+// counts as line 1 of the file its rule ran for). Directives that stack on
+// consecutive comment-only lines must be in order, by rule, severity and
+// keyword. Only linted files' comments count. The checker's and bend-lint's
+// own findings cannot be suppressed.
 
 import { line, starts } from "./seam.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
@@ -40,14 +38,15 @@ type Covering = { directive: Parsed; from: number; to: number };
 // The directives of a rule: those of one line by line, the wider ones in a list.
 type Bucket = { lines: Map<number, Covering[]>; ranges: Covering[] };
 
+// A finding, and the linted file it counts in.
+type Found = { diag: Diag; home: Source };
+
 // What suppress needs to know of the run: every rule it has (a directive for
-// another one is an error), the ones that ran (only their directives can be
-// unused), those of them that looked at the imports too (only they can be
-// judged there), and what a severity is.
+// another one is an error), whether a rule ran to its end for a file (only
+// then can its directives there be unused), and what a severity is.
 type Context = {
   known: ReadonlySet<string>;
-  ran: ReadonlySet<string>;
-  program: ReadonlySet<string>;
+  ran: (file: Source, rule: string) => boolean;
   isSeverity: (s: string) => s is Severity;
 };
 
@@ -303,27 +302,21 @@ const read = (file: Source, ctx: Context) => {
 
 // Splits the findings into those that stay and those a directive covers, and
 // adds the findings about the directives: a wrong one, a disable that covered
-// nothing, an expect that was not met. Those two are judged for rules that
-// ran, and in an import for those of program scope.
+// nothing, an expect that was not met. Those two are judged only where their
+// rule ran to its end.
 export const suppress = (
-  root: Source,
-  sources: Source[],
-  diags: Diag[],
+  found: Found[],
+  linted: Source[],
   ctx: Context,
 ): { diags: Diag[]; suppressed: Diag[] } => {
   const files = new Map(
-    sources
-      .filter((f) => !f.base && f.text.includes("bend-lint:"))
-      .map((f) => [f, read(f, ctx)] as const),
+    linted.filter((f) => f.text.includes("bend-lint:")).map((f) => [f, read(f, ctx)] as const),
   );
-  if (files.size === 0) {
-    return { diags, suppressed: [] };
-  }
   const used = new Set<Parsed>();
   const kept: Diag[] = [];
   const suppressed: Diag[] = [];
-  for (const d of diags) {
-    const mine = files.get(d.span?.file ?? root);
+  for (const { diag: d, home } of found) {
+    const mine = files.get(home);
     const row = d.span === undefined || mine === undefined ? 0 : line(mine.ss, d.span.beg);
     const hits = mine === undefined ? [] : covers(mine.by, d.code, d.severity, row);
     hits.forEach((h) => used.add(h));
@@ -331,8 +324,7 @@ export const suppress = (
   }
   const unmet = [...files].flatMap(([file, r]) =>
     r.covering.flatMap(({ directive: d }) => {
-      const judged = ctx.ran.has(d.rule) && (file.root || ctx.program.has(d.rule));
-      if (used.has(d) || !judged) {
+      if (used.has(d) || !ctx.ran(file, d.rule)) {
         return [];
       }
       const expect = d.action === "expect";

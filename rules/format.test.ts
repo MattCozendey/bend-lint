@@ -40,7 +40,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const opts = { tabWidth: 2, wrapAtWidth: 100, endOfLine: "lf" } as const;
 const fixture = (text: string, name = "main.bend") => {
-  const file = path.join(dir, name);
+  const file = path.join(dir, name).replaceAll("\\", "/");
   fs.writeFileSync(file, text);
   return file;
 };
@@ -51,7 +51,7 @@ async function fixed(text: string, options: FormatOptions = opts) {
   if (!clean(result)) throw new Error(result.diags.map(render).join("\n"));
   expect(clean(result)).toBe(true);
   expect(result.diags.every((d) => d.fixes.length === 1)).toBe(true);
-  const source = result.sources.find((s) => s.root)!;
+  const source = result.root!;
   const output = applyFixes(source, result.diags).text;
   expect(format(output, options)).toBe(output);
   const again = await lint(fixture(output), rules, {

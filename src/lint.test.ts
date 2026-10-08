@@ -671,7 +671,7 @@ function file2(p: string, ns: string): { str: string; ns: string; al: {}; path: 
 }
 
 function fixture(name: string, text: string): string {
-  const file = path.join(DIR, name);
+  const file = path.join(DIR, name).replaceAll("\\", "/");
   fs.writeFileSync(file, text);
   return file;
 }
@@ -696,10 +696,6 @@ function bodies(book: Book): Record<string, string> {
         : [];
     }),
   );
-}
-
-function root(sources: Source[]): Source {
-  return sources.find((s) => s.root)!;
 }
 
 // The facts a rule with this filter gets: kind, def, name and file.
@@ -1126,7 +1122,7 @@ describe("lint", () => {
   test("facts cover templates, proofs, matches and fields", async () => {
     const probe: LintRule = {
       id: "test/probe",
-      facts: { instances: true },
+      facts: { scope: "program", instances: true },
       run: (cx) => {
         const named = (def: string, kind: string, name = "") =>
           facts(cx, def).find((f) => {
@@ -1722,7 +1718,7 @@ describe("review fixes", () => {
   });
 
   test("clashing fixes are skipped, not fatal; equal ones merge", () => {
-    const file: Source = { path: "<fix>", text: "abcdef", root: true, base: false };
+    const file: Source = { path: "<fix>", text: "abcdef", base: false };
     const fix = (beg: number, end: number, text: string): Diag => ({
       code: "t/f",
       severity: "hint",
@@ -1741,8 +1737,8 @@ describe("review fixes", () => {
   });
 
   test("a fix that also edits another file is skipped whole", () => {
-    const file: Source = { path: "<fix>", text: "abc", root: true, base: false };
-    const other: Source = { path: "<other>", text: "xyz", root: false, base: false };
+    const file: Source = { path: "<fix>", text: "abc", base: false };
+    const other: Source = { path: "<other>", text: "xyz", base: false };
     const fix = (edits: Edit[]): Diag => ({
       code: "t/f",
       severity: "hint",
@@ -1797,7 +1793,7 @@ describe("rules", () => {
       "direct",
       "generic",
     ]);
-    const cleaned = applyFixes(root(res.sources), res.diags, ["suggested"]).text;
+    const cleaned = applyFixes(res.root!, res.diags, ["suggested"]).text;
     expect(cleaned).toContain("f : N -> N = y => y");
     expect(cleaned).toContain("value : N = Z{}");
     const after = await lint(fixture("erasure_fixed.bend", cleaned), [redundantAnnotation]);
@@ -1839,7 +1835,7 @@ describe("rules written in Bend", () => {
     const res = await lint(userland, [rule]);
     expect(res.diags.map((d) => [d.code, d.severity])).toEqual([["style/comma-space", "warning"]]);
     expect(render(res.diags[0])).toContain("generic(~N, a)");
-    expect(applyFixes(root(res.sources), res.diags).text).toContain("generic(~N, a)");
+    expect(applyFixes(res.root!, res.diags).text).toContain("generic(~N, a)");
   });
 
   test("a typed rule asks the checker through effects", async () => {
@@ -1855,7 +1851,7 @@ describe("rules written in Bend", () => {
     expect(res.diags.map((d) => d.message)).toEqual(
       Array(2).fill("x: Alias = N (same as its binder), text x, demanded once, uses x once"),
     );
-    expect(res.diags.every((d) => d.span?.file === root(res.sources))).toBe(true);
+    expect(res.diags.every((d) => d.span?.file === res.root!)).toBe(true);
     expect(res.diags.every((d) => d.def === "id" && d.fact?.owner === "id")).toBe(true);
     expect(render(res.diags[0])).toContain("Context:");
   });
@@ -1953,8 +1949,8 @@ describe("entry points return a Result", () => {
 
   test("a run gives the linted file as root", async () => {
     const res = await lint(userland, []);
-    expect(res.root).toBe(res.sources.find((s) => s.root));
     expect(res.root?.path).toEndWith("/entry_userland.bend");
+    expect(res.linted).toEqual([res.root!]);
   });
 });
 
@@ -1962,9 +1958,9 @@ describe("fact filters", () => {
   const userland = fixture("filter_userland.bend", USERLAND);
 
   test("kinds, defs and names narrow the facts; an empty or absent list matches all", async () => {
-    const all = await seen(userland, { instances: true });
+    const all = await seen(userland, { scope: "program", instances: true });
     const only = async (want: FactFilter, keep: (f: Seen) => boolean) => {
-      const got = await seen(userland, { ...want, instances: true });
+      const got = await seen(userland, { ...want, scope: "program", instances: true });
       expect(got.length).toBeGreaterThan(0);
       expect(got).toEqual(all.filter(keep));
     };
@@ -1975,8 +1971,12 @@ describe("fact filters", () => {
     expect(all.some((f) => f.def.startsWith("generic~"))).toBe(true);
   });
 
-  test("template instances' facts come only with instances: true", async () => {
-    const all = await seen(userland, { instances: true });
+  test("template instances' facts come only with instances: true, of scope program", async () => {
+    const res = await linter.lint(userland, [
+      { id: "test/file-instances", facts: { instances: true }, run: () => [] },
+    ]);
+    expect(ERROR in res && res[ERROR].type).toBe("rule-module");
+    const all = await seen(userland, { scope: "program", instances: true });
     expect(await seen(userland, true)).toEqual(all.filter((f) => !f.def.includes("~")));
     const both = await lint(userland, [
       {
@@ -1986,7 +1986,7 @@ describe("fact filters", () => {
       },
       {
         id: "test/inst",
-        facts: { instances: true },
+        facts: { scope: "program", instances: true },
         run: (cx) => (expect(cx.facts.some((f) => f.inst)).toBe(true), []),
       },
     ]);
@@ -2222,26 +2222,33 @@ describe("cli", () => {
     });
   });
 
-  test("--fix writes only the linted file, and prints findings when fixes clash", () => {
-    const dir = path.join(DIR, "fixroot");
+  test("--fix writes the linted files, and prints findings when fixes clash", () => {
+    const dir = path.join(DIR, "fixroot").replaceAll("\\", "/");
     fs.mkdirSync(dir, { recursive: true });
-    const dep = path.join(dir, "dep.bend");
-    fs.writeFileSync(dep, "def one() -> Type:\n  Type\n");
-    const main = path.join(dir, "main.bend");
-    fs.writeFileSync(main, "import ./dep.bend as D\n\ndef main() -> Type:\n  D.one()\n");
-    const everywhere = module(
-      "everywhere.js",
-      `[{ id: "test/everywhere", run: (cx) => cx.sources.filter((s) => !s.base).flatMap((s) => [0, 0, 1].map((n) => {
-      const span = { file: s, beg: n, end: n };
+    const dep = dir + "/dep.bend";
+    const main = dir + "/main.bend";
+    const reset = () => {
+      fs.writeFileSync(dep, "def one() -> Type:\n  Type\n");
+      fs.writeFileSync(main, "import ./dep.bend as D\n\ndef main() -> Type:\n  D.one()\n");
+    };
+    const marks = module(
+      "marks.js",
+      `[{ id: "test/marks", run: (cx) => [0, 0, 1].map((n) => {
+      const span = { file: cx.root, beg: n, end: n };
       return cx.diag({ message: "x", span, fixes: [{ title: "x", applicability: "safe", edits: [{ span, text: n === 0 ? "#" : "!" }] }] });
-    })) }]`,
+    }) }]`,
     );
-    const out = run(main, "--rules", everywhere, "--fix");
-    expect(out.status).toBe(0);
-    expect(out.stdout).toContain("Warning [test/everywhere]:");
+    reset();
+    const alone = run(main, "--rules", marks, "--fix");
+    expect(alone.status).toBe(0);
+    expect(alone.stdout).toContain("Warning [test/marks]:");
     expect(fs.readFileSync(dep, "utf8")).toBe("def one() -> Type:\n  Type\n");
     expect(fs.readFileSync(main, "utf8").startsWith("#i!mport")).toBe(true);
-    expect(out.stderr).not.toContain("skipped");
+    expect(alone.stderr).not.toContain("skipped");
+    reset();
+    expect(run(main, "--imports", "--rules", marks, "--fix").status).toBe(0);
+    expect(fs.readFileSync(dep, "utf8").startsWith("#d!ef")).toBe(true);
+    expect(fs.readFileSync(main, "utf8").startsWith("#i!mport")).toBe(true);
   });
 
   test("--fix applies fixes even when a finding is an error", () => {
@@ -2292,6 +2299,88 @@ describe("cli", () => {
     );
     expect(run(target, "--rules", comma, "--fix").status).toBe(0);
     expect(fs.readFileSync(target, "utf8")).toContain("generic(~N, a)");
+  });
+});
+
+describe("linted files", () => {
+  // main.bend imports sub/lib.bend, which imports util.bend.
+  const dir = path.join(DIR, "linted").replaceAll("\\", "/");
+  fs.mkdirSync(dir + "/sub", { recursive: true });
+  fs.writeFileSync(dir + "/util.bend", "type N is Data:\n  Z{}\n  S{p: N}\n");
+  const lib = dir + "/sub/lib.bend";
+  fs.writeFileSync(
+    lib,
+    "import Base\nimport ../util.bend as U\n\ndef keep(x: U.N) -> U.N:\n  x\n\ndef   main() -> U.N:\n  keep(U.Z{})\n",
+  );
+  const main = dir + "/main.bend";
+  fs.writeFileSync(main, "import Base\nimport sub/lib.bend as L\n\ndef main() -> Type:\n  Type\n");
+  const names: LintRule = {
+    id: "test/names",
+    facts: { kinds: ["Var"], defs: ["keep"] },
+    run: (cx) =>
+      cx.facts.map((f) =>
+        cx.diag({
+          message: [f.owner, cx.show(f.type), cx.body(f.owner) !== undefined].join(" "),
+          span: f.span,
+          fact: f,
+        }),
+      ),
+  };
+  const seen = (res: LintResult): string[] =>
+    res.diags
+      .filter((d) => d.span?.file.path.endsWith("/sub/lib.bend"))
+      .map((d) =>
+        [d.code, d.message, d.def, d.span?.beg, JSON.stringify(d.fixes.length)].join(" "),
+      );
+
+  test("a file linted through an entry's imports gets what it gets alone", async () => {
+    const alone = await lint(lib, [names, ...formatRules]);
+    const through = await lint(main, [names, ...formatRules], { imports: true });
+    expect(seen(alone)).toEqual(seen(through));
+    expect(seen(alone)).toContain(
+      "test/names keep ../util.N true keep " + (alone.root!.text.indexOf("  x") + 2) + " 0",
+    );
+    expect(seen(alone).some((s) => s.startsWith("format/layout"))).toBe(true);
+  });
+
+  test("a rule of file scope that reports in another file crashes", async () => {
+    const stray: LintRule = {
+      id: "test/stray",
+      run: (cx) => [
+        cx.diag({
+          message: "x",
+          span: { file: cx.sources.find((s) => s !== cx.root && !s.base)!, beg: 0, end: 0 },
+        }),
+      ],
+    };
+    const res = unwrap(await linter.lint(main, [stray]));
+    expect(res.diags.map((d) => [d.code, d.span?.file])).toEqual([
+      ["bend-lint/rule-crash", res.root],
+    ]);
+  });
+
+  test("the CLI lints each file a glob names, with / as the only separator", () => {
+    const here = module(
+      "here.js",
+      `[{ id: "test/here", run: (cx) => [cx.diag({ message: "here", span: { file: cx.root, beg: 0, end: 0 } })] }]`,
+    );
+    const both = run(dir + "/*.bend", lib, "--rules", here, "--json");
+    expect(both.status).toBe(0);
+    expect(
+      JSON.parse(both.stdout).findings.map((f: { path: string }) => path.basename(f.path)),
+    ).toEqual(["main.bend", "util.bend", "lib.bend"]);
+    expect(run(dir + "\\main.bend")).toMatchObject({
+      status: 2,
+      stderr: expect.stringContaining("use / in paths"),
+    });
+    expect(run(dir + "/*.nothing")).toMatchObject({
+      status: 2,
+      stderr: expect.stringContaining("matches no file"),
+    });
+    expect(run(dir + "/**/*.bend", "--imports")).toMatchObject({
+      status: 2,
+      stderr: expect.stringContaining("--imports takes one entry file"),
+    });
   });
 });
 
@@ -2792,7 +2881,11 @@ describe("suppression", () => {
   };
 
   // main.bend imports lib.bend, which holds `twice` after the given lines.
-  const withLib = async (before: string[], rules: LintRule[] = [uses]): Promise<LintResult> => {
+  const withLib = async (
+    before: string[],
+    rules: LintRule[] = [uses],
+    imports = true,
+  ): Promise<LintResult> => {
     const n = count++;
     fixture(
       "lib" + n + ".bend",
@@ -2808,7 +2901,7 @@ describe("suppression", () => {
         "  Lib.twice(1)",
       ),
     );
-    return unwrap(await linter.lint(main, rules));
+    return unwrap(await linter.lint(main, rules, { imports }));
   };
 
   const whereIn = (diags: Diag[], code: string): string[] =>
@@ -2821,7 +2914,22 @@ describe("suppression", () => {
           (d.span ? d.span.file.text.slice(0, d.span.beg).split("\n").length : 0),
       );
 
-  test("a rule of program scope reports in an import, and the import's directive covers it", async () => {
+  test("an import is linted only with imports: its findings and its directives", async () => {
+    const directive = ["  # bend-lint: disable-next demo/zzz -- why"];
+    const alone = await withLib(directive, [uses], false);
+    expect(alone.linted.map((s) => path.basename(s.path))).toEqual([
+      expect.stringMatching(/^main\d+\.bend$/),
+    ]);
+    expect(codes(alone)).toEqual([]);
+    const all = await withLib(directive);
+    expect(all.linted.map((s) => path.basename(s.path)).sort()).toEqual([
+      expect.stringMatching(/^lib\d+\.bend$/),
+      expect.stringMatching(/^main\d+\.bend$/),
+    ]);
+    expect(codes(all)).toEqual(["demo/var", "bend-lint/directive"]);
+  });
+
+  test("a rule of program scope reports in a linted import, and the import's directive covers it", async () => {
     const open = await withLib([]);
     expect(whereIn(open.diags, "demo/var")).toEqual([expect.stringMatching(/^lib\d+\.bend:4$/)]);
     const covered = await withLib(["  # bend-lint: disable-next demo/var -- why"]);
@@ -2831,28 +2939,20 @@ describe("suppression", () => {
     ]);
   });
 
-  test("an expectation in an import is met by its finding, and unmet without one", async () => {
+  test("an expectation in a linted import is met by its finding, and unmet without one", async () => {
     const met = await withLib(["  # bend-lint: expect-next demo/var@warning -- why"]);
     expect(codes(met)).toEqual([]);
-    const unmet = await withLib([], [uses]).then(() =>
-      withLib(["  # bend-lint: expect-next demo/var@hint -- wrong severity"]),
-    );
+    const unmet = await withLib(["  # bend-lint: expect-next demo/var@hint -- wrong severity"]);
     expect(codes(unmet).sort()).toEqual(["bend-lint/unmet-expectation", "demo/var"]);
     expect(whereIn(unmet.diags, "bend-lint/unmet-expectation")).toEqual([
       expect.stringMatching(/^lib\d+\.bend:4$/),
     ]);
   });
 
-  test("a disable in an import that covers nothing is a warning for a rule of program scope", async () => {
+  test("a disable in a linted import that covers nothing is a warning, for any rule that ran there", async () => {
     const res = await withLib(
-      ["  # bend-lint: disable-next demo/other -- why"],
-      [
-        {
-          ...uses,
-          id: "demo/other",
-          facts: { scope: "program", kinds: ["Var"], names: ["nothing"] },
-        },
-      ],
+      ["  # bend-lint: disable-next demo/a -- why", "  # bend-lint: disable-next demo/var -- why"],
+      [a, uses],
     );
     expect(codes(res)).toEqual(["bend-lint/unused-disable"]);
     expect(whereIn(res.diags, "bend-lint/unused-disable")).toEqual([
@@ -2860,21 +2960,7 @@ describe("suppression", () => {
     ]);
   });
 
-  test("a rule that does not look at imports is not judged in them, but every file read is checked for form", async () => {
-    const res = await withLib(
-      [
-        "  # bend-lint: expect-next demo/a@warning -- not judged here",
-        "  # bend-lint: disable-next demo/var",
-      ],
-      [a, uses],
-    );
-    expect(codes(res)).toEqual(["demo/var", "bend-lint/directive"]);
-    expect(whereIn(res.diags, "bend-lint/directive")).toEqual([
-      expect.stringMatching(/^lib\d+\.bend:5$/),
-    ]);
-  });
-
-  test("a stack out of order, or a rule that does not exist, is reported in an import", async () => {
+  test("a stack out of order, or a rule that does not exist, is reported in a linted import", async () => {
     const unsorted = await withLib([
       "  # bend-lint: expect-next demo/var@warning -- why",
       "  # bend-lint: disable-next demo/var -- why",

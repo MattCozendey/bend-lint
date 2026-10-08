@@ -46,7 +46,8 @@ type Spec is Data:
 type Declared is Data:
   Declared{key: String, default: Value, spec: Spec}
 
-# File: facts of the linted file. Program: of its imports too, never Base.
+# File: facts of the file the run is for. Program: of every file the check
+# read, never Base.
 type Scope is Data:
   File{}
   Program{}
@@ -55,7 +56,8 @@ type Scope is Data:
 # matches all. kinds: the term's kind, annotations stripped (Var, Ref, App,
 # ...). defs: the def whose body holds the term (a template's instances
 # count as the template). names: the name a Var or Ref points to.
-# instances: True{} adds the facts of template instances (generic~0).
+# instances: True{} adds the facts of template instances (generic~0); only
+# with Program{}.
 type Want is Data:
   NoFacts{}
   Want{scope: Scope, kinds: List<&2, String>, defs: List<&2, String>, names: List<&2, String>, instances: Bool}
@@ -106,8 +108,8 @@ type Diag is Data:
 type Found is Data:
   Found{code: String, diag: Diag}
 
-# root: the linted file. sources: it and its imports. prior: what earlier
-# rules found.
+# root: the file the run is for. sources: every file the check read.
+# prior: what earlier rules found in the files the run reaches.
 type Input is Data:
   Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>, prior: List<&2, Found>}
 
