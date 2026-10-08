@@ -107,6 +107,8 @@ Edit the section that exists instead of adding a second one.
 
 ## Writing rules
 
+Make them idempotent.
+
 ### TypeScript
 
 A module exports `rules: LintRule[]`. A rule has an `id` (`namespace/name`, it
