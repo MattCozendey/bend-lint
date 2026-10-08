@@ -1,8 +1,8 @@
 // Everything bend-lint knows about bend2's internals: finding (or
 // downloading) bend2, patching it as Bun loads it, and every call into it.
-// The docs' Internals section says what the patch does and how drift stops
-// it. Each text edit must match exactly once; the wrappers pass every
-// argument through, so bend computes what it would without them.
+// The docs say what the patch does and how drift stops it. Each text edit
+// must match exactly once; the wrappers pass every argument through, so
+// bend computes what it would without them.
 
 import * as nodeFs from "node:fs";
 import * as os from "node:os";
@@ -372,7 +372,8 @@ export const latestTag = async (cache: string = CACHE, get: Get = download): Pro
   return listed;
 };
 
-// bend2 at a release (the files the docs list), kept in <cache>/<tag>/bend2.
+// bend2 at a release (the PATCHED files, safe.ts, base.bend and the effs/
+// files Base imports), kept in <cache>/<tag>/bend2.
 // A download goes to a temporary folder first, so the cache never holds a
 // partial one.
 export const fetchBend = async (
