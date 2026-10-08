@@ -173,29 +173,10 @@ def diags(+path: String, ats: List<&2, U32>) -> List<&2, Lint.Diag>:
     case Con{+at, rest}:
       diag(path, at) <> diags(path, rest)
 
-def choose(root: Bool, +path: String, text: String, others: List<&2, Lint.Diag>) -> List<&2, Lint.Diag>:
-  match root:
-    case True{}:
-      diags(path, commas(text, 0, []))
-    case False{}:
-      others
-
-def pick(s: Lint.Source, others: List<&2, Lint.Diag>) -> List<&2, Lint.Diag>:
-  match s:
-    case Lint.Source{+path, text, root}:
-      choose(root, path, text, others)
-
-def all(srcs: List<&2, Lint.Source>) -> List<&2, Lint.Diag>:
-  match srcs:
-    case Nil{}:
-      []
-    case Con{s, rest}:
-      pick(s, all(rest))
-
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
-    case Lint.Input{sources, options}:
-      IO.pure(List<&2, Lint.Diag>, all(sources))
+    case Lint.Input{Lint.Source{+path, text, root}, sources, options}:
+      IO.pure(List<&2, Lint.Diag>, diags(path, commas(text, 0, [])))
 
 def main() -> IO(Unit):
   Lint.serve(run)
@@ -428,7 +409,7 @@ def summary(+opts: List<&2, Lint.Option>) -> String:
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
-    case Lint.Input{sources, +options}:
+    case Lint.Input{root, sources, +options}:
       IO.pure(List<&2, Lint.Diag>, [Lint.Diag{Lint.Hint{}, summary(options), None{}, []}])
 
 def main() -> IO(Unit):

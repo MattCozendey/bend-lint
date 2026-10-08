@@ -79,13 +79,16 @@ function lint_fact(w) {
   );
 }
 
+function lint_source(s) {
+  return { $: CID(Source), path: s.path, text: s.text, root: s.root };
+}
+
 function lint_input() {
   const { sources, options } = lint_host().input();
   return {
     $: CID(Input),
-    sources: lint_list(
-      sources.map((s) => ({ $: CID(Source), path: s.path, text: s.text, root: s.root })),
-    ),
+    root: lint_source(sources.find((s) => s.root)),
+    sources: lint_list(sources.map(lint_source)),
     options: lint_list(
       Object.entries(options).map(([key, v]) => ({ $: CID(Option), key, value: lint_value(v) })),
     ),

@@ -45,8 +45,9 @@ type Spec is Data:
 type Declared is Data:
   Declared{key: String, spec: Spec}
 
+# root: the linted file. sources: it and its imports.
 type Input is Data:
-  Input{sources: List<&2, Source>, options: List<&2, Option>}
+  Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>}
 
 # File: facts of the linted file. Program: of its imports too, never Base.
 type Scope is Data:
@@ -106,6 +107,10 @@ type Fact is Data:
 # or Ref points to (else ""), its span, and its children, in bend's order.
 type Shape is Data:
   Shape{kind: String, name: String, span: Maybe<&2, Span>, children: List<&2, Node>}
+
+# A finding at a span, with no fix.
+def diag(severity: Severity, message: String, span: Span) -> Diag:
+  Diag{severity, message, Some{span}, []}
 
 def input() -> IO(Input):
   import "./effects.js"

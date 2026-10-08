@@ -263,7 +263,9 @@ def main() -> IO(Unit):
   Lint.serve(run)
 ```
 
-`input` has the sources and options. To get facts, return a filter from
+`input` is `Lint.Input{root, sources, options}`: the linted file, it and its
+imports, and the options. `Lint.diag(severity, message, span)` makes a finding
+with no fix; build a `Lint.Diag` to add fixes. To get facts, return a filter from
 `facts()`, e.g. `Lint.Want{Lint.File{}, ["Var"], [], [], False{}}`. Empty lists
 match everything, `Lint.Program{}` adds imports (not Base), and `True{}` at the
 end adds template instances.
@@ -301,8 +303,7 @@ The rule is compiled once and runs on Bend's JavaScript runtime. Use tail
 recursion over long text or lists to stay inside the stack. Streaming facts
 saves building a list of all of them.
 
-For examples see [file_length.bend](rules/file_length.bend) and
-[shared.bend](rules/shared.bend). `COMMA_BEND`, `TYPES_BEND` and `COUNT_BEND` in
+For examples see [file_length.bend](rules/file_length.bend). `COMMA_BEND`, `TYPES_BEND` and `COUNT_BEND` in
 [src/lint.test.ts](src/lint.test.ts) cover fixes and facts.
 
 ### As a library
