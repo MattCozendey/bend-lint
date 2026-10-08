@@ -682,8 +682,10 @@ const checked = async (
   const see = (report: Report): void => {
     const at = report.spn?.file as { dir?: string; ns?: string } | undefined;
     const near = at?.dir === home && at.ns === "" ? filters : far;
-    const { kind, name } =
-      near.length > 0 ? kindOf(Bend.term_strip(report.tm)) : { kind: "", name: "" };
+    if (near.length === 0) {
+      return;
+    }
+    const { kind, name } = kindOf(Bend.term_strip(report.tm));
     if (near.some((f) => matches(f, kind, report.def, name))) {
       found.push(report);
     }
@@ -940,8 +942,8 @@ export const operations = (m: Loaded, run: Checked): Operations => {
       );
     },
     same: (a, b) => {
-      const { bok, dep } = scoped(a);
-      return Bend.term_compare("EQ", bok, scoped(a).ty, scoped(b).ty, dep);
+      const { ty, bok, dep } = scoped(a);
+      return Bend.term_compare("EQ", bok, ty, scoped(b).ty, dep);
     },
     show: (t) => Bend.term_show(Bend.term_lower(scoped(t).ty, scoped(t).dep)),
     normal: (t) => {
@@ -1004,8 +1006,6 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
     t?.$ === "Lit" && typeof t.v === "string" ? t.v : undefined;
   const whole = (t: LTerm | undefined): number | undefined =>
     t?.$ === "Lit" && t.k === "U32" ? t.v : undefined;
-  const bool = (t: LTerm | undefined): boolean | undefined =>
-    [true, false].find((b) => args(t, b ? "True" : "False") !== undefined);
   const texts = (t: LTerm | undefined): string[] | undefined => list(t, text);
   // The first of `table`'s constructors that `t` is, read by its decoder.
   const one = <T>(t: LTerm | undefined, table: Record<string, (xs: LTerm[]) => T>): T | undefined =>
@@ -1013,6 +1013,8 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
       const xs = args(t, k);
       return xs === undefined ? [] : [of(xs)];
     })[0];
+  const bool = (t: LTerm | undefined): boolean | undefined =>
+    one(t, { True: () => true, False: () => false });
   const known = <T extends object>(x: T | undefined): T | undefined =>
     x === undefined || Object.values(x).includes(undefined) ? undefined : x;
   // A Lint.Spec as a schema, and a Lint.Value as an option value.
@@ -1037,30 +1039,29 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   const declare = (t: LTerm): [string, Declared] | undefined => {
     const [key, given, spec] = args(t, "Declared") ?? [];
     const name = text(key);
-    const declared = known({ ...schema(spec), default: optionValue(given) });
-    return name === undefined || schema(spec) === undefined || declared === undefined
+    const accepts = schema(spec);
+    const fallback = optionValue(given);
+    return name === undefined || accepts === undefined || fallback === undefined
       ? undefined
-      : [name, declared as Declared];
+      : [name, { ...accepts, default: fallback }];
   };
   const asked = value("facts");
   const [scope, kinds, defs, names, instances] = args(asked, "Want") ?? [];
   const want =
     args(asked, "NoFacts") !== undefined
       ? null
-      : {
-          scope: (["file", "program"] as const).find(
-            (s) => args(scope, s === "file" ? "File" : "Program") !== undefined,
-          ),
+      : known({
+          scope: one(scope, { File: () => "file" as const, Program: () => "program" as const }),
           kinds: texts(kinds),
           defs: texts(defs),
           names: texts(names),
           instances: bool(instances),
-        };
+        });
   const declared = book.tlds.options === undefined ? [] : list(value("options"), declare);
   if (
     id === undefined ||
     Comp.io_type(book) === null ||
-    (want !== null && Object.values(want).includes(undefined)) ||
+    want === undefined ||
     declared === undefined
   ) {
     throw new Error(
@@ -1076,7 +1077,7 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   )(import.meta.require) as (args: string[]) => number;
   return {
     id,
-    want: want as FactFilter | null,
+    want,
     ...(declared.length === 0 ? {} : { options: Object.fromEntries(declared) }),
     main,
   };

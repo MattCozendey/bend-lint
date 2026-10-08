@@ -3,7 +3,11 @@
 // Config: { "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
 // "never" disables optional wrapping. endOfLine "preserve" keeps the first
 // ending, or LF if there is none.
+
 import type { LintRule } from "../src/lint.ts";
+
+// Types
+// =====
 
 export type FormatOptions = {
   tabWidth: number;
@@ -24,23 +28,56 @@ type Doc =
   | { kind: "group" | "nest"; doc: Doc; amount?: number }
   | Doc[];
 type Frame = { doc: Doc; indent: number; flat: boolean };
+
+// Constants
+// =========
+
 const DELIMITERS = new Map([
   ["(", ")"],
   ["[", "]"],
   ["{", "}"],
   ["<", ">"],
 ]);
+const OPERATORS = new Set([
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "^",
+  "++",
+  "&&",
+  "||",
+  "<&>",
+  ".&.",
+  ".|.",
+  ".^.",
+  "<<",
+  ">>",
+  "<>",
+  "<",
+  ">",
+  "<=",
+  ">=",
+  "==",
+  "!=",
+  "&",
+  "|",
+]);
+
+// Functions
+// =========
 
 // Preserve literals and comment text verbatim. In particular, a quote or #
 // inside a string is not syntax; successor notation and quantities are atoms.
-function tokens(source: string): Token[] {
+const tokens = (source: string): Token[] => {
   const out: Token[] = [];
   let at = 0,
     start = 0;
   while (at < source.length) {
     const beg = at,
       c = source[at];
-    if (c === " " || c === "\t" || c === "\r") {
+    if (" \t\r".includes(c)) {
       at++;
       continue;
     }
@@ -82,9 +119,9 @@ function tokens(source: string): Token[] {
     }
   }
   return out;
-}
+};
 
-function tree(ts: Token[]): Node[] {
+const tree = (ts: Token[]): Node[] => {
   const root: Node[] = [];
   const stack: Array<{ children: Node[]; group?: Extract<Node, { open: Token }> }> = [
     { children: root },
@@ -107,7 +144,7 @@ function tree(ts: Token[]): Node[] {
   }
   if (stack.length !== 1) throw new Error("unbalanced delimiters");
   return root;
-}
+};
 
 const first = (n: Node): Token => ("open" in n ? n.open : n);
 const last = (n: Node): Token => ("open" in n ? n.close : n);
@@ -115,45 +152,24 @@ const soft = (flat = " "): Doc => ({ kind: "line", flat });
 const hard = (offset = 0): Doc => ({ kind: "line", flat: "", hard: true, offset });
 const nest = (doc: Doc, amount: number): Doc => ({ kind: "nest", doc, amount });
 const group = (doc: Doc): Doc => ({ kind: "group", doc });
-const OPERATORS = new Set([
-  "+",
-  "-",
-  "*",
-  "/",
-  "%",
-  "^",
-  "++",
-  "&&",
-  "||",
-  "<&>",
-  ".&.",
-  ".|.",
-  ".^.",
-  "<<",
-  ">>",
-  "<>",
-  "<",
-  ">",
-  "<=",
-  ">=",
-  "==",
-  "!=",
-  "&",
-  "|",
-]);
 
-function gluedPrefix(a: Token, b: Node | undefined): boolean {
-  return ["+", "-", "%", "&"].includes(a.text) && b !== undefined && a.end === first(b).beg;
-}
+const gluedPrefix = (a: Token, b: Node | undefined): boolean =>
+  ["+", "-", "%", "&"].includes(a.text) && b !== undefined && a.end === first(b).beg;
 
-function separator(a: Node, b: Node): string {
+// Closes the levels deeper than `col`, then opens `col` if it is deeper.
+const indented = (levels: number[], col: number): void => {
+  while (levels.length > 1 && col < levels[levels.length - 1]) levels.pop();
+  if (col > levels[levels.length - 1]) levels.push(col);
+};
+
+const separator = (a: Node, b: Node): string => {
   const x = last(a),
     y = first(b),
     l = x.text,
     r = y.text;
   if (y.kind === "comment") return "  ";
-  if (r === "," || r === ";" || r === ":" || r === "?" || r === "!" || r === ".") return "";
-  if (l === "," || l === ";" || l === ":") return " ";
+  if ([",", ";", ":", "?", "!", "."].includes(r)) return "";
+  if ([",", ";", ":"].includes(l)) return " ";
   if (["~", "@", "?", "!", "\\"].includes(l)) return "";
   if (gluedPrefix(x, b)) return "";
   if (l.endsWith("n+")) return "";
@@ -169,15 +185,15 @@ function separator(a: Node, b: Node): string {
   }
   // Module paths are printed separately; other atoms need a separator.
   return " ";
-}
+};
 
-function sequence(
+const sequence = (
   nodes: Node[],
   source: string,
   opts: FormatOptions,
   base: number,
   raw = false,
-): Doc {
+): Doc => {
   const out: Doc[] = [];
   const levels = [base];
   let continuation: Doc[] | undefined;
@@ -190,9 +206,7 @@ function sequence(
         let next = i + 1;
         while (next < nodes.length && first(nodes[next]).kind === "newline") next++;
         if (next < nodes.length) {
-          const col = first(nodes[next]).col;
-          while (levels.length > 1 && col < levels[levels.length - 1]) levels.pop();
-          if (col > levels[levels.length - 1]) levels.push(col);
+          indented(levels, first(nodes[next]).col);
           (continuation ?? out).push(hard((levels.length - 1) * opts.tabWidth));
         } else if (prev && last(prev).kind === "comment") (continuation ?? out).push(hard());
         i = next - 1;
@@ -214,9 +228,9 @@ function sequence(
     prev = n;
   }
   return group(out);
-}
+};
 
-function nodeDoc(n: Node, source: string, opts: FormatOptions, base: number): Doc {
+const nodeDoc = (n: Node, source: string, opts: FormatOptions, base: number): Doc => {
   if (!("open" in n))
     return n.kind === "newline" ? "" : n.kind === "comment" ? commentText(n.text) : n.text;
   const children = n.children;
@@ -264,17 +278,16 @@ function nodeDoc(n: Node, source: string, opts: FormatOptions, base: number): Do
     closing,
     n.close.text,
   ]);
-}
+};
 
-function commentText(text: string): string {
-  // Keep empty comments, whitespace, test expectations, directives and headings.
-  return /^#[^\s#!|]/u.test(text) ? "# " + text.slice(1) : text;
-}
+// Keep empty comments, whitespace, test expectations, directives and headings.
+const commentText = (text: string): string =>
+  /^#[^\s#!|]/u.test(text) ? "# " + text.slice(1) : text;
 
 // A small document printer: a group is entirely flat if it fits; otherwise
 // its list separators break together. Nesting is relative, never alignment
 // under a function name. The width is a target, not a license to split atoms.
-function print(doc: Doc, width: number, indent: number, newline: string): string {
+const print = (doc: Doc, width: number, indent: number, newline: string): string => {
   const stack: Frame[] = [{ doc, indent, flat: false }];
   let out = " ".repeat(indent),
     col = indent;
@@ -321,9 +334,9 @@ function print(doc: Doc, width: number, indent: number, newline: string): string
       });
   }
   return out.trimEnd();
-}
+};
 
-export function format(source: string, opts: FormatOptions): string {
+export const format = (source: string, opts: FormatOptions): string => {
   const newline =
     opts.endOfLine === "preserve"
       ? (/\r?\n/.exec(source)?.[0] ?? "\n")
@@ -363,19 +376,15 @@ export function format(source: string, opts: FormatOptions): string {
     }
     const head = first(record[0]),
       col = head.col;
-    while (levels.length > 1 && col < levels[levels.length - 1]) levels.pop();
-    if (col > levels[levels.length - 1]) levels.push(col);
+    indented(levels, col);
     const indent = (levels.length - 1) * opts.tabWidth;
     const declaration = /^(def|type|law)$/.test(head.text) || head.text === "@";
     const comment = head.kind === "comment";
-    if (
-      rows.length &&
-      col === 0 &&
-      ((declaration && !previousComment && previous !== "@unsafe") || (comment && blank)) &&
-      rows[rows.length - 1] !== ""
-    )
-      rows.push("");
-    else if (rows.length && blank && col > 0 && rows[rows.length - 1] !== "") rows.push("");
+    const gap =
+      col === 0
+        ? (declaration && !previousComment && previous !== "@unsafe") || (comment && blank)
+        : blank;
+    if (gap && rows.length && rows[rows.length - 1] !== "") rows.push("");
     let doc: Doc;
     if (head.text === "import") {
       // Paths and aliases use their own grammar; do not treat / or - as operators.
@@ -405,7 +414,7 @@ export function format(source: string, opts: FormatOptions): string {
     blank = false;
   }
   return rows.join(newline).trimEnd() + newline;
-}
+};
 
 export const rules: LintRule[] = [
   {

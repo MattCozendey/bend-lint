@@ -374,7 +374,7 @@ const configAt = (file: string): Config => {
     const config: Config = [".js", ".ts"].includes(path.extname(file))
       ? exported(file)
       : JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!(config.load === undefined || (Array.isArray(config.load) && strings(config.load)))) {
+    if (!strings(config.load)) {
       throw new Error("`load` must be a list of rule files");
     }
     const at = path.dirname(path.resolve(file));
@@ -552,14 +552,10 @@ const lintWith = async (
   );
   const { sources, facts, failure } = checked;
   const ops = operations(m, checked);
+  const failed = failure === undefined ? [] : [failure];
   const root = sources.find((s) => s.root);
   if (root === undefined) {
-    return {
-      diags: failure === undefined ? [] : [failure],
-      sources,
-      facts,
-      unstable: ops.unstable,
-    };
+    return { diags: failed, sources, facts, unstable: ops.unstable };
   }
   // What one rule finds; a rule that throws or reports a bad fix fails.
   const run = async (
@@ -616,7 +612,7 @@ const lintWith = async (
   };
   // Without the checker's facts, only the rules that need none run.
   const runnable = plans.filter((p) => failure === undefined || p.want === undefined);
-  let diags: Diag[] = failure === undefined ? [] : [failure];
+  let diags: Diag[] = failed;
   for (const plan of runnable) {
     signal.throwIfAborted();
     const found = await run(plan, diags).catch((e: unknown): Diag[] => {
@@ -637,38 +633,33 @@ const lintWith = async (
   return { diags, sources, root, facts, unstable: ops.unstable };
 };
 
-function validRange(beg: number, end: number, length: number): boolean {
-  return Number.isInteger(beg) && Number.isInteger(end) && beg >= 0 && beg <= end && end <= length;
-}
+const validRange = (beg: number, end: number, length: number): boolean =>
+  Number.isInteger(beg) && Number.isInteger(end) && beg >= 0 && beg <= end && end <= length;
 
 // Whether two edits to one file cannot both apply: their ranges overlap,
 // or they insert at the same point.
-function clash(a: Edit, b: Edit): boolean {
-  return (
-    a.span.file === b.span.file &&
-    ((a.span.beg < b.span.end && b.span.beg < a.span.end) ||
-      (a.span.beg === b.span.beg && a.span.end === b.span.end))
-  );
-}
+const clash = (a: Edit, b: Edit): boolean =>
+  a.span.file === b.span.file &&
+  ((a.span.beg < b.span.end && b.span.beg < a.span.end) ||
+    (a.span.beg === b.span.beg && a.span.end === b.span.end));
 
 // `text` with edits applied; their spans are offsets into `text`, and they
 // do not clash.
-function apply(text: string, edits: Edit[]): string {
-  return [...edits]
+const apply = (text: string, edits: Edit[]): string =>
+  [...edits]
     .sort((a, b) => b.span.beg - a.span.beg || b.span.end - a.span.end)
     .reduce((s, { span, text: t }) => s.slice(0, span.beg) + t + s.slice(span.end), text);
-}
 
 // The text of `file` with the fixes of the given levels applied, in order.
 // An edit equal to one already taken is merged; a fix with an edit that
 // clashes with one already taken is skipped and counted. A fix for other
 // files is left out; one that edits `file` and another file is skipped
 // whole, never half applied, and counted apart.
-export function applyFixes(
+export const applyFixes = (
   file: Source,
   diags: Diag[],
   levels: Applicability[] = ["safe"],
-): { text: string; skipped: number; elsewhere: number } {
+): { text: string; skipped: number; elsewhere: number } => {
   const kept: Edit[] = [];
   let skipped = 0;
   let elsewhere = 0;
@@ -693,7 +684,7 @@ export function applyFixes(
     }
   }
   return { text: apply(file.text, kept), skipped, elsewhere };
-}
+};
 
 // bend's own error layout; the head names the severity and the code, and
 // each fix follows as a unified diff of the lines it touches.
@@ -738,14 +729,14 @@ const renderWith = (m: Loaded, d: Diag): string => {
 };
 
 // The LSP range of a span in a file on disk.
-export function position(span: Span): { start: Position; end: Position } {
+export const position = (span: Span): { start: Position; end: Position } => {
   const ss = starts(span.file, span.file.text);
   const at = (off: number): Position => {
     const i = line(ss, off);
     return { line: i, character: off - ss[i] };
   };
   return { start: at(span.beg), end: at(span.end) };
-}
+};
 
 // A rule written in Bend: a file built on ./bend/lint.bend (see there). It is
 // checked and compiled once; each run calls its main, while effects.js
@@ -921,12 +912,6 @@ const cli = async (argv: string[]): Promise<number> => {
   const config = values.config === undefined ? undefined : unwrap(await readConfig(values.config));
   const res = unwrap(await linter.lint(positionals[0], rules, { config }));
   const failed = res.diags.some((d) => d.severity === "error");
-  const { root } = res;
-  const levels = FIXES.find(([flag]) => values[flag])?.[1];
-  const fixed =
-    levels !== undefined && root !== undefined
-      ? { root, ...applyFixes(root, res.diags, levels) }
-      : undefined;
   const where = (span: Span) => ({ path: span.file.path, range: position(span) });
   console.log(
     values.json
@@ -953,18 +938,24 @@ const cli = async (argv: string[]): Promise<number> => {
           failed ? "bend-lint: FAIL" : "bend-lint: " + res.diags.length + " finding(s)",
         ].join("\n\n"),
   );
-  if (fixed !== undefined && fixed.text !== fixed.root.text) {
-    fs.writeFileSync(fixed.root.path, fixed.text);
-    console.error("bend-lint: fixed " + fixed.root.path);
+  const { root } = res;
+  const levels = FIXES.find(([flag]) => values[flag])?.[1];
+  if (levels === undefined || root === undefined) {
+    return failed ? 1 : 0;
   }
-  if (fixed !== undefined && fixed.skipped > 0) {
+  const { text, skipped, elsewhere } = applyFixes(root, res.diags, levels);
+  if (text !== root.text) {
+    fs.writeFileSync(root.path, text);
+    console.error("bend-lint: fixed " + root.path);
+  }
+  if (skipped > 0) {
     console.error(
-      `bend-lint: skipped ${fixed.skipped} fix(es) that clash with earlier ones; run the fix again to apply them`,
+      `bend-lint: skipped ${skipped} fix(es) that clash with earlier ones; run the fix again to apply them`,
     );
   }
-  if (fixed !== undefined && fixed.elsewhere > 0) {
+  if (elsewhere > 0) {
     console.error(
-      `bend-lint: skipped ${fixed.elsewhere} fix(es) that also edit other files; --fix writes only ${fixed.root.path}`,
+      `bend-lint: skipped ${elsewhere} fix(es) that also edit other files; --fix writes only ${root.path}`,
     );
   }
   return failed ? 1 : 0;
