@@ -577,12 +577,12 @@ async function bendRule(file: string): Promise<LintRule> {
   return unwrap(await linter.bendRule(file));
 }
 
-function findConfig(file: string) {
-  return unwrap(api.findConfig(file));
+async function findConfig(file: string) {
+  return unwrap(await api.findConfig(file));
 }
 
-function readConfig(file: string) {
-  return unwrap(api.readConfig(file));
+async function readConfig(file: string) {
+  return unwrap(await api.readConfig(file));
 }
 
 // Whether a run found no error.
@@ -1433,7 +1433,7 @@ describe("options", () => {
     );
     const file = path.join(top, "deep", "er", "file.bend");
     fs.writeFileSync(file, USERLAND);
-    expect(findConfig(file)).toEqual({ rules: { "test/echo": { tabWidth: 8 } } });
+    expect(await findConfig(file)).toEqual({ rules: { "test/echo": { tabWidth: 8 } } });
     expect(await messages(undefined, file)).toEqual([
       ["hint", '{"tabWidth":8,"breakLines":false}'],
     ]);
@@ -1451,7 +1451,7 @@ describe("options", () => {
       );
       const file = path.join(top, "nested", "file.bend");
       fs.writeFileSync(file, USERLAND);
-      expect(findConfig(file)).toEqual({
+      expect(await findConfig(file)).toEqual({
         rules: { "test/echo": { tabWidth: 8, severity: "warning" } },
       });
       expect(await messages(undefined, file)).toEqual([
@@ -1461,7 +1461,7 @@ describe("options", () => {
     });
   }
 
-  test("nearest config wins; JSON precedes JS, then TS in the same directory", () => {
+  test("nearest config wins; JSON precedes JS, then TS in the same directory", async () => {
     const configs = [
       [
         "bend-lint.ts",
@@ -1483,13 +1483,13 @@ describe("options", () => {
       for (const [name, text] of configs.slice(0, count)) {
         fs.writeFileSync(path.join(child, name), text);
       }
-      expect(findConfig(path.join(child, "file.bend"))).toEqual({
+      expect(await findConfig(path.join(child, "file.bend"))).toEqual({
         rules: { "test/echo": configs[count - 1][2] },
       });
     }
   });
 
-  test("module configs require a named object export and preserve load errors", () => {
+  test("module configs require a named object export and preserve load errors", async () => {
     for (const extension of ["js", "ts"]) {
       for (const [name, text, error] of [
         ["default", "export default {};", /must export a named `config` object/],
@@ -1500,8 +1500,8 @@ describe("options", () => {
         ["throws", 'throw new Error("config exploded");', /config exploded/],
       ] as const) {
         const file = fixture(`config_${name}.${extension}`, text);
-        expect(() => readConfig(file)).toThrow(error);
-        expect(() => readConfig(file)).toThrow(file);
+        await expect(readConfig(file)).rejects.toThrow(error);
+        await expect(readConfig(file)).rejects.toThrow(file);
       }
     }
   });
@@ -1516,13 +1516,13 @@ describe("options", () => {
     fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":["./rules/echo.ts"]}');
     const file = path.join(top, "file.bend");
     fs.writeFileSync(file, USERLAND);
-    expect(findConfig(file)).toEqual({ load: [path.join(top, "rules", "echo.ts")] });
+    expect(await findConfig(file)).toEqual({ load: [path.join(top, "rules", "echo.ts")] });
     const { rules } = await import(pathToFileURL(path.join(top, "rules", "echo.ts")).href);
     for (const given of [[], rules]) {
       expect((await lint(file, given)).diags.map((d) => d.code)).toEqual(["test/loaded"]);
     }
     fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":"./rules/echo.ts"}');
-    expect(() => findConfig(file)).toThrow("`load` must be a list of rule files");
+    await expect(findConfig(file)).rejects.toThrow("`load` must be a list of rule files");
   });
 
   test("module configs use the same rule option validation as JSON", async () => {
@@ -1530,7 +1530,7 @@ describe("options", () => {
       "invalid_options.ts",
       'export const config = { rules: { "test/echo": { tabWidth: "4" } } };',
     );
-    await expect(messages(readConfig(file))).rejects.toThrow(/tabWidth must match/);
+    await expect(messages(await readConfig(file))).rejects.toThrow(/tabWidth must match/);
   });
 
   test("a Bend rule declares its options and reads them", async () => {
@@ -1823,7 +1823,7 @@ describe("entry points return a Result", () => {
       [ERROR]: { type: "bend-missing" },
     });
     expect(await createLinter()).toEqual(await createLinter());
-    expect(api.readConfig(path.join(DIR, "no-config.json"))).toMatchObject({
+    expect(await api.readConfig(path.join(DIR, "no-config.json"))).toMatchObject({
       [ERROR]: { type: "config" },
     });
     const config = (rules: object) => ({ config: { rules } as api.Config });

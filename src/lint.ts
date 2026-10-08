@@ -20,6 +20,7 @@ import {
   layout,
   line,
   load,
+  message,
   operations,
   path,
   select,
@@ -319,12 +320,12 @@ const linterOf = (m: Loaded): Linter => ({
 });
 
 // A config file; its `load` paths become absolute, from the file's folder.
-export const readConfig = (file: string): Result<Config, LintError> =>
-  attempt("config", () => configAt(file));
+export const readConfig = (file: string): Promise<Result<Config, LintError>> =>
+  attempted("config", () => configAt(file));
 
 // The nearest config; JSON, JS, then TS within each directory.
-export const findConfig = (file: string): Result<Config, LintError> =>
-  attempt("config", () => nearestConfig(file));
+export const findConfig = (file: string): Promise<Result<Config, LintError>> =>
+  attempted("config", () => nearestConfig(file));
 
 // `e`, caused by `cause`, unless it already says what caused it.
 const blame = (cause: LintError["type"], e: unknown): unknown => {
@@ -343,21 +344,13 @@ const settle = (fallback: LintError["type"], e: unknown, signal?: AbortSignal): 
   const drifted = (e as { [DRIFT]?: boolean } | null)?.[DRIFT] === true;
   return {
     type: signal?.aborted ? "aborted" : drifted ? "drift" : (known ?? fallback),
-    [ERROR_METADATA]: { message: e instanceof Error ? e.message : String(e), cause: e },
+    [ERROR_METADATA]: { message: message(e), cause: e },
   };
-};
-
-const attempt = <T>(fallback: LintError["type"], f: () => T): Result<T, LintError> => {
-  try {
-    return ok(f());
-  } catch (e) {
-    return error(settle(fallback, e));
-  }
 };
 
 const attempted = async <T>(
   fallback: LintError["type"],
-  f: () => Promise<T>,
+  f: () => T | Promise<T>,
   signal?: AbortSignal,
 ): Promise<Result<T, LintError>> => {
   try {
@@ -380,7 +373,7 @@ const configAt = (file: string): Config => {
       ? config
       : { ...config, load: config.load.map((p) => path.resolve(at, p)) };
   } catch (e) {
-    throw fault("config", file + ": " + (e instanceof Error ? e.message : String(e)));
+    throw fault("config", file + ": " + message(e));
   }
 };
 
@@ -560,13 +553,12 @@ const lintWith = async (
   );
   const { sources, facts, failure } = checked;
   const ops = operations(m, checked);
-  const kept = facts ?? [];
   const root = sources.find((s) => s.root);
   if (root === undefined) {
     return {
       diags: failure === undefined ? [] : [failure],
       sources,
-      facts: kept,
+      facts,
       unstable: ops.unstable,
     };
   }
@@ -575,7 +567,7 @@ const lintWith = async (
     { rule, severity, options, want }: (typeof plans)[number],
     prior: Diag[],
   ): Promise<Diag[]> => {
-    const mine = want === undefined ? [] : (select(m, checked, want, wide) ?? []);
+    const mine = want === undefined ? [] : select(m, checked, want, wide);
     const asked = new Set(mine);
     const out = await rule.run({
       ...ops,
@@ -636,14 +628,14 @@ const lintWith = async (
         {
           code: CRASH,
           severity: "error",
-          message: plan.rule.id + ": " + (e instanceof Error ? e.message : String(e)),
+          message: plan.rule.id + ": " + message(e),
           fixes: [],
         },
       ];
     });
     diags = [...diags, ...found];
   }
-  return { diags, sources, root, facts: kept, unstable: ops.unstable };
+  return { diags, sources, root, facts, unstable: ops.unstable };
 };
 
 function validRange(beg: number, end: number, length: number): boolean {
@@ -808,23 +800,18 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       const span = (s: Spot): Span => {
         const src = cx.sources.find((x) => x.path === s.path);
         if (src === undefined) {
-          throw new Error(
-            "rule " + id + " reported a span in " + s.path + ", which is not in the book",
-          );
+          throw new Error("it reported a span in " + s.path + ", which is not in the book");
         }
         const { units } = table(src.text);
         const at = (n: number): number => units[Math.min(n, units.length - 1)];
         return { file: src, beg: at(s.beg), end: at(s.end) };
       };
-      const facts = cx.facts ?? [];
       let given = 0;
       const types: Type[] = [];
       const nodes: Node[] = [];
       const pick = <T>(xs: T[], i: number, what: string): T => {
         if (xs[i] === undefined) {
-          throw new Error(
-            "rule " + id + " asked about " + what + " " + i + ", which it was not given",
-          );
+          throw new Error("it asked about " + what + " " + i + ", which it was not given");
         }
         return xs[i];
       };
@@ -839,7 +826,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       const factOf = (i: number): Fact => {
         const f = cx.fact(pick(nodes, i, "node"));
         if (f === undefined) {
-          throw new Error("rule " + id + " asked about node " + i + ", which has no fact for it");
+          throw new Error("it asked about node " + i + ", which has no fact for it");
         }
         return f;
       };
@@ -849,7 +836,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
           sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s.root })),
           options: cx.options,
         }),
-        next: () => (given < facts.length ? wire(facts[given++]) : undefined),
+        next: () => (given < cx.facts.length ? wire(cx.facts[given++]) : undefined),
         report: (diags) => void found.push(diags),
         text: (s) => {
           const { file, beg, end } = span(s);
@@ -890,13 +877,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       }
       if (code !== 0 || found.length !== 1) {
         throw new Error(
-          "rule " +
-            id +
-            " exited with " +
-            code +
-            " after " +
-            found.length +
-            " reports; it must report once",
+          "it exited with " + code + " after " + found.length + " reports; it must report once",
         );
       }
       return found[0].map((d) =>
@@ -909,9 +890,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
             edits: f.edits.map((e) => {
               const at = span(e.span);
               if (!validRange(e.span.beg, e.span.end, table(at.file.text).units.length - 1)) {
-                throw new TypeError(
-                  "rule " + id + ': fix "' + f.title + '" has an edit out of bounds',
-                );
+                throw new TypeError('fix "' + f.title + '" has an edit out of bounds');
               }
               return { span: at, text: e.text };
             }),
@@ -937,13 +916,15 @@ const cli = async (argv: string[]): Promise<number> => {
   }
   const linter = unwrap(await createLinter({ bend: values.bend }));
   const rules = unwrap(await linter.loadRules(values.rules ?? []));
-  const config = values.config === undefined ? undefined : unwrap(readConfig(values.config));
+  const config = values.config === undefined ? undefined : unwrap(await readConfig(values.config));
   const res = unwrap(await linter.lint(positionals[0], rules, { config }));
   const failed = res.diags.some((d) => d.severity === "error");
   const { root } = res;
   const levels = FIXES.find(([flag]) => values[flag])?.[1];
   const fixed =
-    levels !== undefined && root !== undefined ? applyFixes(root, res.diags, levels) : undefined;
+    levels !== undefined && root !== undefined
+      ? { root, ...applyFixes(root, res.diags, levels) }
+      : undefined;
   const where = (span: Span) => ({ path: span.file.path, range: position(span) });
   console.log(
     values.json
@@ -970,9 +951,9 @@ const cli = async (argv: string[]): Promise<number> => {
           failed ? "bend-lint: FAIL" : "bend-lint: " + res.diags.length + " finding(s)",
         ].join("\n\n"),
   );
-  if (root !== undefined && fixed !== undefined && fixed.text !== root.text) {
-    fs.writeFileSync(root.path, fixed.text);
-    console.error("bend-lint: fixed " + root.path);
+  if (fixed !== undefined && fixed.text !== fixed.root.text) {
+    fs.writeFileSync(fixed.root.path, fixed.text);
+    console.error("bend-lint: fixed " + fixed.root.path);
   }
   if (fixed !== undefined && fixed.skipped > 0) {
     console.error(
@@ -981,19 +962,19 @@ const cli = async (argv: string[]): Promise<number> => {
         " fix(es) that clash with earlier ones; run the fix again to apply them",
     );
   }
-  if (root !== undefined && fixed !== undefined && fixed.elsewhere > 0) {
+  if (fixed !== undefined && fixed.elsewhere > 0) {
     console.error(
       "bend-lint: skipped " +
         fixed.elsewhere +
         " fix(es) that also edit other files; --fix writes only " +
-        root.path,
+        fixed.root.path,
     );
   }
   return failed ? 1 : 0;
 };
 
 const fail = (e: unknown): never => {
-  console.error("bend-lint: " + (e instanceof Error ? e.message : String(e)));
+  console.error("bend-lint: " + message(e));
   process.exit(2);
 };
 

@@ -106,7 +106,7 @@ export type Checked = {
   book: Book;
   sources: Source[];
   map: Mapper;
-  facts?: Fact[];
+  facts: Fact[];
   failure?: Diag;
 };
 
@@ -343,7 +343,7 @@ export const patch = (file: string, src: string): string => {
 export const drift = (message: string): Error =>
   Object.assign(new Error(message), { name: "DriftError", [DRIFT]: true });
 
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 // A response's text, or a rejection naming its status.
 const text = (res: Response, what: string): Promise<string> =>
@@ -731,7 +731,7 @@ const checked = async (
       book,
       sources,
       map,
-      facts: filters.length > 0 ? [...new Map(facts).values()] : undefined,
+      facts: [...new Map(facts).values()],
     };
   }
   const err = isErr(read.e) ? read.e : undefined;
@@ -745,6 +745,7 @@ const checked = async (
     book: Bend.book_nil(),
     sources,
     map,
+    facts: [],
     failure: {
       code: "bend/check",
       severity: "error",
@@ -793,13 +794,13 @@ export const select = (
   { sources, facts }: Checked,
   want: FactFilter,
   wide: { program: boolean; instances: boolean },
-): Fact[] | undefined => {
+): Fact[] => {
   const root = FILES.get(sources.find((s) => s.root)!);
   const all =
     [want.kinds, want.defs, want.names].every((xs) => !xs?.length) &&
     (want.scope === "program" || !wide.program) &&
     (want.instances === true || !wide.instances);
-  return facts === undefined || all
+  return all
     ? facts
     : facts.filter((fact) => {
         const r = raw(fact);
@@ -952,7 +953,7 @@ export const operations = (m: Loaded, run: Checked): Operations => {
     },
     sameDeclarations: (text) => sameDeclarations(m, run, text),
     fact: (n) => {
-      byTerm ??= new Map((run.facts ?? []).map((f) => [tree(f.node), f]));
+      byTerm ??= new Map(run.facts.map((f) => [tree(f.node), f]));
       return byTerm.get(tree(n));
     },
     unstable: { Bend, book: run.book, raw },
@@ -1009,21 +1010,31 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   const bool = (t: LTerm | undefined): boolean | undefined =>
     [true, false].find((b) => args(t, b ? "True" : "False") !== undefined);
   const texts = (t: LTerm | undefined): string[] | undefined => list(t, text);
+  // Each Lint.Spec constructor, as a schema with its default.
+  const specs: Record<string, (xs: LTerm[]) => Record<string, unknown>> = {
+    NumberOption: ([d, lo, hi]) => ({
+      type: "integer",
+      default: whole(d),
+      minimum: whole(lo),
+      maximum: whole(hi),
+    }),
+    FlagOption: ([d]) => ({ type: "boolean", default: bool(d) }),
+    TextOption: ([d, choices]) => ({
+      type: "string",
+      default: text(d),
+      ...(args(choices, "Nil") === undefined ? { enum: texts(choices) } : {}),
+    }),
+  };
   const declare = (t: LTerm): [string, Declared] | undefined => {
     const [key, kind] = args(t, "Declared") ?? [];
-    const [d, minimum, maximum] = args(kind, "NumberOption") ?? [];
-    const [flag] = args(kind, "FlagOption") ?? [];
-    const [given, choices] = args(kind, "TextOption") ?? [];
-    const one =
-      d !== undefined
-        ? { type: "integer", default: whole(d), minimum: whole(minimum), maximum: whole(maximum) }
-        : flag !== undefined
-          ? { type: "boolean", default: bool(flag) }
-          : { type: "string", default: text(given), enum: texts(choices) };
     const name = text(key);
-    return name === undefined || Object.values(one).includes(undefined)
+    const one = Object.entries(specs).flatMap(([k, of]) => {
+      const xs = args(kind, k);
+      return xs === undefined ? [] : [of(xs)];
+    })[0];
+    return name === undefined || one === undefined || Object.values(one).includes(undefined)
       ? undefined
-      : [name, { ...one, enum: one.enum?.length === 0 ? undefined : one.enum } as Declared];
+      : [name, one as Declared];
   };
   const asked = value("facts");
   const [scope, kinds, defs, names, instances] = args(asked, "Want") ?? [];
@@ -1085,7 +1096,7 @@ export const guardMain = (Main: Main): void =>
 const selfCheck = async (m: Loaded): Promise<void> => {
   const run = await check(m, SAMPLE, [{}], new AbortController().signal);
   const ops = operations(m, run);
-  const views = (run.facts ?? []).map((fact) => ({ fact, ...ops.shape(ops.strip(fact.node)) }));
+  const views = run.facts.map((fact) => ({ fact, ...ops.shape(ops.strip(fact.node)) }));
   const x = views.find((v) => v.kind === "Var" && v.name === "x");
   const bound = x && ops.binder(x.fact);
   demand(
@@ -1133,7 +1144,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
     PATCHED.map((f) => import(url.pathToFileURL(path.join(dir, f)).href)),
   );
   if (modules.some((module) => module[MARK] !== 1)) {
-    throw drift("bend2 was loaded before bend-lint could patch it; import bend-lint first");
+    throw drift("bend2 was loaded before bend-lint could patch it; call createLinter first");
   }
   const [B, C, M] = modules as [typeof BendModule, Comp, Main];
   guardMain(M);
