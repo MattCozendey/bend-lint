@@ -394,13 +394,15 @@ show up on stderr. A finding with a fix:
         "text": " "
       }]
     }]
-  }]
+  }],
+  "suppressed": []
 }
 ```
 
-`def`, `path` and `range` are left out when there's nothing to put. Lines start
-at 0, characters are UTF-16. With a fix flag, findings describe the source as it
-was before the fixes.
+`suppressed` lists, in the same shape, the findings a `# bend-lint:` comment
+covers; they do not count for `ok`. `def`, `path` and `range` are left out when
+there's nothing to put. Lines start at 0, characters are UTF-16. With a fix flag,
+findings describe the source as it was before the fixes.
 
 ## Internals
 
