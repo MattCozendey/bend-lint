@@ -150,8 +150,8 @@ nothing is a `bend-lint/unused-disable` warning. A directive that is wrong is a
 must be ordered by rule, then severity, then keyword; the safe fix sorts them.
 A comment covers the findings in its own file. A rule that looks at the imports
 too (`program` scope) can report in an imported file, and that file's comments
-apply there. In an import, a `disable` or `expect` is judged only for such rules,
-and its form is checked when you lint that file. The findings of Bend's checker
+apply there. Comments in an import are checked for form like the linted file's,
+but an unused `disable` or unmet `expect` there is judged only for such rules. The findings of Bend's checker
 (`bend/...`) and of bend-lint itself (`bend-lint/...`) cannot be suppressed.
 
 ## What you get back

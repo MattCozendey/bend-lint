@@ -6,9 +6,10 @@
 // a covered line (a finding without a span counts as line 1). Directives that
 // stack on consecutive comment-only lines must be in order, by rule, severity
 // and keyword. A comment covers the findings of its own file: the linted
-// file, or an import, which only a rule of program scope reports in. Only the
-// linted file's directives are checked for form and order; an import's own run
-// does that. The checker's and bend-lint's own findings cannot be suppressed.
+// file, or an import that a rule reports in. Every file read is checked for
+// form and order, and an unused or unmet directive is judged where the rule
+// could look: in the linted file, and for a rule of program scope in imports.
+// The checker's and bend-lint's own findings cannot be suppressed.
 
 import { line, starts } from "./seam.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
@@ -301,10 +302,9 @@ const read = (file: Source, ctx: Context) => {
 };
 
 // Splits the findings into those that stay and those a directive covers, and
-// adds the findings about the directives: a malformed one (the linted file's
-// only), a disable that covered nothing, an expect that was not met. Those
-// two are judged for rules that ran, and in an import for those of program
-// scope.
+// adds the findings about the directives: a wrong one, a disable that covered
+// nothing, an expect that was not met. Those two are judged for rules that
+// ran, and in an import for those of program scope.
 export const suppress = (
   root: Source,
   sources: Source[],
@@ -349,7 +349,6 @@ export const suppress = (
       ];
     }),
   );
-  const own = files.get(root);
-  const about = own === undefined ? [] : [...own.wrong, ...unsorted(root, own.found)];
+  const about = [...files].flatMap(([file, r]) => [...r.wrong, ...unsorted(file, r.found)]);
   return { diags: [...kept, ...about, ...unmet], suppressed };
 };

@@ -2860,7 +2860,7 @@ describe("suppression", () => {
     ]);
   });
 
-  test("a rule that does not look at imports is not judged in them, and form is checked only in the linted file", async () => {
+  test("a rule that does not look at imports is not judged in them, but every file read is checked for form", async () => {
     const res = await withLib(
       [
         "  # bend-lint: expect-next demo/a@warning -- not judged here",
@@ -2868,6 +2868,22 @@ describe("suppression", () => {
       ],
       [a, uses],
     );
-    expect(codes(res)).toEqual(["demo/var"]);
+    expect(codes(res)).toEqual(["demo/var", "bend-lint/directive"]);
+    expect(whereIn(res.diags, "bend-lint/directive")).toEqual([
+      expect.stringMatching(/^lib\d+\.bend:5$/),
+    ]);
+  });
+
+  test("a stack out of order, or a rule that does not exist, is reported in an import", async () => {
+    const unsorted = await withLib([
+      "  # bend-lint: expect-next demo/var@warning -- why",
+      "  # bend-lint: disable-next demo/var -- why",
+    ]);
+    expect(codes(unsorted)).toEqual(["bend-lint/directive"]);
+    expect(messages(unsorted, "bend-lint/directive")).toEqual([
+      "Directives that stack must be in order: by rule, then severity, then keyword.",
+    ]);
+    const unknown = await withLib(["  # bend-lint: disable-next demo/zzz -- why"]);
+    expect(messages(unknown, "bend-lint/directive")).toEqual(["There is no rule demo/zzz."]);
   });
 });
