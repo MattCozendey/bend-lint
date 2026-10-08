@@ -139,8 +139,12 @@ export type OptionSchema = {
   anyOf?: OptionSchema[];
 };
 
-// Config: per rule id, "off", or a severity and option values.
-export type Config = { rules?: Record<string, "off" | ({ severity?: Severity } & Options)> };
+// Config: rule files to load (readConfig makes them absolute), and per
+// rule id, "off", or a severity and option values.
+export type Config = {
+  load?: string[];
+  rules?: Record<string, "off" | ({ severity?: Severity } & Options)>;
+};
 
 // `unsaved` maps file paths to text an editor holds but has not saved. bend
 // and the rules read it in place of the file, for that run only.
@@ -222,6 +226,9 @@ const HEAD: Record<Severity, string> = {
 
 const shared = globalThis as typeof globalThis & { BEND_LINT?: Channel };
 
+// Compiled Bend rules, by path, with the text they were compiled from.
+const COMPILED = new Map<string, { text: string; rule: LintRule }>();
+
 const OPTIONS = {
   rules: { type: "string", multiple: true },
   fix: { type: "boolean" },
@@ -248,26 +255,56 @@ const FIXES: ReadonlyArray<
 // Functions
 // =========
 
+// A config file; its `load` paths become absolute, from the file's folder.
 export function readConfig(file: string): Config {
   try {
-    if ([".js", ".ts"].includes(path.extname(file))) {
-      const module = import.meta.require(url.pathToFileURL(path.resolve(file)).href);
-      if (!Object.hasOwn(module, "config")) {
-        throw new Error("must export a named `config` object");
-      }
-      if (
-        typeof module.config !== "object" ||
-        module.config === null ||
-        Array.isArray(module.config)
-      ) {
-        throw new Error("`config` must be an object");
-      }
-      return module.config;
+    const config: Config = [".js", ".ts"].includes(path.extname(file))
+      ? exported(file)
+      : JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!(config.load === undefined || (Array.isArray(config.load) && strings(config.load)))) {
+      throw new Error("`load` must be a list of rule files");
     }
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    const at = path.dirname(path.resolve(file));
+    return config.load === undefined
+      ? config
+      : { ...config, load: config.load.map((p) => path.resolve(at, p)) };
   } catch (e) {
     throw new Error(file + ": " + (e instanceof Error ? e.message : String(e)));
   }
+}
+
+// A JS or TS config's named `config` export.
+const exported = (file: string): Config => {
+  const module = import.meta.require(url.pathToFileURL(path.resolve(file)).href);
+  if (!Object.hasOwn(module, "config")) {
+    throw new Error("must export a named `config` object");
+  }
+  if (typeof module.config !== "object" || module.config === null || Array.isArray(module.config)) {
+    throw new Error("`config` must be an object");
+  }
+  return module.config;
+};
+
+// The rules of rule files: a TS or JS module's `rules`, or a Bend rule. A
+// Bend rule is compiled again only when its text changes.
+export async function loadRules(files: string[]): Promise<LintRule[]> {
+  const modules = await Promise.all(
+    files.map(async (file): Promise<LintRule[]> => {
+      if (file.endsWith(".bend")) {
+        const text = fs.readFileSync(file, "utf8");
+        const known = COMPILED.get(path.resolve(file));
+        const rule = known?.text === text ? known.rule : await bendRule(file);
+        COMPILED.set(path.resolve(file), { text, rule });
+        return [rule];
+      }
+      const { rules } = await import(url.pathToFileURL(path.resolve(file)).href);
+      if (!Array.isArray(rules)) {
+        throw new Error(file + " must export `rules`, an array of rules");
+      }
+      return rules;
+    }),
+  );
+  return modules.flat();
 }
 
 // The nearest config; JSON, JS, then TS within each directory.
@@ -356,18 +393,21 @@ const settings = (
   return { off: false, severity, options: { ...defaults, ...options } };
 };
 
-// Rules run in order; the config may turn one off, set its severity, and
-// give its options. A finding with severity error stops the run. A rule
+// The given rules run in order, then the config's `load` files' that are
+// not given already; the config may turn one off, set its severity, and give its
+// options. A finding with severity error stops the run. A rule
 // that throws, and an abort, reach the caller.
 export async function lint(
   file: string,
-  rules: LintRule[],
+  given: LintRule[],
   {
     signal = new AbortController().signal,
     config = findConfig(file),
     unsaved: held,
   }: LintOptions = {},
 ): Promise<LintResult> {
+  const extra = await loadRules(config.load ?? []);
+  const rules = [...given, ...extra.filter((r, i) => !given.includes(r) && extra.indexOf(r) === i)];
   const bad = rules.findIndex(
     (r) =>
       !RULE_ID.test(String(r?.id)) ||
@@ -762,19 +802,7 @@ async function cli(argv: string[]): Promise<number> {
   if (positionals.length !== 1) {
     throw new Error("give one .bend file\n" + USAGE);
   }
-  const modules = await Promise.all(
-    (values.rules ?? []).map(async (file): Promise<LintRule[]> => {
-      if (file.endsWith(".bend")) {
-        return [await bendRule(file)];
-      }
-      const { rules } = await import(url.pathToFileURL(path.resolve(file)).href);
-      if (!Array.isArray(rules)) {
-        throw new Error(file + " must export `rules`, an array of rules");
-      }
-      return rules;
-    }),
-  );
-  const res = await lint(positionals[0], modules.flat(), {
+  const res = await lint(positionals[0], await loadRules(values.rules ?? []), {
     config: values.config === undefined ? undefined : readConfig(values.config),
   });
   const root = res.sources.find((s) => s.root);

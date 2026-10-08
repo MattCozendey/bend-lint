@@ -341,7 +341,10 @@ side by side. `position(span)` gives an LSP range.
 `readConfig(file)` loads a path you give it. Both are synchronous. JS and TS
 configs export a named `config` object and go through Bun's loader, cache
 included. They can import relative files. Rule settings and option validation
-are the same for all three formats.
+are the same for all three formats. `lint` also runs the rules of the config's
+`load` files, after the ones you give it. `loadRules(files)` loads rule files
+the same way: a module's `rules`, or a Bend rule, compiled again only when its
+text changes.
 
 ### JSON output
 

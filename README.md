@@ -23,8 +23,8 @@ bun install
 bun src/lint.ts file.bend --rules rules/format.ts
 ```
 
-Nothing runs by default. You have to pass `--rules`, and you can pass it more
-than once:
+Nothing runs by default. Pass `--rules`, more than once if you like, or list
+rule files in the config (see Config):
 
 ```sh
 bun src/lint.ts file.bend --rules rules/format.ts --rules rules/file_length.bend
@@ -94,6 +94,7 @@ folder wins. Inside a folder, JSON beats JS beats TS. Only one file is read.
 
 ```json
 {
+  "load": ["./rules/format.ts", "./rules/file_length.bend"],
   "rules": {
     "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 },
     "style/file-length": { "maxLines": 400, "severity": "warning" }
@@ -111,8 +112,9 @@ export const config = {
 };
 ```
 
-Rules still come from `--rules`; config sets their options and severity.
-`"off"` turns a rule off. Severities are `error`, `warning`, `information` and `hint`, and an
+`load` lists rule files, relative to the config file. They run after the ones
+from `--rules`. `rules` sets their options and severity. `"off"` turns a rule
+off. Severities are `error`, `warning`, `information` and `hint`, and an
 `error` stops the rules after it.
 
 Each rule declares the options it accepts. Unknown keys and values that don't

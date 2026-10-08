@@ -1447,6 +1447,25 @@ describe("options", () => {
     }
   });
 
+  test("a config loads rule files, relative to itself, each rule once", async () => {
+    const top = path.join(DIR, "config_load");
+    fs.mkdirSync(path.join(top, "rules"), { recursive: true });
+    fs.writeFileSync(
+      path.join(top, "rules", "echo.ts"),
+      'export const rules = [{ id: "test/loaded", run: (cx) => [cx.diag({ message: "here", severity: "hint" })] }];',
+    );
+    fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":["./rules/echo.ts"]}');
+    const file = path.join(top, "file.bend");
+    fs.writeFileSync(file, USERLAND);
+    expect(findConfig(file)).toEqual({ load: [path.join(top, "rules", "echo.ts")] });
+    const { rules } = await import(pathToFileURL(path.join(top, "rules", "echo.ts")).href);
+    for (const given of [[], rules]) {
+      expect((await lint(file, given)).diags.map((d) => d.code)).toEqual(["test/loaded"]);
+    }
+    fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":"./rules/echo.ts"}');
+    expect(() => findConfig(file)).toThrow("`load` must be a list of rule files");
+  });
+
   test("module configs use the same rule option validation as JSON", async () => {
     const file = fixture(
       "invalid_options.ts",
