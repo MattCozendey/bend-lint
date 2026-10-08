@@ -1591,7 +1591,7 @@ describe("options", () => {
     }
     fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":"./rules/echo.ts"}');
     expect((await rejection(findConfig(file))).message).toMatch(
-      "`load` must be a list of rule files",
+      "`load` and `entries` must be lists of paths",
     );
   });
 
@@ -2326,6 +2326,14 @@ describe("linted files", () => {
         }),
       ),
   };
+  const refs: LintRule = {
+    id: "test/refs",
+    facts: { kinds: ["Ref"], names: ["keep"] },
+    run: (cx) =>
+      cx.facts.map((f) =>
+        cx.diag({ message: cx.shape(cx.strip(f.node)).name, span: f.span, fact: f }),
+      ),
+  };
   const seen = (res: LintResult): string[] =>
     res.diags
       .filter((d) => d.span?.file.path.endsWith("/sub/lib.bend"))
@@ -2334,11 +2342,14 @@ describe("linted files", () => {
       );
 
   test("a file linted through an entry's imports gets what it gets alone", async () => {
-    const alone = await lint(lib, [names, ...formatRules]);
-    const through = await lint(main, [names, ...formatRules], { imports: true });
+    const alone = await lint(lib, [names, refs, ...formatRules]);
+    const through = await lint(main, [names, refs, ...formatRules], { imports: true });
     expect(seen(alone)).toEqual(seen(through));
     expect(seen(alone)).toContain(
-      "test/names keep ../util.N true keep " + (alone.root!.text.indexOf("  x") + 2) + " 0",
+      "test/names keep U.N true keep " + (alone.root!.text.indexOf("  x") + 2) + " 0",
+    );
+    expect(seen(alone)).toContain(
+      "test/refs keep main " + alone.root!.text.indexOf("keep(U.Z") + " 0",
     );
     expect(seen(alone).some((s) => s.startsWith("format/layout"))).toBe(true);
   });
@@ -2381,6 +2392,145 @@ describe("linted files", () => {
       status: 2,
       stderr: expect.stringContaining("--imports takes one entry file"),
     });
+  });
+});
+
+describe("entries", () => {
+  // a.bend and b.bend import lib.bend; c.bend does not; broken.bend imports
+  // it and does not check.
+  const dir = path.join(DIR, "entries").replaceAll("\\", "/");
+  fs.mkdirSync(dir, { recursive: true });
+  const lib = dir + "/lib.bend";
+  fs.writeFileSync(lib, "import Base\n\ndef twice(x: U32) -> U32:\n  x\n");
+  const a = dir + "/a.bend";
+  const A = "import Base\nimport lib.bend as L\n\ndef main() -> U32:\n  L.twice(1)\n";
+  fs.writeFileSync(a, A);
+  const b = dir + "/b.bend";
+  fs.writeFileSync(b, "import Base\nimport lib.bend as L\n\ndef main() -> U32:\n  1\n");
+  const c = dir + "/c.bend";
+  fs.writeFileSync(c, "import Base\n\ndef main() -> U32:\n  1\n");
+  const broken = dir + "/broken.bend";
+  fs.writeFileSync(broken, "import Base\nimport lib.bend as L\n\ndef main() -> U32:\n  Type\n");
+
+  // A rule of program scope that reports, at the start of lib.bend, the
+  // entry it ran from and how long that entry's text is.
+  const from = (id: string, entries?: "some" | "every", only?: string): LintRule => ({
+    id,
+    facts: { scope: "program", kinds: ["Ref"] },
+    ...(entries === undefined ? {} : { entries }),
+    run: (cx) =>
+      only !== undefined && !cx.root.path.endsWith(only)
+        ? []
+        : [
+            cx.diag({
+              message: path.basename(cx.root.path) + " " + cx.root.text.length,
+              span: { file: cx.sources.find((s) => s.path.endsWith("/lib.bend"))!, beg: 0, end: 0 },
+            }),
+          ],
+  });
+  const lintLib = async (rules: LintRule[], entries?: string[]): Promise<LintResult> =>
+    unwrap(await linter.lint(lib, rules, { config: { entries } }));
+  const messages = (res: LintResult, code: string): string[] =>
+    res.diags.filter((d) => d.code === code).map((d) => d.message);
+
+  test("a file an entry imports is checked from that entry; findings stay in the file", async () => {
+    const res = await lintLib([from("test/from")], [a]);
+    expect(messages(res, "test/from")).toEqual(["a.bend " + A.length]);
+    expect(res.linted.map((s) => s.path)).toEqual([res.root!.path]);
+    expect(res.root!.path).toEndWith("/lib.bend");
+    expect(messages(await lintLib([from("test/from")]), "test/from")).toEqual([
+      expect.stringMatching(/^lib\.bend /),
+    ]);
+    expect(messages(await lintLib([from("test/from")], [c]), "test/from")).toEqual([
+      expect.stringMatching(/^lib\.bend /),
+    ]);
+  });
+
+  test("with several entries, a program rule's finding stands when one finds it, or with entries every, when all do", async () => {
+    const both = [a, b];
+    expect(
+      messages(await lintLib([from("test/some", "some", "/a.bend")], both), "test/some"),
+    ).toEqual(["a.bend " + A.length]);
+    expect(
+      messages(await lintLib([from("test/every", "every", "/a.bend")], both), "test/every"),
+    ).toEqual([]);
+    expect(messages(await lintLib([from("test/each", "every")], both), "test/each")).toEqual([
+      "a.bend " + A.length,
+    ]);
+    expect(messages(await lintLib([from("test/once")], both), "test/once")).toEqual([
+      "a.bend " + A.length,
+    ]);
+  });
+
+  test("an entry's check is reused only while every file it read is unchanged", async () => {
+    expect(messages(await lintLib([from("test/len")], [a]), "test/len")).toEqual([
+      "a.bend " + A.length,
+    ]);
+    fs.writeFileSync(a, A + "# more\n");
+    try {
+      expect(messages(await lintLib([from("test/len")], [a]), "test/len")).toEqual([
+        "a.bend " + (A.length + 7),
+      ]);
+    } finally {
+      fs.writeFileSync(a, A);
+    }
+  });
+
+  test("an entry whose check fails is reported, and the file is checked alone", async () => {
+    const res = await lintLib([from("test/from")], [broken]);
+    expect(res.diags.map((d) => d.code)).toEqual(["bend/check", "test/from"]);
+    expect(res.diags[0].span?.file.path).toEndWith("/broken.bend");
+    expect(messages(res, "test/from")).toEqual([expect.stringMatching(/^lib\.bend /)]);
+  });
+
+  test("when an entry's check fails, a rule of entries every does not run; one of entries some reads the rest", async () => {
+    const rules = [from("test/some", "some"), from("test/every", "every")];
+    const mixed = await lintLib(rules, [a, broken]);
+    expect(mixed.diags.map((d) => d.code)).toEqual(["bend/check", "test/some"]);
+    expect(messages(mixed, "test/some")).toEqual(["a.bend " + A.length]);
+    const alone = await lintLib(rules, [broken]);
+    expect(alone.diags.map((d) => d.code)).toEqual(["bend/check", "test/some"]);
+    expect(messages(alone, "test/some")).toEqual([expect.stringMatching(/^lib\.bend /)]);
+  });
+
+  test("a rule written in Bend says how entries count with entries()", async () => {
+    const file = fixture(
+      "entries_rule.bend",
+      [
+        "import Base",
+        "import ../../bend/lint.bend as Lint",
+        "",
+        "def id() -> String:",
+        '  "test/entries"',
+        "",
+        "def facts() -> Lint.Want:",
+        "  Lint.Want{Lint.Program{}, [], [], [], False{}}",
+        "",
+        "def entries() -> Lint.Entries:",
+        "  Lint.EveryEntry{}",
+        "",
+        "def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):",
+        "  IO.pure(List<&2, Lint.Diag>, [])",
+        "",
+        "def main() -> IO(Unit):",
+        "  Lint.serve(run)",
+        "",
+      ].join("\n"),
+    );
+    expect(unwrap(await linter.bendRule(file)).entries).toBe("every");
+  });
+
+  test("a config's entries are globs, relative to it", async () => {
+    const config = dir + "/bend-lint.json";
+    fs.writeFileSync(config, JSON.stringify({ entries: ["./a*.bend"] }));
+    try {
+      expect((await readConfig(config)).entries).toEqual([dir + "/a*.bend"]);
+      expect(messages(unwrap(await linter.lint(lib, [from("test/from")])), "test/from")).toEqual([
+        "a.bend " + A.length,
+      ]);
+    } finally {
+      fs.rmSync(config);
+    }
   });
 });
 

@@ -45,9 +45,34 @@ bun src/lint.ts <glob>... [--imports] [--rules <file>]... [--config <file>]
 - Use `/` in paths, on every system. An input with `\` is an error.
 - Quote globs, so bend-lint expands them the same way in every shell.
 - An input that matches no file is an error.
-- Each named file gets its own check. Findings appear only in that file.
+- Findings appear only in the files you name.
+- Each named file is checked alone, unless the config lists `entries` (see
+  below).
 - `--imports` takes one entry file. It lints the entry and every file it
-  imports, Base aside, with one check.
+  imports, Base aside, with one check. It ignores `entries`.
+
+### Entries: lint one file, read the whole program
+
+Some rules look at the whole program, for example "this def is never used".
+When you lint `lib.bend` alone, such a rule cannot see `main.bend`, which
+uses lib. List your program's entry files in the config:
+
+```json
+{ "entries": ["main.bend", "tests/*.bend"] }
+```
+
+- When you lint a file that an entry imports, bend-lint checks from that
+  entry. Findings still appear only in the file you named.
+- With more than one entry that imports the file, each entry's check runs.
+  A rule says whether a finding needs some entry (`some`, the default) or
+  every entry (`every`).
+- A file no entry imports is checked alone.
+- An entry that fails Bend's check is reported. Then:
+  - an `every` rule does not run, since its answer would be incomplete;
+  - a `some` rule reads the entries that passed, or, if none did, the file
+    checked alone.
+- An entry's check is reused for the next file while no file it read has
+  changed.
 
 ### Fixes
 
@@ -94,6 +119,7 @@ bend-lint reads one config file:
 ```
 
 - `load`: rule files, relative to the config. They run after `--rules`.
+- `entries`: globs of the program's entry files, relative to the config.
 - `rules`: per rule, `"off"`, or its options and a `severity`.
 - Severities: `error`, `warning`, `information`, `hint`.
 - An unknown option, or a value that does not fit, is an error.

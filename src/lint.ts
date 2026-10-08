@@ -27,7 +27,7 @@ import {
   starts,
   unstable,
 } from "./seam.ts";
-import type { Loaded, Operations, Unstable } from "./seam.ts";
+import type { Checked, Loaded, Operations, Unstable } from "./seam.ts";
 import { suppress } from "./suppress.ts";
 
 // Types
@@ -146,10 +146,12 @@ export type OptionSchema = {
   anyOf?: OptionSchema[];
 };
 
-// Config: rule files to load (readConfig makes them absolute), and per
-// rule id, "off", or a severity and option values.
+// Config: rule files to load, globs of the program's entry files (readConfig
+// makes both absolute), and per rule id, "off", or a severity and option
+// values.
 export type Config = {
   load?: string[];
+  entries?: string[];
   rules?: Record<string, "off" | ({ severity?: Severity } & Options)>;
 };
 
@@ -166,15 +168,16 @@ export type LintOptions = {
 export type LintRule = {
   id: string; // namespace/name; the code of its findings
   facts?: true | FactFilter; // the checker's facts it needs; true: all of the linted file's
+  entries?: "some" | "every"; // scope program: a finding stands when some entry's check finds it, or every one's
   options?: Record<string, OptionSchema & { default: OptionValue }>; // what it accepts; none if absent
   run(cx: RuleContext): Diag[] | Promise<Diag[]>;
 };
 
-// root: the file checked, unless bend could not read it. linted: the files
-// findings can be in (root, and with `imports` the rest but Base). facts:
-// those kept for the rules. suppressed: the findings a directive covers
-// (see ./suppress.ts); diags has the rest, and the findings about the
-// directives themselves.
+// root: the file named, unless bend could not read it. linted: the files
+// findings can be in (root, and with `imports` the rest but Base).
+// sources, facts and unstable: those of the first check the rules read.
+// suppressed: the findings a directive covers (see ./suppress.ts); diags
+// has the rest, and the findings about the directives themselves.
 export type LintResult = {
   diags: Diag[];
   suppressed: Diag[];
@@ -400,13 +403,12 @@ const configAt = (file: string): Config => {
     const config: Config = [".js", ".ts"].includes(path.extname(file))
       ? exported(file)
       : JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!strings(config.load)) {
-      throw new Error("`load` must be a list of rule files");
+    if (!strings(config.load) || !strings(config.entries)) {
+      throw new Error("`load` and `entries` must be lists of paths");
     }
     const at = path.dirname(path.resolve(file));
-    return config.load === undefined
-      ? config
-      : { ...config, load: config.load.map((p) => path.resolve(at, p)) };
+    const absolute = (ps: string[] | undefined) => ps?.map((p) => path.resolve(at, p));
+    return { ...config, load: absolute(config.load), entries: absolute(config.entries) };
   } catch (e) {
     throw fault("config", file + ": " + message(e));
   }
@@ -555,12 +557,13 @@ const lintWith = async (
       !RULE_ID.test(String(r?.id)) ||
       typeof r?.run !== "function" ||
       !validFacts(r.facts) ||
+      ![undefined, "some", "every"].includes(r.entries) ||
       !validOptions(r.options),
   );
   if (bad >= 0) {
     throw fault(
       "rule-module",
-      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter (instances only with scope program), and options, if given, schemas their defaults match`,
+      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter (instances only with scope program), entries, if given, "some" or "every", and options, if given, schemas their defaults match`,
     );
   }
   const plans = rules
@@ -570,56 +573,50 @@ const lintWith = async (
       want: rule.facts === true ? {} : rule.facts,
     }))
     .filter((p) => !p.off);
-  const wide = {
-    beyond: imports || plans.some((p) => p.want?.scope === "program"),
-    instances: plans.some((p) => p.want?.instances === true),
-  };
-  const checked = await check(
+  const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
+  const { checks, failed, partial } = await checksFor(
     m,
     file,
+    real,
     plans.flatMap((p) => (p.want === undefined ? [] : [p.want])),
-    signal,
-    { text: held, imports },
+    { signal, config, unsaved: held, imports },
   );
-  const { sources, root, facts, failure } = checked;
-  const internals = unstable(m, checked);
-  const failed = failure === undefined ? [] : [failure];
+  const first = checks[0];
+  const { sources, facts, failure } = first;
+  const root = sources.find((s) => s.path === real) ?? first.root;
+  const internals = unstable(m, first);
   if (root === undefined) {
-    return {
-      diags: failed,
-      suppressed: [],
-      sources,
-      linted: [],
-      facts,
-      unstable: internals,
-    };
+    return { diags: failed, suppressed: [], sources, linted: [], facts, unstable: internals };
   }
   const linted = imports ? sources.filter((s) => !s.base) : [root];
-  const views = new Map<Source, Operations>();
-  const opsOf = (on: Source): Operations => {
-    const known = views.get(on) ?? operations(m, checked, on);
-    views.set(on, known);
+  const memo = new Map<string, Operations>();
+  const opsOf = (c: Checked, on: Source, program: boolean): Operations => {
+    const at = checks.indexOf(c) + "\0" + on.path + "\0" + program;
+    const known = memo.get(at) ?? operations(m, c, on, program);
+    memo.set(at, known);
     return known;
   };
-  // What one rule finds in a run on `on`; a rule that throws or reports a
-  // bad fix fails.
+  // What one rule finds in a run on `on`, over check `c`; a rule that
+  // throws or reports a bad fix fails.
   const run = async (
     { rule, severity, options, want }: (typeof plans)[number],
+    c: Checked,
     on: Source,
     prior: Diag[],
   ): Promise<Diag[]> => {
-    const mine = want === undefined ? [] : select(m, checked, want, wide, on);
+    const program = want?.scope === "program";
+    const mine = want === undefined ? [] : select(m, c, want, on);
     const byNode = new Map(mine.map((f) => [f.node, f]));
     const out = await rule.run({
-      ...opsOf(on),
-      sources,
+      ...opsOf(c, on, program),
+      sources: c.sources,
       root: on,
       options,
       facts: mine,
       fact: (node) => byNode.get(node),
       prior,
       signal,
-      unstable: internals,
+      unstable: unstable(m, c),
       diag: (d) => ({
         code: rule.id,
         severity: d.severity ?? "warning",
@@ -652,8 +649,7 @@ const lintWith = async (
         'fix "' + broken.title + '" has an edit out of bounds, or two that clash',
       );
     }
-    const astray =
-      want?.scope === "program" ? undefined : settled.find((d) => d.span && d.span.file !== on);
+    const astray = program ? undefined : settled.find((d) => d.span && d.span.file !== on);
     if (astray !== undefined) {
       throw new TypeError(
         "it reported in " +
@@ -664,37 +660,50 @@ const lintWith = async (
     }
     return settled;
   };
-  // Without the checker's facts, only the rules that need none run. A rule
-  // of program scope runs once, on the root, and reaches every linted file;
-  // any other runs on each linted file and reaches only it. Each file holds
-  // its findings in the order found; one outside the linted files is dropped.
-  const runnable = plans.filter((p) => failure === undefined || p.want === undefined);
+  // Without the checker's facts, only the rules that need none run; when an
+  // entry's check failed, no rule of `entries: "every"` runs. A rule
+  // of program scope runs once per check, on its root, and reaches every
+  // linted file; any other runs on each linted file and reaches only it.
+  // Each file holds its findings in the order found; one outside the linted
+  // files is dropped.
+  const runnable = plans.filter(
+    (p) =>
+      (failure === undefined || p.want === undefined) && !(partial && p.rule.entries === "every"),
+  );
   const homes = new Map(linted.map((s) => [s, [] as Diag[]]));
   homes.get(root)!.push(...failed);
   // Each rule and file whose run ended without a crash.
   const done = new Set<string>();
-  const key = (rule: string, file: Source): string => rule + "\0" + file.path;
+  const key = (rule: string, at: Source): string => rule + "\0" + at.path;
+  // Where a finding is, for telling whether two checks found the same.
+  const where = (d: Diag, home: Source): string =>
+    [d.code, d.severity, d.span?.file.path ?? home.path, d.span?.beg, d.span?.end].join("\0");
   for (const plan of runnable) {
-    const runs =
-      plan.want?.scope === "program"
-        ? [{ on: root, reach: linted }]
-        : linted.map((on) => ({ on, reach: [on] }));
-    for (const { on, reach } of runs) {
+    const program = plan.want?.scope === "program";
+    const runs = program
+      ? checks.map((c) => ({ c, on: c.root!, home: root, reach: linted }))
+      : linted.map((on) => ({ c: first, on, home: on, reach: [on] }));
+    const found: Array<{ home: Source; diags: Diag[] }> = [];
+    for (const { c, on, home, reach } of runs) {
       signal.throwIfAborted();
-      const got = await run(
+      const diags = await run(
         plan,
+        c,
         on,
-        reach.flatMap((f) => homes.get(f)!),
+        rehome(
+          reach.flatMap((f) => homes.get(f)!),
+          c.sources,
+        ),
       ).then(
-        (diags) => {
+        (got) => {
           reach.forEach((f) => done.add(key(plan.rule.id, f)));
-          return diags;
+          return rehome(got, sources);
         },
         (e: unknown): Diag[] => {
           if (signal.aborted) {
             throw signal.reason;
           }
-          const span = { file: on, beg: 0, end: 0 };
+          const span = { file: home, beg: 0, end: 0 };
           return [
             {
               code: CRASH,
@@ -706,19 +715,82 @@ const lintWith = async (
           ];
         },
       );
-      got.forEach((diag) => homes.get(diag.span?.file ?? on)?.push(diag));
+      found.push({ home, diags });
     }
+    // A program rule's checks agree on a finding when it is at the same
+    // place: with `entries: "every"` a finding needs all of them, else one.
+    const seen = found.map((f) => new Set(f.diags.map((d) => where(d, f.home))));
+    const every = program && plan.rule.entries === "every";
+    found.forEach(({ home, diags }, i) =>
+      diags
+        .filter((d) =>
+          every
+            ? d.code === CRASH || (i === 0 && seen.every((s) => s.has(where(d, home))))
+            : !seen.slice(0, i).some((s) => s.has(where(d, home))),
+        )
+        .forEach((d) => homes.get(d.span?.file ?? home)?.push(d)),
+    );
   }
   const shown = suppress(
     [...homes].flatMap(([home, diags]) => diags.map((diag) => ({ diag, home }))),
     linted,
     {
       known: new Set(rules.map((r) => r.id)),
-      ran: (file, rule) => done.has(key(rule, file)),
+      ran: (at, rule) => done.has(key(rule, at)),
       isSeverity,
     },
   );
   return { ...shown, sources, root, linted, facts, unstable: internals };
+};
+
+// The checks the rules read for `file` (at `real`): with `imports`, its own;
+// else each entry's that read it and passed, or, if none did, its own.
+// failed: the failures of those checks, and of the entries' that read it.
+// partial: whether one of those entries' failed.
+const checksFor = async (
+  m: Loaded,
+  file: string,
+  real: string,
+  filters: FactFilter[],
+  {
+    signal,
+    config,
+    unsaved: held,
+    imports,
+  }: Required<Pick<LintOptions, "signal" | "config" | "imports">> & Pick<LintOptions, "unsaved">,
+): Promise<{ checks: Checked[]; failed: Diag[]; partial: boolean }> => {
+  const entries = await Promise.resolve(imports ? [] : (config.entries ?? []))
+    .then(named)
+    .catch((e: unknown) => {
+      throw blame("config", e);
+    });
+  const tried: Checked[] = [];
+  for (const entry of entries) {
+    tried.push(await check(m, entry, filters, signal, { text: held, all: true, reuse: true }));
+  }
+  const reaching = tried.filter((c) => c.sources.some((s) => s.path === real));
+  const passed = reaching.filter((c) => c.failure === undefined);
+  const checks =
+    passed.length > 0
+      ? passed
+      : [await check(m, file, filters, signal, { text: held, all: imports })];
+  return {
+    checks,
+    failed: [...reaching, ...checks].map((c) => c.failure).filter((d) => d !== undefined),
+    partial: passed.length < reaching.length,
+  };
+};
+
+// `diags` with each span moved to the source of `sources` with its path,
+// where there is one.
+const rehome = (diags: Diag[], sources: Source[]): Diag[] => {
+  const byPath = new Map(sources.map((s) => [s.path, s]));
+  const at = (span: Span): Span => ({ ...span, file: byPath.get(span.file.path) ?? span.file });
+  return diags.map((d) => ({
+    ...d,
+    ...(d.span && { span: at(d.span) }),
+    fixes: d.fixes.map((f) => ({ ...f, edits: f.edits.map((e) => ({ ...e, span: at(e.span) })) })),
+  }));
 };
 
 const validRange = (beg: number, end: number, length: number): boolean =>
@@ -834,11 +906,12 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
   if (checked.failure !== undefined) {
     throw fault("rule-module", file + " does not check:\n" + renderWith(m, checked.failure));
   }
-  const { id, want, options, main } = compile(m, checked, file);
+  const { id, want, options, entries, main } = compile(m, checked, file);
   return {
     id,
     ...(want === null ? {} : { facts: want }),
     ...(options === undefined ? {} : { options }),
+    ...(entries === undefined ? {} : { entries }),
     run: (cx) => {
       const table = (src: Source): Points | null => {
         const known = POINTS.get(src);

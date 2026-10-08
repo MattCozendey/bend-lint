@@ -92,14 +92,19 @@ type Report = Omit<Raw, "inst">;
 type Declared = NonNullable<LintRule["options"]>[string];
 
 // A type handle's content: the type, the book and depth of its scope, and
-// the file whose names show it (none: the check's root). A Raw is one, for
+// the file whose spelling shows it (none: the check's names). A Raw is one, for
 // the type its term was checked as.
-type Scoped = { ty: HTerm; bok: Book; dep: number; view?: File };
+type Scoped = { ty: HTerm; bok: Book; dep: number; spelled?: File };
 
-// Names as a linted file's own check would give them: `own` turns one of
-// the check's names into that file's, `key` turns it back, and `file` is
-// what term_show prints with. The check's root has none of this.
-type View = { own: (k: Name) => Name; key: (k: Name) => Name; file: File };
+// How one file spells names (see spellingOf).
+type Spelling = {
+  ns: Name;
+  aliases: Record<Name, Name>;
+  file: File;
+  qualify: (name: string) => Name;
+  spell: (k: Name) => Name;
+  key: (name: string) => Name;
+};
 
 // bend2's own objects, for code that accepts to break when bend2 changes.
 export type Unstable = { Bend: typeof BendModule; book: Book; raw: (fact: Fact) => Raw };
@@ -110,13 +115,16 @@ export type Operations = Omit<
   "sources" | "root" | "options" | "facts" | "prior" | "signal" | "fact" | "diag" | "unstable"
 >;
 
-// root: the file checked, unless bend could not read it.
+// root: the file checked, unless bend could not read it. beyond: whether
+// facts were kept beyond the root; instances: whether instances' were.
 export type Checked = {
   book: Book;
   sources: Source[];
   root?: Source;
   map: Mapper;
   facts: Fact[];
+  beyond: boolean;
+  instances: boolean;
   failure?: Diag;
 };
 
@@ -126,6 +134,7 @@ type Compiled = {
   id: string;
   want: FactFilter | null;
   options?: LintRule["options"];
+  entries?: LintRule["entries"];
   main: (args: string[]) => number;
 };
 
@@ -147,7 +156,6 @@ const RAW = "https://raw.githubusercontent.com/bendlang/bend/";
 const RELEASE = /^v\d+\.\d+\.\d+$/;
 const DAY = 24 * 60 * 60 * 1000;
 const EFF = /^effs\/[\w.-]+$/;
-const HUB = /^0x[0-9a-f]+\//;
 const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
 
 // Downloaded bends, one folder per release.
@@ -202,6 +210,10 @@ let reads: Map<string, string> | undefined;
 // from: Base is checked once per process, and again only if base.bend
 // changes. Only the latest is kept.
 let BASE: { key: string; book: Promise<Book> } | undefined;
+
+// The last check that passed of each file asked to reuse it, by real path,
+// with the bend2 folder and filters it was made for.
+const REUSED = new Map<string, { key: string; run: Checked }>();
 
 // The check running now, or done; the next check waits for it.
 let queue: Promise<unknown> = Promise.resolve();
@@ -690,17 +702,20 @@ const checked = async (
   file: string,
   filters: FactFilter[],
   signal: AbortSignal,
-  imports: boolean,
+  all: boolean,
 ): Promise<Checked> => {
   const { Bend, Main } = m;
   const seen = new Map<string, string | null>();
   const found: Report[] = [];
   const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
   const home = real.slice(0, real.lastIndexOf("/") + 1);
-  // Away from the root, a file filter's defs and names are in another
-  // file's view, so select matches them later.
+  // A file filter's names are matched later, as each file spells them (see
+  // select); the root spells its own defs as the check names them.
+  const near = filters.map((f) =>
+    f.scope === "program" ? f : { kinds: f.kinds, defs: f.defs, instances: f.instances },
+  );
   const far = filters.flatMap((f): FactFilter[] =>
-    f.scope === "program" ? [f] : imports ? [{ kinds: f.kinds }] : [],
+    f.scope === "program" ? [f] : all ? [{ kinds: f.kinds }] : [],
   );
   const beyond = far.length > 0;
   const texts = new Map<string, string>();
@@ -713,12 +728,12 @@ const checked = async (
   }
   const see = (report: Report): void => {
     const at = report.spn?.file as { dir?: string; ns?: string } | undefined;
-    const near = at?.dir === home && at.ns === "" ? filters : far;
-    if (near.length === 0) {
+    const these = at?.dir === home && at.ns === "" ? near : far;
+    if (these.length === 0) {
       return;
     }
     const { kind, name } = kindOf(Bend.term_strip(report.tm));
-    if (near.some((f) => matches(f, kind, report.def, name))) {
+    if (these.some((f) => matches(f, kind, report.def, name))) {
       found.push(report);
     }
   };
@@ -759,7 +774,7 @@ const checked = async (
         ? [[f.tm, record({ ...f, inst, spn })]]
         : [];
     });
-    return { book, sources, root, map, facts: [...new Map(facts).values()] };
+    return { book, sources, root, map, facts: [...new Map(facts).values()], beyond, instances };
   }
   const err = isErr(read.e) ? read.e : undefined;
   return {
@@ -768,6 +783,8 @@ const checked = async (
     root,
     map,
     facts: [],
+    beyond,
+    instances,
     failure: {
       code: "bend/check",
       severity: "error",
@@ -780,25 +797,50 @@ const checked = async (
   };
 };
 
+// Whether every file a check read still has the text it read; `text` is
+// what an editor holds unsaved, by real path.
+const fresh = (run: Checked, text: ReadonlyMap<string, string>): boolean =>
+  run.sources.every(
+    (s) => (text.get(s.path) ?? tried(() => nodeFs.readFileSync(s.path, "utf8"))) === s.text,
+  );
+
 // Checks a book as `bend <file>` does (not main.ts's verdict on @unsafe and
-// foreign code), with `unsaved` text in place of the files on disk, one
-// check at a time. A fact is kept only if a filter wants it, and only if
-// its span maps to the root (with `imports`, or a filter of scope program,
-// to any file but Base).
+// foreign code), with `text` in place of the files on disk, one check at a
+// time. A fact is kept only if a filter wants it, and only if its span maps
+// to the root (with `all`, or a filter of scope program, to any file but
+// Base). With `reuse`, the last check of `file` that passed is given again
+// while the filters and every file it read are unchanged.
 export const check = (
   m: Loaded,
   file: string,
   filters: FactFilter[],
   signal: AbortSignal,
-  { text, imports = false }: { text?: ReadonlyMap<string, string>; imports?: boolean } = {},
+  {
+    text,
+    all = false,
+    reuse = false,
+  }: { text?: ReadonlyMap<string, string>; all?: boolean; reuse?: boolean } = {},
 ): Promise<Checked> => {
   const turn = queue.then(async (): Promise<Checked> => {
     signal.throwIfAborted();
-    [...(text ?? [])]
-      .filter(([at]) => fs.existsSync(at))
-      .forEach(([at, str]) => unsaved.set(fs.realpathSync(at), str));
+    const held = new Map(
+      [...(text ?? [])]
+        .filter(([at]) => fs.existsSync(at))
+        .map(([at, str]) => [fs.realpathSync(at), str]),
+    );
+    const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
+    const key = JSON.stringify([m.BEND2, filters, all]);
+    const known = REUSED.get(real);
+    if (reuse && known?.key === key && fresh(known.run, held)) {
+      return known.run;
+    }
+    held.forEach((str, at) => unsaved.set(at, str));
     try {
-      return await checked(m, file, filters, signal, imports);
+      const run = await checked(m, file, filters, signal, all);
+      if (reuse && run.failure === undefined) {
+        REUSED.set(real, { key, run });
+      }
+      return run;
     } finally {
       hook.see = undefined;
       reads = undefined;
@@ -810,12 +852,12 @@ export const check = (
 };
 
 // What every rule of a run shares over one check, each made once, when
-// first asked: walks, each file's view and declarations, aliases by parsed
-// text, the book's order, the sources by path, and the facts by file.
+// first asked: walks, each file's spelling and declarations, aliases by
+// parsed text, the book's order, the sources by path, and the facts by file.
 type Shared = {
   walked: Map<LTerm, LTerm[]>;
   parents?: Map<LTerm, LTerm>;
-  views: Map<Source, View | undefined>;
+  spellings: Map<Source, Spelling>;
   declares: Map<Source, (text: string) => boolean>;
   aliases?: Map<string, Record<Name, Name>>;
   order?: Order;
@@ -826,7 +868,11 @@ type Shared = {
 const SHARED = new WeakMap<Checked, Shared>();
 
 const sharedOf = (run: Checked): Shared => {
-  const known = SHARED.get(run) ?? { walked: new Map(), views: new Map(), declares: new Map() };
+  const known = SHARED.get(run) ?? {
+    walked: new Map(),
+    spellings: new Map(),
+    declares: new Map(),
+  };
   SHARED.set(run, known);
   return known;
 };
@@ -841,64 +887,62 @@ const importsOf = (run: Checked, shared: Shared, file: Source): Array<[Name, Sou
   });
 };
 
-// `file` and every file it reaches through its imports.
-const closure = (run: Checked, shared: Shared, file: Source): Set<Source> => {
-  const seen = new Set([file]);
-  for (const s of seen) {
-    importsOf(run, shared, s).forEach(([, imported]) => seen.add(imported));
+// The aliases of each parsed text, from the spans of the book's terms:
+// one walk per check.
+const aliasesOf = (m: Loaded, book: Book): Map<string, Record<Name, Name>> => {
+  const out = new Map<string, Record<Name, Name>>();
+  for (const tld of Object.values(book.tlds)) {
+    for (const t of [tld.T, ...(tld.$ === "Def" && tld.v ? [tld.v] : [])]) {
+      for (const tm of walk(m.Bend.term_lower(t))) {
+        if (tm.s !== undefined && !out.has(tm.s.file.str)) {
+          out.set(tm.s.file.str, tm.s.file.al);
+        }
+      }
+    }
   }
-  return seen;
+  return out;
 };
 
-// `file`'s view of the check's names, as bend names them when `file` is
-// the root: a file's namespace is its path from the root's folder without
-// .bend, and a hub file's is its own. Only the files `file` reaches are
-// named, as nothing else can show up in its facts.
-const viewOf = (run: Checked, shared: Shared, file: Source): View | undefined => {
-  if (file === run.root) {
-    return undefined;
-  }
-  const dir = file.path.slice(0, file.path.lastIndexOf("/") + 1);
-  const pairs = [...closure(run, shared, file)]
-    .filter((s) => !s.base)
-    .map((s): [Name, Name] => {
-      const ns = FILES.get(s)!.ns;
-      return [
-        ns,
-        s === file ? "" : HUB.test(ns) ? ns : relative(dir, s.path).replace(/\.bend$/, ""),
-      ];
-    });
-  const mine = FILES.get(file)!.ns;
-  const to = new Map(pairs);
-  const back = new Map(pairs.map(([theirs, ours]) => [ours, theirs]));
-  const swap = (k: Name, ns: Name | undefined, local: Name): Name =>
-    ns === undefined ? k : ns === "" ? local : ns + ":" + local;
+const unimported = (s: string): string => s.replace(/^import[^\S\n].*$/gm, "");
+
+// How `file` spells the check's names, as bend's own name_show prints them
+// for it: its own names bare, an import's through its alias, any other
+// name as the check has it. `aliases` maps each alias to the check's
+// namespace (from bend's spans, else from the import lines), `qualify`
+// reads a name as `file` would declare it, and `key` finds the check's
+// name for a spelling.
+const spellingOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Spelling => {
+  const ns = FILES.get(file)!.ns;
+  const aliases = importsOf(run, shared, file).reduce<Record<Name, Name>>(
+    (known, [alias, imported]) =>
+      known[alias] !== undefined ? known : { ...known, [alias]: FILES.get(imported)!.ns },
+    /^import\s+\S+\s+as\s+/m.test(file.text)
+      ? ((shared.aliases ??= aliasesOf(m, run.book)).get(unimported(file.text)) ?? {})
+      : {},
+  );
+  const shown = { str: "", ns, al: aliases, path: file.path };
+  const qualify = (name: string): Name => {
+    const dot = name.indexOf(".");
+    return dot >= 0 && aliases[name.slice(0, dot)] !== undefined
+      ? aliases[name.slice(0, dot)] + ":" + name.slice(dot + 1)
+      : (ns ? ns + ":" : "") + name;
+  };
   return {
-    own: (k) => {
-      const at = k.indexOf(":");
-      return at < 0 ? k : swap(k, to.get(k.slice(0, at)), k.slice(at + 1));
-    },
-    key: (k) => {
-      const at = k.indexOf(":");
-      return at >= 0
-        ? swap(k, back.get(k.slice(0, at)), k.slice(at + 1))
-        : run.book.tlds[mine + ":" + k] !== undefined
-          ? mine + ":" + k
-          : k;
-    },
-    file: {
-      str: "",
-      ns: mine,
-      al: Object.fromEntries(pairs.filter(([, ours]) => ours !== "").map(([a, b]) => [b, a])),
-      path: file.path,
-    },
+    ns,
+    aliases,
+    file: shown,
+    qualify,
+    spell: (k) => m.Bend.name_show(shown, k),
+    key: (name) =>
+      [qualify(name), name, name.replace(".", ":")].find((k) => run.book.tlds[k] !== undefined) ??
+      name,
   };
 };
 
-const viewIn = (run: Checked, file: Source): View | undefined => {
+const spellingIn = (m: Loaded, run: Checked, file: Source): Spelling => {
   const shared = sharedOf(run);
-  const known = shared.views.has(file) ? shared.views.get(file) : viewOf(run, shared, file);
-  shared.views.set(file, known);
+  const known = shared.spellings.get(file) ?? spellingOf(m, run, shared, file);
+  shared.spellings.set(file, known);
   return known;
 };
 
@@ -914,36 +958,30 @@ const factsByFile = (facts: Fact[]): Map<unknown, Fact[]> => {
   return out;
 };
 
-// A fact as `view` names it: its owner, and the names its type shows.
-const viewed = (fact: Fact, view: View): Fact => {
+// A fact as `spelling` names it: its owner, and the names its type shows.
+const spelled = (fact: Fact, spelling: Spelling): Fact => {
   const r = raw(fact);
   return {
     ...fact,
-    owner: view.own(fact.owner),
-    type: typed({ ty: r.ty, bok: r.bok, dep: r.dep, view: view.file }),
+    owner: spelling.spell(fact.owner),
+    type: typed({ ty: r.ty, bok: r.bok, dep: r.dep, spelled: spelling.file }),
   };
 };
 
 // The facts one rule asked for, of those kept for all rules, for a run on
-// `file`; `wide` says whether some rule kept other files' facts or
-// instances' facts. A file rule matches defs and names in `file`'s view,
-// and gets its facts named so; a program rule gets the check's names.
-export const select = (
-  m: Loaded,
-  run: Checked,
-  want: FactFilter,
-  wide: { beyond: boolean; instances: boolean },
-  file: Source,
-): Fact[] => {
+// `file`. A file rule matches defs and names as `file` spells
+// them, and gets its facts spelled so; a program rule gets the check's
+// names.
+export const select = (m: Loaded, run: Checked, want: FactFilter, file: Source): Fact[] => {
   const program = want.scope === "program";
-  const view = program ? undefined : viewIn(run, file);
+  const spelling = program ? undefined : spellingIn(m, run, file);
   const shared = sharedOf(run);
   const byFile = (shared.byFile ??= factsByFile(run.facts));
-  const near = program || !wide.beyond ? run.facts : (byFile.get(FILES.get(file)) ?? []);
-  const named = (k: Name): Name => (view === undefined ? k : view.own(k));
+  const near = program || !run.beyond ? run.facts : (byFile.get(FILES.get(file)) ?? []);
+  const named = (k: Name): Name => (spelling === undefined ? k : spelling.spell(k));
   const kept =
     [want.kinds, want.defs, want.names].every((xs) => !xs?.length) &&
-    (want.instances === true || !wide.instances)
+    (want.instances === true || !run.instances)
       ? near
       : near.filter((fact) => {
           const r = raw(fact);
@@ -952,7 +990,7 @@ export const select = (
             (want.instances === true || !r.inst) && matches(want, kind, named(r.def), named(name))
           );
         });
-  return view === undefined ? kept : kept.map((f) => viewed(f, view));
+  return spelling === undefined ? kept : kept.map((f) => spelled(f, spelling));
 };
 
 // Where each declaration first sits in the book's order, where each
@@ -998,22 +1036,6 @@ const layer = <T>(under: Record<Name, T>, hidden: (k: Name) => boolean): Record<
   });
 };
 
-// The aliases of each parsed text, from the spans of the book's terms:
-// one walk per check.
-const aliasesOf = (m: Loaded, book: Book): Map<string, Record<Name, Name>> => {
-  const out = new Map<string, Record<Name, Name>>();
-  for (const tld of Object.values(book.tlds)) {
-    for (const t of [tld.T, ...(tld.$ === "Def" && tld.v ? [tld.v] : [])]) {
-      for (const tm of walk(m.Bend.term_lower(t))) {
-        if (tm.s !== undefined && !out.has(tm.s.file.str)) {
-          out.set(tm.s.file.str, tm.s.file.al);
-        }
-      }
-    }
-  }
-  return out;
-};
-
 // Whether `text` declares what `file` declares: both are parsed with the
 // same imported declarations, and compared as parsed terms, not checked
 // ones, since checking unfolds definitions and would hide changes in
@@ -1031,22 +1053,8 @@ const sameDeclarations = (
 ): ((text: string) => boolean) => {
   const { Bend } = m;
   const { book, root } = run;
-  const ns = FILES.get(file)!.ns;
+  const { ns, aliases, qualify } = spellingIn(m, run, file);
   const dir = file.path.slice(0, file.path.lastIndexOf("/") + 1);
-  const body = (s: string) => s.replace(/^import[^\S\n].*$/gm, "");
-  const aliases = importsOf(run, shared, file).reduce<Record<Name, Name>>(
-    (known, [alias, imported]) =>
-      known[alias] !== undefined ? known : { ...known, [alias]: FILES.get(imported)!.ns },
-    /^import\s+\S+\s+as\s+/m.test(file.text)
-      ? ((shared.aliases ??= aliasesOf(m, book)).get(body(file.text)) ?? {})
-      : {},
-  );
-  const qualify = (name: string) => {
-    const dot = name.indexOf(".");
-    return dot >= 0 && aliases[name.slice(0, dot)] !== undefined
-      ? aliases[name.slice(0, dot)] + ":" + name.slice(dot + 1)
-      : (ns ? ns + ":" : "") + name;
-  };
   const own = [...file.text.matchAll(/^(?:@unsafe\s+)?(?:def|type|law)\s+([\w.]+)/gm)].map(
     (match) => qualify(match[1]),
   );
@@ -1068,7 +1076,7 @@ const sameDeclarations = (
       const tld = book.tlds[k];
       parsed.tlds[k] = tld.$ === "Def" ? { ...tld, v: null, i: undefined, u: false } : tld;
     }
-    Bend.parse_book(parsed, dir, body(s), ns, aliases);
+    Bend.parse_book(parsed, dir, unimported(s), ns, aliases);
     const lower = (t: HTerm | null) => (t === null ? null : Bend.term_lower(t));
     return JSON.stringify(
       parsed.order.map((k) => {
@@ -1085,13 +1093,14 @@ const sameDeclarations = (
 };
 
 // What a rule asks bend2, over one check's book and facts, for a run on
-// `file`: names are `file`'s (see viewOf). Walks are shared by every rule
-// of the run: each root's nodes, and the parents of every node of the
-// program's bodies (Base aside), are found once, when first asked.
-export const operations = (m: Loaded, run: Checked, file: Source): Operations => {
+// `file`: a file rule's names are spelled as `file` spells them, a program
+// rule's are the check's. Walks are shared by every rule of the run: each
+// root's nodes, and the parents of every node of the program's bodies (Base
+// aside), are found once, when first asked.
+export const operations = (m: Loaded, run: Checked, file: Source, program: boolean): Operations => {
   const { Bend } = m;
   const shared = sharedOf(run);
-  const view = viewIn(run, file);
+  const spelling = program ? undefined : spellingIn(m, run, file);
   const nodes = (t: LTerm): LTerm[] => {
     const known = shared.walked.get(t) ?? [...walk(t)];
     shared.walked.set(t, known);
@@ -1099,12 +1108,18 @@ export const operations = (m: Loaded, run: Checked, file: Source): Operations =>
   };
   return {
     body: (name) => {
-      const tld = run.book.tlds[view === undefined ? name : view.key(name)];
+      const tld = run.book.tlds[spelling === undefined ? name : spelling.key(name)];
       return tld?.$ === "Def" && tld.e !== undefined ? node(tld.e) : undefined;
     },
     shape: (n): Shape => {
       const t = tree(n);
-      return { ...kindOf(t), span: toSpan(run.map(t.s)), children: children(t).map(node) };
+      const { kind, name } = kindOf(t);
+      return {
+        kind,
+        name: spelling === undefined || name === "" ? name : spelling.spell(name),
+        span: toSpan(run.map(t.s)),
+        children: children(t).map(node),
+      };
     },
     nodes: (n) => nodes(tree(n)).map(node),
     parent: (n) => {
@@ -1123,7 +1138,7 @@ export const operations = (m: Loaded, run: Checked, file: Source): Operations =>
       const ann = v.$ === "Var" ? Bend.pmap_get(r.ctx, v.i) : null;
       return ann === null
         ? undefined
-        : typed({ ty: ann.T, bok: r.bok, dep: r.dep, view: scoped(fact.type).view });
+        : typed({ ty: ann.T, bok: r.bok, dep: r.dep, spelled: scoped(fact.type).spelled });
     },
     uses: (fact) => {
       const r = raw(fact);
@@ -1136,12 +1151,12 @@ export const operations = (m: Loaded, run: Checked, file: Source): Operations =>
       return Bend.term_compare("EQ", bok, ty, scoped(b).ty, dep);
     },
     show: (t) => {
-      const { ty, dep, view: shown } = scoped(t);
-      return Bend.term_show(Bend.term_lower(ty, dep), -1, [], shown);
+      const { ty, dep, spelled } = scoped(t);
+      return Bend.term_show(Bend.term_lower(ty, dep), -1, [], spelled);
     },
     normal: (t) => {
-      const { ty, bok, dep, view: shown } = scoped(t);
-      return typed({ ty: Bend.term_snf(bok, ty), bok, dep, view: shown });
+      const { ty, bok, dep, spelled } = scoped(t);
+      return typed({ ty: Bend.term_snf(bok, ty), bok, dep, spelled });
     },
     sameDeclarations: (text) => {
       const known = shared.declares.get(file) ?? sameDeclarations(m, run, shared, file);
@@ -1175,9 +1190,10 @@ export const layout = (m: Loaded, d: Diag, head: string): string => {
   ).replace(/^Error:/, head);
 };
 
-// A Bend rule's id(), facts(), options() and main(), compiled as comp.ts
-// io_run does. facts(), checked: NoFacts{} gives null, Want{...} a filter.
-// options(): each Lint.Declared as a schema with its default.
+// A Bend rule's id(), facts(), options(), entries() and main(), compiled as
+// comp.ts io_run does. facts(), checked: NoFacts{} gives null, Want{...} a
+// filter. options(): each Lint.Declared as a schema with its default.
+// entries(), if defined: SomeEntry{} or EveryEntry{}.
 export const compile = (m: Loaded, { book }: Checked, file: string): Compiled => {
   const { Bend, Comp } = m;
   const value = (k: Name): LTerm | undefined => {
@@ -1256,15 +1272,23 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
           instances: bool(instances),
         });
   const declared = book.tlds.options === undefined ? [] : list(value("options"), declare);
+  const entries =
+    book.tlds.entries === undefined
+      ? null
+      : one(value("entries"), {
+          SomeEntry: () => "some" as const,
+          EveryEntry: () => "every" as const,
+        });
   if (
     id === undefined ||
     Comp.io_type(book) === null ||
     want === undefined ||
-    declared === undefined
+    declared === undefined ||
+    entries === undefined
   ) {
     throw new Error(
       file +
-        " must define id() -> String, facts() -> Lint.Want, main() -> IO(Unit), and options() -> List<&2, Lint.Declared> if it has options",
+        " must define id() -> String, facts() -> Lint.Want, main() -> IO(Unit), options() -> List<&2, Lint.Declared> if it has options, and entries() -> Lint.Entries if it says how entries count",
     );
   }
   // The rule is Bend's own compiled JS, run as comp.ts io_run runs it.
@@ -1277,6 +1301,7 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
     id,
     want,
     ...(declared.length === 0 ? {} : { options: Object.fromEntries(declared) }),
+    ...(entries === null ? {} : { entries }),
     main,
   };
 };
@@ -1302,7 +1327,7 @@ export const guardMain = (Main: Main): void =>
 // main is reported only by term_infer, and the Lam only by term_check.
 const selfCheck = async (m: Loaded): Promise<void> => {
   const run = await check(m, SAMPLE, [{}], new AbortController().signal);
-  const ops = operations(m, run, run.root!);
+  const ops = operations(m, run, run.root!, false);
   const views = run.facts.map((fact) => ({ fact, ...ops.shape(ops.strip(fact.node)) }));
   const x = views.find((v) => v.kind === "Var" && v.name === "x");
   const bound = x && ops.binder(x.fact);

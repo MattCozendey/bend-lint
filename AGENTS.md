@@ -62,39 +62,52 @@ git diff --check
 
 ## How a run works
 
-1. Bend checks the entry file once. The check also reads its imports.
-2. The **linted files** are the entry, and with `imports` every other file
-   the check read, Base aside.
-3. The rules run in the given order. Each rule runs as one of two kinds:
+1. **Pick the checks.** With `imports`, the named file's own check. Else
+   the check of each config entry that imports the named file, or, if none
+   does (or each such check fails), the named file's own check.
+2. **Pick the linted files:** the named file, and with `imports` every other
+   file the check read, Base aside.
+3. **Run the rules** in the given order. Each rule runs as one of two kinds:
 
-| Rule                    | Runs                 | `cx.root` | Reports in      | Names       |
-| ----------------------- | -------------------- | --------- | --------------- | ----------- |
-| file scope, or no facts | once per linted file | that file | that file only  | that file's |
-| `scope: "program"`      | once                 | the entry | any linted file | the entry's |
+| Rule                    | Runs                 | `cx.root`        | Reports in      | Names                    |
+| ----------------------- | -------------------- | ---------------- | --------------- | ------------------------ |
+| file scope, or no facts | once per linted file | that file        | that file only  | as that file spells them |
+| `scope: "program"`      | once per check       | the check's root | any linted file | the check's              |
 
 4. A finding in another file:
    - from a file rule: the rule crashes;
    - from a program rule, outside the linted files: dropped.
-5. A finding without a span counts in the file its run was for.
-6. Directives are read from the linted files only. An unused `disable` or
+5. With several checks, a program rule's runs agree on a finding when it has
+   the same code, severity and span. The rule's `entries` says what stands:
+   `"some"` (default) keeps a finding one run makes, `"every"` one all make.
+   When an entry that imports the named file fails its check, no `"every"`
+   rule runs.
+6. A finding without a span counts in the file its run was for.
+7. Directives are read from the linted files only. An unused `disable` or
    unmet `expect` is reported only where its rule ran to its end.
-7. The result lists findings file by file, in the check's order. Directive
+8. The result lists findings file by file, in the check's order. Directive
    findings come last.
 
-"Names" means how a file names definitions and types. A file rule gets the
-names that file would have as the entry: the same owners, `show()` output
-and `body()` keys as when it is linted alone.
+"As that file spells them" means as the file writes them in its source: its
+own definitions bare (`keep`), an import's through its alias (`U.N`). This
+holds for `owner`, the `defs` and `names` filters, `shape().name`,
+`body()` and `show()`. So a file gets the same names whichever check it is
+read from.
 
 ## Behavior that must not break
 
 Change the tests and these docs with any of these:
 
 - A file that fails Bend's check gets only the rules that ask for no facts.
+- When an entry that imports the file fails its check, no `entries: "every"`
+  rule runs.
 - A `bend/check` error is shown even when it is in an import.
 - No finding ends the run. A rule that throws is a `bend-lint/rule-crash`
   finding at the start of the file its run was for.
 - Facts are collected only when a rule asks for them.
-- A file linted through `imports` gets the same findings as alone.
+- A file gets the same file-rule findings alone, through `imports`, or
+  through an entry.
+- Findings appear only in linted files, also with entries.
 - Fixes are written to the linted files. A fix that edits two files is
   skipped.
 
@@ -151,7 +164,8 @@ export const rules: LintRule[] = [
 (Saved under `rules/`.)
 
 - `run(cx)` returns findings, and can be async.
-- `facts` and `options` are optional.
+- `facts`, `options` and `entries` are optional. `entries` (`"some"` or
+  `"every"`) matters only for a rule of program scope (see How a run works).
 - Build findings with `cx.diag()`. Severity defaults to `warning`.
 - A rule that throws, or returns a bad fix, gives `bend-lint/rule-crash`.
 - An abort reaches whoever called the library.
@@ -240,7 +254,7 @@ facts: {
   scope: "file",   // default: facts of root. "program": every file the check read, not Base
   kinds: ["Var"],  // term kind, annotations stripped: Var, Ref, App, ...
   defs: ["main"],  // the def that holds the term; an instance counts as its template
-  names: ["foo"],  // the name a Var or Ref points to
+  names: ["U.foo"], // the name a Var or Ref points to, as root spells it
   instances: true, // also template instances' facts; scope "program" only
 }
 ```
@@ -304,6 +318,8 @@ Facts:
   `Lint.Want{Lint.File{}, ["Var"], [], [], False{}}`.
 - Empty lists match all. `Lint.Program{}` adds the other files.
 - `True{}` at the end adds template instances. It needs `Lint.Program{}`.
+- A rule of program scope can define `entries() -> Lint.Entries`:
+  `Lint.SomeEntry{}` (the default) or `Lint.EveryEntry{}`.
 - Read facts one at a time with `next_fact`, or fold:
 
 ```python
@@ -405,8 +421,9 @@ throw:
 | `signal`  | aborts the run                                               |
 | `unsaved` | file paths mapped to editor text not saved yet, for this run |
 
-- The result has `diags`, `suppressed`, `sources`, `root`, `linted`,
-  `facts` and `unstable`.
+- The result has `diags`, `suppressed`, `sources`, `root` (the named
+  file), `linted`, `facts` and `unstable`. With entries, `sources`, `facts`
+  and `unstable` are those of the first check the rules read.
 - Runs at the same time wait for each other's check. Rules still run side
   by side.
 - `lint` also runs the rules of the config's `load` files, after the given
@@ -418,7 +435,8 @@ Config:
 - `findConfig(file)` looks in the file's folder, then each parent, for
   `bend-lint.json`, `.js` or `.ts`. The closest folder wins, then JSON, JS,
   TS.
-- `readConfig(file)` loads the path you give it.
+- `readConfig(file)` loads the path you give it. It makes `load` and
+  `entries` absolute, from the config's folder.
 - JS and TS configs export a named `config`, load through Bun (cache
   included), and can import relative files.
 
@@ -510,20 +528,24 @@ observed, the names in scope, Bend's note) without the location.
 
 ### One check, many files
 
-Bend names a file by its path from the entry's folder, without `.bend`. So
-the same file has different names under different entries. For each linted
-file, the seam builds that file's view, its names as if it were the entry:
-
-- Only the files it reaches through its imports are named.
-- `owner`, `defs` and `names` filters, `body()` and `show()` use the view.
-- Program rules keep the entry's names, which are unique in the program.
+Bend names each file by its path from the check root's folder. So the same
+file has different names under different roots. bend-lint does not copy
+that rule. A file rule's names go through Bend's own `name_show`, with the
+file's own alias table from the check. The same file then spells the same
+way under any root. Program rules keep the check's names, which are unique
+in the program.
 
 `sameDeclarations` parses each file against the book as Bend had it when it
 parsed that file. Declarations parsed after it are hidden. Writes go to a
 layer of their own, so the book never changes and is never copied.
 
 Per check, these are made once, when first asked: walks and parents, each
-file's view and guard, aliases, the book's order, and the facts by file.
+file's spelling and guard, aliases, the book's order, and the facts by file.
+
+An entry's check that passed is kept, one per entry, and given again to the
+next `lint` while the bend2 folder, the filters and the text of every file
+it read (unsaved text included) are unchanged. Every reuse re-reads those
+files to compare.
 
 ### Staying compatible
 

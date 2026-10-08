@@ -4,6 +4,7 @@
 #   def id() -> String:          # namespace/name, the code of its findings
 #   def facts() -> Lint.Want:    # Lint.NoFacts{}, or the facts it needs
 #   def options() -> List<&2, Lint.Declared>:  # only if it has options
+#   def entries() -> Lint.Entries:  # only if it says how entries count
 #   def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 #   def main() -> IO(Unit):
 #     Lint.serve(run)
@@ -61,6 +62,13 @@ type Scope is Data:
 type Want is Data:
   NoFacts{}
   Want{scope: Scope, kinds: List<&2, String>, defs: List<&2, String>, names: List<&2, String>, instances: Bool}
+
+# How a rule of scope Program{} counts what the checks of several entries
+# find: SomeEntry{} (the default) keeps a finding one of them makes,
+# EveryEntry{} only one they all make.
+type Entries is Data:
+  SomeEntry{}
+  EveryEntry{}
 
 type Span is Data:
   Span{path: String, beg: U32, end: U32}
