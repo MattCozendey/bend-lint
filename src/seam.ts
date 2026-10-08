@@ -91,6 +91,10 @@ type Report = Omit<Raw, "inst">;
 // A rule option's schema and default.
 type Declared = NonNullable<LintRule["options"]>[string];
 
+// What a file's stat said, and when it was taken (before the file was
+// read).
+type Stamp = { at: number; size: number; mtimeMs: number; ctimeMs: number; ino: number };
+
 // A type handle's content: the type, the book and depth of its scope, and
 // the file whose spelling shows it (none: the check's names). A Raw is one, for
 // the type its term was checked as.
@@ -201,10 +205,10 @@ export const hook: { see?: (report: Report) => void } = {};
 // bend.ts reads it in place of the file on disk.
 export const unsaved = new Map<string, string>();
 
-// The text bend.ts read in the check running now, by real path. Sources
-// take their text from it, so a save during the check cannot set them
-// apart from what bend parsed.
-let reads: Map<string, string> | undefined;
+// The text bend.ts read in the check running now, by real path, with the
+// file's stamp (none for unsaved text). Sources take their text from it, so
+// a save during the check cannot set them apart from what bend parsed.
+let reads: Map<string, { text: string; stamp?: Stamp }> | undefined;
 
 // The checked base.bend book, with the text of base.bend it was checked
 // from: Base is checked once per process, and again only if base.bend
@@ -223,6 +227,13 @@ const STARTS = new WeakMap<object, number[]>();
 // Each checked source's File, and back.
 const FILES = new WeakMap<Source, File>();
 const SOURCES = new WeakMap<object, Source>();
+
+// Each source's stamp, from when it was read or last found unchanged.
+const STAMPS = new WeakMap<Source, Stamp>();
+
+// How close, in milliseconds, a file's last change can be to its stamp
+// before a later write could leave the stat the same (FAT counts in 2 s).
+const RACY = 2000;
 
 const QUANTITY: Record<Quant["$"], Quantity> = { None: "erased", Lone: "once", Many: "many" };
 
@@ -281,13 +292,35 @@ export const fs = {
   ...nodeFs,
   realpathSync: (p: nodeFs.PathLike): string => slash(nodeFs.realpathSync(p)),
   readFileSync: ((p: nodeFs.PathOrFileDescriptor, ...rest: unknown[]) => {
-    const out = held(p) ?? (nodeFs.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
+    const kept = held(p);
+    const stamp =
+      reads !== undefined && kept === undefined && typeof p === "string" ? stampOf(p) : undefined;
+    const out = kept ?? (nodeFs.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
     if (reads !== undefined && typeof p === "string" && typeof out === "string") {
-      reads.set(slash(nodeFs.realpathSync(p)), out);
+      reads.set(slash(nodeFs.realpathSync(p)), { text: out, stamp });
     }
     return out;
   }) as typeof nodeFs.readFileSync,
 };
+
+// A file's stamp, taken now, or undefined if it cannot be.
+const stampOf = (p: string): Stamp | undefined => {
+  const at = Date.now();
+  const st = tried(() => nodeFs.statSync(p));
+  return st && { at, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino };
+};
+
+// Whether a stamp still vouches for its file: the stat is the same, and the
+// file's last change was well before the stamp, so a write in the same tick
+// of the file system's clock cannot hide behind it.
+const holds = (old: Stamp | undefined, now: Stamp | undefined): boolean =>
+  old !== undefined &&
+  now !== undefined &&
+  Math.max(old.mtimeMs, old.ctimeMs) < old.at - RACY &&
+  old.size === now.size &&
+  old.mtimeMs === now.mtimeMs &&
+  old.ctimeMs === now.ctimeMs &&
+  old.ino === now.ino;
 
 export const path = {
   ...nodePath,
@@ -718,7 +751,7 @@ const checked = async (
     f.scope === "program" ? [f] : all ? [{ kinds: f.kinds }] : [],
   );
   const beyond = far.length > 0;
-  const texts = new Map<string, string>();
+  const texts = new Map<string, { text: string; stamp?: Stamp }>();
   reads = texts;
   const instances = filters.some((f) => f.instances === true);
   const seeded = real !== "" && /^import Base$/m.test(fs.readFileSync(real, "utf8"));
@@ -752,8 +785,12 @@ const checked = async (
   const sources = [...seen.keys()]
     .filter((real) => texts.has(real) || fs.existsSync(real))
     .map((real): Source => {
-      const text = texts.get(real) ?? fs.readFileSync(real, "utf8");
+      const { stamp, text } = texts.get(real) ?? {
+        stamp: stampOf(real),
+        text: fs.readFileSync(real, "utf8"),
+      };
       const source = { path: real, text, base: real === Bend.BASE_BEND };
+      if (stamp !== undefined) STAMPS.set(source, stamp);
       const file = { str: text, ns: seen.get(real) ?? "", al: {}, path: real };
       FILES.set(source, file);
       SOURCES.set(file, source);
@@ -798,11 +835,24 @@ const checked = async (
 };
 
 // Whether every file a check read still has the text it read; `text` is
-// what an editor holds unsaved, by real path.
+// what an editor holds unsaved, by real path. A file whose stamp holds is
+// unchanged; any other is read and compared, and stamped again if it is.
 const fresh = (run: Checked, text: ReadonlyMap<string, string>): boolean =>
-  run.sources.every(
-    (s) => (text.get(s.path) ?? tried(() => nodeFs.readFileSync(s.path, "utf8"))) === s.text,
-  );
+  run.sources.every((s) => {
+    const kept = text.get(s.path);
+    if (kept !== undefined) {
+      return kept === s.text;
+    }
+    const now = stampOf(s.path);
+    if (holds(STAMPS.get(s), now)) {
+      return true;
+    }
+    const same = tried(() => nodeFs.readFileSync(s.path, "utf8")) === s.text;
+    if (same && now !== undefined) {
+      STAMPS.set(s, now);
+    }
+    return same;
+  });
 
 // Checks a book as `bend <file>` does (not main.ts's verdict on @unsafe and
 // foreign code), with `text` in place of the files on disk, one check at a

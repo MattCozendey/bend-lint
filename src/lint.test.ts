@@ -2471,6 +2471,21 @@ describe("entries", () => {
       expect(messages(await lintLib([from("test/len")], [a]), "test/len")).toEqual([
         "a.bend " + (A.length + 7),
       ]);
+      // The same size, at once: the stat may not tell, the text does.
+      fs.writeFileSync(a, A + "# mire\n");
+      const text: LintRule = {
+        id: "test/text",
+        facts: { scope: "program", kinds: ["Ref"] },
+        run: (cx) => [
+          cx.diag({
+            message: cx.root.text.slice(-5, -1),
+            span: { file: cx.sources.find((s) => s.path.endsWith("/lib.bend"))!, beg: 0, end: 0 },
+          }),
+        ],
+      };
+      expect(messages(await lintLib([text], [a]), "test/text")).toEqual(["mire"]);
+      fs.writeFileSync(a, A + "# more\n");
+      expect(messages(await lintLib([text], [a]), "test/text")).toEqual(["more"]);
     } finally {
       fs.writeFileSync(a, A);
     }

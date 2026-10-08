@@ -544,8 +544,14 @@ file's spelling and guard, aliases, the book's order, and the facts by file.
 
 An entry's check that passed is kept, one per entry, and given again to the
 next `lint` while the bend2 folder, the filters and the text of every file
-it read (unsaved text included) are unchanged. Every reuse re-reads those
-files to compare.
+it read (unsaved text included) are unchanged. To tell, as git does:
+
+- Each file is stamped (size, change times, file ID) before it is read.
+- A file whose stat still matches its stamp is unchanged, unless it changed
+  within 2 s of the stamp. Then a later write could leave the stat the
+  same, so the file is read and compared, and stamped again if it is
+  unchanged.
+- Unsaved text is compared as text.
 
 ### Staying compatible
 
