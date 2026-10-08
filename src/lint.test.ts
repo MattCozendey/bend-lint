@@ -1516,7 +1516,9 @@ describe("options", () => {
     fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":["./rules/echo.ts"]}');
     const file = path.join(top, "file.bend");
     fs.writeFileSync(file, USERLAND);
-    expect(await findConfig(file)).toEqual({ load: [path.join(top, "rules", "echo.ts")] });
+    expect(await findConfig(file)).toEqual({
+      load: [path.join(top, "rules", "echo.ts").replaceAll("\\", "/")],
+    });
     const { rules } = await import(pathToFileURL(path.join(top, "rules", "echo.ts")).href);
     for (const given of [[], rules]) {
       expect((await lint(file, given)).diags.map((d) => d.code)).toEqual(["test/loaded"]);
