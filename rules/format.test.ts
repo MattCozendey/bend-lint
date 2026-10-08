@@ -25,6 +25,17 @@ const lint = async (
 };
 const clean = (res: LintResult): boolean => !res.diags.some((d) => d.severity === "error");
 const { render } = linter;
+
+// The error `p` rejects with; a `p` that fulfills fails the test.
+const rejection = async (p: Promise<unknown>): Promise<Error> => {
+  try {
+    await p;
+  } catch (e) {
+    return e instanceof Error ? e : new Error(String(e));
+  }
+  throw new Error("expected a rejection");
+};
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const opts = { tabWidth: 2, wrapAtWidth: 100, endOfLine: "lf" } as const;
@@ -82,14 +93,18 @@ describe("format/layout", () => {
       expect(clean(await run(good))).toBe(true);
     }
     for (const bad of [0, -1, 1.5, "2", true]) {
-      await expect(run({ tabWidth: bad })).rejects.toThrow("tabWidth must match");
-      await expect(run({ wrapAtWidth: bad })).rejects.toThrow("wrapAtWidth must match");
+      expect((await rejection(run({ tabWidth: bad }))).message).toMatch("tabWidth must match");
+      expect((await rejection(run({ wrapAtWidth: bad }))).message).toMatch(
+        "wrapAtWidth must match",
+      );
     }
-    await expect(run({ wrapAtWidth: "always" })).rejects.toThrow("wrapAtWidth must match");
+    expect((await rejection(run({ wrapAtWidth: "always" }))).message).toMatch(
+      "wrapAtWidth must match",
+    );
     for (const endOfLine of ["auto", "LF", "", 1, true]) {
-      await expect(run({ endOfLine })).rejects.toThrow("endOfLine must match");
+      expect((await rejection(run({ endOfLine }))).message).toMatch("endOfLine must match");
     }
-    await expect(run({ breakLines: true })).rejects.toThrow("no option breakLines");
+    expect((await rejection(run({ breakLines: true }))).message).toMatch("no option breakLines");
   });
 
   test("formats a file with a type error, but not one that does not parse", async () => {

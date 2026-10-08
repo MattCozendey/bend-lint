@@ -639,6 +639,16 @@ async function readConfig(file: string) {
   return unwrap(await api.readConfig(file));
 }
 
+// The error `p` rejects with; a `p` that fulfills fails the test.
+async function rejection(p: Promise<unknown>): Promise<Error> {
+  try {
+    await p;
+  } catch (e) {
+    return e instanceof Error ? e : new Error(String(e));
+  }
+  throw new Error("expected a rejection");
+}
+
 // Whether a run found no error.
 function clean(res: LintResult): boolean {
   return !res.diags.some((d) => d.severity === "error");
@@ -865,7 +875,7 @@ describe("patch", () => {
       BEND2,
       BEND2,
     ]);
-    await expect(bendDir(DIR)).rejects.toThrow(/no bend2 at/);
+    expect((await rejection(bendDir(DIR))).message).toMatch(/no bend2 at/);
   });
 
   test("paths: a drive letter is a root; POSIX paths are unchanged", () => {
@@ -908,7 +918,7 @@ describe("downloading bend", () => {
     const gh = github(["v2.0.40"]);
     expect(await latestTag(at, gh.get)).toBe("v2.0.40");
     expect(gh.asked.length).toBe(1);
-    await expect(latestTag(cache(), offline)).rejects.toThrow(
+    expect((await rejection(latestTag(cache(), offline))).message).toMatch(
       /cannot list bend's releases \(offline\)/,
     );
   });
@@ -938,7 +948,7 @@ describe("downloading bend", () => {
       env: { ...process.env, BEND_DIR: dir },
     });
     expect([out.status, out.stderr]).toEqual([0, ""]);
-    await expect(fetchBend("../x", at, gh.get)).rejects.toThrow(/not a bend release/);
+    expect((await rejection(fetchBend("../x", at, gh.get))).message).toMatch(/not a bend release/);
   });
 
   test("bendDir downloads only when no bend is given or around it", async () => {
@@ -954,9 +964,13 @@ describe("downloading bend", () => {
       expect(await bendDir(undefined, { ...away, run: () => undefined })).toBe(
         fs.realpathSync(path.join(at, "v2.0.35", "bend2")).replaceAll("\\", "/"),
       );
-      await expect(
-        bendDir(undefined, { get: offline, cache: at, repo: DIR, run: () => "bend 2.0.40\n" }),
-      ).rejects.toThrow(/could not download bend v2\.0\.40 \(offline\)/);
+      expect(
+        (
+          await rejection(
+            bendDir(undefined, { get: offline, cache: at, repo: DIR, run: () => "bend 2.0.40\n" }),
+          )
+        ).message,
+      ).toMatch(/could not download bend v2\.0\.40 \(offline\)/);
       expect(
         await bendDir(undefined, {
           get: offline,
@@ -1230,8 +1244,10 @@ describe("lint", () => {
   });
 
   test("a bad rule and an abort reach the caller; a rule that fails is a finding", async () => {
-    await expect(lint(userland, [{ id: "bad", run: () => [] }])).rejects.toThrow(/invalid rule/);
-    await expect(lint(userland, [undefined as unknown as LintRule])).rejects.toThrow(
+    expect((await rejection(lint(userland, [{ id: "bad", run: () => [] }]))).message).toMatch(
+      /invalid rule/,
+    );
+    expect((await rejection(lint(userland, [undefined as unknown as LintRule]))).message).toMatch(
       /invalid rule at 0/,
     );
     const broken: LintRule = {
@@ -1279,10 +1295,8 @@ describe("lint", () => {
         return [];
       },
     };
-    await expect(
-      lint(userland, [abort, neverRun], { signal: controller.signal }),
-    ).rejects.toThrow();
-    await expect(lint(userland, [], { signal: controller.signal })).rejects.toThrow();
+    await rejection(lint(userland, [abort, neverRun], { signal: controller.signal }));
+    await rejection(lint(userland, [], { signal: controller.signal }));
   });
 
   test("unsaved text is what bend and the rules see, for that run only", async () => {
@@ -1464,16 +1478,16 @@ describe("options", () => {
   });
 
   test("a wrong config fails loudly", async () => {
-    await expect(messages({ rules: { "test/echo": { tabSize: 4 } } })).rejects.toThrow(
+    expect((await rejection(messages({ rules: { "test/echo": { tabSize: 4 } } }))).message).toMatch(
       /test\/echo has no option tabSize/,
     );
-    await expect(messages({ rules: { "test/echo": { tabWidth: "4" } } })).rejects.toThrow(
-      /tabWidth must match/,
-    );
-    await expect(messages({ rules: { "test/echo": { severity: "loud" } } })).rejects.toThrow(
-      /severity must be one of/,
-    );
-    await expect(messages({ rules: { "test/echo": 4 } })).rejects.toThrow(
+    expect(
+      (await rejection(messages({ rules: { "test/echo": { tabWidth: "4" } } }))).message,
+    ).toMatch(/tabWidth must match/);
+    expect(
+      (await rejection(messages({ rules: { "test/echo": { severity: "loud" } } }))).message,
+    ).toMatch(/severity must be one of/);
+    expect((await rejection(messages({ rules: { "test/echo": 4 } }))).message).toMatch(
       /must be "off" or an object/,
     );
   });
@@ -1554,8 +1568,8 @@ describe("options", () => {
         ["throws", 'throw new Error("config exploded");', /config exploded/],
       ] as const) {
         const file = fixture(`config_${name}.${extension}`, text);
-        await expect(readConfig(file)).rejects.toThrow(error);
-        await expect(readConfig(file)).rejects.toThrow(file);
+        expect((await rejection(readConfig(file))).message).toMatch(error);
+        expect((await rejection(readConfig(file))).message).toMatch(file);
       }
     }
   });
@@ -1578,7 +1592,9 @@ describe("options", () => {
       expect((await lint(file, given)).diags.map((d) => d.code)).toEqual(["test/loaded"]);
     }
     fs.writeFileSync(path.join(top, "bend-lint.json"), '{"load":"./rules/echo.ts"}');
-    await expect(findConfig(file)).rejects.toThrow("`load` must be a list of rule files");
+    expect((await rejection(findConfig(file))).message).toMatch(
+      "`load` must be a list of rule files",
+    );
   });
 
   test("module configs use the same rule option validation as JSON", async () => {
@@ -1586,7 +1602,9 @@ describe("options", () => {
       "invalid_options.ts",
       'export const config = { rules: { "test/echo": { tabWidth: "4" } } };',
     );
-    await expect(messages(await readConfig(file))).rejects.toThrow(/tabWidth must match/);
+    expect((await rejection(messages(await readConfig(file)))).message).toMatch(
+      /tabWidth must match/,
+    );
   });
 
   test("a Bend rule declares its options and reads them", async () => {
@@ -1604,7 +1622,7 @@ describe("options", () => {
       name: { type: "string", default: "none" },
     });
     for (const bad of [{ width: 1.5 }, { width: 81 }, { wrap: "yes" }, { other: 1 }]) {
-      await expect(said({ rules: { "test/options": bad } })).rejects.toThrow(
+      expect((await rejection(said({ rules: { "test/options": bad } }))).message).toMatch(
         /must match|no option/,
       );
     }
@@ -1771,7 +1789,12 @@ describe("rules", () => {
   test("erasure: four redundant annotations; the fix keeps every body", async () => {
     const file = fixture("erasure.bend", ERASURE);
     const res = await lint(file, [redundantAnnotation]);
-    expect(res.diags.map((d) => d.def).sort()).toEqual(["alias", "dependent", "direct", "generic"]);
+    expect(res.diags.map((d) => d.def ?? "").sort((a, b) => a.localeCompare(b))).toEqual([
+      "alias",
+      "dependent",
+      "direct",
+      "generic",
+    ]);
     const cleaned = applyFixes(root(res.sources), res.diags, ["suggested"]).text;
     expect(cleaned).toContain("f : N -> N = y => y");
     expect(cleaned).toContain("value : N = Z{}");
@@ -1845,7 +1868,9 @@ describe("rules written in Bend", () => {
       "style/comma-space | yes no no never",
     );
     for (const wrap of [0, "always", true]) {
-      await expect(said({ "test/parity": { wrap } })).rejects.toThrow("wrap must match");
+      expect((await rejection(said({ "test/parity": { wrap } }))).message).toMatch(
+        "wrap must match",
+      );
     }
   });
 
@@ -1857,7 +1882,9 @@ describe("rules written in Bend", () => {
 
   test("Bend fixes reject out-of-bounds code-point offsets instead of clamping them", async () => {
     for (const source of [USERLAND, "# 😀\n" + USERLAND]) {
-      const end = [...source].length + 1;
+      // Bend counts code points: UTF-16 units, less one per surrogate pair.
+      const end =
+        source.length - (source.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0) + 1;
       const code = COMMA_BEND.replace(
         "Lint.Span{path, at, at}",
         "Lint.Span{path, at, " + end + "}",
@@ -2005,9 +2032,13 @@ describe("fact filters", () => {
       { instances: "yes" },
       3,
     ]) {
-      await expect(
-        lint(userland, [{ id: "test/bad", facts, run: () => [] } as unknown as LintRule]),
-      ).rejects.toThrow(/invalid rule at 0/);
+      expect(
+        (
+          await rejection(
+            lint(userland, [{ id: "test/bad", facts, run: () => [] } as unknown as LintRule]),
+          )
+        ).message,
+      ).toMatch(/invalid rule at 0/);
     }
   });
 

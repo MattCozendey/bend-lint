@@ -156,7 +156,7 @@ function separator(a: Node, b: Node): string {
   if (l === "," || l === ";" || l === ":") return " ";
   if (["~", "@", "?", "!", "\\"].includes(l)) return "";
   if (gluedPrefix(x, b)) return "";
-  if (/n\+$/.test(l)) return "";
+  if (l.endsWith("n+")) return "";
   // A constructor brace must be glued to its name; a separated brace can
   // instead be the next (annotated) argument in a comma-optional call.
   if ("open" in b && r === "{" && x.end !== y.beg) return " ";
