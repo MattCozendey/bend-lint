@@ -133,6 +133,13 @@ def body(name: String) -> IO(Maybe<&2, Node>):
 def shape(n: Node) -> IO(Shape):
   import "./effects.js"
 
+# The node and every node under it, parents first.
+def nodes(n: Node) -> IO(List<&2, Node>):
+  import "./effects.js"
+
+def parent(n: Node) -> IO(Maybe<&2, Node>):
+  import "./effects.js"
+
 # The node without its annotations.
 def strip(n: Node) -> IO(Node):
   import "./effects.js"

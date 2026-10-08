@@ -126,6 +126,11 @@ io_eff(CID(shape), (n) => {
     children: lint_list(s.children.map(lint_node)),
   };
 });
+io_eff(CID(nodes), (n) => lint_list(lint_host().nodes(n.id).map(lint_node)));
+io_eff(CID(parent), (n) => {
+  const id = lint_host().parent(n.id);
+  return lint_maybe(id === undefined ? undefined : lint_node(id));
+});
 io_eff(CID(strip), (n) => lint_node(lint_host().strip(n.id)));
 io_eff(CID(fact), (n) => lint_fact(lint_host().fact(n.id)));
 io_eff(CID(binder), (f) => {

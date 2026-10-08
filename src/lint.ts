@@ -111,6 +111,8 @@ export type RuleContext = {
   prior: readonly Diag[]; // what earlier rules found
   body(name: string): Node | undefined; // a def's checked body
   shape(node: Node): Shape;
+  nodes(root: Node): Node[]; // root and every node under it, parents first
+  parent(node: Node): Node | undefined;
   strip(node: Node): Node; // the node without its annotations
   fact(node: Node): Fact | undefined; // the node's fact, if this rule asked for it
   binder(fact: Fact): Type | undefined; // the declared type of the variable a Var fact uses
@@ -183,6 +185,8 @@ type Channel = {
   text(span: Spot): string;
   body(name: string): number | undefined;
   shape(node: number): Omit<Shape, "span" | "children"> & { span?: Spot; children: number[] };
+  nodes(root: number): number[];
+  parent(node: number): number | undefined;
   strip(node: number): number;
   fact(node: number): Wire | undefined;
   binder(node: number): number | undefined;
@@ -664,6 +668,11 @@ export async function bendRule(file: string): Promise<LintRule> {
         shape: (i) => {
           const { span, children, ...rest } = cx.shape(pick(nodes, i, "node"));
           return { ...rest, span: spot(span), children: children.map(hold) };
+        },
+        nodes: (i) => cx.nodes(pick(nodes, i, "node")).map(hold),
+        parent: (i) => {
+          const p = cx.parent(pick(nodes, i, "node"));
+          return p === undefined ? undefined : hold(p);
         },
         strip: (i) => hold(cx.strip(pick(nodes, i, "node"))),
         fact: (i) => {

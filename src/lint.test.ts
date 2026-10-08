@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import { BEND2, applyFixes, bendRule, findConfig, lint, readConfig, render } from "./lint.ts";
-import type { Diag, Edit, Fact, FactFilter, LintRule, Node, RuleContext, Source } from "./lint.ts";
+import type { Diag, Edit, Fact, FactFilter, LintRule, RuleContext, Source } from "./lint.ts";
 import {
   DRIFT,
   bendDir,
@@ -481,14 +481,22 @@ def first(s: Lint.Shape) -> Maybe<&2, Lint.Node>:
         case Con{c, rest}:
           Some{c}
 
+def up(m: Maybe<&2, Lint.Node>) -> String:
+  match m:
+    case None{}:
+      ""
+    case Some{p}:
+      "^"
+
 def child_kind(m: Maybe<&2, Lint.Node>) -> IO(String):
   match m:
     case None{}:
       IO.pure(String, "nothing")
-    case Some{n}:
+    case Some{+n}:
       do IO<String>:
         +s : Lint.Shape <- Lint.shape(n)
-        return kind_of(s)
+        p : Maybe<&2, Lint.Node> <- Lint.parent(n)
+        return kind_of(s) ++ up(p)
 
 def top(m: Maybe<&2, Lint.Node>) -> IO(String):
   match m:
@@ -571,15 +579,10 @@ function fixture(name: string, text: string): string {
   return file;
 }
 
-// Every node under `node`, parents first.
-function nodes(cx: RuleContext, node: Node): Node[] {
-  return [node, ...cx.shape(node).children.flatMap((child) => nodes(cx, child))];
-}
-
 // The facts of a def's checked body, parents first.
 function facts(cx: RuleContext, name: string): Fact[] {
   const body = cx.body(name);
-  return body === undefined ? [] : nodes(cx, body).flatMap((n) => cx.fact(n) ?? []);
+  return body === undefined ? [] : cx.nodes(body).flatMap((n) => cx.fact(n) ?? []);
 }
 
 // A fact as bend2 gives it.
@@ -962,12 +965,32 @@ describe("lint", () => {
     expect((await lint(userland, [commaSpace])).facts).toBeUndefined();
   });
 
+  test("nodes lists a body parents first, and parent goes back up", async () => {
+    const walk: LintRule = {
+      id: "test/walk",
+      run: (cx) => {
+        const root = cx.body("peel")!;
+        const all = cx.nodes(root);
+        expect(all[0]).toBe(root);
+        expect(all.length).toBeGreaterThan(3);
+        expect(cx.parent(root)).toBeUndefined();
+        all.slice(1).forEach((n, i) => {
+          const up = cx.parent(n)!;
+          expect(all.indexOf(up)).toBeLessThanOrEqual(i);
+          expect(cx.shape(up).children).toContain(n);
+        });
+        return [];
+      },
+    };
+    expect((await lint(userland, [walk, walk])).ok).toBe(true);
+  });
+
   test("the term view: bodies, nodes, shapes, and a node's fact only if the rule asked for it", async () => {
     const tree: LintRule = {
       id: "test/tree",
       facts: { kinds: ["Var"], defs: ["id"] },
       run: (cx) => {
-        const all = nodes(cx, cx.body("id")!);
+        const all = cx.nodes(cx.body("id")!);
         const x = cx.facts!.find((f) => cx.shape(cx.strip(f.node)).name === "x")!;
         expect(all).toContain(x.node);
         expect(cx.fact(x.node)).toBe(x);
@@ -988,7 +1011,7 @@ describe("lint", () => {
       id: "test/every",
       facts: true,
       run: (cx) => {
-        const kept = nodes(cx, cx.body("id")!).flatMap((n) => cx.fact(n) ?? []);
+        const kept = cx.nodes(cx.body("id")!).flatMap((n) => cx.fact(n) ?? []);
         expect(kept.some((f) => cx.shape(cx.strip(f.node)).kind !== "Var")).toBe(true);
         return [];
       },
@@ -1017,7 +1040,7 @@ describe("lint", () => {
         const proof = named("proof", "Rfl");
         expect(loose(cx, proof).ty.$).toBe("Eql");
         expect(loose(cx, proof).dep).toBe(1);
-        const peel = nodes(cx, cx.body("peel")!).map((n) => ({ n, ...cx.shape(n) }));
+        const peel = cx.nodes(cx.body("peel")!).map((n) => ({ n, ...cx.shape(n) }));
         expect(peel.some((s) => s.kind === "Mat")).toBe(true);
         expect(
           peel.some(
@@ -1685,7 +1708,7 @@ describe("rules written in Bend", () => {
   test("a rule reads the term view through effects", async () => {
     const rule = await bendRule(fixture("tree_rule.bend", TREE_BEND));
     const res = await lint(userland, [rule]);
-    expect(res.diags.map((d) => d.message)).toEqual(["Ann > Lam; Ann > Var found; no body"]);
+    expect(res.diags.map((d) => d.message)).toEqual(["Ann > Lam^; Ann > Var^ found; no body"]);
   });
 
   test("Bend fixes reject out-of-bounds code-point offsets instead of clamping them", async () => {

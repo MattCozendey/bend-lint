@@ -126,7 +126,8 @@ What's on `cx`:
 - `options`: defaults merged with config
 - `facts`: just the facts this rule asked for
 - `prior`: findings from earlier rules
-- `body(name)`, `shape(node)`, `strip(node)`: the checked terms (see Nodes)
+- `body(name)`, `shape(node)`, `nodes(root)`, `parent(node)`, `strip(node)`:
+  the checked terms (see Nodes)
 - `fact(node)`: what the checker found for a node, if this rule asked for it
   (see Facts)
 - `binder(fact)`: the declared type of the variable a `Var` uses
@@ -169,13 +170,14 @@ return [cx.diag({
 A node is one term of a def's checked body. `cx.body(name)` gives the root,
 `cx.shape(node)` its kind (annotations kept: `Ann`, `Var`, `App`, ...), the name
 a `Var` or `Ref` points to, its span and its children, in Bend's order.
+`cx.nodes(root)` lists the root and every node under it, parents first, and
+`cx.parent(node)` goes back up. Both walk once per run, for all rules.
 `cx.strip(node)` is the node without its annotations. Kinds and child order are
 Bend's, so a rule that reads them may need changes when Bend's terms change;
 facts alone do not.
 
 ```ts
-const nodes = (node: Node): Node[] => [node, ...cx.shape(node).children.flatMap(nodes)];
-const matches = nodes(cx.body("main")!).filter((n) => cx.shape(n).kind === "Mat");
+const matches = cx.nodes(cx.body("main")!).filter((n) => cx.shape(n).kind === "Mat");
 ```
 
 #### Facts
@@ -270,7 +272,7 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 
 `step` goes in as a template (`~step`) and takes the fact as `+f`, a
 `Lint.Fact{node, owner, inst, quantity, term, span}` (`term` is its type).
-Effects: `body`, `shape`, `strip`, `fact`, `binder`, `uses`, `same`, `show`,
+Effects: `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`, `uses`, `same`, `show`,
 `normal` and `text`, plus Base's. Options come from `Lint.option_number`, `option_flag` and `option_text`,
 each with a default. Numbers are whole, 0 to 4294967295 (U32).
 

@@ -887,9 +887,19 @@ const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): 
 };
 
 // What a rule asks bend2, over one check's book and facts.
+// Walks are shared by every rule of the run: each root's nodes, and the
+// parents of every node of the program's bodies (Base aside), are found
+// once, when first asked.
 export const operations = (m: Loaded, run: Checked): Operations => {
   const { Bend } = m;
   let byTerm: Map<LTerm, Fact> | undefined;
+  let parents: Map<LTerm, LTerm> | undefined;
+  const walked = new Map<LTerm, LTerm[]>();
+  const nodes = (t: LTerm): LTerm[] => {
+    const known = walked.get(t) ?? [...walk(t)];
+    walked.set(t, known);
+    return known;
+  };
   return {
     body: (name) => {
       const tld = run.book.tlds[name];
@@ -898,6 +908,16 @@ export const operations = (m: Loaded, run: Checked): Operations => {
     shape: (n): Shape => {
       const t = tree(n);
       return { ...kindOf(t), span: toSpan(run.map(t.s)), children: children(t).map(node) };
+    },
+    nodes: (n) => nodes(tree(n)).map(node),
+    parent: (n) => {
+      parents ??= new Map(
+        Object.values(run.book.tlds)
+          .flatMap((tld) => (tld.$ === "Def" && tld.e !== undefined && !tld.b ? nodes(tld.e) : []))
+          .flatMap((t) => children(t).map((c): [LTerm, LTerm] => [c, t])),
+      );
+      const p = parents.get(tree(n));
+      return p === undefined ? undefined : node(p);
     },
     strip: (n) => node(Bend.term_strip(tree(n))),
     binder: (fact) => {
