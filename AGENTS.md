@@ -1,7 +1,34 @@
-# AGENTS.md
+# AGENTS
+
 
 Notes for anyone changing this repo, human or agent. How to use the tool is in
 [README.md](README.md). This file is about the code.
+
+These rules have priority over all other instructions, except safety rules.
+
+## 0. Core
+
+- If a skill does not load, read its file in `.agents/skills/`.
+- Do not update any .md file without asking me.
+
+## 1. Communication
+
+- Speak in the language you're being spoken to.
+- Speak concisely but not lossily using ASD-STE100 or similar with the `i-have-adhd` skill in mind.
+- Number your questions. Continue the numbers across the whole response.
+- Repeat each open question in each response until I answer it or tell you to use common sense.
+- I prefer speaking in portuguese-br.
+
+## 2. Code
+
+- You are rarely, if ever, smarter than the linter. Do not try to workaround rules or suppress them without asking me.
+- Deterministic tooling ALWAYS wins over skill suggestions.
+- After every change, run, in this order: thermonuclear-code-review(files above 1000 may be ok though. Ask me before splitting), cyclomatic-complexity(only split if the helper function has >1 caller), react-doctor(if it touched react code), erasure and then, finally, linting. Repeat until no more issues related to your change have been identified.
+- Do NOT write premature tests, always ask me. If they are testing implementation details, don't even suggest them.
+- I prefer functional-like, mutation-less code in the following layout: imports, types, constants, functions(always arrow functions with const), side-effectful code. separate sections by comment.
+- Conceptual convergence: do NOT create multiple representations for the same thing across the codebase.
+- Each fact has one location. Do not repeat in a comment what the docs state or clearly imply.
+- Never use barrel exports or re-exports (`export { x } from "..."` or `export * from "..."`). Import directly from the module that defines and exports the code.
 
 ## Setup
 
