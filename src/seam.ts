@@ -201,9 +201,6 @@ const STARTS = new WeakMap<object, number[]>();
 const FILES = new WeakMap<Source, File>();
 const SOURCES = new WeakMap<object, Source>();
 
-// Each fact's Raw.
-const RAWS = new WeakMap<Fact, Raw>();
-
 const QUANTITY: Record<Quant["$"], Quantity> = { None: "erased", Lone: "once", Many: "many" };
 
 // Binders are explicit in checked terms, so Var.v cells are not followed.
@@ -600,20 +597,18 @@ const typed = (s: Scoped): Type => s as unknown as Type;
 const tree = (n: Node): LTerm => n as unknown as LTerm;
 const node = (t: LTerm): Node => t as unknown as Node;
 
-const raw = (fact: Fact): Raw => RAWS.get(fact)!;
+// A fact is its Raw with the public fields added, one object per checked
+// term; its type's scope is the Raw itself. `r` must be fresh.
+const raw = (fact: Fact): Raw => fact as unknown as Raw;
 
-const record = (r: Raw): Fact => {
-  const fact = {
+const record = (r: Raw): Fact =>
+  Object.assign(r, {
     node: node(r.tm),
     owner: r.def,
-    inst: r.inst,
     quantity: QUANTITY[r.qt.$],
     type: typed(r),
     span: toSpan(r.spn),
-  };
-  RAWS.set(fact, r);
-  return fact;
-};
+  });
 
 // Throws a drift error that names each check that failed.
 const demand = (checks: Array<[string, boolean]>, say: (wrong: string) => string): void => {
