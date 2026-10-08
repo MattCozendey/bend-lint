@@ -9,15 +9,21 @@
   },
   "exports": "./src/lint.ts",
   "scripts": {
+    "lint": "oxlint .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/bun": "1.2.0",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
     "typescript": "7.0.2"
   },
+  "packageManager": "bun@1.4.2",
   "engines": {
-    "bun": "1.2"
+    "bun": "1.4.2"
   },
   "license": "Apache-2.0"
 }

@@ -9,7 +9,7 @@ A rule can also suggest a fix.
 
 ## Setup
 
-You need Bun 1.2 or newer.
+Use Bun 1.4.2, pinned in `package.json`.
 
 ```sh
 git clone https://github.com/MattCozendey/bend-lint.git
@@ -151,9 +151,14 @@ bend-lint as a library) is in [AGENTS.md](AGENTS.md#writing-rules).
 ## Hacking on it
 
 ```sh
+bun run lint
+bun run format:check
 bun test
 bun run typecheck
 ```
+
+`bun run format` writes formatting changes. Oxlint and oxfmt both exclude
+`.bend` files.
 
 Type checking needs a Bend checkout. Setup and house rules are in
 [AGENTS.md](AGENTS.md).

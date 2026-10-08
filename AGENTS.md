@@ -7,6 +7,8 @@ Notes for anyone changing this repo, human or agent. How to use the tool is in
 
 ```sh
 bun install
+bun run lint
+bun run format:check
 bun test
 bun run typecheck
 git diff --check
