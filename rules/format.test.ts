@@ -5,8 +5,8 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { lint, applyFixes, render } from "../src/lint.ts";
-import type { LintRule } from "../src/lint.ts";
-import { format, formatOptions, rules } from "./format.ts";
+import type { LintRule, Options } from "../src/lint.ts";
+import { format, rules } from "./format.ts";
 import type { FormatOptions } from "./format.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
@@ -54,21 +54,26 @@ describe("format/layout", () => {
       "import Base\n\ndef constructor() -> U32:\n  1\n\ndef toString() -> U32:\n  2\n\ndef valueOf() -> U32:\n  3\n",
     );
   });
-  test("validates its own defaults, union and unknown options", () => {
-    expect(formatOptions({})).toEqual(opts);
-    expect(formatOptions({ wrapAtWidth: "never" })).toEqual({ ...opts, wrapAtWidth: "never" });
-    for (const bad of [0, -1, 1.5, NaN, Infinity, "2", true]) {
-      expect(() => formatOptions({ tabWidth: bad })).toThrow("positive integer");
-      expect(() => formatOptions({ wrapAtWidth: bad })).toThrow('"never" or a positive integer');
+  test("its options: defaults, the wrapAtWidth union, and what it rejects", async () => {
+    const file = fixture("import Base\n\ndef main() -> U32:\n  1\n");
+    const run = (options: Options) =>
+      lint(file, rules, { config: { rules: { "format/layout": options } } });
+    expect((await run({})).diags).toEqual([]);
+    for (const good of [
+      { wrapAtWidth: "never" },
+      ...["lf", "crlf", "preserve"].map((e) => ({ endOfLine: e })),
+    ]) {
+      expect((await run(good)).ok).toBe(true);
     }
-    expect(() => formatOptions({ wrapAtWidth: "always" })).toThrow();
-    for (const endOfLine of ["lf", "crlf", "preserve"] as const) {
-      expect(formatOptions({ endOfLine })).toEqual({ ...opts, endOfLine });
+    for (const bad of [0, -1, 1.5, "2", true]) {
+      await expect(run({ tabWidth: bad })).rejects.toThrow("tabWidth must match");
+      await expect(run({ wrapAtWidth: bad })).rejects.toThrow("wrapAtWidth must match");
     }
+    await expect(run({ wrapAtWidth: "always" })).rejects.toThrow("wrapAtWidth must match");
     for (const endOfLine of ["auto", "LF", "", 1, true]) {
-      expect(() => formatOptions({ endOfLine })).toThrow("endOfLine must be");
+      await expect(run({ endOfLine })).rejects.toThrow("endOfLine must match");
     }
-    expect(() => formatOptions({ breakLines: true })).toThrow("no option breakLines");
+    await expect(run({ breakLines: true })).rejects.toThrow("no option breakLines");
   });
 
   test("one sweep formats spacing, indentation, gaps, CRLF and final newline", async () => {
@@ -241,15 +246,6 @@ def main() -> String:
       },
     };
     expect((await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), [guard])).ok).toBe(true);
-  });
-
-  test("configuration passes the union through the unchanged engine", async () => {
-    await fixed("import Base\ndef main() -> U32: 1\n", { tabWidth: 2, wrapAtWidth: "never" });
-    await expect(
-      lint(fixture("import Base\ndef main() -> U32: 1\n"), rules, {
-        config: { rules: { "format/layout": { wrapAtWidth: 0 } } },
-      }),
-    ).rejects.toThrow("positive integer");
   });
 
   test("operator chains wrap at boundaries and stay stable", async () => {

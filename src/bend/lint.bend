@@ -3,14 +3,15 @@
 #
 #   def id() -> String:          # namespace/name, the code of its findings
 #   def facts() -> Lint.Want:    # Lint.NoFacts{}, or the facts it needs
+#   def options() -> List<&2, Lint.Declared>:  # only if it has options
 #   def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 #   def main() -> IO(Unit):
 #     Lint.serve(run)
 #
 # A rule with facts reads them one at a time, with fold_facts or
 # next_fact. Offsets count characters (code points) from the start of a
-# file. The rule's options come from bend-lint.json; read them with
-# option_number, option_flag and option_text, each with a default.
+# file. The rule's options come from bend-lint.json, checked against
+# options(); read them with option_number, option_flag and option_text.
 import Base
 
 # A type with its scope, and a node of a checked body: indexes into
@@ -32,6 +33,17 @@ type Value is Data:
 
 type Option is Data:
   Option{key: String, value: Value}
+
+# What an option accepts, and its default. NumberOption: a whole number
+# from minimum to maximum. TextOption: one of choices, or any text if
+# there are none.
+type Spec is Data:
+  NumberOption{default: U32, minimum: U32, maximum: U32}
+  FlagOption{default: Bool}
+  TextOption{default: String, choices: List<&2, String>}
+
+type Declared is Data:
+  Declared{key: String, spec: Spec}
 
 type Input is Data:
   Input{sources: List<&2, Source>, options: List<&2, Option>}
@@ -175,7 +187,6 @@ def pick(hit: Bool, v: Value, later: Maybe<&2, Value>) -> Maybe<&2, Value>:
     case False{}:
       later
 
-# The value of an option, if it is given.
 def find(opts: List<&2, Option>, +key: String) -> Maybe<&2, Value>:
   match opts:
     case Nil{}:
@@ -183,48 +194,48 @@ def find(opts: List<&2, Option>, +key: String) -> Maybe<&2, Value>:
     case Con{Option{k, v}, rest}:
       pick(String.eq(k, key), v, find(rest, key))
 
-def option_number_or(m: Maybe<&2, Value>, default: U32) -> U32:
+def number_of(m: Maybe<&2, Value>) -> U32:
   match m:
     case Some{Num{n}}:
       n
     case Some{Flag{b}}:
-      default
+      0
     case Some{Text{t}}:
-      default
+      0
     case None{}:
-      default
+      0
 
-# An option's value, or `default` when it is not given or of another type.
-def option_number(opts: List<&2, Option>, key: String, default: U32) -> U32:
-  option_number_or(find(opts, key), default)
+# A declared option's value; options() makes sure it is there.
+def option_number(opts: List<&2, Option>, key: String) -> U32:
+  number_of(find(opts, key))
 
-def option_flag_or(m: Maybe<&2, Value>, default: Bool) -> Bool:
+def flag_of(m: Maybe<&2, Value>) -> Bool:
   match m:
     case Some{Flag{b}}:
       b
     case Some{Num{n}}:
-      default
+      False{}
     case Some{Text{t}}:
-      default
+      False{}
     case None{}:
-      default
+      False{}
 
-def option_flag(opts: List<&2, Option>, key: String, default: Bool) -> Bool:
-  option_flag_or(find(opts, key), default)
+def option_flag(opts: List<&2, Option>, key: String) -> Bool:
+  flag_of(find(opts, key))
 
-def option_text_or(m: Maybe<&2, Value>, default: String) -> String:
+def text_of(m: Maybe<&2, Value>) -> String:
   match m:
     case Some{Text{t}}:
       t
     case Some{Num{n}}:
-      default
+      ""
     case Some{Flag{b}}:
-      default
+      ""
     case None{}:
-      default
+      ""
 
-def option_text(opts: List<&2, Option>, key: String, default: String) -> String:
-  option_text_or(find(opts, key), default)
+def option_text(opts: List<&2, Option>, key: String) -> String:
+  text_of(find(opts, key))
 
 def serve(run: Input -> IO(List<&2, Diag>)) -> IO(Unit):
   IO.bind(Input, Unit, input(), i => IO.bind(List<&2, Diag>, Unit, run(i), report))

@@ -17,6 +17,7 @@ import type {
   Diag,
   Fact,
   FactFilter,
+  LintRule,
   Node,
   Quantity,
   RuleContext,
@@ -85,6 +86,9 @@ export type Raw = {
 // What the wrappers report for each checked term.
 type Report = Omit<Raw, "inst">;
 
+// A rule option's schema and default.
+type Declared = NonNullable<LintRule["options"]>[string];
+
 // A type handle's content: the type, and the book and depth of its scope.
 // A Raw is one, for the type its term was checked as.
 type Scoped = { ty: HTerm; bok: Book; dep: number };
@@ -106,9 +110,14 @@ export type Checked = {
   failure?: Diag;
 };
 
-// A rule written in Bend, checked and compiled: what its id(), facts() and
-// main() give.
-type Compiled = { id: string; want: FactFilter | null; main: (args: string[]) => number };
+// A rule written in Bend, checked and compiled: what its id(), facts(),
+// options() (if it has them) and main() give.
+type Compiled = {
+  id: string;
+  want: FactFilter | null;
+  options?: LintRule["options"];
+  main: (args: string[]) => number;
+};
 
 // Constants
 // =========
@@ -968,8 +977,9 @@ export const layout = (m: Loaded, d: Diag, head: string): string => {
   ).replace(/^Error:/, head);
 };
 
-// A Bend rule's id(), facts() and main(), compiled as comp.ts io_run does.
-// facts(), checked: NoFacts{} gives null, Want{...} a filter.
+// A Bend rule's id(), facts(), options() and main(), compiled as comp.ts
+// io_run does. facts(), checked: NoFacts{} gives null, Want{...} a filter.
+// options(): each Lint.Declared as a schema with its default.
 export const compile = (m: Loaded, { book }: Checked, file: string): Compiled => {
   const { Bend, Comp } = m;
   const value = (k: Name): LTerm | undefined => {
@@ -982,14 +992,38 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   const id = shown === undefined ? undefined : Bend.term_show(shown).match(/^"([^"\\]*)"$/)?.[1];
   const args = (t: LTerm | undefined, ctr: string): LTerm[] | undefined =>
     t?.$ === "Ctr" && (t.k === ctr || t.k.endsWith(":" + ctr)) ? t.x : undefined;
-  const texts = (t: LTerm | undefined): string[] | undefined => {
+  const list = <T>(t: LTerm | undefined, of: (x: LTerm) => T | undefined): T[] | undefined => {
     const [head, tail] = args(t, "Con") ?? [];
-    const rest = tail && texts(tail);
+    const first = head && of(head);
+    const rest = tail && list(tail, of);
     return args(t, "Nil") !== undefined
       ? []
-      : head?.$ === "Lit" && typeof head.v === "string" && rest
-        ? [head.v, ...rest]
+      : first !== undefined && rest
+        ? [first, ...rest]
         : undefined;
+  };
+  const text = (t: LTerm | undefined): string | undefined =>
+    t?.$ === "Lit" && typeof t.v === "string" ? t.v : undefined;
+  const whole = (t: LTerm | undefined): number | undefined =>
+    t?.$ === "Lit" && t.k === "U32" ? t.v : undefined;
+  const bool = (t: LTerm | undefined): boolean | undefined =>
+    [true, false].find((b) => args(t, b ? "True" : "False") !== undefined);
+  const texts = (t: LTerm | undefined): string[] | undefined => list(t, text);
+  const declare = (t: LTerm): [string, Declared] | undefined => {
+    const [key, kind] = args(t, "Declared") ?? [];
+    const [d, minimum, maximum] = args(kind, "NumberOption") ?? [];
+    const [flag] = args(kind, "FlagOption") ?? [];
+    const [given, choices] = args(kind, "TextOption") ?? [];
+    const one =
+      d !== undefined
+        ? { type: "integer", default: whole(d), minimum: whole(minimum), maximum: whole(maximum) }
+        : flag !== undefined
+          ? { type: "boolean", default: bool(flag) }
+          : { type: "string", default: text(given), enum: texts(choices) };
+    const name = text(key);
+    return name === undefined || Object.values(one).includes(undefined)
+      ? undefined
+      : [name, { ...one, enum: one.enum?.length === 0 ? undefined : one.enum } as Declared];
   };
   const asked = value("facts");
   const [scope, kinds, defs, names, instances] = args(asked, "Want") ?? [];
@@ -1003,22 +1037,30 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
           kinds: texts(kinds),
           defs: texts(defs),
           names: texts(names),
-          instances: [true, false].find((b) => args(instances, b ? "True" : "False") !== undefined),
+          instances: bool(instances),
         };
+  const declared = book.tlds.options === undefined ? [] : list(value("options"), declare);
   if (
     id === undefined ||
     Comp.io_type(book) === null ||
-    (want !== null && Object.values(want).includes(undefined))
+    (want !== null && Object.values(want).includes(undefined)) ||
+    declared === undefined
   ) {
     throw new Error(
-      file + " must define id() -> String, facts() -> Lint.Want and main() -> IO(Unit)",
+      file +
+        " must define id() -> String, facts() -> Lint.Want, main() -> IO(Unit), and options() -> List<&2, Lint.Declared> if it has options",
     );
   }
   const main = new Function(
     "require",
     `${Comp.js_lib(book)}\n${Comp.RUNTIME_MAIN}\nreturn (args) => { cli_args = args; return io_run(${Comp.js_sat("main")}); };`,
   )(import.meta.require) as (args: string[]) => number;
-  return { id, want: want as FactFilter | null, main };
+  return {
+    id,
+    want: want as FactFilter | null,
+    ...(declared.length === 0 ? {} : { options: Object.fromEntries(declared) }),
+    main,
+  };
 };
 
 // What main.ts must give, as bend-lint calls it; a mismatch is a drift

@@ -228,10 +228,18 @@ export const rules: LintRule[] = [{
 
 #### Options
 
-`options: { tabWidth: 2, breakLines: false }` sets defaults. They also set which
-keys are allowed and their types (`number`, `boolean`, `string`). Unknown keys
-and wrong types are errors. A rule with no defaults gets the raw options and has
-to check them itself.
+`options` declares each option as a small part of JSON Schema (`type`, `enum`,
+`minimum`, `maximum`, `anyOf`) with a `default`:
+
+```ts
+options: {
+  tabWidth: { type: "integer", minimum: 1, default: 2 },
+  wrapAtWidth: { anyOf: [{ type: "integer", minimum: 1 }, { enum: ["never"] }], default: 100 },
+}
+```
+
+`cx.options` has every declared option. Unknown keys and values that don't match
+are config errors. A rule without `options` takes none.
 
 ### Bend
 
@@ -273,8 +281,19 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 `step` goes in as a template (`~step`) and takes the fact as `+f`, a
 `Lint.Fact{node, owner, inst, quantity, term, span}` (`term` is its type).
 Effects: `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`, `uses`, `same`, `show`,
-`normal` and `text`, plus Base's. Options come from `Lint.option_number`, `option_flag` and `option_text`,
-each with a default. Numbers are whole, 0 to 4294967295 (U32).
+`normal` and `text`, plus Base's.
+
+A rule with options declares them, and reads them with `Lint.option_number`,
+`option_flag` and `option_text`:
+
+```python
+def options() -> List<&2, Lint.Declared>:
+  [Lint.Declared{"maxLines", Lint.NumberOption{500, 0, 4294967295}}]
+```
+
+`NumberOption{default, minimum, maximum}` is a whole number (a U32),
+`FlagOption{default}` a boolean, and `TextOption{default, choices}` text, one
+of `choices` unless that is empty.
 
 Spans count Unicode code points here. TypeScript counts UTF-16 units.
 

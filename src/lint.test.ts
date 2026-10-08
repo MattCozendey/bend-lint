@@ -410,7 +410,7 @@ const redundantAnnotation: LintRule = {
     }),
 };
 
-// A Bend rule that reports its options, read with defaults.
+// A Bend rule that reports its options.
 const OPTIONS_BEND = String.raw`import Base
 import ../../bend/lint.bend as Lint
 
@@ -420,8 +420,11 @@ def id() -> String:
 def facts() -> Lint.Want:
   Lint.NoFacts{}
 
+def options() -> List<&2, Lint.Declared>:
+  [Lint.Declared{"width", Lint.NumberOption{2, 1, 80}}, Lint.Declared{"wrap", Lint.FlagOption{False{}}}, Lint.Declared{"name", Lint.TextOption{"none", []}}]
+
 def summary(+opts: List<&2, Lint.Option>) -> String:
-  U32.show(Lint.option_number(opts, "width", 2)) ++ " " ++ Bool.show(Lint.option_flag(opts, "wrap", False{})) ++ " " ++ Lint.option_text(opts, "name", "none")
+  U32.show(Lint.option_number(opts, "width")) ++ " " ++ Bool.show(Lint.option_flag(opts, "wrap")) ++ " " ++ Lint.option_text(opts, "name")
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
@@ -552,7 +555,10 @@ def main() -> IO(Unit):
 // A rule that reports its options.
 const echo: LintRule = {
   id: "test/echo",
-  options: { tabWidth: 2, breakLines: false },
+  options: {
+    tabWidth: { type: "integer", minimum: 1, default: 2 },
+    breakLines: { type: "boolean", default: false },
+  },
   run: (cx) => [cx.diag({ message: JSON.stringify(cx.options), severity: "hint" })],
 };
 
@@ -1368,7 +1374,7 @@ describe("options", () => {
       /test\/echo has no option tabSize/,
     );
     await expect(messages({ rules: { "test/echo": { tabWidth: "4" } } })).rejects.toThrow(
-      /tabWidth must be a number/,
+      /tabWidth must match/,
     );
     await expect(messages({ rules: { "test/echo": { severity: "loud" } } })).rejects.toThrow(
       /severity must be one of/,
@@ -1465,10 +1471,10 @@ describe("options", () => {
       "invalid_options.ts",
       'export const config = { rules: { "test/echo": { tabWidth: "4" } } };',
     );
-    await expect(messages(readConfig(file))).rejects.toThrow(/tabWidth must be a number/);
+    await expect(messages(readConfig(file))).rejects.toThrow(/tabWidth must match/);
   });
 
-  test("a Bend rule reads its options with defaults", async () => {
+  test("a Bend rule declares its options and reads them", async () => {
     const rule = await bendRule(fixture("options_rule.bend", OPTIONS_BEND));
     const said = async (config: object) =>
       (await lint(userland, [rule], { config })).diags.map((d) => d.message);
@@ -1477,9 +1483,16 @@ describe("options", () => {
     const [given] = await said({ rules: { "test/options": { width: 4, wrap: true, name: "x" } } });
     expect(given).toMatch(/^4 \S+ x$/);
     expect(given.split(" ")[1]).not.toBe(plain.split(" ")[1]);
-    await expect(said({ rules: { "test/options": { width: 1.5 } } })).rejects.toThrow(
-      /whole number/,
-    );
+    expect(rule.options).toEqual({
+      width: { type: "integer", default: 2, minimum: 1, maximum: 80 },
+      wrap: { type: "boolean", default: false },
+      name: { type: "string", default: "none" },
+    });
+    for (const bad of [{ width: 1.5 }, { width: 81 }, { wrap: "yes" }, { other: 1 }]) {
+      await expect(said({ rules: { "test/options": bad } })).rejects.toThrow(
+        /must match|no option/,
+      );
+    }
   });
 });
 
@@ -1973,7 +1986,7 @@ describe("cli", () => {
   test("--config selects JSON, JS or TS explicitly", () => {
     const echoes = module(
       "echo.js",
-      `[{ id: "test/echo", options: { tabWidth: 2 }, run: (cx) => [cx.diag({ message: "w" + cx.options.tabWidth })] }]`,
+      `[{ id: "test/echo", options: { tabWidth: { type: "integer", default: 2 } }, run: (cx) => [cx.diag({ message: "w" + cx.options.tabWidth })] }]`,
     );
     const settings = JSON.stringify({ rules: { "test/echo": { tabWidth: 6, severity: "hint" } } });
     for (const extension of ["json", "js", "ts"]) {

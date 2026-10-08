@@ -1,11 +1,9 @@
 // One formatter owns indentation, spacing, declaration gaps and wrapping.
-// No engine option defaults: wrapAtWidth is a number | "never", and the
-// existing engine accepts mixed types when the rule validates its options.
 // Run: bun src/lint.ts file.bend --rules rules/format.ts --fix
 // Config: { "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
-// Both numbers are positive integers; "never" disables optional wrapping.
-// endOfLine: "lf" (default), "crlf", or "preserve" (first ending, LF fallback).
-import type { Options, LintRule } from "../src/lint.ts";
+// "never" disables optional wrapping. endOfLine "preserve" keeps the first
+// ending, or LF if there is none.
+import type { LintRule } from "../src/lint.ts";
 
 export type FormatOptions = {
   tabWidth: number;
@@ -32,24 +30,6 @@ const DELIMITERS = new Map([
   ["{", "}"],
   ["<", ">"],
 ]);
-
-export function formatOptions(options: Options): FormatOptions {
-  const { tabWidth = 2, wrapAtWidth = 100, endOfLine = "lf" } = options;
-  const unknown = Object.keys(options).find(
-    (k) => k !== "tabWidth" && k !== "wrapAtWidth" && k !== "endOfLine",
-  );
-  if (unknown) throw new Error("format/layout has no option " + unknown);
-  const positive = (v: unknown): v is number =>
-    typeof v === "number" && Number.isSafeInteger(v) && v > 0;
-  if (!positive(tabWidth)) throw new Error("format/layout: tabWidth must be a positive integer");
-  if (wrapAtWidth !== "never" && !positive(wrapAtWidth)) {
-    throw new Error('format/layout: wrapAtWidth must be "never" or a positive integer');
-  }
-  if (endOfLine !== "lf" && endOfLine !== "crlf" && endOfLine !== "preserve") {
-    throw new Error('format/layout: endOfLine must be "lf", "crlf" or "preserve"');
-  }
-  return { tabWidth, wrapAtWidth, endOfLine };
-}
 
 // Preserve literals and comment text verbatim. In particular, a quote or #
 // inside a string is not syntax; successor notation and quantities are atoms.
@@ -430,9 +410,13 @@ export function format(source: string, opts: FormatOptions): string {
 export const rules: LintRule[] = [
   {
     id: "format/layout",
+    options: {
+      tabWidth: { type: "integer", minimum: 1, default: 2 },
+      wrapAtWidth: { anyOf: [{ type: "integer", minimum: 1 }, { enum: ["never"] }], default: 100 },
+      endOfLine: { enum: ["lf", "crlf", "preserve"], default: "lf" },
+    },
     run(cx) {
-      const opts = formatOptions(cx.options);
-      const text = format(cx.root.text, opts);
+      const text = format(cx.root.text, cx.options as FormatOptions);
       if (text === cx.root.text) return [];
       const span = { file: cx.root, beg: 0, end: cx.root.text.length };
       if (!cx.sameDeclarations(text))

@@ -125,9 +125,19 @@ export type RuleContext = {
   unstable: Unstable;
 };
 
-// A rule option's value. A default's type is its option's type.
 export type OptionValue = number | boolean | string;
 export type Options = Record<string, OptionValue>;
+
+// What a rule option accepts: a small part of JSON Schema. A value must
+// match each part given: its type ("integer": a whole number), one of
+// enum, at least minimum, at most maximum, and one of anyOf.
+export type OptionSchema = {
+  type?: "integer" | "number" | "boolean" | "string";
+  enum?: OptionValue[];
+  minimum?: number;
+  maximum?: number;
+  anyOf?: OptionSchema[];
+};
 
 // Config: per rule id, "off", or a severity and option values.
 export type Config = { rules?: Record<string, "off" | ({ severity?: Severity } & Options)> };
@@ -143,7 +153,7 @@ export type LintOptions = {
 export type LintRule = {
   id: string; // namespace/name; the code of its findings
   facts?: true | FactFilter; // the checker's facts it needs; true: all of the linted file's
-  options?: Options; // defaults; without them (a Bend rule), any option is passed as given
+  options?: Record<string, OptionSchema & { default: OptionValue }>; // what it accepts; none if absent
   run(cx: RuleContext, signal: AbortSignal): Diag[] | Promise<Diag[]>;
 };
 
@@ -275,16 +285,48 @@ export function findConfig(file: string): Config {
   }
 }
 
+// Whether a value matches an option's schema.
+const fits = (s: OptionSchema, v: unknown): boolean =>
+  ["number", "boolean", "string"].includes(typeof v) &&
+  (s.type === undefined || (s.type === "integer" ? Number.isInteger(v) : typeof v === s.type)) &&
+  (s.enum === undefined || s.enum.includes(v as OptionValue)) &&
+  (s.minimum === undefined || (typeof v === "number" && v >= s.minimum)) &&
+  (s.maximum === undefined || (typeof v === "number" && v <= s.maximum)) &&
+  (s.anyOf === undefined || s.anyOf.some((a) => fits(a, v)));
+
+const strings = (xs: unknown): boolean =>
+  xs === undefined || (Array.isArray(xs) && xs.every((x) => typeof x === "string"));
+
+const validFacts = (f: LintRule["facts"]): boolean =>
+  f === undefined ||
+  f === true ||
+  (typeof f === "object" &&
+    f !== null &&
+    (f.scope === undefined || SCOPES.includes(f.scope)) &&
+    strings(f.kinds) &&
+    strings(f.defs) &&
+    strings(f.names) &&
+    [undefined, true, false].includes(f.instances));
+
+const validOptions = (o: LintRule["options"]): boolean =>
+  o === undefined ||
+  (typeof o === "object" &&
+    o !== null &&
+    Object.values(o).every((s) => typeof s === "object" && s !== null && fits(s, s.default)));
+
 // What the config says for a rule: off, a severity, and its options (the
-// defaults, with the given values, which must be known and of their type).
-function settings(
+// defaults, with the given values, which must be declared and match).
+const settings = (
   rule: LintRule,
   config: Config,
-): { off: boolean; severity?: Severity; options: Options } {
+): { off: boolean; severity?: Severity; options: Options } => {
   const given = config.rules?.[rule.id];
   const where = "bend-lint config: " + rule.id;
+  const defaults = Object.fromEntries(
+    Object.entries(rule.options ?? {}).map(([key, s]) => [key, s.default]),
+  );
   if (given === undefined || given === "off") {
-    return { off: given === "off", options: { ...rule.options } };
+    return { off: given === "off", options: defaults };
   }
   if (typeof given !== "object" || given === null) {
     throw new Error(where + ' must be "off" or an object');
@@ -294,22 +336,25 @@ function settings(
     throw new Error(where + ": severity must be one of " + Object.keys(HEAD).join(", "));
   }
   for (const [key, value] of Object.entries(options)) {
-    const want = rule.options === undefined ? typeof value : typeof rule.options[key];
-    if (rule.options !== undefined && !Object.hasOwn(rule.options, key)) {
+    const schema =
+      rule.options !== undefined && Object.hasOwn(rule.options, key)
+        ? rule.options[key]
+        : undefined;
+    if (schema === undefined) {
       throw new Error(where + " has no option " + key);
     }
-    if (typeof value !== want || !["number", "boolean", "string"].includes(want)) {
+    if (!fits(schema, value)) {
       throw new Error(
         where +
           ": " +
           key +
-          " must be a " +
-          (rule.options === undefined ? "number, boolean or string" : want),
+          " must match " +
+          JSON.stringify(schema, (k, v) => (k === "default" ? undefined : v)),
       );
     }
   }
-  return { off: false, severity, options: { ...rule.options, ...options } };
-}
+  return { off: false, severity, options: { ...defaults, ...options } };
+};
 
 // Rules run in order; the config may turn one off, set its severity, and
 // give its options. A finding with severity error stops the run. A rule
@@ -323,23 +368,12 @@ export async function lint(
     unsaved: held,
   }: LintOptions = {},
 ): Promise<LintResult> {
-  const strings = (xs: unknown): boolean =>
-    xs === undefined || (Array.isArray(xs) && xs.every((x) => typeof x === "string"));
   const bad = rules.findIndex(
     (r) =>
       !RULE_ID.test(String(r?.id)) ||
       typeof r?.run !== "function" ||
-      !(
-        r.facts === undefined ||
-        r.facts === true ||
-        (typeof r.facts === "object" &&
-          r.facts !== null &&
-          (r.facts.scope === undefined || SCOPES.includes(r.facts.scope)) &&
-          strings(r.facts.kinds) &&
-          strings(r.facts.defs) &&
-          strings(r.facts.names) &&
-          [undefined, true, false].includes(r.facts.instances))
-      ),
+      !validFacts(r.facts) ||
+      !validOptions(r.options),
   );
   if (bad >= 0) {
     throw new TypeError(
@@ -347,7 +381,7 @@ export async function lint(
         bad +
         " (" +
         JSON.stringify(rules[bad]?.id) +
-        "): it needs an id like ns/name, a run function, and facts, if given, true or a FactFilter",
+        "): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter, and options, if given, schemas their defaults match",
     );
   }
   const plans = rules
@@ -569,10 +603,11 @@ export async function bendRule(file: string): Promise<LintRule> {
   if (checked.failure !== undefined) {
     throw new Error(file + " does not check:\n" + render(checked.failure));
   }
-  const { id, want, main } = compile(loaded, checked, file);
+  const { id, want, options, main } = compile(loaded, checked, file);
   return {
     id,
     ...(want === null ? {} : { facts: want }),
+    ...(options === undefined ? {} : { options }),
     run: (cx) => {
       const tables = new Map<string, { points: number[]; units: number[] }>();
       const table = (text: string): { points: number[]; units: number[] } => {
@@ -637,24 +672,10 @@ export async function bendRule(file: string): Promise<LintRule> {
       };
       const found: Reported[][] = [];
       shared.BEND_LINT = {
-        input: () => {
-          const odd = Object.entries(cx.options).find(
-            ([, v]) => typeof v === "number" && !(Number.isInteger(v) && v >= 0 && v <= 0xffffffff),
-          );
-          if (odd !== undefined) {
-            throw new Error(
-              "rule " +
-                id +
-                ": option " +
-                odd[0] +
-                " must be a whole number from 0 to 4294967295 (a U32)",
-            );
-          }
-          return {
-            sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s.root })),
-            options: cx.options,
-          };
-        },
+        input: () => ({
+          sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s.root })),
+          options: cx.options,
+        }),
         next: () => (given < facts.length ? wire(facts[given++]) : undefined),
         report: (diags) => void found.push(diags),
         text: (s) => {

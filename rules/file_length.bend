@@ -10,6 +10,9 @@ def id() -> String:
 def facts() -> Lint.Want:
   Lint.NoFacts{}
 
+def options() -> List<&2, Lint.Declared>:
+  [Lint.Declared{"maxLines", Lint.NumberOption{500, 0, 4294967295}}]
+
 def finding(long: Bool, path: String, max: U32, count: U32) -> List<&2, Lint.Diag>:
   match long:
     case True{}:
@@ -39,7 +42,7 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
     case Lint.Input{sources, options}:
       IO.pure(
         List<&2, Lint.Diag>,
-        check(Lint.option_number(options, "maxLines", 500), Shared.root(sources))
+        check(Lint.option_number(options, "maxLines"), Shared.root(sources))
       )
 
 def main() -> IO(Unit):
