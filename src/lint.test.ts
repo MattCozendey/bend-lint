@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import { BEND2, applyFixes, bendRule, findConfig, lint, readConfig, render } from "./lint.ts";
-import type { Diag, Edit, Fact, LintRule, Node, RuleContext, Source } from "./lint.ts";
+import type { Diag, Edit, Fact, FactFilter, LintRule, Node, RuleContext, Source } from "./lint.ts";
 import {
   DRIFT,
   bendDir,
@@ -211,7 +211,7 @@ def id() -> String:
   "test/types"
 
 def facts() -> Lint.Want:
-  Lint.Want{Lint.File{}, ["Var"], ["id"], []}
+  Lint.Want{Lint.File{}, ["Var"], ["id"], [], False{}}
 
 def verdict(same: Bool) -> String:
   match same:
@@ -279,7 +279,7 @@ def wanted(hit: Bool, +f: Lint.Fact, name: String, q: Lint.Quantity, span: Maybe
 def fact_diag(+f: Lint.Fact, v: Lint.View) -> IO(Maybe<&2, Lint.Diag>):
   match v:
     case Lint.View{owner, inst, kind, name, q, span, inner}:
-      wanted(Bool.and(String.eq(owner, "id"), Bool.and(String.eq(kind, "Var"), Bool.not(inst))), f, name, q, span, inner)
+      wanted(Bool.and(String.eq(owner, "id"), String.eq(kind, "Var")), f, name, q, span, inner)
 
 def prepend(m: Maybe<&2, Lint.Diag>, xs: List<&2, Lint.Diag>) -> List<&2, Lint.Diag>:
   match m:
@@ -349,17 +349,15 @@ const neverRun: LintRule = {
 };
 
 // x : T = v, where v is a variable that already has type T. Constructors
-// and lambdas keep theirs: checking needs the expected type. Template
-// instances repeat the facts of the def as written, so they are skipped.
+// and lambdas keep theirs: checking needs the expected type.
 const redundantAnnotation: LintRule = {
   id: "erasure/redundant-local-annotation",
   facts: true,
   run: (cx) =>
     cx.facts!.flatMap((fact): Diag[] => {
-      const { inst, kind, name: used, span, inner } = cx.view(fact);
+      const { kind, name: used, span, inner } = cx.view(fact);
       const declared = cx.binder(fact);
       if (
-        inst ||
         kind !== "Var" ||
         span === undefined ||
         inner === undefined ||
@@ -438,7 +436,7 @@ def id() -> String:
   "test/count"
 
 def facts() -> Lint.Want:
-  Lint.Want{Lint.Program{}, ["Var"], [], []}
+  Lint.Want{Lint.Program{}, ["Var"], [], [], False{}}
 
 def add(n: U32, +f: Lint.Fact) -> IO(U32):
   IO.pure(U32, U32.add(n, 1))
@@ -462,7 +460,7 @@ def id() -> String:
   "test/tree"
 
 def facts() -> Lint.Want:
-  Lint.Want{Lint.File{}, ["Var"], ["id"], []}
+  Lint.Want{Lint.File{}, ["Var"], ["id"], [], False{}}
 
 def kind_of(s: Lint.Shape) -> String:
   match s:
@@ -960,7 +958,7 @@ describe("lint", () => {
       facts: { kinds: ["Var"], defs: ["id"] },
       run: (cx) => {
         const all = nodes(cx, cx.body("id")!);
-        const x = cx.facts!.find((f) => cx.view(f).name === "x" && !cx.view(f).inst)!;
+        const x = cx.facts!.find((f) => cx.view(f).name === "x")!;
         expect(all).toContain(cx.node(x));
         expect(cx.fact(cx.node(x))).toBe(x);
         expect(cx.shape(cx.node(x)).kind).toBe("Ann");
@@ -990,7 +988,7 @@ describe("lint", () => {
   test("facts cover templates, proofs, matches and fields", async () => {
     const probe: LintRule = {
       id: "test/probe",
-      facts: true,
+      facts: { instances: true },
       run: (cx) => {
         const named = (def: string, kind: string, name = "") =>
           facts(cx, def).find((f) => {
@@ -1660,7 +1658,13 @@ describe("rules written in Bend", () => {
 
   test("a typed rule asks the checker through effects", async () => {
     const rule = await bendRule(fixture("types_rule.bend", TYPES_BEND));
-    expect(rule.facts).toEqual({ scope: "file", kinds: ["Var"], defs: ["id"], names: [] });
+    expect(rule.facts).toEqual({
+      scope: "file",
+      kinds: ["Var"],
+      defs: ["id"],
+      names: [],
+      instances: false,
+    });
     const res = await lint(userland, [rule, rule]);
     expect(res.diags.map((d) => d.message)).toEqual(
       Array(2).fill("x: Alias = N (same as its binder), text x, demanded once, uses x once"),
@@ -1705,9 +1709,9 @@ describe("fact filters", () => {
   const userland = fixture("filter_userland.bend", USERLAND);
 
   test("kinds, defs and names narrow the facts; an empty or absent list matches all", async () => {
-    const all = await seen(userland, true);
-    const only = async (want: LintRule["facts"], keep: (f: Seen) => boolean) => {
-      const got = await seen(userland, want);
+    const all = await seen(userland, { instances: true });
+    const only = async (want: FactFilter, keep: (f: Seen) => boolean) => {
+      const got = await seen(userland, { ...want, instances: true });
       expect(got.length).toBeGreaterThan(0);
       expect(got).toEqual(all.filter(keep));
     };
@@ -1716,6 +1720,24 @@ describe("fact filters", () => {
     await only({ kinds: ["Ref"], names: ["id"] }, (f) => f.kind === "Ref" && f.name === "id");
     await only({ kinds: [], defs: [], names: [] }, () => true);
     expect(all.some((f) => f.def.startsWith("generic~"))).toBe(true);
+  });
+
+  test("template instances' facts come only with instances: true", async () => {
+    const all = await seen(userland, { instances: true });
+    expect(await seen(userland, true)).toEqual(all.filter((f) => !f.def.includes("~")));
+    const both = await lint(userland, [
+      {
+        id: "test/plain",
+        facts: true,
+        run: (cx) => (expect(cx.facts!.every((f) => !cx.view(f).inst)).toBe(true), []),
+      },
+      {
+        id: "test/inst",
+        facts: { instances: true },
+        run: (cx) => (expect(cx.facts!.some((f) => cx.view(f).inst)).toBe(true), []),
+      },
+    ]);
+    expect(both.ok).toBe(true);
   });
 
   test("each rule gets its own facts; bend-lint keeps only what some rule asked for", async () => {
@@ -1752,7 +1774,13 @@ describe("fact filters", () => {
   });
 
   test("a bad filter is an invalid rule", async () => {
-    for (const facts of [{ scope: "all" }, { kinds: "Var" }, { names: [1] }, 3]) {
+    for (const facts of [
+      { scope: "all" },
+      { kinds: "Var" },
+      { names: [1] },
+      { instances: "yes" },
+      3,
+    ]) {
       await expect(
         lint(userland, [{ id: "test/bad", facts, run: () => [] } as unknown as LintRule]),
       ).rejects.toThrow(/invalid rule at 0/);
@@ -1761,7 +1789,13 @@ describe("fact filters", () => {
 
   test("a Bend rule pulls its facts one at a time, any number of them", async () => {
     const rule = await bendRule(fixture("count_rule.bend", COUNT_BEND));
-    expect(rule.facts).toEqual({ scope: "program", kinds: ["Var"], defs: [], names: [] });
+    expect(rule.facts).toEqual({
+      scope: "program",
+      kinds: ["Var"],
+      defs: [],
+      names: [],
+      instances: false,
+    });
     const many = fixture(
       "many_vars.bend",
       "import Base\n\n" +

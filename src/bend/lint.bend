@@ -48,9 +48,10 @@ type Scope is Data:
 # matches all. kinds: the term's kind, annotations stripped (Var, Ref, App,
 # ...). defs: the def whose body holds the term (a template's instances
 # count as the template). names: the name a Var or Ref points to.
+# instances: True{} adds the facts of template instances (generic~0).
 type Want is Data:
   NoFacts{}
-  Want{scope: Scope, kinds: List<&2, String>, defs: List<&2, String>, names: List<&2, String>}
+  Want{scope: Scope, kinds: List<&2, String>, defs: List<&2, String>, names: List<&2, String>, instances: Bool}
 
 type Span is Data:
   Span{path: String, beg: U32, end: U32}

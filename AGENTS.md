@@ -182,6 +182,7 @@ facts: {
   kinds: ["Var"],  // term kind without annotations: Var, Ref, App, ...
   defs: ["main"],  // enclosing definition, instances count as their template
   names: ["foo"],  // name used by a Var or Ref
+  instances: true, // also the facts of template instances (generic~0)
 }
 ```
 
@@ -189,8 +190,8 @@ All the lists you give must match. Leave one out or empty and it matches
 everything. Keep filters narrow, since memory goes up with the number of facts.
 
 Template bodies get checked as written and again per instance (`generic~0`),
-sometimes at the same span. `view(fact).inst` marks instances. Skip them to
-avoid double reports:
+sometimes at the same span. A rule gets the instances' facts only with
+`instances: true`, and `view(fact).inst` marks them.
 
 ```ts
 import type { LintRule } from "../src/lint.ts";
@@ -199,7 +200,6 @@ export const rules: LintRule[] = [{
   id: "demo/var-types",
   facts: { kinds: ["Var"] },
   run: (cx) => cx.facts!
-    .filter((fact) => !cx.view(fact).inst)
     .map((fact) => cx.diag({
       message: "type: " + cx.show(fact, cx.type(fact)),
       severity: "hint",
@@ -255,8 +255,9 @@ def main() -> IO(Unit):
 ```
 
 `input` has the sources and options. To get facts, return a filter from
-`facts()`, e.g. `Lint.Want{Lint.File{}, ["Var"], [], []}`. Empty lists match
-everything, and `Lint.Program{}` adds imports (not Base).
+`facts()`, e.g. `Lint.Want{Lint.File{}, ["Var"], [], [], False{}}`. Empty lists
+match everything, `Lint.Program{}` adds imports (not Base), and `True{}` at the
+end adds template instances.
 
 Read facts one by one with `next_fact`, or fold:
 

@@ -98,6 +98,7 @@ export type FactFilter = {
   kinds?: string[]; // the term's kind, annotations stripped: Var, Ref, App, ...
   defs?: string[]; // the def whose body holds the term
   names?: string[]; // the name a Var or Ref points to
+  instances?: boolean; // true: also the facts of template instances (generic~0)
 };
 
 // `type`, `binder`, `same`, `show` and `normal` work in the fact's scope.
@@ -334,7 +335,8 @@ export async function lint(
           (r.facts.scope === undefined || SCOPES.includes(r.facts.scope)) &&
           strings(r.facts.kinds) &&
           strings(r.facts.defs) &&
-          strings(r.facts.names))
+          strings(r.facts.names) &&
+          [undefined, true, false].includes(r.facts.instances))
       ),
   );
   if (bad >= 0) {
@@ -353,7 +355,10 @@ export async function lint(
       want: rule.facts === true ? {} : rule.facts,
     }))
     .filter((p) => !p.off);
-  const program = plans.some((p) => p.want?.scope === "program");
+  const wide = {
+    program: plans.some((p) => p.want?.scope === "program"),
+    instances: plans.some((p) => p.want?.instances === true),
+  };
   const checked = await check(
     loaded,
     file,
@@ -370,7 +375,7 @@ export async function lint(
   let diags: Diag[] = [];
   for (const { rule, severity, options, want } of plans) {
     signal.throwIfAborted();
-    const mine = want === undefined ? undefined : select(loaded, checked, want, program);
+    const mine = want === undefined ? undefined : select(loaded, checked, want, wide);
     const asked = new Set(mine);
     const out = await rule.run(
       {

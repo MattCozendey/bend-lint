@@ -648,6 +648,7 @@ const checked = async (
   const program = far.length > 0;
   const texts = new Map<string, string>();
   reads = texts;
+  const instances = filters.some((f) => f.instances === true);
   const seeded = real !== "" && /^import Base$/m.test(fs.readFileSync(real, "utf8"));
   const key = fs.readFileSync(Bend.BASE_BEND, "utf8");
   if (seeded && BASE?.key !== key) {
@@ -693,8 +694,9 @@ const checked = async (
     );
     const facts = found.flatMap((f): Array<[LTerm, Fact]> => {
       const spn = map(f.spn);
-      return spn !== undefined && own.has(spn.file)
-        ? [[f.tm, handle({ ...f, inst: insts.has(f.def), spn })]]
+      const inst = insts.has(f.def);
+      return spn !== undefined && own.has(spn.file) && (instances || !inst)
+        ? [[f.tm, handle({ ...f, inst, spn })]]
         : [];
     });
     return {
@@ -755,23 +757,29 @@ export const check = (
   return turn;
 };
 
-// The facts one rule asked for, of those kept for all rules. A filter that
-// matches all, in the scope of every kept fact, gets them as they are.
+// The facts one rule asked for, of those kept for all rules; `wide` says
+// whether some rule kept imports' facts or instances' facts. A filter that
+// matches all of what was kept gets the facts as they are.
 export const select = (
   m: Loaded,
   { sources, facts }: Checked,
   want: FactFilter,
-  program: boolean,
+  wide: { program: boolean; instances: boolean },
 ): Fact[] | undefined => {
   const root = FILES.get(sources.find((s) => s.root)!);
-  const all = [want.kinds, want.defs, want.names].every((xs) => !xs?.length);
-  return facts === undefined || (all && (want.scope === "program" || !program))
+  const all =
+    [want.kinds, want.defs, want.names].every((xs) => !xs?.length) &&
+    (want.scope === "program" || !wide.program) &&
+    (want.instances === true || !wide.instances);
+  return facts === undefined || all
     ? facts
     : facts.filter((fact) => {
         const r = raw(fact);
         const { kind, name } = kindOf(m.Bend.term_strip(r.tm));
         return (
-          (want.scope === "program" || r.spn?.file === root) && matches(want, kind, r.def, name)
+          (want.scope === "program" || r.spn?.file === root) &&
+          (want.instances === true || !r.inst) &&
+          matches(want, kind, r.def, name)
         );
       });
 };
@@ -951,7 +959,7 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
         : undefined;
   };
   const asked = value("facts");
-  const [scope, kinds, defs, names] = args(asked, "Want") ?? [];
+  const [scope, kinds, defs, names, instances] = args(asked, "Want") ?? [];
   const want =
     args(asked, "NoFacts") !== undefined
       ? null
@@ -962,11 +970,12 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
           kinds: texts(kinds),
           defs: texts(defs),
           names: texts(names),
+          instances: [true, false].find((b) => args(instances, b ? "True" : "False") !== undefined),
         };
   if (
     id === undefined ||
     Comp.io_type(book) === null ||
-    (want !== null && [want.scope, want.kinds, want.defs, want.names].includes(undefined))
+    (want !== null && Object.values(want).includes(undefined))
   ) {
     throw new Error(
       file + " must define id() -> String, facts() -> Lint.Want and main() -> IO(Unit)",
