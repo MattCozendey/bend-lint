@@ -56,6 +56,7 @@ the script finishes; there is no background service.
 ## Files
 
 - `src/lint.ts`: rule runner, diagnostics, fixes, library API, CLI
+- `src/result.ts`: the `Result` the library's entry points return
 - `src/seam.ts`: everything about Bend's internals: finding Bend, downloading it,
   patching it as it loads, checking a file, and every call into it
 - `src/bend/lint.bend`: what a Bend rule imports
@@ -112,7 +113,7 @@ Make them idempotent.
 ### TypeScript
 
 A module exports `rules: LintRule[]`. A rule has an `id` (`namespace/name`, it
-becomes the finding's `code`) and `run(cx, signal)`, which returns diagnostics
+becomes the finding's `code`) and `run(cx)`, which returns diagnostics
 and can be async. It can also have `facts` and `options`. If `run` throws, or
 returns a bad fix, the run gets a `bend-lint/rule-crash` error and goes on. If
 the signal aborts, the abort goes to whoever called the library.
@@ -124,8 +125,9 @@ What's on `cx`:
 
 - `root`, `sources`: the linted file and its imports, text as on disk
 - `options`: defaults merged with config
-- `facts`: just the facts this rule asked for
+- `facts`: just the facts this rule asked for (none if it asked for none)
 - `prior`: findings from earlier rules
+- `signal`: aborts with the run
 - `body(name)`, `shape(node)`, `nodes(root)`, `parent(node)`, `strip(node)`:
   the checked terms (see Nodes)
 - `fact(node)`: what the checker found for a node, if this rule asked for it
@@ -214,7 +216,7 @@ import type { LintRule } from "../src/lint.ts";
 export const rules: LintRule[] = [{
   id: "demo/var-types",
   facts: { kinds: ["Var"] },
-  run: (cx) => cx.facts!
+  run: (cx) => cx.facts
     .map((fact) => cx.diag({
       message: "type: " + cx.show(fact.type),
       severity: "hint",
@@ -311,26 +313,34 @@ For examples see [file_length.bend](rules/file_length.bend). `COMMA_BEND`, `TYPE
 From a file in the repo root:
 
 ```ts
-import { applyFixes, bendRule, lint, render } from "./src/lint.ts";
+import { applyFixes, createLinter } from "./src/lint.ts";
+import { ERROR, ERROR_METADATA } from "./src/result.ts";
 import { rules } from "./rules/format.ts";
 
-const result = await lint("example.bend", [
-  ...rules,
-  await bendRule("rules/file_length.bend"),
-]);
-console.log(result.ok, result.diags.map(render));
-
-if (result.ok) {
-  const root = result.sources.find((source) => source.root)!;
-  const { text, skipped } = applyFixes(root, result.diags);
+const made = await createLinter();
+if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
+const linter = made.OK;
+const more = await linter.loadRules(["rules/file_length.bend"]);
+const res = await linter.lint("example.bend", [...rules, ...(ERROR in more ? [] : more.OK)]);
+if (ERROR in res) {
+  console.error(res[ERROR].type, res[ERROR][ERROR_METADATA].message);
+} else if (res.OK.root !== undefined) {
+  console.log(res.OK.diags.map(linter.render));
+  const { text, skipped, elsewhere } = applyFixes(res.OK.root, res.OK.diags);
   // text is the edited source; saving it is up to you
-  console.log(text, skipped);
+  console.log(text, skipped, elsewhere);
 }
 ```
 
-Set `BEND_DIR` before importing bend-lint to pick a Bend checkout. Import
-bend-lint before you load Bend yourself, so the patching happens first. `lint`
-takes `{ config, signal, unsaved }` as a third argument. Without `config` it looks
+Entry points return a `Result` ([src/result.ts](src/result.ts)): `{ OK: value }`,
+or `{ ERROR: { type, ERROR_METADATA: { message, cause } } }`, where `type` is
+`config`, `rule-module`, `bend-missing`, `drift`, `aborted` or `internal`, and
+they do not throw. `unwrap` gives the value or throws the message.
+
+`createLinter({ bend })` loads the bend2 that `bend`, `$BEND_DIR` or the search
+in Internals picks, once per folder asked for. It must load before anything else
+loads Bend, so the patching happens first. `linter.lint` takes
+`{ config, signal, unsaved }` as a third argument. Without `config` it looks
 next to the file. `unsaved` maps file paths to editor text that isn't saved yet.
 Bend and the rules read that text instead of the file, for that run only. Runs
 at the same time wait for each other's check, one at a time; rules still run
@@ -342,7 +352,7 @@ side by side. `position(span)` gives an LSP range.
 configs export a named `config` object and go through Bun's loader, cache
 included. They can import relative files. Rule settings and option validation
 are the same for all three formats. `lint` also runs the rules of the config's
-`load` files, after the ones you give it. `loadRules(files)` loads rule files
+`load` files, after the ones you give it. `linter.loadRules(files)` loads rule files
 the same way: a module's `rules`, or a Bend rule, compiled again only when its
 text changes.
 

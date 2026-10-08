@@ -105,7 +105,7 @@ function tree(ts: Token[]): Node[] {
       stack.pop();
     } else frame.children.push(t);
   }
-  if (stack.length !== 1) throw new Error("format/layout: unbalanced delimiters");
+  if (stack.length !== 1) throw new Error("unbalanced delimiters");
   return root;
 }
 
@@ -416,9 +416,24 @@ export const rules: LintRule[] = [
       endOfLine: { enum: ["lf", "crlf", "preserve"], default: "lf" },
     },
     run(cx) {
-      const text = format(cx.root.text, cx.options as FormatOptions);
-      if (text === cx.root.text) return [];
       const span = { file: cx.root, beg: 0, end: cx.root.text.length };
+      const formatted = (): string | Error => {
+        try {
+          return format(cx.root.text, cx.options as FormatOptions);
+        } catch (e) {
+          return e instanceof Error ? e : new Error(String(e));
+        }
+      };
+      const text = formatted();
+      if (text instanceof Error) {
+        return [
+          cx.diag({
+            message: "Cannot format this file: " + text.message + ". No fix was offered.",
+            span,
+          }),
+        ];
+      }
+      if (text === cx.root.text) return [];
       if (!cx.sameDeclarations(text))
         return [
           cx.diag({

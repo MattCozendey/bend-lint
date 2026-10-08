@@ -3,11 +3,29 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { bendRule, lint } from "../src/lint.ts";
+import { createLinter } from "../src/lint.ts";
+import type { LintOptions, LintResult, LintRule } from "../src/lint.ts";
+import { unwrap } from "../src/result.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-file-length-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
-const rule = await bendRule(fileURLToPath(new URL("./file_length.bend", import.meta.url)));
+const linter = unwrap(await createLinter());
+const lint = async (
+  file: string,
+  rules: LintRule[],
+  options?: LintOptions,
+): Promise<LintResult> => {
+  const res = unwrap(await linter.lint(file, rules, options));
+  const crash = res.diags.find((d) => d.code === "bend-lint/rule-crash");
+  if (crash !== undefined) {
+    throw new Error(crash.message);
+  }
+  return res;
+};
+const clean = (res: LintResult): boolean => !res.diags.some((d) => d.severity === "error");
+const rule = unwrap(
+  await linter.bendRule(fileURLToPath(new URL("./file_length.bend", import.meta.url))),
+);
 const fixture = (text: string, name = "main.bend") => {
   const file = path.join(dir, name);
   fs.writeFileSync(file, text);
@@ -18,7 +36,7 @@ const config = (maxLines: number) => ({ rules: { "style/file-length": { maxLines
 test("Bend file length uses a default limit of 500 and offers no fix", async () => {
   const file = fixture("import Base\n" + "# padding\n".repeat(498) + "def main() -> U32:\n  1\n");
   const result = await lint(file, [rule]);
-  expect(result.ok).toBe(true);
+  expect(clean(result)).toBe(true);
   expect(result.diags.map((d) => [d.code, d.message, d.fixes])).toEqual([
     ["style/file-length", "Keep the file to 500 lines; it has 501.", []],
   ]);
@@ -37,7 +55,7 @@ test("physical line counting handles empty files, LF, CRLF and absent final newl
     ["# one\r\n\r\n", 2],
   ] as const) {
     const result = await lint(fixture(text), [rule], { config: config(count) });
-    expect([result.ok, result.diags]).toEqual([true, []]);
+    expect([clean(result), result.diags]).toEqual([true, []]);
     if (count > 0) {
       const over = await lint(fixture(text), [rule], { config: config(count - 1) });
       expect(over.diags[0].message).toBe(
@@ -71,6 +89,6 @@ test("the Bend rule honors disable and severity configuration", async () => {
 
 test("the Bend line scanner handles long files without overflowing the JS stack", async () => {
   const result = await lint(fixture("# padding\n".repeat(6000)), [rule]);
-  expect(result.ok).toBe(true);
+  expect(clean(result)).toBe(true);
   expect(result.diags[0].message).toBe("Keep the file to 500 lines; it has 6000.");
 });

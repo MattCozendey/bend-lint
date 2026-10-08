@@ -4,11 +4,27 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { lint, applyFixes, render } from "../src/lint.ts";
-import type { LintRule, Options } from "../src/lint.ts";
+import { applyFixes, createLinter } from "../src/lint.ts";
+import type { LintOptions, LintResult, LintRule, Options } from "../src/lint.ts";
+import { unwrap } from "../src/result.ts";
 import { format, rules } from "./format.ts";
 import type { FormatOptions } from "./format.ts";
 
+const linter = unwrap(await createLinter());
+const lint = async (
+  file: string,
+  rules: LintRule[],
+  options?: LintOptions,
+): Promise<LintResult> => {
+  const res = unwrap(await linter.lint(file, rules, options));
+  const crash = res.diags.find((d) => d.code === "bend-lint/rule-crash");
+  if (crash !== undefined) {
+    throw new Error(crash.message);
+  }
+  return res;
+};
+const clean = (res: LintResult): boolean => !res.diags.some((d) => d.severity === "error");
+const { render } = linter;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const opts = { tabWidth: 2, wrapAtWidth: 100, endOfLine: "lf" } as const;
@@ -21,8 +37,8 @@ async function fixed(text: string, options: FormatOptions = opts) {
   const result = await lint(fixture(text), rules, {
     config: { rules: { "format/layout": options } },
   });
-  if (!result.ok) throw new Error(result.diags.map(render).join("\n"));
-  expect(result.ok).toBe(true);
+  if (!clean(result)) throw new Error(result.diags.map(render).join("\n"));
+  expect(clean(result)).toBe(true);
   expect(result.diags.every((d) => d.fixes.length === 1)).toBe(true);
   const source = result.sources.find((s) => s.root)!;
   const output = applyFixes(source, result.diags).text;
@@ -30,7 +46,7 @@ async function fixed(text: string, options: FormatOptions = opts) {
   const again = await lint(fixture(output), rules, {
     config: { rules: { "format/layout": options } },
   });
-  expect([again.ok, again.diags]).toEqual([true, []]);
+  expect([clean(again), again.diags]).toEqual([true, []]);
   const Bend = result.unstable.Bend;
   const bodies = [result.unstable.book, again.unstable.book].map((book) =>
     Object.fromEntries(
@@ -63,7 +79,7 @@ describe("format/layout", () => {
       { wrapAtWidth: "never" },
       ...["lf", "crlf", "preserve"].map((e) => ({ endOfLine: e })),
     ]) {
-      expect((await run(good)).ok).toBe(true);
+      expect(clean(await run(good))).toBe(true);
     }
     for (const bad of [0, -1, 1.5, "2", true]) {
       await expect(run({ tabWidth: bad })).rejects.toThrow("tabWidth must match");
@@ -255,7 +271,9 @@ def main() -> String:
         return [];
       },
     };
-    expect((await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), [guard])).ok).toBe(true);
+    expect(clean(await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), [guard]))).toBe(
+      true,
+    );
   });
 
   test("operator chains wrap at boundaries and stay stable", async () => {

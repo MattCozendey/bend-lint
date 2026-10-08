@@ -6,8 +6,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
-import { BEND2, applyFixes, bendRule, findConfig, lint, readConfig, render } from "./lint.ts";
-import type { Diag, Edit, Fact, FactFilter, LintRule, RuleContext, Source } from "./lint.ts";
+import * as api from "./lint.ts";
+import { applyFixes, createLinter } from "./lint.ts";
+import type {
+  Diag,
+  Edit,
+  Fact,
+  FactFilter,
+  LintOptions,
+  LintResult,
+  LintRule,
+  RuleContext,
+  Source,
+} from "./lint.ts";
+import { ERROR, unwrap } from "./result.ts";
+import type { Result } from "./result.ts";
 import {
   DRIFT,
   bendDir,
@@ -33,6 +46,9 @@ type Seen = { kind: string; def: string; name: string; path: string };
 
 // Constants
 // =========
+
+const linter = unwrap(await createLinter());
+const { BEND2, render } = linter;
 
 // bend2's modules as bend-lint patched them, for what the tests inspect.
 const Bend: typeof BendModule = await import(pathToFileURL(path.join(BEND2, "bend.ts")).href);
@@ -303,9 +319,9 @@ const commaSpace: LintRule = {
 const identity: LintRule = {
   id: "example/identity",
   facts: true,
-  run: async (cx, signal) => {
+  run: async (cx) => {
     await Promise.resolve();
-    signal.throwIfAborted();
+    cx.signal.throwIfAborted();
     const body = facts(cx, "id").find(
       (f) => loose(cx, f).dep === 1 && loose(cx, f).tm.x?.$ === "Var",
     )!;
@@ -339,7 +355,7 @@ const redundantAnnotation: LintRule = {
   id: "erasure/redundant-local-annotation",
   facts: true,
   run: (cx) =>
-    cx.facts!.flatMap((fact): Diag[] => {
+    cx.facts.flatMap((fact): Diag[] => {
       const { span } = fact;
       const { kind, name: used, span: inner } = cx.shape(cx.strip(fact.node));
       const declared = cx.binder(fact);
@@ -546,6 +562,34 @@ const echo: LintRule = {
 // Functions
 // =========
 
+// The linter's entry points, unwrapped: a failure throws its message, and
+// so does a rule that crashed (an expect in a rule that failed, say).
+async function lint(file: string, rules: LintRule[], options?: LintOptions): Promise<LintResult> {
+  const res = unwrap(await linter.lint(file, rules, options));
+  const crash = res.diags.find((d) => d.code === "bend-lint/rule-crash");
+  if (crash !== undefined) {
+    throw new Error(crash.message);
+  }
+  return res;
+}
+
+async function bendRule(file: string): Promise<LintRule> {
+  return unwrap(await linter.bendRule(file));
+}
+
+function findConfig(file: string) {
+  return unwrap(api.findConfig(file));
+}
+
+function readConfig(file: string) {
+  return unwrap(api.readConfig(file));
+}
+
+// Whether a run found no error.
+function clean(res: LintResult): boolean {
+  return !res.diags.some((d) => d.severity === "error");
+}
+
 // Whether `f` throws a drift error.
 function drifts(f: () => unknown): boolean {
   try {
@@ -600,7 +644,7 @@ async function seen(file: string, want: LintRule["facts"]): Promise<Seen[]> {
       id: "test/seen",
       facts: want,
       run: (cx) => {
-        got = cx.facts!.map((f) => {
+        got = cx.facts.map((f) => {
           const { kind, name } = cx.shape(cx.strip(f.node));
           return { kind, def: f.owner, name, path: f.span!.file.path };
         });
@@ -730,7 +774,10 @@ describe("patch", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "LAWS.bend"), "def one() -> Type:\n  Type\n");
     const res = await lint(fixture("proof/PROOF.bend", "def two() -> Type:\n  Type\n"), []);
-    expect([res.ok, res.diags[0].message]).toEqual([false, "PROOF.bend must import ./LAWS.bend"]);
+    expect([clean(res), res.diags[0].message]).toEqual([
+      false,
+      "PROOF.bend must import ./LAWS.bend",
+    ]);
   });
 
   test("the wrappers pass every argument through, and need the expected arity", () => {
@@ -932,7 +979,7 @@ describe("lint", () => {
 
   test("source and typed rules report in order, with fixes on the file on disk", async () => {
     const res = await lint(userland, [commaSpace, identity]);
-    expect(res.ok).toBe(true);
+    expect(clean(res)).toBe(true);
     expect(res.diags.map((d) => d.code)).toEqual([commaSpace.id, identity.id]);
     expect(res.diags[0].fixes[0].edits[0].span.file.text).toBe(USERLAND);
     expect(render(res.diags[0])).toStartWith("Warning [style/comma-space]:");
@@ -944,12 +991,12 @@ describe("lint", () => {
     const look: LintRule = {
       id: "test/look",
       run: (cx) => {
-        expect(cx.facts).toBeUndefined();
+        expect(cx.facts).toEqual([]);
         return [];
       },
     };
-    expect((await lint(userland, [look, identity])).ok).toBe(true);
-    expect((await lint(userland, [commaSpace])).facts).toBeUndefined();
+    expect(clean(await lint(userland, [look, identity]))).toBe(true);
+    expect((await lint(userland, [commaSpace])).facts).toEqual([]);
   });
 
   test("nodes lists a body parents first, and parent goes back up", async () => {
@@ -969,7 +1016,7 @@ describe("lint", () => {
         return [];
       },
     };
-    expect((await lint(userland, [walk, walk])).ok).toBe(true);
+    expect(clean(await lint(userland, [walk, walk]))).toBe(true);
   });
 
   test("the term view: bodies, nodes, shapes, and a node's fact only if the rule asked for it", async () => {
@@ -978,7 +1025,7 @@ describe("lint", () => {
       facts: { kinds: ["Var"], defs: ["id"] },
       run: (cx) => {
         const all = cx.nodes(cx.body("id")!);
-        const x = cx.facts!.find((f) => cx.shape(cx.strip(f.node)).name === "x")!;
+        const x = cx.facts.find((f) => cx.shape(cx.strip(f.node)).name === "x")!;
         expect(all).toContain(x.node);
         expect(cx.fact(x.node)).toBe(x);
         expect(cx.shape(x.node).kind).toBe("Ann");
@@ -1003,7 +1050,7 @@ describe("lint", () => {
         return [];
       },
     };
-    expect((await lint(userland, [tree, every])).ok).toBe(true);
+    expect(clean(await lint(userland, [tree, every]))).toBe(true);
   });
 
   test("facts cover templates, proofs, matches and fields", async () => {
@@ -1042,7 +1089,7 @@ describe("lint", () => {
         return [];
       },
     };
-    expect((await lint(userland, [probe])).ok).toBe(true);
+    expect(clean(await lint(userland, [probe]))).toBe(true);
   });
 
   test("walk reaches every kind in checked bodies; an unknown kind fails", async () => {
@@ -1079,7 +1126,7 @@ describe("lint", () => {
       neverRun,
       commaSpace,
     ]);
-    expect(parse.ok).toBe(false);
+    expect(clean(parse)).toBe(false);
     expect(parse.diags.map((d) => d.code)).toEqual(["bend/check"]);
     const commas = await lint(fixture("comma.bend", "def broken(a,b) -> N:\n  a\n"), [
       neverRun,
@@ -1088,12 +1135,12 @@ describe("lint", () => {
     expect(commas.diags.map((d) => d.code)).toEqual(["bend/check", commaSpace.id]);
     expect(render(parse.diags[0])).toStartWith("Error [bend/check]:");
     expect(
-      (
+      clean(
         await lint(
           fixture("name.bend", "type N is Data:\n  Z{}\ndef broken() -> N:\n  missing\n"),
           [neverRun],
-        )
-      ).ok,
+        ),
+      ),
     ).toBe(false);
     const todo = await lint(
       fixture("todo.bend", "type N is Data:\n  Z{}\ndef broken() -> N:\n  ?TODO\n"),
@@ -1110,7 +1157,7 @@ describe("lint", () => {
       (await lint(fixture("bound.bend", types + "def bad(A: Type, x: N) -> A:\n  x\n"), [neverRun]))
         .diags[0].message,
     ).toBe("expected: A\nobserved: N");
-    expect((await lint(path.join(DIR, "missing.bend"), [neverRun])).ok).toBe(false);
+    expect(clean(await lint(path.join(DIR, "missing.bend"), [neverRun]))).toBe(false);
   });
 
   test("an error finding does not stop later rules; the code is always the rule's id", async () => {
@@ -1124,7 +1171,7 @@ describe("lint", () => {
       run: (cx) => [cx.diag({ message: "failed", severity: "error" })],
     };
     const res = await lint(userland, [stop, stamp]);
-    expect(res.ok).toBe(false);
+    expect(clean(res)).toBe(false);
     expect(res.diags.map((d) => d.code)).toEqual([stop.id, stamp.id]);
   });
 
@@ -1160,8 +1207,8 @@ describe("lint", () => {
         throw new Error("rule failed");
       },
     };
-    const res = await lint(userland, [broken, boom, commaSpace]);
-    expect(res.ok).toBe(false);
+    const res = unwrap(await linter.lint(userland, [broken, boom, commaSpace]));
+    expect(clean(res)).toBe(false);
     expect(res.diags.filter((d) => d.code === "bend-lint/rule-crash")).toMatchObject([
       {
         severity: "error",
@@ -1199,7 +1246,7 @@ describe("lint", () => {
     const broken = await lint(file, [seen], {
       unsaved: new Map([[file, "import Base\ndef main() -> U32:\n  nope\n"]]),
     });
-    expect([broken.ok, broken.diags[0].code]).toEqual([false, "bend/check"]);
+    expect([clean(broken), broken.diags[0].code]).toEqual([false, "bend/check"]);
     // Runs at the same time wait for each other's check, and each sees its own text.
     const other = "import Base\ndef main() -> U32:\n  3\n";
     expect(
@@ -1219,8 +1266,8 @@ describe("lint", () => {
       facts: true,
       run: (cx) => {
         expect(cx.root.path).toEndWith("/main.bend");
-        const texts = cx
-          .facts!.filter((v) => v.owner === "main" && v.span !== undefined)
+        const texts = cx.facts
+          .filter((v) => v.owner === "main" && v.span !== undefined)
           .map(({ span }) => {
             expect(span!.file).toBe(cx.root);
             return cx.root.text.slice(span!.beg, span!.end);
@@ -1260,7 +1307,7 @@ describe("lint", () => {
           }),
         ],
       };
-      expect((await lint(userland, [rule])).diags[0]).toMatchObject({
+      expect(unwrap(await linter.lint(userland, [rule])).diags[0]).toMatchObject({
         code: "bend-lint/rule-crash",
         message: expect.stringContaining("out of bounds"),
       });
@@ -1276,7 +1323,7 @@ describe("lint", () => {
       run: (cx) => {
         expect(cx.root.path).toEndWith("/with_base.bend");
         expect(cx.sources.some((s) => s.base)).toBe(true);
-        const owners = cx.facts!.map((f) => f.owner);
+        const owners = cx.facts.map((f) => f.owner);
         expect(owners.some((def) => def === "main")).toBe(true);
         expect(owners.every((def) => cx.unstable.book.tlds[def]?.b !== true)).toBe(true);
         return [];
@@ -1284,9 +1331,9 @@ describe("lint", () => {
     };
     const first = await lint(withBase, [probe]);
     const second = await lint(withBase, [probe]);
-    expect([first.ok, second.ok]).toEqual([true, true]);
+    expect([clean(first), clean(second)]).toEqual([true, true]);
     expect(second.unstable.book.order).toEqual(first.unstable.book.order);
-    expect((await lint(fixture("without_base.bend", "def main() -> Nat:\n  1n\n"), [])).ok).toBe(
+    expect(clean(await lint(fixture("without_base.bend", "def main() -> Nat:\n  1n\n"), []))).toBe(
       false,
     );
   });
@@ -1297,7 +1344,7 @@ describe("lint", () => {
     const paused: LintRule = {
       id: "test/paused",
       run: async (cx) => {
-        expect(cx.facts).toBeUndefined();
+        expect(cx.facts).toEqual([]);
         entered.resolve();
         await gate.promise;
         return [];
@@ -1306,7 +1353,7 @@ describe("lint", () => {
     const first = lint(userland, [paused]);
     await entered.promise;
     const second = await lint(userland, [identity]).finally(() => gate.resolve());
-    expect(second.facts!.length).toBeGreaterThan(0);
+    expect(second.facts.length).toBeGreaterThan(0);
     expect(second.diags.map((d) => d.code)).toEqual([identity.id]);
     expect((await first).diags).toEqual([]);
   });
@@ -1319,14 +1366,14 @@ describe("lint", () => {
     const remote: LintRule = {
       id: "test/api",
       facts: true,
-      run: async (cx, signal) => {
+      run: async (cx) => {
         const fact = loose(cx, cx.fact(cx.body("id")!)!);
         const type = cx.unstable.Bend.term_wnf(fact.bok, fact.ty) as { A: typeof fact.ty };
         const arg = cx.unstable.Bend.term_wnf(fact.bok, type.A) as { k?: string };
         const res = await fetch(server.url, {
           method: "POST",
           body: JSON.stringify({ type: arg.k }),
-          signal,
+          signal: cx.signal,
         });
         return [cx.diag({ message: await res.text(), severity: "hint" })];
       },
@@ -1339,7 +1386,7 @@ describe("lint", () => {
       },
     };
     const res = await lint(userland, [remote, next]).finally(() => server.stop(true));
-    expect(res.ok).toBe(true);
+    expect(clean(res)).toBe(true);
   });
 });
 
@@ -1522,12 +1569,12 @@ describe("review fixes", () => {
         id: "test/where",
         facts: true,
         run: (cx) => {
-          expect(cx.facts!.length).toBeGreaterThan(0);
-          expect(cx.facts!.every((f) => f.span?.file === cx.root)).toBe(true);
+          expect(cx.facts.length).toBeGreaterThan(0);
+          expect(cx.facts.every((f) => f.span?.file === cx.root)).toBe(true);
           return [];
         },
       };
-      expect((await lint(file, [where])).ok).toBe(true);
+      expect(clean(await lint(file, [where]))).toBe(true);
     }
   });
 
@@ -1543,7 +1590,7 @@ describe("review fixes", () => {
       facts: true,
       run: (cx) => [
         cx.diag({
-          message: [...new Set(cx.facts!.map((f) => f.owner))].join(),
+          message: [...new Set(cx.facts.map((f) => f.owner))].join(),
           severity: "hint",
         }),
       ],
@@ -1566,10 +1613,10 @@ describe("review fixes", () => {
     const all: LintRule = {
       id: "test/all",
       facts: true,
-      run: (cx) => cx.facts!.map((f) => cx.diag({ message: "f", span: f.span })),
+      run: (cx) => cx.facts.map((f) => cx.diag({ message: "f", span: f.span })),
     };
     const res = await lint(path.join(dir, "m.bend"), [all]);
-    expect(res.ok).toBe(true);
+    expect(clean(res)).toBe(true);
     expect(res.diags.length).toBeGreaterThan(0);
     const a = file2("/p/a.bend", "a"),
       b = file2("/p/b.bend", "b");
@@ -1697,7 +1744,7 @@ describe("drift: bend-lint agrees with bend's own tests", () => {
         .readFileSync(file, "utf8")
         .match(/^#\|(.*)$/m)![1]
         .trim();
-      expect((await lint(file, [])).ok).toBe(first !== "SOME PROOFS FAIL");
+      expect(clean(await lint(file, []))).toBe(first !== "SOME PROOFS FAIL");
     });
   }
 });
@@ -1745,7 +1792,7 @@ describe("rules written in Bend", () => {
       );
       const rule = await bendRule(fixture("bad_offset_rule.bend", code));
       const file = fixture("bad_offset_input.bend", source);
-      expect((await lint(file, [rule])).diags[0]).toMatchObject({
+      expect(unwrap(await linter.lint(file, [rule])).diags[0]).toMatchObject({
         code: "bend-lint/rule-crash",
         message: expect.stringContaining('fix "Insert space" has an edit out of bounds'),
       });
@@ -1758,9 +1805,55 @@ describe("rules written in Bend", () => {
         fixture("clamped_diagnostic_rule.bend", diagnosticOnly),
       );
       const result = await lint(file, [diagnosticRule]);
-      expect(result.ok).toBe(true);
+      expect(clean(result)).toBe(true);
       expect(result.diags[0].span!.end).toBe(source.length);
     }
+  });
+});
+
+describe("entry points return a Result", () => {
+  const userland = fixture("entry_userland.bend", USERLAND);
+  const failure = async (res: Promise<Result<unknown, api.LintError>>) => {
+    const got = await res;
+    return ERROR in got ? got[ERROR] : undefined;
+  };
+
+  test("each failure says its cause", async () => {
+    expect(await createLinter({ bend: path.join(DIR, "nowhere") })).toMatchObject({
+      [ERROR]: { type: "bend-missing" },
+    });
+    expect(await createLinter()).toEqual(await createLinter());
+    expect(api.readConfig(path.join(DIR, "no-config.json"))).toMatchObject({
+      [ERROR]: { type: "config" },
+    });
+    const config = (rules: object) => ({ config: { rules } as api.Config });
+    expect(
+      await failure(linter.lint(userland, [echo], config({ "test/echo": { nope: 1 } }))),
+    ).toMatchObject({
+      type: "config",
+    });
+    expect(await failure(linter.lint(userland, [{ id: "bad", run: () => [] }]))).toMatchObject({
+      type: "rule-module",
+    });
+    expect(
+      await failure(
+        linter.lint(userland, [], { config: { load: [path.join(DIR, "missing.ts")] } }),
+      ),
+    ).toMatchObject({ type: "rule-module" });
+    expect(await linter.bendRule(fixture("not_a_rule.bend", "def broken(\n"))).toMatchObject({
+      [ERROR]: { type: "rule-module" },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    expect(await failure(linter.lint(userland, [], { signal: controller.signal }))).toMatchObject({
+      type: "aborted",
+    });
+  });
+
+  test("a run gives the linted file as root", async () => {
+    const res = await lint(userland, []);
+    expect(res.root).toBe(res.sources.find((s) => s.root));
+    expect(res.root?.path).toEndWith("/entry_userland.bend");
   });
 });
 
@@ -1788,15 +1881,15 @@ describe("fact filters", () => {
       {
         id: "test/plain",
         facts: true,
-        run: (cx) => (expect(cx.facts!.every((f) => !f.inst)).toBe(true), []),
+        run: (cx) => (expect(cx.facts.every((f) => !f.inst)).toBe(true), []),
       },
       {
         id: "test/inst",
         facts: { instances: true },
-        run: (cx) => (expect(cx.facts!.some((f) => f.inst)).toBe(true), []),
+        run: (cx) => (expect(cx.facts.some((f) => f.inst)).toBe(true), []),
       },
     ]);
-    expect(both.ok).toBe(true);
+    expect(clean(both)).toBe(true);
   });
 
   test("each rule gets its own facts; bend-lint keeps only what some rule asked for", async () => {
@@ -1804,14 +1897,14 @@ describe("fact filters", () => {
     const rule = (id: string, kinds: string[]): LintRule => ({
       id,
       facts: { kinds },
-      run: (cx) => ((got[id] = cx.facts!.map((f) => cx.shape(cx.strip(f.node)).kind)), []),
+      run: (cx) => ((got[id] = cx.facts.map((f) => cx.shape(cx.strip(f.node)).kind)), []),
     });
     const res = await lint(userland, [rule("test/vars", ["Var"]), rule("test/refs", ["Ref"])]);
     expect(new Set(got["test/vars"])).toEqual(new Set(["Var"]));
     expect(new Set(got["test/refs"])).toEqual(new Set(["Ref"]));
-    expect(res.facts!.length).toBe(got["test/vars"].length + got["test/refs"].length);
-    expect(res.facts!.length).toBeLessThan(
-      (await lint(userland, [rule("test/all", [])])).facts!.length,
+    expect(res.facts.length).toBe(got["test/vars"].length + got["test/refs"].length);
+    expect(res.facts.length).toBeLessThan(
+      (await lint(userland, [rule("test/all", [])])).facts.length,
     );
   });
 

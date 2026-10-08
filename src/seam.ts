@@ -99,7 +99,7 @@ export type Unstable = { Bend: typeof BendModule; book: Book; raw: (fact: Fact) 
 // The rule context's operations that ask bend2.
 export type Operations = Omit<
   RuleContext,
-  "sources" | "root" | "options" | "facts" | "prior" | "diag"
+  "sources" | "root" | "options" | "facts" | "prior" | "signal" | "diag"
 >;
 
 export type Checked = {

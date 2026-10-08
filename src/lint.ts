@@ -3,14 +3,17 @@
 // its source and the checker's results. Rules are TS modules, or Bend files
 // built on ./bend/lint.bend. It reaches bend2 only through ./seam.ts; anything
 // there it cannot follow stops it with a drift error. The types below are
-// bend-lint's own, so a rule does not depend on bend2's internals. As a
-// CLI, it exits 0 when ok, 1 when it found an error, 2 on bad usage or a
-// tool failure.
+// bend-lint's own, so a rule does not depend on bend2's internals. Entry
+// points return a Result rather than throw. As a CLI, it exits 0 when ok,
+// 1 when it found an error, 2 on bad usage or a tool failure.
 
 import * as url from "node:url";
 import * as util from "node:util";
 
+import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./result.ts";
+import type { Result } from "./result.ts";
 import {
+  DRIFT,
   check,
   compile,
   fs,
@@ -22,7 +25,7 @@ import {
   select,
   starts,
 } from "./seam.ts";
-import type { Unstable } from "./seam.ts";
+import type { Loaded, Unstable } from "./seam.ts";
 
 // Types
 // =====
@@ -107,8 +110,9 @@ export type RuleContext = {
   sources: Source[];
   root: Source;
   options: Options; // the rule's defaults, with the config's values
-  facts?: Fact[]; // only for a rule with facts, and only those it asked for
+  facts: Fact[]; // the facts it asked for; none if it asked for none
   prior: readonly Diag[]; // what earlier rules found
+  signal: AbortSignal; // aborts with the run
   body(name: string): Node | undefined; // a def's checked body
   shape(node: Node): Shape;
   nodes(root: Node): Node[]; // root and every node under it, parents first
@@ -158,15 +162,39 @@ export type LintRule = {
   id: string; // namespace/name; the code of its findings
   facts?: true | FactFilter; // the checker's facts it needs; true: all of the linted file's
   options?: Record<string, OptionSchema & { default: OptionValue }>; // what it accepts; none if absent
-  run(cx: RuleContext, signal: AbortSignal): Diag[] | Promise<Diag[]>;
+  run(cx: RuleContext): Diag[] | Promise<Diag[]>;
 };
 
+// root: the linted file, unless bend could not read it. facts: those kept
+// for the rules.
 export type LintResult = {
-  ok: boolean;
   diags: Diag[];
   sources: Source[];
-  facts?: Fact[];
+  root?: Source;
+  facts: Fact[];
   unstable: Unstable;
+};
+
+// Why an entry point failed: a bad config, a rule file or rule that does
+// not load, no bend to load, bend changed in a way bend-lint does not
+// follow (drift), an abort, or a bug (internal).
+export type LintError = {
+  type: "config" | "rule-module" | "bend-missing" | "drift" | "aborted" | "internal";
+  [ERROR_METADATA]: { message: string; cause: unknown };
+};
+
+// bend-lint over one bend2. Rules from bendRule and loadRules work only
+// with the linter that made them.
+export type Linter = {
+  BEND2: string; // the bend2 folder it uses
+  lint(
+    file: string,
+    rules: LintRule[],
+    options?: LintOptions,
+  ): Promise<Result<LintResult, LintError>>;
+  bendRule(file: string): Promise<Result<LintRule, LintError>>;
+  loadRules(files: string[]): Promise<Result<LintRule[], LintError>>;
+  render(d: Diag): string;
 };
 
 // An LSP position: 0-based line and character, in UTF-16 units.
@@ -227,8 +255,15 @@ const HEAD: Record<Severity, string> = {
 
 const shared = globalThis as typeof globalThis & { BEND_LINT?: Channel };
 
-// Compiled Bend rules, by path, with the text they were compiled from.
+// Compiled Bend rules, by bend2 folder and path, with the text they were
+// compiled from.
 const COMPILED = new Map<string, { text: string; rule: LintRule }>();
+
+// Linters, by the --bend folder asked for ("" for none).
+const LINTERS = new Map<string, Promise<Result<Linter, LintError>>>();
+
+// Errors whose cause bend-lint knows.
+const CAUSES = new WeakMap<object, LintError["type"]>();
 
 const OPTIONS = {
   rules: { type: "string", multiple: true },
@@ -256,8 +291,83 @@ const FIXES: ReadonlyArray<
 // Functions
 // =========
 
+// The bend-lint over the bend2 that --bend, $BEND_DIR or the search in
+// seam.ts finds; made once per folder asked for, and again after a failure.
+export const createLinter = ({ bend }: { bend?: string } = {}): Promise<
+  Result<Linter, LintError>
+> => {
+  const key = bend ?? "";
+  const made =
+    LINTERS.get(key) ??
+    attempted("bend-missing", async () => linterOf(await load(bend))).then((res) => {
+      if (ERROR in res) {
+        LINTERS.delete(key);
+      }
+      return res;
+    });
+  LINTERS.set(key, made);
+  return made;
+};
+
+const linterOf = (m: Loaded): Linter => ({
+  BEND2: m.BEND2,
+  lint: (file, rules, options = {}) =>
+    attempted("internal", () => lintWith(m, file, rules, options), options.signal),
+  bendRule: (file) => attempted("rule-module", () => bendRuleFrom(m, file)),
+  loadRules: (files) => attempted("rule-module", () => rulesFrom(m, files)),
+  render: (d) => renderWith(m, d),
+});
+
 // A config file; its `load` paths become absolute, from the file's folder.
-export function readConfig(file: string): Config {
+export const readConfig = (file: string): Result<Config, LintError> =>
+  attempt("config", () => configAt(file));
+
+// The nearest config; JSON, JS, then TS within each directory.
+export const findConfig = (file: string): Result<Config, LintError> =>
+  attempt("config", () => nearestConfig(file));
+
+// `e`, caused by `cause`, unless it already says what caused it.
+const blame = (cause: LintError["type"], e: unknown): unknown => {
+  if (typeof e === "object" && e !== null && !CAUSES.has(e)) {
+    CAUSES.set(e, cause);
+  }
+  return e;
+};
+
+const fault = (cause: LintError["type"], message: string): unknown =>
+  blame(cause, new Error(message));
+
+// `e` as a LintError: an abort, a drift error, what blamed it, or `fallback`.
+const settle = (fallback: LintError["type"], e: unknown, signal?: AbortSignal): LintError => {
+  const known = typeof e === "object" && e !== null ? CAUSES.get(e) : undefined;
+  const drifted = (e as { [DRIFT]?: boolean } | null)?.[DRIFT] === true;
+  return {
+    type: signal?.aborted ? "aborted" : drifted ? "drift" : (known ?? fallback),
+    [ERROR_METADATA]: { message: e instanceof Error ? e.message : String(e), cause: e },
+  };
+};
+
+const attempt = <T>(fallback: LintError["type"], f: () => T): Result<T, LintError> => {
+  try {
+    return ok(f());
+  } catch (e) {
+    return error(settle(fallback, e));
+  }
+};
+
+const attempted = async <T>(
+  fallback: LintError["type"],
+  f: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<Result<T, LintError>> => {
+  try {
+    return ok(await f());
+  } catch (e) {
+    return error(settle(fallback, e, signal));
+  }
+};
+
+const configAt = (file: string): Config => {
   try {
     const config: Config = [".js", ".ts"].includes(path.extname(file))
       ? exported(file)
@@ -270,9 +380,9 @@ export function readConfig(file: string): Config {
       ? config
       : { ...config, load: config.load.map((p) => path.resolve(at, p)) };
   } catch (e) {
-    throw new Error(file + ": " + (e instanceof Error ? e.message : String(e)));
+    throw fault("config", file + ": " + (e instanceof Error ? e.message : String(e)));
   }
-}
+};
 
 // A JS or TS config's named `config` export.
 const exported = (file: string): Config => {
@@ -288,14 +398,15 @@ const exported = (file: string): Config => {
 
 // The rules of rule files: a TS or JS module's `rules`, or a Bend rule. A
 // Bend rule is compiled again only when its text changes.
-export async function loadRules(files: string[]): Promise<LintRule[]> {
+const rulesFrom = async (m: Loaded, files: string[]): Promise<LintRule[]> => {
   const modules = await Promise.all(
     files.map(async (file): Promise<LintRule[]> => {
       if (file.endsWith(".bend")) {
         const text = fs.readFileSync(file, "utf8");
-        const known = COMPILED.get(path.resolve(file));
-        const rule = known?.text === text ? known.rule : await bendRule(file);
-        COMPILED.set(path.resolve(file), { text, rule });
+        const key = m.BEND2 + "\0" + path.resolve(file);
+        const known = COMPILED.get(key);
+        const rule = known?.text === text ? known.rule : await bendRuleFrom(m, file);
+        COMPILED.set(key, { text, rule });
         return [rule];
       }
       const { rules } = await import(url.pathToFileURL(path.resolve(file)).href);
@@ -306,22 +417,21 @@ export async function loadRules(files: string[]): Promise<LintRule[]> {
     }),
   );
   return modules.flat();
-}
+};
 
-// The nearest config; JSON, JS, then TS within each directory.
-export function findConfig(file: string): Config {
+const nearestConfig = (file: string): Config => {
   for (let dir = path.dirname(path.resolve(file)); ; dir = path.dirname(dir)) {
     const config = CONFIG_FILES.map((name) => path.join(dir, name)).find((candidate) =>
       fs.existsSync(candidate),
     );
     if (config !== undefined) {
-      return readConfig(config);
+      return configAt(config);
     }
     if (path.dirname(dir) === dir) {
       return {};
     }
   }
-}
+};
 
 // Whether a value matches an option's schema.
 const fits = (s: OptionSchema, v: unknown): boolean =>
@@ -367,11 +477,11 @@ const settings = (
     return { off: given === "off", options: defaults };
   }
   if (typeof given !== "object" || given === null) {
-    throw new Error(where + ' must be "off" or an object');
+    throw fault("config", where + ' must be "off" or an object');
   }
   const { severity, ...options } = given;
   if (severity !== undefined && !Object.hasOwn(HEAD, severity)) {
-    throw new Error(where + ": severity must be one of " + Object.keys(HEAD).join(", "));
+    throw fault("config", where + ": severity must be one of " + Object.keys(HEAD).join(", "));
   }
   for (const [key, value] of Object.entries(options)) {
     const schema =
@@ -379,10 +489,11 @@ const settings = (
         ? rule.options[key]
         : undefined;
     if (schema === undefined) {
-      throw new Error(where + " has no option " + key);
+      throw fault("config", where + " has no option " + key);
     }
     if (!fits(schema, value)) {
-      throw new Error(
+      throw fault(
+        "config",
         where +
           ": " +
           key +
@@ -398,16 +509,19 @@ const settings = (
 // not given already; the config may turn one off, set its severity, and
 // give its options. A rule that throws is a bend-lint/rule-crash finding,
 // and the run goes on; an abort reaches the caller.
-export async function lint(
+const lintWith = async (
+  m: Loaded,
   file: string,
   given: LintRule[],
   {
     signal = new AbortController().signal,
-    config = findConfig(file),
+    config = nearestConfig(file),
     unsaved: held,
-  }: LintOptions = {},
-): Promise<LintResult> {
-  const extra = await loadRules(config.load ?? []);
+  }: LintOptions,
+): Promise<LintResult> => {
+  const extra = await rulesFrom(m, config.load ?? []).catch((e: unknown) => {
+    throw blame("rule-module", e);
+  });
   const rules = [...given, ...extra.filter((r, i) => !given.includes(r) && extra.indexOf(r) === i)];
   const bad = rules.findIndex(
     (r) =>
@@ -417,7 +531,8 @@ export async function lint(
       !validOptions(r.options),
   );
   if (bad >= 0) {
-    throw new TypeError(
+    throw fault(
+      "rule-module",
       "invalid rule at " +
         bad +
         " (" +
@@ -437,20 +552,21 @@ export async function lint(
     instances: plans.some((p) => p.want?.instances === true),
   };
   const checked = await check(
-    loaded,
+    m,
     file,
     plans.flatMap((p) => (p.want === undefined ? [] : [p.want])),
     signal,
     held,
   );
   const { sources, facts, failure } = checked;
-  const ops = operations(loaded, checked);
+  const ops = operations(m, checked);
+  const kept = facts ?? [];
   const root = sources.find((s) => s.root);
   if (root === undefined) {
     return {
-      ok: false,
       diags: failure === undefined ? [] : [failure],
       sources,
+      facts: kept,
       unstable: ops.unstable,
     };
   }
@@ -459,32 +575,30 @@ export async function lint(
     { rule, severity, options, want }: (typeof plans)[number],
     prior: Diag[],
   ): Promise<Diag[]> => {
-    const mine = want === undefined ? undefined : select(loaded, checked, want, wide);
+    const mine = want === undefined ? [] : (select(m, checked, want, wide) ?? []);
     const asked = new Set(mine);
-    const out = await rule.run(
-      {
-        ...ops,
-        sources,
-        root,
-        options,
-        facts: mine,
-        fact: (node) => {
-          const fact = ops.fact(node);
-          return fact !== undefined && asked.has(fact) ? fact : undefined;
-        },
-        prior,
-        diag: (d) => ({
-          code: rule.id,
-          severity: d.severity ?? "warning",
-          message: d.message,
-          span: d.span,
-          def: d.def ?? d.fact?.owner,
-          fact: d.fact,
-          fixes: d.fixes ?? [],
-        }),
+    const out = await rule.run({
+      ...ops,
+      sources,
+      root,
+      options,
+      facts: mine,
+      fact: (node) => {
+        const fact = ops.fact(node);
+        return fact !== undefined && asked.has(fact) ? fact : undefined;
       },
+      prior,
       signal,
-    );
+      diag: (d) => ({
+        code: rule.id,
+        severity: d.severity ?? "warning",
+        message: d.message,
+        span: d.span,
+        def: d.def ?? d.fact?.owner,
+        fact: d.fact,
+        fixes: d.fixes ?? [],
+      }),
+    });
     if (!Array.isArray(out)) {
       throw new TypeError("it must return an array of diagnostics");
     }
@@ -529,14 +643,8 @@ export async function lint(
     });
     diags = [...diags, ...found];
   }
-  return {
-    ok: !diags.some((d) => d.severity === "error"),
-    diags,
-    sources,
-    facts,
-    unstable: ops.unstable,
-  };
-}
+  return { diags, sources, root, facts: kept, unstable: ops.unstable };
+};
 
 function validRange(beg: number, end: number, length: number): boolean {
   return Number.isInteger(beg) && Number.isInteger(end) && beg >= 0 && beg <= end && end <= length;
@@ -598,7 +706,7 @@ export function applyFixes(
 
 // bend's own error layout; the head names the severity and the code, and
 // each fix follows as a unified diff of the lines it touches.
-export function render(d: Diag): string {
+const renderWith = (m: Loaded, d: Diag): string => {
   const fixes = d.fixes.map(
     (fix) =>
       "\n\nFix: " +
@@ -647,8 +755,8 @@ export function render(d: Diag): string {
         })
         .join(""),
   );
-  return layout(loaded, d, HEAD[d.severity] + " [" + d.code + "]:") + fixes.join("");
-}
+  return layout(m, d, HEAD[d.severity] + " [" + d.code + "]:") + fixes.join("");
+};
 
 // The LSP range of a span in a file on disk.
 export function position(span: Span): { start: Position; end: Position } {
@@ -663,12 +771,12 @@ export function position(span: Span): { start: Position; end: Position } {
 // A rule written in Bend: a file built on ./bend/lint.bend (see there). It is
 // checked and compiled once; each run calls its main, while effects.js
 // reaches bend-lint through globalThis.BEND_LINT. Offsets cross as code points.
-export async function bendRule(file: string): Promise<LintRule> {
-  const checked = await check(loaded, file, [], new AbortController().signal);
+const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
+  const checked = await check(m, file, [], new AbortController().signal);
   if (checked.failure !== undefined) {
-    throw new Error(file + " does not check:\n" + render(checked.failure));
+    throw fault("rule-module", file + " does not check:\n" + renderWith(m, checked.failure));
   }
-  const { id, want, options, main } = compile(loaded, checked, file);
+  const { id, want, options, main } = compile(m, checked, file);
   return {
     id,
     ...(want === null ? {} : { facts: want }),
@@ -812,9 +920,9 @@ export async function bendRule(file: string): Promise<LintRule> {
       );
     },
   };
-}
+};
 
-async function cli(argv: string[]): Promise<number> {
+const cli = async (argv: string[]): Promise<number> => {
   const { values, positionals } = util.parseArgs({
     args: argv,
     options: OPTIONS,
@@ -827,10 +935,12 @@ async function cli(argv: string[]): Promise<number> {
   if (positionals.length !== 1) {
     throw new Error("give one .bend file\n" + USAGE);
   }
-  const res = await lint(positionals[0], await loadRules(values.rules ?? []), {
-    config: values.config === undefined ? undefined : readConfig(values.config),
-  });
-  const root = res.sources.find((s) => s.root);
+  const linter = unwrap(await createLinter({ bend: values.bend }));
+  const rules = unwrap(await linter.loadRules(values.rules ?? []));
+  const config = values.config === undefined ? undefined : unwrap(readConfig(values.config));
+  const res = unwrap(await linter.lint(positionals[0], rules, { config }));
+  const failed = res.diags.some((d) => d.severity === "error");
+  const { root } = res;
   const levels = FIXES.find(([flag]) => values[flag])?.[1];
   const fixed =
     levels !== undefined && root !== undefined ? applyFixes(root, res.diags, levels) : undefined;
@@ -839,7 +949,7 @@ async function cli(argv: string[]): Promise<number> {
     values.json
       ? JSON.stringify(
           {
-            ok: res.ok,
+            ok: !failed,
             findings: res.diags.map((d) => ({
               code: d.code,
               severity: d.severity,
@@ -856,8 +966,8 @@ async function cli(argv: string[]): Promise<number> {
           2,
         )
       : [
-          ...res.diags.map(render),
-          res.ok ? "bend-lint: " + res.diags.length + " finding(s)" : "bend-lint: FAIL",
+          ...res.diags.map(linter.render),
+          failed ? "bend-lint: FAIL" : "bend-lint: " + res.diags.length + " finding(s)",
         ].join("\n\n"),
   );
   if (root !== undefined && fixed !== undefined && fixed.text !== root.text) {
@@ -871,40 +981,24 @@ async function cli(argv: string[]): Promise<number> {
         " fix(es) that clash with earlier ones; run the fix again to apply them",
     );
   }
-  if (fixed !== undefined && fixed.elsewhere > 0) {
+  if (root !== undefined && fixed !== undefined && fixed.elsewhere > 0) {
     console.error(
       "bend-lint: skipped " +
         fixed.elsewhere +
         " fix(es) that also edit other files; --fix writes only " +
-        root!.path,
+        root.path,
     );
   }
-  return res.ok ? 0 : 1;
-}
+  return failed ? 1 : 0;
+};
 
-function fail(e: unknown): never {
+const fail = (e: unknown): never => {
   console.error("bend-lint: " + (e instanceof Error ? e.message : String(e)));
   process.exit(2);
-}
+};
 
 // Side effects
 // ============
-
-// The CLI's --bend is read here, before bend loads; a library uses $BEND_DIR.
-const given = import.meta.main
-  ? util.parseArgs({
-      args: process.argv.slice(2),
-      options: OPTIONS,
-      allowPositionals: true,
-      strict: false,
-    }).values.bend
-  : undefined;
-
-const loaded = await load(typeof given === "string" ? given : undefined).catch((e: unknown) =>
-  import.meta.main ? fail(e) : Promise.reject(e),
-);
-
-export const { BEND2 } = loaded;
 
 if (import.meta.main) {
   process.exit(await cli(process.argv.slice(2)).catch(fail));
