@@ -1068,6 +1068,8 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
         " must define id() -> String, facts() -> Lint.Want, main() -> IO(Unit), and options() -> List<&2, Lint.Declared> if it has options",
     );
   }
+  // The rule is Bend's own compiled JS, run as comp.ts io_run runs it.
+  // oxlint-disable-next-line typescript/no-implied-eval
   const main = new Function(
     "require",
     `${Comp.js_lib(book)}\n${Comp.RUNTIME_MAIN}\nreturn (args) => { cli_args = args; return io_run(${Comp.js_sat("main")}); };`,
