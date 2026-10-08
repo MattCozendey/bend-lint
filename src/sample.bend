@@ -3,3 +3,6 @@ type N is Data:
 
 def id(x: N) -> N:
   x
+
+def main() -> N:
+  id(Z{})

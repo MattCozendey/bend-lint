@@ -1,18 +1,8 @@
-// Everything bend-lint knows about bend2's internals: where bend2 is (or
-// its download), what bend-lint changes in it as Bun loads it, and every
-// call into it. The files on disk never change. In bend.ts, term_infer and
-// term_check are renamed and replaced by the wrappers below, which tell
-// `hook.see` what they return; and fs and path come from this module, in
-// bend.ts and main.ts: bend.ts builds paths with "/" (path.posix), so here
-// real paths use "/" and a Windows drive letter is a root; on POSIX they
-// behave as node's. comp.ts exports RUNTIME_MAIN and js_sat, so a rule
-// written in Bend is compiled once and run many times. main.ts exports how
-// `bend` reads a book (book_read) and words a failure (book_err,
-// Check_Fail), so bend-lint checks a file exactly as bend does.
-// Each text edit must match exactly once, and each name a tail exports must
-// be declared once. The wrappers pass every argument through, so bend
-// computes what it would without them; load checks what they record, and
-// what main.ts gives, before anything else runs.
+// Everything bend-lint knows about bend2's internals: finding (or
+// downloading) bend2, patching it as Bun loads it, and every call into it.
+// The docs' Internals section says what the patch does and how drift stops
+// it. Each text edit must match exactly once; the wrappers pass every
+// argument through, so bend computes what it would without them.
 
 import * as nodeFs from "node:fs";
 import * as os from "node:os";
@@ -42,21 +32,6 @@ import type {
 // must declare once and export (the tail exports those it does not).
 type Patch = { edits: Array<[string, string]>; tail: string; exports: string[] };
 
-// What the checker reports for each checked term: what it was checked or
-// inferred as, where, and how it was used.
-export type See = (
-  bok: Book,
-  tm: LTerm,
-  ty: HTerm,
-  ctx: Ctx,
-  dep: number,
-  def: Name,
-  spn: BendSpan | undefined,
-  qt: Quant,
-  us: Uses,
-) => void;
-
-// An HTTP GET.
 export type Get = (url: string) => Promise<Response>;
 
 // How bendDir reaches the network, runs `bend`, where it caches, and where
@@ -86,17 +61,12 @@ export type Loaded = { Bend: typeof BendModule; Comp: Comp; Main: Main; BEND2: s
 // A source as bend.ts spans point at it.
 type File = { str: string; ns: string; al: Record<Name, Name>; path: string };
 
-export type Mapper = {
-  (s: BendSpan): BendSpan;
-  (s: BendSpan | undefined): BendSpan | undefined;
-};
+type Mapper = (s: BendSpan | undefined) => BendSpan | undefined;
 
 // A fact as the checker gives it: `tm` checked (or inferred) as `ty` at
 // depth `dep` in `ctx`, in def `def`, demanded `qt` times, using the
-// variables in `us`. `bok` is the book it was checked in (a template body
-// has its own). A template body is checked as written, then again for each
-// instance (generic~0) at the same spans; `inst` marks the facts of an
-// instance. `map` moves the run's bend.ts spans to the files on disk.
+// variables in `us`, in book `bok` (a template body has its own). `inst`
+// marks an instance's fact; `map` moves the run's spans to the files on disk.
 export type Raw = {
   tm: LTerm;
   ty: HTerm;
@@ -111,13 +81,16 @@ export type Raw = {
   map: Mapper;
 };
 
+// What the wrappers report for each checked term.
+type Report = Omit<Raw, "inst" | "map">;
+
 // bend2's own objects, for code that accepts to break when bend2 changes.
 export type Unstable = { Bend: typeof BendModule; book: Book; raw: (fact: Fact) => Raw };
 
 // The rule context's operations that ask bend2.
-export type Operations = Pick<
+export type Operations = Omit<
   RuleContext,
-  "view" | "type" | "binder" | "same" | "show" | "normal" | "uses" | "sameDeclarations" | "unstable"
+  "sources" | "root" | "options" | "facts" | "prior" | "diag"
 >;
 
 export type Checked = { book: Book; sources: Source[]; facts?: Fact[]; failure?: Diag };
@@ -151,6 +124,7 @@ const RAW = "https://raw.githubusercontent.com/bendlang/bend/";
 const RELEASE = /^v\d+\.\d+\.\d+$/;
 const DAY = 24 * 60 * 60 * 1000;
 const EFF = /^effs\/[\w.-]+$/;
+const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
 
 // Downloaded bends, one folder per release.
 const CACHE = nodePath.join(
@@ -173,12 +147,7 @@ const PATCHES: Record<string, Patch> = {
       ["export function term_infer(", "function unseen_term_infer("],
       ["export function term_check(", "function unseen_term_check("],
     ],
-    tail:
-      "import { seeInfer, seeCheck } from " +
-      SHIM +
-      ";\n" +
-      "export const term_infer = seeInfer(unseen_term_infer);\n" +
-      "export const term_check = seeCheck(unseen_term_check);\n",
+    tail: `import { seeInfer, seeCheck } from ${SHIM};\nexport const term_infer = seeInfer(unseen_term_infer);\nexport const term_check = seeCheck(unseen_term_check);\n`,
     exports: [],
   },
   "comp.ts": { edits: [], tail: "", exports: ["RUNTIME_MAIN", "js_sat"] },
@@ -189,7 +158,7 @@ const PATCHES: Record<string, Patch> = {
 export const PATCHED = Object.keys(PATCHES);
 
 // Where the wrappers report, set for one check at a time.
-export const hook: { see?: See } = {};
+export const hook: { see?: (report: Report) => void } = {};
 
 // Text an editor holds unsaved, by real path, set for one check at a time.
 // bend.ts reads it in place of the file on disk.
@@ -202,7 +171,6 @@ const BASES = new Map<string, Promise<Book>>();
 // The check running now, or done; the next check waits for it.
 let queue: Promise<unknown> = Promise.resolve();
 
-// Line starts per text owner (see starts).
 const STARTS = new WeakMap<object, number[]>();
 
 // Each checked source's File, and back.
@@ -288,12 +256,7 @@ export const path = {
 const arity = (f: (...args: never[]) => unknown, n: number, name: string): void => {
   if (f.length !== n) {
     throw new DriftError(
-      name +
-        " takes " +
-        f.length +
-        " parameters, not " +
-        n +
-        "; update seeInfer and seeCheck in tools/bend-lint/src/seam.ts",
+      `${name} takes ${f.length} parameters, not ${n}; update seeInfer and seeCheck in tools/bend-lint/src/seam.ts`,
     );
   }
 };
@@ -306,8 +269,8 @@ export const seeInfer = (f: typeof BendModule.term_infer): typeof BendModule.ter
   arity(f, 6, "term_infer");
   return (...args) => {
     const r = f(...args);
-    const [book, lhs, tm, qt, ctx, d] = args;
-    hook.see?.(book, r.tm, r.ty, ctx, d, lhs.def, tm.s, qt, r.us);
+    const [bok, lhs, tm, qt, ctx, dep] = args;
+    hook.see?.({ tm: r.tm, ty: r.ty, bok, ctx, dep, def: lhs.def, qt, us: r.us, spn: tm.s });
     return r;
   };
 };
@@ -316,8 +279,8 @@ export const seeCheck = (f: typeof BendModule.term_check): typeof BendModule.ter
   arity(f, 7, "term_check");
   return (...args) => {
     const r = f(...args);
-    const [book, lhs, tm, qt, ty, ctx, d] = args;
-    hook.see?.(book, r.tm, ty, ctx, d, lhs.def, tm.s, qt, r.us);
+    const [bok, lhs, tm, qt, ty, ctx, dep] = args;
+    hook.see?.({ tm: r.tm, ty, bok, ctx, dep, def: lhs.def, qt, us: r.us, spn: tm.s });
     return r;
   };
 };
@@ -327,44 +290,28 @@ export const patch = (file: string, src: string): string => {
   const { edits, tail, exports } = PATCHES[file];
   const drift = (what: string, n: number): never => {
     throw new DriftError(
-      "cannot patch bend2/" +
-        file +
-        ": found " +
-        n +
-        " of " +
-        what +
-        ", expected 1. Update PATCHES in tools/bend-lint/src/seam.ts.",
+      `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in tools/bend-lint/src/seam.ts.`,
     );
   };
   const edited = edits.reduce((out, [at, to]) => {
     const n = out.split(at).length - 1;
     return n === 1 ? out.replace(at, () => to) : drift(JSON.stringify(at), n);
   }, src);
+  const declared = (name: string, exported: string): RegExp =>
+    new RegExp(`^${exported}(?:async function|function|class|const|let) ${name}\\b`, "gm");
   const missing = exports.filter((name) => {
-    const n =
-      edited.match(
-        new RegExp(
-          "^(?:export )?(?:async function|function|class|const|let) " + name + "\\b",
-          "gm",
-        ),
-      )?.length ?? 0;
-    return n === 1
-      ? !new RegExp(
-          "^export (?:async function|function|class|const|let) " + name + "\\b",
-          "m",
-        ).test(edited)
-      : drift("a declaration of " + name, n);
+    const n = edited.match(declared(name, "(?:export )?"))?.length ?? 0;
+    return n === 1 ? !declared(name, "export ").test(edited) : drift("a declaration of " + name, n);
   });
-  return (
-    edited +
-    "\n" +
-    tail +
-    (missing.length === 0 ? "" : "export { " + missing.join(", ") + " };\n") +
-    "export const " +
-    MARK +
-    " = 1;\n"
-  );
+  const named = missing.length === 0 ? "" : `export { ${missing.join(", ")} };\n`;
+  return `${edited}\n${tail}${named}export const ${MARK} = 1;\n`;
 };
+
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+// A response's text, or a rejection naming its status.
+const text = (res: Response, what: string): Promise<string> =>
+  res.ok ? res.text() : Promise.reject(new Error(`GitHub answered ${res.status}${what}`));
 
 // fetch, given up after 30 seconds.
 const download = (url: string): Promise<Response> =>
@@ -390,23 +337,14 @@ export const installedTag = (
 };
 
 // The newest release, from git's list of refs (GitHub's API limits calls).
-// It asks at most once a day (a missing or damaged note asks again);
-// offline, it takes the newest one cached.
+// It asks at most once a day (a missing or damaged note asks again).
 export const latestTag = async (cache: string = CACHE, get: Get = download): Promise<string> => {
   const note = nodePath.join(cache, "latest.json");
-  let known: { tag?: unknown; at?: unknown } | undefined;
-  try {
-    known = JSON.parse(nodeFs.readFileSync(note, "utf8"));
-  } catch {
-    known = undefined;
-  }
-  if (
-    typeof known?.tag === "string" &&
-    RELEASE.test(known.tag) &&
-    typeof known.at === "number" &&
-    Date.now() - known.at < DAY
-  ) {
-    return known.tag;
+  const known = await Bun.file(note)
+    .json()
+    .catch(() => undefined);
+  if (RELEASE.test(String(known?.tag)) && Date.now() - Number(known?.at) < DAY) {
+    return String(known.tag);
   }
   const newest = (tags: string[]): string | undefined =>
     tags
@@ -415,38 +353,28 @@ export const latestTag = async (cache: string = CACHE, get: Get = download): Pro
       .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
       .map((v) => "v" + v.join("."))[0];
   const listed = await get(GIT)
-    .then((res) =>
-      res.ok ? res.text() : Promise.reject(new Error("GitHub answered " + res.status)),
-    )
+    .then((res) => text(res, ""))
     .then(
       (refs) => newest([...refs.matchAll(/refs\/tags\/(v[\d.]+)$/gm)].map((m) => m[1])),
       (e: unknown) => {
         const cached = newest(nodeFs.existsSync(cache) ? nodeFs.readdirSync(cache) : []);
         return (
           cached ??
-          Promise.reject(
-            new Error(
-              "cannot list bend's releases (" +
-                (e instanceof Error ? e.message : String(e)) +
-                "); give a bend checkout with --bend <dir> or BEND_DIR",
-            ),
-          )
+          Promise.reject(new Error(`cannot list bend's releases (${message(e)}); ${GIVE}`))
         );
       },
     );
   if (listed === undefined) {
-    throw new Error("bend has no release tags; give a bend checkout with --bend <dir> or BEND_DIR");
+    throw new Error(`bend has no release tags; ${GIVE}`);
   }
   nodeFs.mkdirSync(cache, { recursive: true });
   nodeFs.writeFileSync(note, JSON.stringify({ tag: listed, at: Date.now() }));
   return listed;
 };
 
-// bend2 at a release: the PATCHED files, safe.ts (main.ts imports it),
-// base.bend, and the effs/ files base.bend imports, kept in
-// <cache>/<tag>/bend2. A download goes to a temporary folder first, so the
-// cache never holds a partial one; a cached folder without main.ts (from an
-// older bend-lint) is downloaded again.
+// bend2 at a release (the files the docs list), kept in <cache>/<tag>/bend2.
+// A download goes to a temporary folder first, so the cache never holds a
+// partial one.
 export const fetchBend = async (
   tag: string,
   cache: string = CACHE,
@@ -461,15 +389,11 @@ export const fetchBend = async (
   if (whole()) {
     return dir;
   }
-  const text = (file: string): Promise<[string, string]> =>
-    get(RAW + tag + "/bend2/" + file)
-      .then((res) =>
-        res.ok
-          ? res.text()
-          : Promise.reject(new Error("GitHub answered " + res.status + " for bend2/" + file)),
-      )
+  const fetched = (file: string): Promise<[string, string]> =>
+    get(`${RAW}${tag}/bend2/${file}`)
+      .then((res) => text(res, ` for bend2/${file}`))
       .then((body) => [file, body]);
-  const base = await text("base.bend");
+  const base = await fetched("base.bend");
   const effs = [
     ...new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1])),
   ];
@@ -477,7 +401,7 @@ export const fetchBend = async (
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
-  const files = [base, ...(await Promise.all([...PATCHED, "safe.ts", ...effs].map(text)))];
+  const files = [base, ...(await Promise.all([...PATCHED, "safe.ts", ...effs].map(fetched)))];
   nodeFs.mkdirSync(nodePath.join(cache, tag), { recursive: true });
   const part = nodeFs.mkdtempSync(nodePath.join(cache, tag, ".part-"));
   files.forEach(([file, body]) => {
@@ -496,10 +420,7 @@ export const fetchBend = async (
   return dir;
 };
 
-// The bend2 folder to load: `given` (from --bend), else $BEND_DIR, else
-// the bend repo around tools/bend-lint, if there is one, else a release
-// from GitHub: the installed bend's version, or the newest. A bend
-// checkout works too, for its bend2 folder.
+// The bend2 folder to load, found in the order the docs give.
 export const bendDir = async (
   given: string | undefined,
   { get = download, run = spawn, cache = CACHE, repo }: FindOptions = {},
@@ -513,22 +434,12 @@ export const bendDir = async (
     return fs.realpathSync(found);
   }
   if (chosen !== undefined) {
-    throw new Error(
-      "no bend2 at " +
-        dir +
-        " (it needs bend.ts); give a bend checkout with --bend <dir> or BEND_DIR",
-    );
+    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${GIVE}`);
   }
   const tag = installedTag(run) ?? (await latestTag(cache, get));
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
   const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
-    throw new Error(
-      "could not download bend " +
-        tag +
-        " (" +
-        (e instanceof Error ? e.message : String(e)) +
-        "); give a bend checkout with --bend <dir> or BEND_DIR",
-    );
+    throw new Error(`could not download bend ${tag} (${message(e)}); ${GIVE}`);
   });
   if (fresh) {
     console.error("bend-lint: downloaded bend " + tag + " to " + got);
@@ -544,7 +455,7 @@ export function* walk(tm: LTerm): Generator<LTerm> {
     const children = (CHILDREN as Record<string, ((tm: LTerm) => LTerm[]) | undefined>)[t.$];
     if (children === undefined) {
       throw new DriftError(
-        "unknown term kind " + t.$ + "; update CHILDREN in tools/bend-lint/src/seam.ts",
+        `unknown term kind ${t.$}; update CHILDREN in tools/bend-lint/src/seam.ts`,
       );
     }
     yield t;
@@ -583,9 +494,7 @@ export const line = (starts: number[], off: number): number => {
 export const mapper = (files: File[]): Mapper => {
   const own = new Set<unknown>(files);
   const memo = new WeakMap<object, { file: File; from: number[]; to: number[] }>();
-  const find = (
-    f: BendSpan["file"] & { dir?: string },
-  ): { file: File; from: number[]; to: number[] } => {
+  const find = (f: BendSpan["file"] & { dir?: string }) => {
     const lines = f.str.split("\n");
     const found = files.filter((file) => {
       const theirs = file.str.split("\n");
@@ -600,9 +509,7 @@ export const mapper = (files: File[]): Mapper => {
     });
     if (found.length !== 1) {
       throw new DriftError(
-        "cannot map a bend.ts span to a file on disk (" +
-          found.length +
-          " candidates); bend.ts may mask imports another way now",
+        `cannot map a bend.ts span to a file on disk (${found.length} candidates); bend.ts may mask imports another way now`,
       );
     }
     Object.assign(found[0].al, f.al);
@@ -610,7 +517,7 @@ export const mapper = (files: File[]): Mapper => {
     memo.set(f, known);
     return known;
   };
-  return ((s: BendSpan | undefined): BendSpan | undefined => {
+  return (s) => {
     if (s === undefined || own.has(s.file)) {
       return s;
     }
@@ -620,7 +527,7 @@ export const mapper = (files: File[]): Mapper => {
       return to[i] + off - from[i];
     };
     return { file, beg: at(s.beg), end: at(s.end) };
-  }) as Mapper;
+  };
 };
 
 // A mapped bend.ts span as a span of a checked source, and back.
@@ -630,17 +537,21 @@ const toSpan = (s: BendSpan | undefined): Span | undefined => {
 };
 
 const fromSpan = (s: Span | undefined): BendSpan | undefined =>
-  s && {
-    file: FILES.get(s.file) ?? { str: s.file.text, ns: "", al: {}, path: s.file.path },
-    beg: s.beg,
-    end: s.end,
-  };
+  s && { file: FILES.get(s.file)!, beg: s.beg, end: s.end };
 
 // A fact or a type handle as what it holds, and back.
 const raw = (fact: Fact): Raw => fact as unknown as Raw;
 const handle = (r: Raw): Fact => r as unknown as Fact;
 const term = (t: Type): HTerm => t as unknown as HTerm;
 const typed = (t: HTerm): Type => t as unknown as Type;
+
+// Throws a DriftError that names each check that failed.
+const demand = (checks: Array<[string, boolean]>, say: (wrong: string) => string): void => {
+  const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
+  if (wrong.length > 0) {
+    throw new DriftError(say(wrong.join(", ")));
+  }
+};
 
 const isErr = (e: unknown): e is Err =>
   typeof e === "object" && e !== null && (e as { $?: unknown }).$ === "Err";
@@ -688,7 +599,7 @@ const checked = async (
 ): Promise<Checked> => {
   const { Bend, Main } = m;
   const seen = new Map<string, string | null>();
-  const found: Array<Omit<Raw, "inst" | "map">> = [];
+  const found: Report[] = [];
   const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
   const home = real.slice(0, real.lastIndexOf("/") + 1);
   const far = filters.filter((f) => f.scope === "program");
@@ -698,24 +609,21 @@ const checked = async (
   if (seeded && !BASES.has(key)) {
     BASES.set(key, Main.book_read(Bend.BASE_BEND));
   }
-  let book: Book = Bend.book_nil();
-  const caught = await Promise.resolve(seeded ? BASES.get(key) : undefined)
-    .then(async (base) => {
-      hook.see =
-        filters.length > 0
-          ? (bok, tm, ty, ctx, dep, def, spn, qt, us) => {
-              const at = spn?.file as { dir?: string; ns?: string } | undefined;
-              const near = at?.dir === home && at.ns === "" ? filters : far;
-              const { kind, name } = near.length > 0 ? shape(m, tm) : { kind: "", name: "" };
-              if (near.some((f) => matches(f, kind, def, name))) {
-                found.push({ tm, ty, bok, ctx, dep, def, spn, qt, us });
-              }
-            }
-          : undefined;
-      book = await Main.book_read(file, base, seen);
+  const see = (report: Report): void => {
+    const at = report.spn?.file as { dir?: string; ns?: string } | undefined;
+    const near = at?.dir === home && at.ns === "" ? filters : far;
+    const { kind, name } = near.length > 0 ? shape(m, report.tm) : { kind: "", name: "" };
+    if (near.some((f) => matches(f, kind, report.def, name))) {
+      found.push(report);
+    }
+  };
+  const read = await Promise.resolve(seeded ? BASES.get(key) : undefined)
+    .then((base) => {
+      hook.see = filters.length > 0 ? see : undefined;
+      return Main.book_read(file, base, seen);
     })
     .then(
-      () => undefined,
+      (book) => ({ book }),
       (e: unknown) => ({ e: e instanceof Main.Check_Fail ? e.why : e }),
     );
   signal.throwIfAborted();
@@ -731,7 +639,8 @@ const checked = async (
       return source;
     });
   const map = mapper(sources.map((s) => FILES.get(s)!));
-  if (caught === undefined) {
+  if ("book" in read) {
+    const { book } = read;
     const insts = new Set(Object.values(book.tmps).flatMap((t) => [...t.values()]));
     const own = new Set<unknown>(
       sources.filter((s) => (program ? !s.base : s.root)).map((s) => FILES.get(s)),
@@ -744,7 +653,7 @@ const checked = async (
     });
     return { book, sources, facts: filters.length > 0 ? [...new Map(facts).values()] : undefined };
   }
-  const err = isErr(caught.e) ? caught.e : undefined;
+  const err = isErr(read.e) ? read.e : undefined;
   let span: Span | undefined;
   try {
     span = toSpan(map(err?.spn));
@@ -752,30 +661,24 @@ const checked = async (
     span = undefined;
   }
   return {
-    book,
+    book: Bend.book_nil(),
     sources,
     failure: {
       code: "bend/check",
       severity: "error",
-      message: failure(m, caught.e),
+      message: failure(m, read.e),
       span,
       def: err?.def,
       fixes: [],
-      core: caught.e,
+      core: read.e,
     },
   };
 };
 
-// Checks a book with bend2/main.ts book_read, as `bend <file>` does; it
-// does not give main.ts's verdict on @unsafe and foreign code. A file with
-// a line exactly `import Base` starts from the checked Base, as `bend
-// --checkup` does. `text` (unsaved editor text) is read in place of the
-// files on disk. The hook and the text are global to bend, so checks run
-// one at a time, in the order asked. A fact is kept as the checker gives
-// it only if a filter wants it; with scope file, only if it is from the
-// linted file's folder and namespace. After the check, only facts whose
-// span maps to the linted file (or, with scope program, to any file but
-// Base) stay.
+// Checks a book as `bend <file>` does (not main.ts's verdict on @unsafe and
+// foreign code), with `text` in place of the files on disk, one check at a
+// time. A fact is kept only if a filter wants it, and only if its span maps
+// to the linted file (or, with scope program, to any file but Base).
 export const check = (
   m: Loaded,
   file: string,
@@ -785,11 +688,9 @@ export const check = (
 ): Promise<Checked> => {
   const turn = queue.then(async (): Promise<Checked> => {
     signal.throwIfAborted();
-    for (const [at, str] of text ?? []) {
-      if (fs.existsSync(at)) {
-        unsaved.set(fs.realpathSync(at), str);
-      }
-    }
+    [...(text ?? [])]
+      .filter(([at]) => fs.existsSync(at))
+      .forEach(([at, str]) => unsaved.set(fs.realpathSync(at), str));
     try {
       return await checked(m, file, filters, signal);
     } finally {
@@ -826,16 +727,14 @@ export const select = (
 // with the same imported declarations, and compared as parsed terms, not
 // checked ones, since checking unfolds definitions and would hide changes
 // in meaning. No typecheck, disk writes or import fetches. A proof made
-// only of {==} has no body span, so its aliases come from the sources.
+// only of {==} has no body span, so its aliases come from the sources. A
+// proof of an imported law fills its declaration rather than creating one.
 const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): boolean => {
   const { Bend } = m;
   const root = sources.find((s) => s.root)!;
   const ns = FILES.get(root)!.ns;
-  const body = (s: string) =>
-    s
-      .split("\n")
-      .map((line) => (/^import\s/.test(line) ? "" : line))
-      .join("\n");
+  const dir = root.path.slice(0, root.path.lastIndexOf("/") + 1);
+  const body = (s: string) => s.replace(/^import[^\S\n].*$/gm, "");
   const spanned = (): Record<Name, Name> => {
     const original = body(root.text);
     for (const tld of Object.values(book.tlds)) {
@@ -888,13 +787,7 @@ const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): 
   };
   const snapshot = (s: string) => {
     const parsed = seed();
-    Bend.parse_book(
-      parsed,
-      root.path.slice(0, root.path.lastIndexOf("/") + 1),
-      body(s),
-      ns,
-      aliases,
-    );
+    Bend.parse_book(parsed, dir, body(s), ns, aliases);
     const lower = (t: HTerm | null) => (t === null ? null : Bend.term_lower(t));
     return JSON.stringify(
       parsed.order.map((k) => {
@@ -913,8 +806,7 @@ const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): 
   }
 };
 
-// What a rule asks bend2, over one check's book and facts. A proof of an
-// imported law fills its declaration rather than creating one.
+// What a rule asks bend2, over one check's book and facts.
 export const operations = (m: Loaded, run: Checked): Operations => {
   const { Bend } = m;
   return {
@@ -982,17 +874,13 @@ export const compile = (m: Loaded, book: Book, file: string): Compiled => {
   const args = (t: LTerm | undefined, ctr: string): LTerm[] | undefined =>
     t?.$ === "Ctr" && (t.k === ctr || t.k.endsWith(":" + ctr)) ? t.x : undefined;
   const texts = (t: LTerm | undefined): string[] | undefined => {
-    const out: string[] = [];
-    for (let at = t; ; at = args(at, "Con")?.[1]) {
-      const [head] = args(at, "Con") ?? [];
-      if (args(at, "Nil") !== undefined) {
-        return out;
-      }
-      if (head?.$ !== "Lit" || typeof head.v !== "string") {
-        return undefined;
-      }
-      out.push(head.v);
-    }
+    const [head, tail] = args(t, "Con") ?? [];
+    const rest = tail && texts(tail);
+    return args(t, "Nil") !== undefined
+      ? []
+      : head?.$ === "Lit" && typeof head.v === "string" && rest
+        ? [head.v, ...rest]
+        : undefined;
   };
   const asked = value("facts");
   const [scope, kinds, defs, names] = args(asked, "Want") ?? [];
@@ -1000,12 +888,9 @@ export const compile = (m: Loaded, book: Book, file: string): Compiled => {
     args(asked, "NoFacts") !== undefined
       ? null
       : {
-          scope:
-            args(scope, "File") !== undefined
-              ? ("file" as const)
-              : args(scope, "Program") !== undefined
-                ? ("program" as const)
-                : undefined,
+          scope: (["file", "program"] as const).find(
+            (s) => args(scope, s === "file" ? "File" : "Program") !== undefined,
+          ),
           kinds: texts(kinds),
           defs: texts(defs),
           names: texts(names),
@@ -1021,20 +906,15 @@ export const compile = (m: Loaded, book: Book, file: string): Compiled => {
   }
   const main = new Function(
     "require",
-    Comp.js_lib(book) +
-      "\n" +
-      Comp.RUNTIME_MAIN +
-      "\nreturn (args) => { cli_args = args; return io_run(" +
-      Comp.js_sat("main") +
-      "); };",
+    `${Comp.js_lib(book)}\n${Comp.RUNTIME_MAIN}\nreturn (args) => { cli_args = args; return io_run(${Comp.js_sat("main")}); };`,
   )(import.meta.require) as (args: string[]) => number;
   return { id, want: want as FactFilter | null, main };
 };
 
 // What main.ts must give, as bend-lint calls it; a mismatch is a
 // DriftError.
-export const guardMain = (Main: Main): void => {
-  const wrong = (
+export const guardMain = (Main: Main): void =>
+  demand(
     [
       ["book_read(file, base, seen = ...)", Main.book_read?.length === 2],
       ["book_err(e)", Main.book_err?.length === 1],
@@ -1042,83 +922,38 @@ export const guardMain = (Main: Main): void => {
         "new Check_Fail(why).why",
         typeof Main.Check_Fail === "function" && new Main.Check_Fail(MARK).why === MARK,
       ],
-    ] as const
-  ).flatMap(([what, ok]) => (ok ? [] : [what]));
-  if (wrong.length > 0) {
-    throw new DriftError(
-      "bend2/main.ts no longer has " +
-        wrong.join(", ") +
-        "; update PATCHES in tools/bend-lint/src/seam.ts",
-    );
-  }
-};
-
-// Reads sample.bend with book_read and checks what the wrappers record for
-// `x` in `def id(x: N) -> N: x`, and that a missing file fails as a
-// Check_Fail.
-const selfCheck = async (m: Loaded): Promise<void> => {
-  const { Bend, Main } = m;
-  const seen = new Map<string, string | null>();
-  const facts: Array<Omit<Raw, "inst" | "map">> = [];
-  hook.see = (bok, tm, ty, ctx, dep, def, spn, qt, us) =>
-    void facts.push({ tm, ty, bok, ctx, dep, def, spn, qt, us });
-  const book = await Main.book_read(SAMPLE, undefined, seen)
-    .catch(() => undefined)
-    .finally(() => {
-      hook.see = undefined;
-    });
-  const missing = await Main.book_read(path.join(HERE, "missing.bend")).then(
-    () => false,
-    (e: unknown) => e instanceof Main.Check_Fail,
+    ],
+    (wrong) =>
+      `bend2/main.ts no longer has ${wrong}; update PATCHES in tools/bend-lint/src/seam.ts`,
   );
-  const xs = facts.filter((f) => f.def === "id" && Bend.term_strip(f.tm).$ === "Var");
-  const kind = (f: { bok: Book }, t: HTerm) => (Bend.term_wnf(f.bok, t) as { k?: string }).k;
-  const tagged = (x: unknown, tags: string[]) =>
-    tags.includes((x as { $?: string } | null)?.$ ?? "");
-  const read = (
+
+// Checks src/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
+// must be a Var typed N, bound as an N, used once, at its own span; `id` in
+// main is reported only by term_infer, and the Lam only by term_check.
+const selfCheck = async (m: Loaded): Promise<void> => {
+  const run = await check(m, SAMPLE, [{}], new AbortController().signal);
+  const ops = operations(m, run);
+  const views = (run.facts ?? []).map((fact) => ({ fact, ...ops.view(fact) }));
+  const x = views.find((v) => v.kind === "Var" && v.name === "x");
+  const bound = x && ops.binder(x.fact);
+  demand(
     [
-      ["book (book_read)", book?.tlds.id !== undefined && seen.has(fs.realpathSync(SAMPLE))],
-      ["failure (Check_Fail for a missing file)", missing],
-    ] as const
-  ).flatMap(([what, ok]) => (ok ? [] : [what]));
-  const wrong =
-    xs.length < 2
-      ? ["facts (one from each wrapper)"]
-      : xs.flatMap((x) => {
-          if (
-            typeof x.dep !== "number" ||
-            !tagged(x.ctx, ["Emp", "Bin"]) ||
-            !tagged(x.us, ["Emp", "Bin"]) ||
-            !tagged(x.qt, ["None", "Lone", "Many"])
-          ) {
-            return ["kinds of values"];
-          }
-          const v = Bend.term_strip(x.tm) as Extract<LTerm, { $: "Var" }>;
-          const bound = Bend.pmap_get(x.ctx, v.i);
-          return (
-            [
-              ["type", kind(x, x.ty) === "N"],
-              ["depth", x.dep === 1],
-              ["scope", bound?.k === "x" && kind(x, bound.T) === "N"],
-              ["quantity", x.qt.$ === "Lone"],
-              ["uses", Bend.pmap_get(x.us, v.i)?.$ === "Lone"],
-              ["span", x.spn !== undefined && x.spn.file.str.slice(x.spn.beg, x.spn.end) === "x"],
-            ] as const
-          ).flatMap(([what, ok]) => (ok ? [] : [what]));
-        });
-  if (read.length + wrong.length > 0) {
-    throw new DriftError(
-      "self-check failed: the patched bend2 gave the wrong " +
-        [...new Set([...read, ...wrong])].join(", ") +
-        " for `x` in `def id(x: N) -> N: x` (src/sample.bend); update tools/bend-lint/src/seam.ts",
-    );
-  }
+      ["check", run.failure === undefined],
+      ["Ref id (term_infer)", views.some((v) => v.kind === "Ref" && v.name === "id")],
+      ["Lam (term_check)", views.some((v) => v.kind === "Lam")],
+      ["type", x !== undefined && ops.show(x.fact, ops.type(x.fact)) === "N"],
+      ["scope", x !== undefined && bound !== undefined && ops.show(x.fact, bound) === "N"],
+      ["quantity", x?.quantity === "once"],
+      ["uses", JSON.stringify(x && ops.uses(x.fact)) === '[{"name":"x","quantity":"once"}]'],
+      ["span", x?.span?.file.text.slice(x.span.beg, x.span.end) === "x"],
+    ],
+    (wrong) =>
+      `self-check failed: the patched bend2 gave the wrong ${wrong} for src/sample.bend; update tools/bend-lint/src/seam.ts`,
+  );
 };
 
-// Finds bend2 (see bendDir), patches its PATCHED files as Bun loads them,
-// imports them, then checks what main.ts gives and what the wrappers
-// record. Imported, main.ts also registers bend's own loader for
-// `import "x.bend"`.
+// Finds bend2, patches its PATCHED files as Bun loads them, imports them,
+// and checks them (guardMain, selfCheck).
 export const load = async (given: string | undefined): Promise<Loaded> => {
   const dir = await bendDir(given);
   const patched = new Map(
@@ -1127,7 +962,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
   const exact = dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("/", "[\\\\/]");
   const names = PATCHED.map((f) => f.replace(/\.ts$/, "")).join("|");
   const filter = new RegExp(
-    "^" + exact + "[\\\\/](" + names + ")\\.ts$",
+    `^${exact}[\\\\/](${names})\\.ts$`,
     process.platform === "win32" ? "i" : "",
   );
   Bun.plugin({
@@ -1136,26 +971,21 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
       build.onLoad({ filter }, (args) => {
         const contents = patched.get(fs.realpathSync(args.path));
         if (contents === undefined) {
-          throw new DriftError("bend-lint matched " + args.path + " but did not patch it");
+          throw new DriftError(`bend-lint matched ${args.path} but did not patch it`);
         }
         return { contents, loader: "ts" };
       });
     },
   });
-  const [B, C, M]: [
-    typeof BendModule & { [MARK]?: number },
-    Comp & { [MARK]?: number },
-    Main & { [MARK]?: number },
-  ] = await Promise.all([
-    import(url.pathToFileURL(path.join(dir, "bend.ts")).href),
-    import(url.pathToFileURL(path.join(dir, "comp.ts")).href),
-    import(url.pathToFileURL(path.join(dir, "main.ts")).href),
-  ]);
-  if (B[MARK] !== 1 || C[MARK] !== 1 || M[MARK] !== 1) {
+  const modules = await Promise.all(
+    PATCHED.map((f) => import(url.pathToFileURL(path.join(dir, f)).href)),
+  );
+  if (modules.some((module) => module[MARK] !== 1)) {
     throw new DriftError(
       "bend2 was loaded before bend-lint could patch it; import bend-lint first",
     );
   }
+  const [B, C, M] = modules as [typeof BendModule, Comp, Main];
   guardMain(M);
   const loaded = { Bend: B, Comp: C, Main: M, BEND2: dir };
   await selfCheck(loaded);

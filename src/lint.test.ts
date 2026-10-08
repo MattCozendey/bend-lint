@@ -791,7 +791,7 @@ describe("spans", () => {
           file: { str: masked, ns: "", dir: "/p/", al: { A: "a" } },
           beg,
           end: beg + 1,
-        } as BendSpan);
+        } as BendSpan)!;
         expect(got.file).toBe(src);
         expect(text.slice(got.beg, got.end)).toBe("x");
         expect(src.al.A).toBe("a");
@@ -817,7 +817,7 @@ describe("spans", () => {
     const b = source("/b/m.bend", "import Base\nx\n");
     const map = mapper([a, b]);
     expect(
-      map({ file: { str: "\nx\n", ns: "", dir: "/b/", al: {} }, beg: 1, end: 2 } as BendSpan).file,
+      map({ file: { str: "\nx\n", ns: "", dir: "/b/", al: {} }, beg: 1, end: 2 } as BendSpan)!.file,
     ).toBe(b);
   });
 });
@@ -1380,7 +1380,7 @@ describe("review fixes", () => {
         file: { str: "x\n", ns: "b", dir: "/p/", al: {} },
         beg: 0,
         end: 1,
-      } as BendSpan).file,
+      } as BendSpan)!.file,
     ).toBe(b);
   });
 
