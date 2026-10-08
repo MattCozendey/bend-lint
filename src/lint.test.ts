@@ -220,12 +220,12 @@ def verdict(same: Bool) -> String:
     case False{}:
       " (unlike its binder)"
 
-def compare(f: Lint.Fact, b: Maybe<&2, Lint.Term>, t: Lint.Term) -> IO(Bool):
+def compare(b: Maybe<&2, Lint.Term>, t: Lint.Term) -> IO(Bool):
   match b:
     case None{}:
       IO.pure(Bool, False{})
     case Some{x}:
-      Lint.same(f, x, t)
+      Lint.same(x, t)
 
 def quantity(q: Lint.Quantity) -> String:
   match q:
@@ -255,44 +255,48 @@ def text_of(inner: Maybe<&2, Lint.Span>) -> IO(String):
     case Some{s}:
       Lint.text(s)
 
-def describe(+f: Lint.Fact, name: String, q: Lint.Quantity, span: Maybe<&2, Lint.Span>, inner: Maybe<&2, Lint.Span>) -> IO(Maybe<&2, Lint.Diag>):
-  do IO<Maybe<&2, Lint.Diag>>:
-    t : Lint.Term <- Lint.type_of(f)
-    shown : String <- Lint.show(f, t)
-    t2 : Lint.Term <- Lint.type_of(f)
-    n : Lint.Term <- Lint.normal(f, t2)
-    nf : String <- Lint.show(f, n)
-    u : Lint.Term <- Lint.type_of(f)
-    b : Maybe<&2, Lint.Term> <- Lint.binder(f)
-    same : Bool <- compare(f, b, u)
-    here : String <- text_of(inner)
-    us : List<&2, Lint.Use> <- Lint.uses(f)
-    return Some{Lint.Diag{Lint.Hint{}, name ++ ": " ++ shown ++ " = " ++ nf ++ verdict(same) ++ ", text " ++ here ++ ", demanded " ++ quantity(q) ++ ", uses " ++ first_use(us), span, []}}
+def node_of(f: Lint.Fact) -> Lint.Node:
+  match f:
+    case Lint.Fact{n, owner, inst, q, t, span}:
+      n
 
-def wanted(hit: Bool, +f: Lint.Fact, name: String, q: Lint.Quantity, span: Maybe<&2, Lint.Span>, inner: Maybe<&2, Lint.Span>) -> IO(Maybe<&2, Lint.Diag>):
-  match hit:
-    case True{}:
-      describe(f, name, q, span, inner)
-    case False{}:
-      IO.pure(Maybe<&2, Lint.Diag>, None{})
+def type_of(f: Lint.Fact) -> Lint.Term:
+  match f:
+    case Lint.Fact{n, owner, inst, q, t, span}:
+      t
 
-def fact_diag(+f: Lint.Fact, v: Lint.View) -> IO(Maybe<&2, Lint.Diag>):
-  match v:
-    case Lint.View{owner, inst, kind, name, q, span, inner}:
-      wanted(Bool.and(String.eq(owner, "id"), String.eq(kind, "Var")), f, name, q, span, inner)
+def quantity_of(f: Lint.Fact) -> Lint.Quantity:
+  match f:
+    case Lint.Fact{n, owner, inst, q, t, span}:
+      q
 
-def prepend(m: Maybe<&2, Lint.Diag>, xs: List<&2, Lint.Diag>) -> List<&2, Lint.Diag>:
-  match m:
-    case None{}:
-      xs
-    case Some{d}:
-      d <> xs
+def fact_span(f: Lint.Fact) -> Maybe<&2, Lint.Span>:
+  match f:
+    case Lint.Fact{n, owner, inst, q, t, span}:
+      span
+
+def name_of(s: Lint.Shape) -> String:
+  match s:
+    case Lint.Shape{kind, name, span, children}:
+      name
+
+def span_of(s: Lint.Shape) -> Maybe<&2, Lint.Span>:
+  match s:
+    case Lint.Shape{kind, name, span, children}:
+      span
 
 def step(found: List<&2, Lint.Diag>, +f: Lint.Fact) -> IO(List<&2, Lint.Diag>):
   do IO<List<&2, Lint.Diag>>:
-    v : Lint.View <- Lint.view(f)
-    here : Maybe<&2, Lint.Diag> <- fact_diag(f, v)
-    return prepend(here, found)
+    n : Lint.Node <- Lint.strip(node_of(f))
+    +bare : Lint.Shape <- Lint.shape(n)
+    shown : String <- Lint.show(type_of(f))
+    nt : Lint.Term <- Lint.normal(type_of(f))
+    nf : String <- Lint.show(nt)
+    b : Maybe<&2, Lint.Term> <- Lint.binder(f)
+    same : Bool <- compare(b, type_of(f))
+    here : String <- text_of(span_of(bare))
+    us : List<&2, Lint.Use> <- Lint.uses(f)
+    return Lint.Diag{Lint.Hint{}, name_of(bare) ++ ": " ++ shown ++ " = " ++ nf ++ verdict(same) ++ ", text " ++ here ++ ", demanded " ++ quantity(quantity_of(f)) ++ ", uses " ++ first_use(us), fact_span(f), []} <> found
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   Lint.fold_facts(~List<&2, Lint.Diag>, ~step, [])
@@ -328,12 +332,12 @@ const identity: LintRule = {
     const ann = cx.unstable.Bend.pmap_get(raw.ctx, raw.tm.x!.i!)!;
     expect(ann.k).toBe("x");
     expect((cx.unstable.Bend.term_wnf(raw.bok, raw.ty) as { k?: string }).k).toBe("N");
-    expect(cx.same(body, cx.type(body), cx.binder(body)!)).toBe(true);
+    expect(cx.same(body.type, cx.binder(body)!)).toBe(true);
     return [
       cx.diag({
         message: "This function returns its parameter.",
         severity: "information",
-        span: cx.view(body).span,
+        span: body.span,
         fact: body,
       }),
     ];
@@ -355,14 +359,15 @@ const redundantAnnotation: LintRule = {
   facts: true,
   run: (cx) =>
     cx.facts!.flatMap((fact): Diag[] => {
-      const { kind, name: used, span, inner } = cx.view(fact);
+      const { span } = fact;
+      const { kind, name: used, span: inner } = cx.shape(cx.strip(fact.node));
       const declared = cx.binder(fact);
       if (
         kind !== "Var" ||
         span === undefined ||
         inner === undefined ||
         declared === undefined ||
-        !cx.same(fact, declared, cx.type(fact))
+        !cx.same(declared, fact.type)
       ) {
         return [];
       }
@@ -388,7 +393,7 @@ const redundantAnnotation: LintRule = {
             "Remove the redundant annotation: " +
             used +
             " already has type " +
-            cx.show(fact, declared) +
+            cx.show(declared) +
             ".",
           severity: "hint",
           span: at,
@@ -502,9 +507,14 @@ def found(m: Maybe<&2, Lint.Fact>) -> String:
     case Some{f}:
       "found"
 
+def node_of(f: Lint.Fact) -> Lint.Node:
+  match f:
+    case Lint.Fact{n, owner, inst, q, t, span}:
+      n
+
 def about(+f: Lint.Fact) -> IO(String):
   do IO<String>:
-    +n : Lint.Node <- Lint.node(f)
+    +n : Lint.Node <- IO.pure(Lint.Node, node_of(f))
     +s : Lint.Shape <- Lint.shape(n)
     g : Maybe<&2, Lint.Fact> <- Lint.fact(n)
     c : String <- child_kind(first(s))
@@ -601,8 +611,8 @@ async function seen(file: string, want: LintRule["facts"]): Promise<Seen[]> {
       facts: want,
       run: (cx) => {
         got = cx.facts!.map((f) => {
-          const v = cx.view(f);
-          return { kind: v.kind, def: v.owner, name: v.name, path: v.span!.file.path };
+          const { kind, name } = cx.shape(cx.strip(f.node));
+          return { kind, def: f.owner, name, path: f.span!.file.path };
         });
         return [];
       },
@@ -958,17 +968,18 @@ describe("lint", () => {
       facts: { kinds: ["Var"], defs: ["id"] },
       run: (cx) => {
         const all = nodes(cx, cx.body("id")!);
-        const x = cx.facts!.find((f) => cx.view(f).name === "x")!;
-        expect(all).toContain(cx.node(x));
-        expect(cx.fact(cx.node(x))).toBe(x);
-        expect(cx.shape(cx.node(x)).kind).toBe("Ann");
-        expect(cx.shape(cx.shape(cx.node(x)).children[0])).toMatchObject({
+        const x = cx.facts!.find((f) => cx.shape(cx.strip(f.node)).name === "x")!;
+        expect(all).toContain(x.node);
+        expect(cx.fact(x.node)).toBe(x);
+        expect(cx.shape(x.node).kind).toBe("Ann");
+        expect(cx.shape(cx.strip(x.node))).toEqual(cx.shape(cx.shape(x.node).children[0]));
+        expect(cx.shape(cx.shape(x.node).children[0])).toMatchObject({
           kind: "Var",
           name: "x",
         });
         const theirs = all.map((n) => cx.fact(n)).filter((f) => f !== undefined);
         expect(theirs.length).toBeGreaterThan(0);
-        expect(theirs.every((f) => cx.view(f).kind === "Var")).toBe(true);
+        expect(theirs.every((f) => cx.shape(cx.strip(f.node)).kind === "Var")).toBe(true);
         expect(cx.body("nope")).toBeUndefined();
         return [];
       },
@@ -978,7 +989,7 @@ describe("lint", () => {
       facts: true,
       run: (cx) => {
         const kept = nodes(cx, cx.body("id")!).flatMap((n) => cx.fact(n) ?? []);
-        expect(kept.some((f) => cx.view(f).kind !== "Var")).toBe(true);
+        expect(kept.some((f) => cx.shape(cx.strip(f.node)).kind !== "Var")).toBe(true);
         return [];
       },
     };
@@ -997,11 +1008,11 @@ describe("lint", () => {
           })!;
         const generic = named("generic", "Var", "x");
         expect(loose(cx, generic).bok.tlds["generic~T"]).toBeDefined();
-        expect(cx.view(generic).inst).toBe(false);
+        expect(generic.inst).toBe(false);
         const inst = named("generic~0", "Var", "x");
-        expect(cx.view(inst).inst).toBe(true);
-        expect(cx.view(inst).span).toEqual(cx.view(generic).span);
-        expect(["erased", "once", "many"]).toContain(cx.view(generic).quantity);
+        expect(inst.inst).toBe(true);
+        expect(inst.span).toEqual(generic.span);
+        expect(["erased", "once", "many"]).toContain(generic.quantity);
         expect(loose(cx, generic).us.$).toBeDefined();
         const proof = named("proof", "Rfl");
         expect(loose(cx, proof).ty.$).toBe("Eql");
@@ -1190,8 +1201,7 @@ describe("lint", () => {
       run: (cx) => {
         expect(cx.root.path).toEndWith("/main.bend");
         const texts = cx
-          .facts!.map((f) => cx.view(f))
-          .filter((v) => v.owner === "main" && v.span !== undefined)
+          .facts!.filter((v) => v.owner === "main" && v.span !== undefined)
           .map(({ span }) => {
             expect(span!.file).toBe(cx.root);
             return cx.root.text.slice(span!.beg, span!.end);
@@ -1244,7 +1254,7 @@ describe("lint", () => {
       run: (cx) => {
         expect(cx.root.path).toEndWith("/with_base.bend");
         expect(cx.sources.some((s) => s.base)).toBe(true);
-        const owners = cx.facts!.map((f) => cx.view(f).owner);
+        const owners = cx.facts!.map((f) => f.owner);
         expect(owners.some((def) => def === "main")).toBe(true);
         expect(owners.every((def) => cx.unstable.book.tlds[def]?.b !== true)).toBe(true);
         return [];
@@ -1465,7 +1475,7 @@ describe("review fixes", () => {
         facts: true,
         run: (cx) => {
           expect(cx.facts!.length).toBeGreaterThan(0);
-          expect(cx.facts!.every((f) => cx.view(f).span?.file === cx.root)).toBe(true);
+          expect(cx.facts!.every((f) => f.span?.file === cx.root)).toBe(true);
           return [];
         },
       };
@@ -1485,7 +1495,7 @@ describe("review fixes", () => {
       facts: true,
       run: (cx) => [
         cx.diag({
-          message: [...new Set(cx.facts!.map((f) => cx.view(f).owner))].join(),
+          message: [...new Set(cx.facts!.map((f) => f.owner))].join(),
           severity: "hint",
         }),
       ],
@@ -1508,7 +1518,7 @@ describe("review fixes", () => {
     const all: LintRule = {
       id: "test/all",
       facts: true,
-      run: (cx) => cx.facts!.map((f) => cx.diag({ message: "f", span: cx.view(f).span })),
+      run: (cx) => cx.facts!.map((f) => cx.diag({ message: "f", span: f.span })),
     };
     const res = await lint(path.join(dir, "m.bend"), [all]);
     expect(res.ok).toBe(true);
@@ -1729,12 +1739,12 @@ describe("fact filters", () => {
       {
         id: "test/plain",
         facts: true,
-        run: (cx) => (expect(cx.facts!.every((f) => !cx.view(f).inst)).toBe(true), []),
+        run: (cx) => (expect(cx.facts!.every((f) => !f.inst)).toBe(true), []),
       },
       {
         id: "test/inst",
         facts: { instances: true },
-        run: (cx) => (expect(cx.facts!.some((f) => cx.view(f).inst)).toBe(true), []),
+        run: (cx) => (expect(cx.facts!.some((f) => f.inst)).toBe(true), []),
       },
     ]);
     expect(both.ok).toBe(true);
@@ -1745,7 +1755,7 @@ describe("fact filters", () => {
     const rule = (id: string, kinds: string[]): LintRule => ({
       id,
       facts: { kinds },
-      run: (cx) => ((got[id] = cx.facts!.map((f) => cx.view(f).kind)), []),
+      run: (cx) => ((got[id] = cx.facts!.map((f) => cx.shape(cx.strip(f.node)).kind)), []),
     });
     const res = await lint(userland, [rule("test/vars", ["Var"]), rule("test/refs", ["Ref"])]);
     expect(new Set(got["test/vars"])).toEqual(new Set(["Var"]));

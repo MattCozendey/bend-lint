@@ -42,11 +42,11 @@ export type Fix = { title: string; applicability: Applicability; edits: Edit[] }
 
 declare const OPAQUE: unique symbol;
 
-// A checked term, a type, and a node of a checked body, as handles: what
-// they hold is bend2's, and a rule reaches it only through the RuleContext.
-export type Fact = { readonly [OPAQUE]: "fact" };
-export type Type = { readonly [OPAQUE]: "type" };
+// A node of a checked body, and a type with the scope it belongs to, as
+// handles: what they hold is bend2's, and a rule reaches it only through
+// the RuleContext.
 export type Node = { readonly [OPAQUE]: "node" };
+export type Type = { readonly [OPAQUE]: "type" };
 
 // A node: its kind, annotations kept (Ann, Var, App, ...), the name a Var
 // or Ref points to (else ""), its span, and its children, in bend's order.
@@ -55,19 +55,18 @@ export type Shape = { kind: string; name: string; span?: Span; children: Node[] 
 // How many times a term is demanded, or a variable is used.
 export type Quantity = "erased" | "once" | "many";
 
-// A fact's term: its kind (annotations stripped: Var, Ref, App, ...), the
-// name a Var or Ref points to, the def whose body holds it, and how many
-// times it is demanded. A template body is checked as written, then again
-// for each instance (generic~0) at the same spans; `inst` marks the facts
-// of an instance. `inner` is the term's span without its annotations.
-export type View = {
+// What the checker found for a node: the def whose body holds it, how many
+// times it is demanded, the type it was checked as, and the source it
+// checked, annotations included (the node itself may have no span). A
+// template body is checked as written, then again for each instance
+// (generic~0) at the same spans; `inst` marks the facts of an instance.
+export type Fact = {
+  node: Node;
   owner: string;
   inst: boolean;
-  kind: string;
-  name: string;
   quantity: Quantity;
+  type: Type;
   span?: Span;
-  inner?: Span;
 };
 
 export type Diag = {
@@ -101,7 +100,7 @@ export type FactFilter = {
   instances?: boolean; // true: also the facts of template instances (generic~0)
 };
 
-// `type`, `binder`, `same`, `show` and `normal` work in the fact's scope.
+// `same`, `show` and `normal` work in the scope of the (first) type.
 // `unstable` is bend2's own objects: code that uses it breaks when bend2
 // changes.
 export type RuleContext = {
@@ -110,18 +109,16 @@ export type RuleContext = {
   options: Options; // the rule's defaults, with the config's values
   facts?: Fact[]; // only for a rule with facts, and only those it asked for
   prior: readonly Diag[]; // what earlier rules found
-  view(fact: Fact): View;
-  type(fact: Fact): Type;
-  binder(fact: Fact): Type | undefined; // the declared type of the variable a Var fact uses
-  same(fact: Fact, a: Type, b: Type): boolean;
-  show(fact: Fact, type: Type): string;
-  normal(fact: Fact, type: Type): Type;
-  uses(fact: Fact): Array<{ name: string; quantity: Quantity }>;
-  sameDeclarations(text: string): boolean; // whether `text` declares what the linted file declares
   body(name: string): Node | undefined; // a def's checked body
-  node(fact: Fact): Node; // the node a fact is about
   shape(node: Node): Shape;
+  strip(node: Node): Node; // the node without its annotations
   fact(node: Node): Fact | undefined; // the node's fact, if this rule asked for it
+  binder(fact: Fact): Type | undefined; // the declared type of the variable a Var fact uses
+  uses(fact: Fact): Array<{ name: string; quantity: Quantity }>;
+  same(a: Type, b: Type): boolean;
+  show(type: Type): string;
+  normal(type: Type): Type;
+  sameDeclarations(text: string): boolean; // whether `text` declares what the linted file declares
   diag(init: DiagInit): Diag;
   unstable: Unstable;
 };
@@ -174,24 +171,25 @@ type Reported = {
   }>;
 };
 
-// What effects.js asks of bend-lint while a Bend rule runs. Facts and types
-// cross as indexes into the run's tables.
+// A fact as it crosses to a Bend rule: its node and type as indexes.
+type Wire = Omit<Fact, "node" | "type" | "span"> & { node: number; type: number; span?: Spot };
+
+// What effects.js asks of bend-lint while a Bend rule runs. Nodes and types
+// cross as indexes into the run's tables; a fact, by its node.
 type Channel = {
   input(): { sources: Array<{ path: string; text: string; root: boolean }>; options: Options };
-  next(): number | undefined;
+  next(): Wire | undefined;
   report(diags: Reported[]): void;
-  view(fact: number): Omit<View, "span" | "inner"> & { span?: Spot; inner?: Spot };
-  type(fact: number): number;
-  binder(fact: number): number | undefined;
-  same(fact: number, a: number, b: number): boolean;
-  show(fact: number, t: number): string;
-  normal(fact: number, t: number): number;
-  uses(fact: number): Array<{ name: string; quantity: Quantity }>;
   text(span: Spot): string;
   body(name: string): number | undefined;
-  node(fact: number): number;
   shape(node: number): Omit<Shape, "span" | "children"> & { span?: Spot; children: number[] };
-  fact(node: number): number | undefined;
+  strip(node: number): number;
+  fact(node: number): Wire | undefined;
+  binder(node: number): number | undefined;
+  uses(node: number): Array<{ name: string; quantity: Quantity }>;
+  same(a: number, b: number): boolean;
+  show(t: number): string;
+  normal(t: number): number;
 };
 
 // Constants
@@ -394,7 +392,7 @@ export async function lint(
           severity: d.severity ?? "warning",
           message: d.message,
           span: d.span,
-          def: d.def ?? (d.fact && ops.view(d.fact).owner),
+          def: d.def ?? d.fact?.owner,
           fact: d.fact,
           fixes: d.fixes ?? [],
         }),
@@ -610,7 +608,6 @@ export async function bendRule(file: string): Promise<LintRule> {
       let given = 0;
       const types: Type[] = [];
       const nodes: Node[] = [];
-      const index = new Map(facts.map((f, i) => [f, i]));
       const pick = <T>(xs: T[], i: number, what: string): T => {
         if (xs[i] === undefined) {
           throw new Error(
@@ -621,6 +618,19 @@ export async function bendRule(file: string): Promise<LintRule> {
       };
       const keep = (t: Type): number => types.push(t) - 1;
       const hold = (n: Node): number => nodes.push(n) - 1;
+      const wire = (f: Fact): Wire => ({
+        ...f,
+        node: hold(f.node),
+        type: keep(f.type),
+        span: spot(f.span),
+      });
+      const factOf = (i: number): Fact => {
+        const f = cx.fact(pick(nodes, i, "node"));
+        if (f === undefined) {
+          throw new Error("rule " + id + " asked about node " + i + ", which has no fact for it");
+        }
+        return f;
+      };
       const found: Reported[][] = [];
       shared.BEND_LINT = {
         input: () => {
@@ -641,22 +651,8 @@ export async function bendRule(file: string): Promise<LintRule> {
             options: cx.options,
           };
         },
-        next: () => (given < facts.length ? given++ : undefined),
+        next: () => (given < facts.length ? wire(facts[given++]) : undefined),
         report: (diags) => void found.push(diags),
-        view: (i) => {
-          const { span, inner, ...rest } = cx.view(pick(facts, i, "fact"));
-          return { ...rest, span: spot(span), inner: spot(inner) };
-        },
-        type: (i) => keep(cx.type(pick(facts, i, "fact"))),
-        binder: (i) => {
-          const t = cx.binder(pick(facts, i, "fact"));
-          return t === undefined ? undefined : keep(t);
-        },
-        same: (i, a, b) =>
-          cx.same(pick(facts, i, "fact"), pick(types, a, "term"), pick(types, b, "term")),
-        show: (i, t) => cx.show(pick(facts, i, "fact"), pick(types, t, "term")),
-        normal: (i, t) => keep(cx.normal(pick(facts, i, "fact"), pick(types, t, "term"))),
-        uses: (i) => cx.uses(pick(facts, i, "fact")),
         text: (s) => {
           const { file, beg, end } = span(s);
           return file.text.slice(beg, end);
@@ -665,15 +661,23 @@ export async function bendRule(file: string): Promise<LintRule> {
           const n = cx.body(name);
           return n === undefined ? undefined : hold(n);
         },
-        node: (i) => hold(cx.node(pick(facts, i, "fact"))),
         shape: (i) => {
           const { span, children, ...rest } = cx.shape(pick(nodes, i, "node"));
           return { ...rest, span: spot(span), children: children.map(hold) };
         },
+        strip: (i) => hold(cx.strip(pick(nodes, i, "node"))),
         fact: (i) => {
           const f = cx.fact(pick(nodes, i, "node"));
-          return f === undefined ? undefined : index.get(f);
+          return f === undefined ? undefined : wire(f);
         },
+        binder: (i) => {
+          const t = cx.binder(factOf(i));
+          return t === undefined ? undefined : keep(t);
+        },
+        uses: (i) => cx.uses(factOf(i)),
+        same: (a, b) => cx.same(pick(types, a, "term"), pick(types, b, "term")),
+        show: (t) => cx.show(pick(types, t, "term")),
+        normal: (t) => keep(cx.normal(pick(types, t, "term"))),
       };
       let code: number;
       try {

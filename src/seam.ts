@@ -24,7 +24,6 @@ import type {
   Source,
   Span,
   Type,
-  View,
 } from "./lint.ts";
 
 // Types
@@ -85,6 +84,10 @@ export type Raw = {
 
 // What the wrappers report for each checked term.
 type Report = Omit<Raw, "inst">;
+
+// A type handle's content: the type, and the book and depth of its scope.
+// A Raw is one, for the type its term was checked as.
+type Scoped = { ty: HTerm; bok: Book; dep: number };
 
 // bend2's own objects, for code that accepts to break when bend2 changes.
 export type Unstable = { Bend: typeof BendModule; book: Book; raw: (fact: Fact) => Raw };
@@ -188,6 +191,9 @@ const STARTS = new WeakMap<object, number[]>();
 // Each checked source's File, and back.
 const FILES = new WeakMap<Source, File>();
 const SOURCES = new WeakMap<object, Source>();
+
+// Each fact's Raw.
+const RAWS = new WeakMap<Fact, Raw>();
 
 const QUANTITY: Record<Quant["$"], Quantity> = { None: "erased", Lone: "once", Many: "many" };
 
@@ -579,13 +585,26 @@ const toSpan = (s: BendSpan | undefined): Span | undefined => {
 const fromSpan = (s: Span | undefined): BendSpan | undefined =>
   s && { file: FILES.get(s.file)!, beg: s.beg, end: s.end };
 
-// A fact or a type handle as what it holds, and back.
-const raw = (fact: Fact): Raw => fact as unknown as Raw;
-const handle = (r: Raw): Fact => r as unknown as Fact;
-const term = (t: Type): HTerm => t as unknown as HTerm;
-const typed = (t: HTerm): Type => t as unknown as Type;
+// A type or node handle as what it holds, and back.
+const scoped = (t: Type): Scoped => t as unknown as Scoped;
+const typed = (s: Scoped): Type => s as unknown as Type;
 const tree = (n: Node): LTerm => n as unknown as LTerm;
 const node = (t: LTerm): Node => t as unknown as Node;
+
+const raw = (fact: Fact): Raw => RAWS.get(fact)!;
+
+const record = (r: Raw): Fact => {
+  const fact = {
+    node: node(r.tm),
+    owner: r.def,
+    inst: r.inst,
+    quantity: QUANTITY[r.qt.$],
+    type: typed(r),
+    span: toSpan(r.spn),
+  };
+  RAWS.set(fact, r);
+  return fact;
+};
 
 // Throws a drift error that names each check that failed.
 const demand = (checks: Array<[string, boolean]>, say: (wrong: string) => string): void => {
@@ -696,7 +715,7 @@ const checked = async (
       const spn = map(f.spn);
       const inst = insts.has(f.def);
       return spn !== undefined && own.has(spn.file) && (instances || !inst)
-        ? [[f.tm, handle({ ...f, inst, spn })]]
+        ? [[f.tm, record({ ...f, inst, spn })]]
         : [];
     });
     return {
@@ -872,45 +891,39 @@ export const operations = (m: Loaded, run: Checked): Operations => {
   const { Bend } = m;
   let byTerm: Map<LTerm, Fact> | undefined;
   return {
-    view: (fact): View => {
-      const r = raw(fact);
-      return {
-        owner: r.def,
-        inst: r.inst,
-        ...kindOf(Bend.term_strip(r.tm)),
-        quantity: QUANTITY[r.qt.$],
-        span: toSpan(r.spn),
-        inner: toSpan(run.map(Bend.term_strip(r.tm).s)),
-      };
+    body: (name) => {
+      const tld = run.book.tlds[name];
+      return tld?.$ === "Def" && tld.e !== undefined ? node(tld.e) : undefined;
     },
-    type: (fact) => typed(raw(fact).ty),
+    shape: (n): Shape => {
+      const t = tree(n);
+      return { ...kindOf(t), span: toSpan(run.map(t.s)), children: children(t).map(node) };
+    },
+    strip: (n) => node(Bend.term_strip(tree(n))),
     binder: (fact) => {
       const r = raw(fact);
       const v = Bend.term_strip(r.tm);
       const ann = v.$ === "Var" ? Bend.pmap_get(r.ctx, v.i) : null;
-      return ann === null ? undefined : typed(ann.T);
+      return ann === null ? undefined : typed({ ty: ann.T, bok: r.bok, dep: r.dep });
     },
-    same: (fact, a, b) => Bend.term_compare("EQ", raw(fact).bok, term(a), term(b), raw(fact).dep),
-    show: (fact, t) => Bend.term_show(Bend.term_lower(term(t), raw(fact).dep)),
-    normal: (fact, t) => typed(Bend.term_snf(raw(fact).bok, term(t))),
     uses: (fact) => {
       const r = raw(fact);
       return Bend.pmap_to_array(r.us).flatMap(([v, q]) =>
         q.$ === "None" ? [] : [{ name: Bend.pmap_get(r.ctx, v)?.k ?? "", quantity: QUANTITY[q.$] }],
       );
     },
+    same: (a, b) => {
+      const { bok, dep } = scoped(a);
+      return Bend.term_compare("EQ", bok, scoped(a).ty, scoped(b).ty, dep);
+    },
+    show: (t) => Bend.term_show(Bend.term_lower(scoped(t).ty, scoped(t).dep)),
+    normal: (t) => {
+      const { ty, bok, dep } = scoped(t);
+      return typed({ ty: Bend.term_snf(bok, ty), bok, dep });
+    },
     sameDeclarations: (text) => sameDeclarations(m, run, text),
-    body: (name) => {
-      const tld = run.book.tlds[name];
-      return tld?.$ === "Def" && tld.e !== undefined ? node(tld.e) : undefined;
-    },
-    node: (fact) => node(raw(fact).tm),
-    shape: (n): Shape => {
-      const t = tree(n);
-      return { ...kindOf(t), span: toSpan(run.map(t.s)), children: children(t).map(node) };
-    },
     fact: (n) => {
-      byTerm ??= new Map((run.facts ?? []).map((f) => [raw(f).tm, f]));
+      byTerm ??= new Map((run.facts ?? []).map((f) => [tree(f.node), f]));
       return byTerm.get(tree(n));
     },
     unstable: { Bend, book: run.book, raw },
@@ -1010,7 +1023,7 @@ export const guardMain = (Main: Main): void =>
 const selfCheck = async (m: Loaded): Promise<void> => {
   const run = await check(m, SAMPLE, [{}], new AbortController().signal);
   const ops = operations(m, run);
-  const views = (run.facts ?? []).map((fact) => ({ fact, ...ops.view(fact) }));
+  const views = (run.facts ?? []).map((fact) => ({ fact, ...ops.shape(ops.strip(fact.node)) }));
   const x = views.find((v) => v.kind === "Var" && v.name === "x");
   const bound = x && ops.binder(x.fact);
   demand(
@@ -1018,11 +1031,11 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       ["check", run.failure === undefined],
       ["Ref id (term_infer)", views.some((v) => v.kind === "Ref" && v.name === "id")],
       ["Lam (term_check)", views.some((v) => v.kind === "Lam")],
-      ["type", x !== undefined && ops.show(x.fact, ops.type(x.fact)) === "N"],
-      ["scope", x !== undefined && bound !== undefined && ops.show(x.fact, bound) === "N"],
-      ["quantity", x?.quantity === "once"],
+      ["type", x !== undefined && ops.show(x.fact.type) === "N"],
+      ["scope", bound !== undefined && ops.show(bound) === "N"],
+      ["quantity", x?.fact.quantity === "once"],
       ["uses", JSON.stringify(x && ops.uses(x.fact)) === '[{"name":"x","quantity":"once"}]'],
-      ["span", x?.span?.file.text.slice(x.span.beg, x.span.end) === "x"],
+      ["span", x?.fact.span?.file.text.slice(x.fact.span.beg, x.fact.span.end) === "x"],
     ],
     (wrong) =>
       `self-check failed: the patched bend2 gave the wrong ${wrong} for src/bend/sample.bend; update tools/bend-lint/src/seam.ts`,

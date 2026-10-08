@@ -126,22 +126,21 @@ What's on `cx`:
 - `options`: defaults merged with config
 - `facts`: just the facts this rule asked for
 - `prior`: findings from earlier rules
-- `view(fact)`: what the fact's term is (see Facts)
-- `type(fact)`: the type the term was checked as
+- `body(name)`, `shape(node)`, `strip(node)`: the checked terms (see Nodes)
+- `fact(node)`: what the checker found for a node, if this rule asked for it
+  (see Facts)
 - `binder(fact)`: the declared type of the variable a `Var` uses
-- `show`, `same`, `normal`: print, compare and normalize types in a fact's scope
 - `uses(fact)`: used variables with their quantities
+- `show`, `same`, `normal`: print, compare and normalize types, each in its own
+  scope (`same` in the first type's)
 - `sameDeclarations(text)`: whether `text` declares what the linted file
   declares, compared as parsed, not checked
-- `body(name)`, `node(fact)`, `shape(node)`, `fact(node)`: the term view (see
-  Nodes)
 - `diag(init)`: make a diagnostic with this rule's ID
 - `unstable`: Bend's own objects (`Bend`, the checked `book`, `raw(fact)`).
   Code that uses them breaks when Bend changes; nothing else on `cx` does.
 
 The exported types in [src/lint.ts](src/lint.ts) are the full contract. They
-are bend-lint's own: facts, types and nodes are handles, and only `cx` reads
-them.
+are bend-lint's own: types and nodes are handles, and only `cx` reads them.
 
 #### Fixes
 
@@ -165,14 +164,27 @@ return [cx.diag({
 
 (Needs a nonempty file.)
 
+#### Nodes
+
+A node is one term of a def's checked body. `cx.body(name)` gives the root,
+`cx.shape(node)` its kind (annotations kept: `Ann`, `Var`, `App`, ...), the name
+a `Var` or `Ref` points to, its span and its children, in Bend's order.
+`cx.strip(node)` is the node without its annotations. Kinds and child order are
+Bend's, so a rule that reads them may need changes when Bend's terms change;
+facts alone do not.
+
+```ts
+const nodes = (node: Node): Node[] => [node, ...cx.shape(node).children.flatMap(nodes)];
+const matches = nodes(cx.body("main")!).filter((n) => cx.shape(n).kind === "Mat");
+```
+
 #### Facts
 
-A fact is one checked term. `cx.view(fact)` gives its kind (annotations
-stripped: `Var`, `Ref`, `App`, ...), the name a `Var` or `Ref` points to, its
-enclosing definition (`owner`), how many times it is demanded (`quantity`:
-`erased`, `once` or `many`), and its source span (`span`, and `inner` without
-the annotations), when there is one. Its type and its scope are reached through
-the other `cx` operations.
+A fact is what the checker found for one node: `node`, its enclosing
+definition (`owner`), how many times it is demanded (`quantity`: `erased`,
+`once` or `many`), the type it was checked as (`type`), and the source it
+checked (`span`, annotations included), when there is one.
+`cx.shape(cx.strip(fact.node))` gives its kind and name without annotations.
 
 Ask for them with `facts: true` (everything in the linted file) or a filter:
 
@@ -188,10 +200,11 @@ facts: {
 
 All the lists you give must match. Leave one out or empty and it matches
 everything. Keep filters narrow, since memory goes up with the number of facts.
+`cx.fact(node)` gives only facts this rule asked for.
 
 Template bodies get checked as written and again per instance (`generic~0`),
 sometimes at the same span. A rule gets the instances' facts only with
-`instances: true`, and `view(fact).inst` marks them.
+`instances: true`, and `fact.inst` marks them.
 
 ```ts
 import type { LintRule } from "../src/lint.ts";
@@ -201,29 +214,15 @@ export const rules: LintRule[] = [{
   facts: { kinds: ["Var"] },
   run: (cx) => cx.facts!
     .map((fact) => cx.diag({
-      message: "type: " + cx.show(fact, cx.type(fact)),
+      message: "type: " + cx.show(fact.type),
       severity: "hint",
-      span: cx.view(fact).span,
+      span: fact.span,
       fact,
     })),
 }];
 ```
 
 (Saved under `rules/`.)
-
-#### Nodes
-
-A node is one term of a def's checked body. `cx.body(name)` gives the root,
-`cx.shape(node)` its kind (annotations kept: `Ann`, `Var`, `App`, ...), the name
-a `Var` or `Ref` points to, its span and its children, in Bend's order.
-`cx.node(fact)` is the node a fact is about, and `cx.fact(node)` is the node's
-fact, if this rule asked for it. Kinds and child order are Bend's, so a rule
-that reads them may need changes when Bend's terms change; facts alone do not.
-
-```ts
-const nodes = (node: Node): Node[] => [node, ...cx.shape(node).children.flatMap(nodes)];
-const matches = nodes(cx.body("main")!).filter((n) => cx.shape(n).kind === "Mat");
-```
 
 #### Options
 
@@ -269,9 +268,10 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   Lint.fold_facts(~List<&2, Lint.Diag>, ~step, [])
 ```
 
-`step` goes in as a template (`~step`) and takes the fact as `+f`. Effects:
-`view`, `type_of`, `binder`, `same`, `show`, `normal`, `uses`, `text`, and the
-term view `body`, `node`, `shape` and `fact`, plus Base's. Options come from `Lint.option_number`, `option_flag` and `option_text`,
+`step` goes in as a template (`~step`) and takes the fact as `+f`, a
+`Lint.Fact{node, owner, inst, quantity, term, span}` (`term` is its type).
+Effects: `body`, `shape`, `strip`, `fact`, `binder`, `uses`, `same`, `show`,
+`normal` and `text`, plus Base's. Options come from `Lint.option_number`, `option_flag` and `option_text`,
 each with a default. Numbers are whole, 0 to 4294967295 (U32).
 
 Spans count Unicode code points here. TypeScript counts UTF-16 units.

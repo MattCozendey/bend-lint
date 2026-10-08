@@ -65,8 +65,18 @@ function lint_node(id) {
   return { $: CID(Node), id };
 }
 
-function lint_fact(id) {
-  return lint_maybe(id === undefined ? undefined : { $: CID(Fact), id });
+function lint_fact(w) {
+  return lint_maybe(
+    w && {
+      $: CID(Fact),
+      node: lint_node(w.node),
+      owner: w.owner,
+      inst: w.inst,
+      quantity: { $: LINT_QUANTITY[w.quantity] },
+      term: lint_term(w.type),
+      span: lint_maybe(w.span && lint_span(w.span)),
+    },
+  );
 }
 
 function lint_input() {
@@ -98,45 +108,14 @@ function lint_report(diags) {
   return { $: CID(Unit) };
 }
 
-function lint_view(fact) {
-  const v = lint_host().view(fact.id);
-  return {
-    $: CID(View),
-    owner: v.owner,
-    inst: v.inst,
-    kind: v.kind,
-    name: v.name,
-    quantity: { $: LINT_QUANTITY[v.quantity] },
-    span: lint_maybe(v.span && lint_span(v.span)),
-    inner: lint_maybe(v.inner && lint_span(v.inner)),
-  };
-}
-
 io_eff(CID(input), lint_input);
 io_eff(CID(report), lint_report);
 io_eff(CID(next_fact), () => lint_fact(lint_host().next()));
-io_eff(CID(view), lint_view);
-io_eff(CID(type_of), (fact) => lint_term(lint_host().type(fact.id)));
-io_eff(CID(binder), (fact) => {
-  const id = lint_host().binder(fact.id);
-  return lint_maybe(id === undefined ? undefined : lint_term(id));
-});
-io_eff(CID(same), (fact, a, b) => lint_host().same(fact.id, a.id, b.id));
-io_eff(CID(show), (fact, t) => lint_host().show(fact.id, t.id));
-io_eff(CID(normal), (fact, t) => lint_term(lint_host().normal(fact.id, t.id)));
-io_eff(CID(uses), (fact) =>
-  lint_list(
-    lint_host()
-      .uses(fact.id)
-      .map((u) => ({ $: CID(Use), name: u.name, quantity: { $: LINT_QUANTITY[u.quantity] } })),
-  ),
-);
 io_eff(CID(text), (span) => lint_host().text(lint_spot(span)));
 io_eff(CID(body), (name) => {
   const id = lint_host().body(name);
   return lint_maybe(id === undefined ? undefined : lint_node(id));
 });
-io_eff(CID(node), (fact) => lint_node(lint_host().node(fact.id)));
 io_eff(CID(shape), (n) => {
   const s = lint_host().shape(n.id);
   return {
@@ -147,4 +126,19 @@ io_eff(CID(shape), (n) => {
     children: lint_list(s.children.map(lint_node)),
   };
 });
+io_eff(CID(strip), (n) => lint_node(lint_host().strip(n.id)));
 io_eff(CID(fact), (n) => lint_fact(lint_host().fact(n.id)));
+io_eff(CID(binder), (f) => {
+  const id = lint_host().binder(f.node.id);
+  return lint_maybe(id === undefined ? undefined : lint_term(id));
+});
+io_eff(CID(uses), (f) =>
+  lint_list(
+    lint_host()
+      .uses(f.node.id)
+      .map((u) => ({ $: CID(Use), name: u.name, quantity: { $: LINT_QUANTITY[u.quantity] } })),
+  ),
+);
+io_eff(CID(same), (a, b) => lint_host().same(a.id, b.id));
+io_eff(CID(show), (t) => lint_host().show(t.id));
+io_eff(CID(normal), (t) => lint_term(lint_host().normal(t.id)));

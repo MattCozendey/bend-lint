@@ -13,11 +13,8 @@
 # option_number, option_flag and option_text, each with a default.
 import Base
 
-# A checked term, a type, and a node of a checked body: indexes into
+# A type with its scope, and a node of a checked body: indexes into
 # bend-lint's tables for one run. Only the effects below read them.
-type Fact is Data:
-  Fact{id: U32}
-
 type Term is Data:
   Term{id: U32}
 
@@ -86,13 +83,12 @@ type Quantity is Data:
 type Use is Data:
   Use{name: String, quantity: Quantity}
 
-# A fact as bend-lint sees it: the def it is in, whether that def is a
-# template instance, the kind of its term once an annotation is stripped
-# (Var, App, ...), the name a Var or Ref points to (else ""), how many
-# times the term is demanded, and the spans of the checked term and of the
-# stripped one.
-type View is Data:
-  View{owner: String, inst: Bool, kind: String, name: String, quantity: Quantity, span: Maybe<&2, Span>, inner: Maybe<&2, Span>}
+# What the checker found for a node: the def whose body holds it, whether
+# that def is a template instance, how many times the term is demanded,
+# the type it was checked as, and the source it checked, annotations
+# included (the node itself may have no span).
+type Fact is Data:
+  Fact{node: Node, owner: String, inst: Bool, quantity: Quantity, term: Term, span: Maybe<&2, Span>}
 
 # A node: its kind, annotations kept (Ann, Var, App, ...), the name a Var
 # or Ref points to (else ""), its span, and its children, in bend's order.
@@ -126,33 +122,6 @@ def fold_facts(~A: Type, ~step: A -> @+f: Fact -> IO(A), acc: A) -> IO(A):
     m : Maybe<&2, Fact> <- next_fact()
     fold_next(~A, ~step, m, acc, a => fold_facts(~A, ~step, a))
 
-def view(fact: Fact) -> IO(View):
-  import "./effects.js"
-
-# The type the fact's term was checked against, or inferred.
-def type_of(fact: Fact) -> IO(Term):
-  import "./effects.js"
-
-# The type of the binder a Var fact refers to.
-def binder(fact: Fact) -> IO(Maybe<&2, Term>):
-  import "./effects.js"
-
-# Whether two types are equal, as the checker compares them in the fact's
-# scope.
-def same(fact: Fact, a: Term, b: Term) -> IO(Bool):
-  import "./effects.js"
-
-def show(fact: Fact, t: Term) -> IO(String):
-  import "./effects.js"
-
-# The normal form of a type, in the fact's scope.
-def normal(fact: Fact, t: Term) -> IO(Term):
-  import "./effects.js"
-
-# The variables the fact's term uses, each with how many times.
-def uses(fact: Fact) -> IO(List<&2, Use>):
-  import "./effects.js"
-
 # The text under a span, in the file on disk.
 def text(span: Span) -> IO(String):
   import "./effects.js"
@@ -161,15 +130,35 @@ def text(span: Span) -> IO(String):
 def body(name: String) -> IO(Maybe<&2, Node>):
   import "./effects.js"
 
-# The node a fact is about.
-def node(fact: Fact) -> IO(Node):
+def shape(n: Node) -> IO(Shape):
   import "./effects.js"
 
-def shape(n: Node) -> IO(Shape):
+# The node without its annotations.
+def strip(n: Node) -> IO(Node):
   import "./effects.js"
 
 # The node's fact, if the rule asked for it.
 def fact(n: Node) -> IO(Maybe<&2, Fact>):
+  import "./effects.js"
+
+# The type of the binder a Var fact refers to.
+def binder(f: Fact) -> IO(Maybe<&2, Term>):
+  import "./effects.js"
+
+# The variables the fact's term uses, each with how many times.
+def uses(f: Fact) -> IO(List<&2, Use>):
+  import "./effects.js"
+
+# Whether two types are equal, as the checker compares them in the scope
+# of the first.
+def same(a: Term, b: Term) -> IO(Bool):
+  import "./effects.js"
+
+def show(t: Term) -> IO(String):
+  import "./effects.js"
+
+# The normal form of a type, in its scope.
+def normal(t: Term) -> IO(Term):
   import "./effects.js"
 
 def pick(hit: Bool, v: Value, later: Maybe<&2, Value>) -> Maybe<&2, Value>:
