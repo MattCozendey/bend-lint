@@ -30,7 +30,17 @@ type Patch = { edits: Array<[string, string]>; tail: string; exports: string[] }
 
 // What the checker reports for each checked term: what it was checked or
 // inferred as, where, and how it was used.
-export type See = (bok: Book, tm: LTerm, ty: HTerm, ctx: Ctx, dep: number, def: Name, spn: Span | undefined, qt: Quant, us: Uses) => void;
+export type See = (
+  bok: Book,
+  tm: LTerm,
+  ty: HTerm,
+  ctx: Ctx,
+  dep: number,
+  def: Name,
+  spn: Span | undefined,
+  qt: Quant,
+  us: Uses,
+) => void;
 
 // An HTTP GET.
 export type Get = (url: string) => Promise<Response>;
@@ -38,13 +48,24 @@ export type Get = (url: string) => Promise<Response>;
 // How bendDir reaches the network, runs `bend`, where it caches, and where
 // the bend repo would be; tests give their own. run gives a command's
 // stdout, or undefined if it fails.
-export type FindOptions = { get?: Get; run?: (cmd: string[]) => string | undefined; cache?: string; repo?: string };
+export type FindOptions = {
+  get?: Get;
+  run?: (cmd: string[]) => string | undefined;
+  cache?: string;
+  repo?: string;
+};
 
 // Constants
 // =========
 
-export const DriftError: new (message?: string, options?: ErrorOptions) => Error = function (message?: string, options?: ErrorOptions): Error {
-  return Object.setPrototypeOf(Object.assign(new Error(message, options), { name: "DriftError" }), new.target!.prototype);
+export const DriftError: new (message?: string, options?: ErrorOptions) => Error = function (
+  message?: string,
+  options?: ErrorOptions,
+): Error {
+  return Object.setPrototypeOf(
+    Object.assign(new Error(message, options), { name: "DriftError" }),
+    new.target!.prototype,
+  );
 } as ErrorConstructor;
 
 const HERE = url.fileURLToPath(new URL(".", import.meta.url));
@@ -60,9 +81,13 @@ const DAY = 24 * 60 * 60 * 1000;
 const EFF = /^effs\/[\w.-]+$/;
 
 // Downloaded bends, one folder per release.
-const CACHE = nodePath.join(process.env.XDG_CACHE_HOME
-  ?? (process.platform === "win32" ? process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local") : nodePath.join(os.homedir(), ".cache")),
-  "bend-lint");
+const CACHE = nodePath.join(
+  process.env.XDG_CACHE_HOME ??
+    (process.platform === "win32"
+      ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
+      : nodePath.join(os.homedir(), ".cache")),
+  "bend-lint",
+);
 
 const SHIMMED: Array<[string, string]> = [
   ['import * as fs from "node:fs";', "import { fs } from " + SHIM + ";"],
@@ -76,9 +101,12 @@ const PATCHES: Record<string, Patch> = {
       ["export function term_infer(", "function unseen_term_infer("],
       ["export function term_check(", "function unseen_term_check("],
     ],
-    tail: "import { seeInfer, seeCheck } from " + SHIM + ";\n"
-      + "export const term_infer = seeInfer(unseen_term_infer);\n"
-      + "export const term_check = seeCheck(unseen_term_check);\n",
+    tail:
+      "import { seeInfer, seeCheck } from " +
+      SHIM +
+      ";\n" +
+      "export const term_infer = seeInfer(unseen_term_infer);\n" +
+      "export const term_check = seeCheck(unseen_term_check);\n",
     exports: [],
   },
   "comp.ts": { edits: [], tail: "", exports: ["RUNTIME_MAIN", "js_sat"] },
@@ -100,21 +128,31 @@ export const fs = {
   ...nodeFs,
   realpathSync: (p: nodeFs.PathLike): string => slash(nodeFs.realpathSync(p)),
   readFileSync: ((p: nodeFs.PathOrFileDescriptor, ...rest: unknown[]) =>
-    held(p) ?? (nodeFs.readFileSync as (...a: unknown[]) => unknown)(p, ...rest)) as typeof nodeFs.readFileSync,
+    held(p) ??
+    (nodeFs.readFileSync as (...a: unknown[]) => unknown)(
+      p,
+      ...rest,
+    )) as typeof nodeFs.readFileSync,
 };
 
 export const path = {
   ...nodePath,
   join: (...ps: string[]): string => slash(nodePath.join(...ps)),
   resolve: (...ps: string[]): string => slash(nodePath.resolve(...ps)),
-  posix: { ...nodePath.posix, resolve: (...ps: string[]): string => resolve(process.cwd(), ...ps), relative },
+  posix: {
+    ...nodePath.posix,
+    resolve: (...ps: string[]): string => resolve(process.cwd(), ...ps),
+    relative,
+  },
 };
 
 // Functions
 // =========
 
 function held(p: nodeFs.PathOrFileDescriptor): string | undefined {
-  return typeof p === "string" && unsaved.size > 0 && nodeFs.existsSync(p) ? unsaved.get(slash(nodeFs.realpathSync(p))) : undefined;
+  return typeof p === "string" && unsaved.size > 0 && nodeFs.existsSync(p)
+    ? unsaved.get(slash(nodeFs.realpathSync(p)))
+    : undefined;
 }
 
 function slash(p: string): string {
@@ -124,7 +162,11 @@ function slash(p: string): string {
 // path.posix.resolve from `cwd`, where a drive letter is a root.
 export function resolve(cwd: string, ...ps: string[]): string {
   const all = [cwd, ...ps].map(slash);
-  const drive = all.filter((p) => DRIVE.test(p)).at(-1)?.slice(0, 2) ?? "";
+  const drive =
+    all
+      .filter((p) => DRIVE.test(p))
+      .at(-1)
+      ?.slice(0, 2) ?? "";
   return drive + nodePath.posix.resolve(...all.map((p) => p.replace(DRIVE, "")));
 }
 
@@ -159,7 +201,14 @@ export function seeCheck(f: typeof BendModule.term_check): typeof BendModule.ter
 // f.length counts the parameters before the first default.
 function arity(f: (...args: never[]) => unknown, n: number, name: string): void {
   if (f.length !== n) {
-    throw new DriftError(name + " takes " + f.length + " parameters, not " + n + "; update seeInfer and seeCheck in tools/bend-lint/src/patch.ts");
+    throw new DriftError(
+      name +
+        " takes " +
+        f.length +
+        " parameters, not " +
+        n +
+        "; update seeInfer and seeCheck in tools/bend-lint/src/patch.ts",
+    );
   }
 }
 
@@ -167,40 +216,79 @@ function arity(f: (...args: never[]) => unknown, n: number, name: string): void 
 export function patch(file: string, src: string): string {
   const { edits, tail, exports } = PATCHES[file];
   const drift = (what: string, n: number): never => {
-    throw new DriftError("cannot patch bend2/" + file + ": found " + n + " of " + what
-      + ", expected 1. Update PATCHES in tools/bend-lint/src/patch.ts.");
+    throw new DriftError(
+      "cannot patch bend2/" +
+        file +
+        ": found " +
+        n +
+        " of " +
+        what +
+        ", expected 1. Update PATCHES in tools/bend-lint/src/patch.ts.",
+    );
   };
   const edited = edits.reduce((out, [at, to]) => {
     const n = out.split(at).length - 1;
     return n === 1 ? out.replace(at, () => to) : drift(JSON.stringify(at), n);
   }, src);
   const missing = exports.filter((name) => {
-    const n = edited.match(new RegExp("^(?:export )?(?:async function|function|class|const|let) " + name + "\\b", "gm"))?.length ?? 0;
-    return n === 1 ? !new RegExp("^export (?:async function|function|class|const|let) " + name + "\\b", "m").test(edited) : drift("a declaration of " + name, n);
+    const n =
+      edited.match(
+        new RegExp(
+          "^(?:export )?(?:async function|function|class|const|let) " + name + "\\b",
+          "gm",
+        ),
+      )?.length ?? 0;
+    return n === 1
+      ? !new RegExp(
+          "^export (?:async function|function|class|const|let) " + name + "\\b",
+          "m",
+        ).test(edited)
+      : drift("a declaration of " + name, n);
   });
-  return edited + "\n" + tail + (missing.length === 0 ? "" : "export { " + missing.join(", ") + " };\n")
-    + "export const " + MARK + " = 1;\n";
+  return (
+    edited +
+    "\n" +
+    tail +
+    (missing.length === 0 ? "" : "export { " + missing.join(", ") + " };\n") +
+    "export const " +
+    MARK +
+    " = 1;\n"
+  );
 }
 
 // The bend2 folder to load: `given` (from --bend), else $BEND_DIR, else
 // the bend repo around tools/bend-lint, if there is one, else a release
 // from GitHub: the installed bend's version, or the newest. A bend
 // checkout works too, for its bend2 folder.
-export async function bendDir(given: string | undefined, { get = download, run = spawn, cache = CACHE, repo }: FindOptions = {}): Promise<string> {
+export async function bendDir(
+  given: string | undefined,
+  { get = download, run = spawn, cache = CACHE, repo }: FindOptions = {},
+): Promise<string> {
   const chosen = given ?? process.env.BEND_DIR;
   const dir = path.resolve(chosen ?? repo ?? path.join(HERE, "..", "..", "..", "bend2"));
-  const found = [path.join(dir, "bend2"), dir].find((d) => nodeFs.existsSync(path.join(d, "bend.ts")));
+  const found = [path.join(dir, "bend2"), dir].find((d) =>
+    nodeFs.existsSync(path.join(d, "bend.ts")),
+  );
   if (found !== undefined) {
     return fs.realpathSync(found);
   }
   if (chosen !== undefined) {
-    throw new Error("no bend2 at " + dir + " (it needs bend.ts); give a bend checkout with --bend <dir> or BEND_DIR");
+    throw new Error(
+      "no bend2 at " +
+        dir +
+        " (it needs bend.ts); give a bend checkout with --bend <dir> or BEND_DIR",
+    );
   }
-  const tag = installedTag(run) ?? await latestTag(cache, get);
+  const tag = installedTag(run) ?? (await latestTag(cache, get));
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
   const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
-    throw new Error("could not download bend " + tag + " (" + (e instanceof Error ? e.message : String(e))
-      + "); give a bend checkout with --bend <dir> or BEND_DIR");
+    throw new Error(
+      "could not download bend " +
+        tag +
+        " (" +
+        (e instanceof Error ? e.message : String(e)) +
+        "); give a bend checkout with --bend <dir> or BEND_DIR",
+    );
   });
   if (fresh) {
     console.error("bend-lint: downloaded bend " + tag + " to " + got);
@@ -225,7 +313,9 @@ function spawn(cmd: string[]): string | undefined {
 
 // The installed bend's release ("v2.0.36"), or undefined if `bend version`
 // does not run.
-export function installedTag(run: (cmd: string[]) => string | undefined = spawn): string | undefined {
+export function installedTag(
+  run: (cmd: string[]) => string | undefined = spawn,
+): string | undefined {
   const version = run(["bend", "version"])?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
   return version === undefined ? undefined : "v" + version;
 }
@@ -240,18 +330,40 @@ export async function latestTag(cache: string = CACHE, get: Get = download): Pro
   } catch {
     known = undefined; // no note yet, or a damaged one
   }
-  if (typeof known?.tag === "string" && RELEASE.test(known.tag) && typeof known.at === "number" && Date.now() - known.at < DAY) {
+  if (
+    typeof known?.tag === "string" &&
+    RELEASE.test(known.tag) &&
+    typeof known.at === "number" &&
+    Date.now() - known.at < DAY
+  ) {
     return known.tag;
   }
-  const newest = (tags: string[]): string | undefined => tags.filter((t) => RELEASE.test(t))
-    .map((t) => t.slice(1).split(".").map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
-    .map((v) => "v" + v.join("."))[0];
-  const listed = await get(GIT).then((res) => res.ok ? res.text() : Promise.reject(new Error("GitHub answered " + res.status)))
-    .then((refs) => newest([...refs.matchAll(/refs\/tags\/(v[\d.]+)$/gm)].map((m) => m[1])), (e: unknown) => {
-      const cached = newest(nodeFs.existsSync(cache) ? nodeFs.readdirSync(cache) : []);
-      return cached ?? Promise.reject(new Error("cannot list bend's releases (" + (e instanceof Error ? e.message : String(e))
-        + "); give a bend checkout with --bend <dir> or BEND_DIR"));
-    });
+  const newest = (tags: string[]): string | undefined =>
+    tags
+      .filter((t) => RELEASE.test(t))
+      .map((t) => t.slice(1).split(".").map(Number))
+      .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
+      .map((v) => "v" + v.join("."))[0];
+  const listed = await get(GIT)
+    .then((res) =>
+      res.ok ? res.text() : Promise.reject(new Error("GitHub answered " + res.status)),
+    )
+    .then(
+      (refs) => newest([...refs.matchAll(/refs\/tags\/(v[\d.]+)$/gm)].map((m) => m[1])),
+      (e: unknown) => {
+        const cached = newest(nodeFs.existsSync(cache) ? nodeFs.readdirSync(cache) : []);
+        return (
+          cached ??
+          Promise.reject(
+            new Error(
+              "cannot list bend's releases (" +
+                (e instanceof Error ? e.message : String(e)) +
+                "); give a bend checkout with --bend <dir> or BEND_DIR",
+            ),
+          )
+        );
+      },
+    );
   if (listed === undefined) {
     throw new Error("bend has no release tags; give a bend checkout with --bend <dir> or BEND_DIR");
   }
@@ -265,25 +377,37 @@ export async function latestTag(cache: string = CACHE, get: Get = download): Pro
 // <cache>/<tag>/bend2. A download goes to a temporary folder first, so the
 // cache never holds a partial one; a cached folder without main.ts (from an
 // older bend-lint) is downloaded again.
-export async function fetchBend(tag: string, cache: string = CACHE, get: Get = download): Promise<string> {
+export async function fetchBend(
+  tag: string,
+  cache: string = CACHE,
+  get: Get = download,
+): Promise<string> {
   if (!RELEASE.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
   const dir = nodePath.join(cache, tag, "bend2");
-  const whole = (): boolean => [...PATCHED, "safe.ts", "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
+  const whole = (): boolean =>
+    [...PATCHED, "safe.ts", "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
   if (whole()) {
     return dir;
   }
-  const text = (file: string): Promise<[string, string]> => get(RAW + tag + "/bend2/" + file)
-    .then((res) => res.ok ? res.text() : Promise.reject(new Error("GitHub answered " + res.status + " for bend2/" + file)))
-    .then((body) => [file, body]);
+  const text = (file: string): Promise<[string, string]> =>
+    get(RAW + tag + "/bend2/" + file)
+      .then((res) =>
+        res.ok
+          ? res.text()
+          : Promise.reject(new Error("GitHub answered " + res.status + " for bend2/" + file)),
+      )
+      .then((body) => [file, body]);
   const base = await text("base.bend");
-  const effs = [...new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1]))];
+  const effs = [
+    ...new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1])),
+  ];
   const odd = effs.find((f) => !EFF.test(f));
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
-  const files = [base, ...await Promise.all([...PATCHED, "safe.ts", ...effs].map(text))];
+  const files = [base, ...(await Promise.all([...PATCHED, "safe.ts", ...effs].map(text)))];
   nodeFs.mkdirSync(nodePath.join(cache, tag), { recursive: true });
   const part = nodeFs.mkdtempSync(nodePath.join(cache, tag, ".part-"));
   files.forEach(([file, body]) => {
