@@ -43,9 +43,9 @@ export type FindOptions = { get?: Get; run?: (cmd: string[]) => string | undefin
 // Constants
 // =========
 
-export class DriftError extends Error {
-  override name = "DriftError";
-}
+export const DriftError: new (message?: string, options?: ErrorOptions) => Error = function (message?: string, options?: ErrorOptions): Error {
+  return Object.setPrototypeOf(Object.assign(new Error(message, options), { name: "DriftError" }), new.target!.prototype);
+} as ErrorConstructor;
 
 const HERE = url.fileURLToPath(new URL(".", import.meta.url));
 const DRIVE = /^[A-Za-z]:(?=\/)/;
@@ -301,3 +301,5 @@ export async function fetchBend(tag: string, cache: string = CACHE, get: Get = d
   }
   return dir;
 }
+
+Object.setPrototypeOf(DriftError.prototype, Error.prototype);

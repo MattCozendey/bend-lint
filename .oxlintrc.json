@@ -1,4 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["**/*.bend"]
+  "ignorePatterns": ["**/*.bend"],
+  "jsPlugins": ["./scripts/oxlint.ts"],
+  "rules": {
+    "typescript/consistent-type-definitions": ["error", "type"],
+    "eslint/max-classes-per-file": ["error", 0],
+    "bend-lint/no-type-synonyms": "error"
+  }
 }
