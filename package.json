@@ -13,11 +13,11 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.0",
-    "typescript": "^7.0.2"
+    "@types/bun": "1.2.0",
+    "typescript": "7.0.2"
   },
   "engines": {
-    "bun": ">=1.2"
+    "bun": "1.2"
   },
   "license": "Apache-2.0"
 }
