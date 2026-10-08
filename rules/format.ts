@@ -38,6 +38,9 @@ const DELIMITERS = new Map([
   ["{", "}"],
   ["<", ">"],
 ]);
+// A word, a number, or a symbol of more than one character, at lastIndex.
+const ATOM =
+  /[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*|\d+(?:n\+?|\.\d+(?:[eE][+-]?\d+)?)?|<&>|\.&\.|\.\|\.|\.\^\.|->|=>|<-|==|!=|<=|>=|<<|&&|\|\||\+\+|<>|&[012]/y;
 const OPERATORS = new Set([
   "+",
   "-",
@@ -99,17 +102,10 @@ const tokens = (source: string): Token[] => {
       }
       kind = "literal";
     } else {
-      const word = /^[A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)*/.exec(source.slice(at));
-      const number =
-        /^\d+(?:n\+?|\.\d+(?:[eE][+-]?\d+)?)/.exec(source.slice(at)) ??
-        /^\d+/.exec(source.slice(at));
-      const symbol =
-        /^(?:<&>|\.&\.|\.\|\.|\.\^\.|->|=>|<-|==|!=|<=|>=|<<|&&|\|\||\+\+|<>|&[012])/.exec(
-          source.slice(at),
-        );
+      ATOM.lastIndex = at;
       if (source.startsWith("<-", at) && /[\w.]/.test(source[at - 1] ?? "")) at++;
       else if (source.startsWith(">>", at) && /\s/.test(source[at - 1] ?? "")) at += 2;
-      else at += (word?.[0] ?? number?.[0] ?? symbol?.[0] ?? c).length;
+      else at += (ATOM.exec(source)?.[0] ?? c).length;
     }
     out.push({ text: source.slice(beg, at), beg, end: at, col: beg - start, kind });
     if (kind === "newline") start = at;

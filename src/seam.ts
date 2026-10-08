@@ -522,10 +522,15 @@ export const starts = (owner: object, text: string): number[] => {
 
 // The index of the line that holds `off`, given each line's start.
 export const line = (starts: number[], off: number): number => {
-  let [lo, hi] = [0, starts.length - 1];
+  let lo = 0;
+  let hi = starts.length - 1;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    [lo, hi] = starts[mid] <= off ? [mid, hi] : [lo, mid - 1];
+    if (starts[mid] <= off) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
   }
   return lo;
 };
@@ -533,7 +538,7 @@ export const line = (starts: number[], off: number): number => {
 // bend.ts parses a copy of each file with its import lines blanked, so a
 // span moves to the file on disk by line and column. The copy's namespace,
 // folder and lines pick the file; a copy that matches no file, or two, is
-// a drift error.
+// a drift error. A copy with the file's own text keeps its offsets.
 export const mapper = (files: File[]): Mapper => {
   const own = new Set<unknown>(files);
   const memo = new WeakMap<object, { file: File; from: number[]; to: number[] }>();
@@ -567,7 +572,8 @@ export const mapper = (files: File[]): Mapper => {
       );
     }
     Object.assign(found[0].al, f.al);
-    const known = { file: found[0], from: starts(f, f.str), to: starts(found[0], found[0].str) };
+    const to = starts(found[0], found[0].str);
+    const known = { file: found[0], from: f.str === found[0].str ? to : starts(f, f.str), to };
     memo.set(f, known);
     return known;
   };
@@ -576,6 +582,9 @@ export const mapper = (files: File[]): Mapper => {
       return s;
     }
     const { file, from, to } = memo.get(s.file) ?? find(s.file);
+    if (from === to) {
+      return { file, beg: s.beg, end: s.end };
+    }
     const at = (off: number): number => {
       const i = line(from, off);
       return to[i] + off - from[i];
@@ -617,6 +626,15 @@ const demand = (checks: Array<[string, boolean]>, say: (wrong: string) => string
   const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
   if (wrong.length > 0) {
     throw drift(say(wrong.join(", ")));
+  }
+};
+
+// f's value, or undefined if it throws.
+const tried = <T>(f: () => T): T | undefined => {
+  try {
+    return f();
+  } catch {
+    return undefined;
   }
 };
 
@@ -734,12 +752,6 @@ const checked = async (
     };
   }
   const err = isErr(read.e) ? read.e : undefined;
-  let span: Span | undefined;
-  try {
-    span = toSpan(map(err?.spn));
-  } catch {
-    span = undefined;
-  }
   return {
     book: Bend.book_nil(),
     sources,
@@ -749,7 +761,7 @@ const checked = async (
       code: "bend/check",
       severity: "error",
       message: failure(m, read.e),
-      span,
+      span: tried(() => toSpan(map(err?.spn))),
       def: err?.def,
       fixes: [],
       core: read.e,
@@ -818,7 +830,8 @@ export const select = (
 // in meaning. No typecheck, disk writes or import fetches. A proof made
 // only of {==} has no body span, so its aliases come from the sources. A
 // proof of an imported law fills its declaration rather than creating one.
-const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): boolean => {
+// The linted file is parsed once, for every text compared with it.
+const sameDeclarations = (m: Loaded, { book, sources }: Checked): ((text: string) => boolean) => {
   const { Bend } = m;
   const root = sources.find((s) => s.root)!;
   const ns = FILES.get(root)!.ns;
@@ -888,11 +901,8 @@ const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): 
       (k, v) => (k === "s" ? undefined : v),
     );
   };
-  try {
-    return snapshot(root.text) === snapshot(text);
-  } catch {
-    return false;
-  }
+  const original = tried(() => snapshot(root.text));
+  return (text) => original !== undefined && tried(() => snapshot(text)) === original;
 };
 
 // What a rule asks bend2, over one check's book and facts.
@@ -901,6 +911,7 @@ const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): 
 // once, when first asked.
 export const operations = (m: Loaded, run: Checked): Operations => {
   const { Bend } = m;
+  let declares: ((text: string) => boolean) | undefined;
   let byTerm: Map<LTerm, Fact> | undefined;
   let parents: Map<LTerm, LTerm> | undefined;
   const walked = new Map<LTerm, LTerm[]>();
@@ -950,7 +961,7 @@ export const operations = (m: Loaded, run: Checked): Operations => {
       const { ty, bok, dep } = scoped(t);
       return typed({ ty: Bend.term_snf(bok, ty), bok, dep });
     },
-    sameDeclarations: (text) => sameDeclarations(m, run, text),
+    sameDeclarations: (text) => (declares ??= sameDeclarations(m, run))(text),
     fact: (n) => {
       byTerm ??= new Map(run.facts.map((f) => [tree(f.node), f]));
       return byTerm.get(tree(n));

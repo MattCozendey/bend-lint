@@ -204,6 +204,10 @@ export type Position = { line: number; character: number };
 // A span as lint.bend has it: a file's path and two code-point offsets.
 type Spot = { path: string; beg: number; end: number };
 
+// The code point at each UTF-16 offset of a text, and the offset where each
+// code point starts, both with one past the end.
+type Points = { points: Uint32Array; units: Uint32Array };
+
 // What a Bend rule reports, as effects.js reads it.
 // A fact as it crosses to a Bend rule: its node and type as indexes.
 type Wire = Omit<Fact, "node" | "type" | "span"> & { node: number; type: number; span?: Spot };
@@ -271,6 +275,12 @@ const COMPILED = new Map<string, { text: string; rule: LintRule }>();
 
 // Linters, by the --bend folder asked for ("" for none).
 const LINTERS = new Map<string, Promise<Result<Linter, LintError>>>();
+
+// Each source's Points, made when a Bend rule first crosses one of its
+// spans; null when the text has no surrogate pairs, so a code point is a
+// UTF-16 unit.
+const POINTS = new WeakMap<Source, Points | null>();
+const SURROGATE = /[\uD800-\uDFFF]/;
 
 // Errors whose cause bend-lint knows.
 const CAUSES = new WeakMap<object, LintError["type"]>();
@@ -752,26 +762,38 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
     ...(want === null ? {} : { facts: want }),
     ...(options === undefined ? {} : { options }),
     run: (cx) => {
-      const tables = new Map<string, { points: number[]; units: number[] }>();
-      const table = (text: string): { points: number[]; units: number[] } => {
-        const known = tables.get(text);
+      const table = (src: Source): Points | null => {
+        const known = POINTS.get(src);
         if (known !== undefined) {
           return known;
         }
-        const points: number[] = [];
-        const units: number[] = [];
-        for (const ch of text) {
-          units.push(points.length);
-          points.push(...Array<number>(ch.length).fill(units.length - 1));
+        const { text } = src;
+        if (!SURROGATE.test(text)) {
+          POINTS.set(src, null);
+          return null;
         }
-        units.push(points.length);
-        points.push(units.length - 1);
-        tables.set(text, { points, units });
-        return { points, units };
+        const points = new Uint32Array(text.length + 1);
+        const units = new Uint32Array(text.length + 1);
+        let count = 0;
+        for (let unit = 0; unit <= text.length; count += 1) {
+          const width = (text.codePointAt(unit) ?? 0) > 0xffff ? 2 : 1;
+          units[count] = unit;
+          points.fill(count, unit, unit + width);
+          unit += width;
+        }
+        const made = { points, units: units.subarray(0, count) };
+        POINTS.set(src, made);
+        return made;
+      };
+      // How many code points a source has.
+      const length = (src: Source): number => {
+        const t = table(src);
+        return t === null ? src.text.length : t.units.length - 1;
       };
       const spotOf = (span: Span): Spot => {
-        const { points } = table(span.file.text);
-        return { path: span.file.path, beg: points[span.beg], end: points[span.end] };
+        const t = table(span.file);
+        const at = (n: number): number => (t === null ? n : t.points[n]);
+        return { path: span.file.path, beg: at(span.beg), end: at(span.end) };
       };
       const spot = (span: Span | undefined): Spot | undefined => span && spotOf(span);
       const span = (s: Spot): Span => {
@@ -779,8 +801,10 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
         if (src === undefined) {
           throw new Error("it reported a span in " + s.path + ", which is not in the book");
         }
-        const { units } = table(src.text);
-        const at = (n: number): number => units[Math.min(n, units.length - 1)];
+        const t = table(src);
+        const last = length(src);
+        const at = (n: number): number =>
+          t === null ? Math.min(n, last) : t.units[Math.min(n, last)];
         return { file: src, beg: at(s.beg), end: at(s.end) };
       };
       let given = 0;
@@ -795,8 +819,10 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       const keep = (t: Type): number => types.push(t) - 1;
       const hold = (n: Node): number => nodes.push(n) - 1;
       const wire = (f: Fact): Wire => ({
-        ...f,
         node: hold(f.node),
+        owner: f.owner,
+        inst: f.inst,
+        quantity: f.quantity,
         type: keep(f.type),
         span: spot(f.span),
       });
@@ -882,7 +908,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
             ...f,
             edits: f.edits.map((e) => {
               const at = span(e.span);
-              if (!validRange(e.span.beg, e.span.end, table(at.file.text).units.length - 1)) {
+              if (!validRange(e.span.beg, e.span.end, length(at.file))) {
                 throw new TypeError('fix "' + f.title + '" has an edit out of bounds');
               }
               return { span: at, text: e.text };
