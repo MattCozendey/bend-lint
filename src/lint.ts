@@ -297,13 +297,14 @@ const OPTIONS = {
   "fix-suggested": { type: "boolean" },
   "fix-dangerously": { type: "boolean" },
   json: { type: "boolean" },
+  "show-suppressed": { type: "boolean" },
   config: { type: "string" },
   bend: { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
 const USAGE =
-  "usage: bun src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--bend <dir>]";
+  "usage: bun src/lint.ts <file.bend> [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
 
 // The fix levels each flag applies; the widest flag given wins.
 const FIXES: ReadonlyArray<
@@ -952,29 +953,36 @@ const cli = async (argv: string[]): Promise<number> => {
   const res = unwrap(await linter.lint(positionals[0], rules, { config }));
   const failed = res.diags.some((d) => d.severity === "error");
   const where = (span: Span) => ({ path: span.file.path, range: position(span) });
+  const finding = (d: Diag) => ({
+    code: d.code,
+    severity: d.severity,
+    message: d.message,
+    def: d.def,
+    ...(d.span && where(d.span)),
+    fixes: d.fixes.map((f) => ({
+      ...f,
+      edits: f.edits.map((e) => ({ ...where(e.span), text: e.text })),
+    })),
+  });
+  const { suppressed } = res;
   console.log(
     values.json
       ? JSON.stringify(
-          {
-            ok: !failed,
-            findings: res.diags.map((d) => ({
-              code: d.code,
-              severity: d.severity,
-              message: d.message,
-              def: d.def,
-              ...(d.span && where(d.span)),
-              fixes: d.fixes.map((f) => ({
-                ...f,
-                edits: f.edits.map((e) => ({ ...where(e.span), text: e.text })),
-              })),
-            })),
-          },
+          { ok: !failed, findings: res.diags.map(finding), suppressed: suppressed.map(finding) },
           null,
           2,
         )
       : [
           ...res.diags.map(linter.render),
-          failed ? "bend-lint: FAIL" : "bend-lint: " + res.diags.length + " finding(s)",
+          ...(values["show-suppressed"] && suppressed.length > 0
+            ? ["bend-lint: suppressed", ...suppressed.map(linter.render)]
+            : []),
+          failed
+            ? "bend-lint: FAIL"
+            : "bend-lint: " +
+              res.diags.length +
+              " finding(s)" +
+              (suppressed.length > 0 ? ", " + suppressed.length + " suppressed" : ""),
         ].join("\n\n"),
   );
   const { root } = res;

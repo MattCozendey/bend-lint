@@ -35,7 +35,7 @@ Add `--fix` to write the fixes back to the file.
 ```
 bun src/lint.ts <file.bend> [--rules <file>]... [--config <file>]
                 [--fix | --fix-suggested | --fix-dangerously]
-                [--json] [--bend <dir>]
+                [--json] [--show-suppressed] [--bend <dir>]
 ```
 
 Every fix is marked `safe`, `suggested` or `dangerous`:
@@ -51,8 +51,9 @@ skipped. Run it again to get it.
 Exit code is 0 if there were no errors (warnings don't count), 1 for a checker
 or rule error, and 2 for bad arguments or a crash.
 
-`--json` prints the findings as JSON. The format is in
-[AGENTS.md](AGENTS.md#json-output).
+`--json` prints the findings as JSON, and the ones a comment covers under
+`suppressed`. The format is in [AGENTS.md](AGENTS.md#json-output).
+`--show-suppressed` prints those covered findings too.
 
 ## Where Bend comes from
 
@@ -118,6 +119,37 @@ off. Severities are `error`, `warning`, `information` and `hint`.
 
 Each rule declares the options it accepts. Unknown keys and values that don't
 match are rejected.
+
+## Suppressing findings
+
+A comment in the file silences a rule (`disable`) or demands that it fires
+(`expect`):
+
+```
+# bend-lint: disable-file style/file-length -- generated tables
+# bend-lint: disable-begin format/layout -- hand-aligned table
+# bend-lint: disable-end format/layout
+# bend-lint: disable-next my/rule -- the old name stays
+# bend-lint: expect-next my/rule@hint -- the sample must report this
+```
+
+The form is `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
+A directive names one rule and needs a reason. An `expect` pins the severity the
+finding must have, after the config's changes; a `disable` takes none.
+
+- `file` covers the whole file. Findings that report on line 1, like
+  `format/layout` and `style/file-length`, need it, or a region that starts there.
+- `begin` and `end` cover the lines between them. Regions of one rule nest.
+- `next` covers the next line that holds code, past blank and comment lines.
+- `line` covers its own line; it follows code on that line.
+
+A finding is covered when it starts on a covered line. An `expect` that gets no
+finding is a `bend-lint/unmet-expectation` error, and a `disable` that covers
+nothing is a `bend-lint/unused-disable` warning. A directive that is wrong is a
+`bend-lint/directive` error. Directives stacked on consecutive comment lines
+must be ordered by rule, then severity, then keyword; the safe fix sorts them.
+Only comments in the linted file count, and the findings of Bend's checker
+(`bend/...`) and of bend-lint itself (`bend-lint/...`) cannot be suppressed.
 
 ## What you get back
 

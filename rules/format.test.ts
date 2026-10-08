@@ -327,7 +327,7 @@ def main() -> String:
     expect([again.status, again.stderr, JSON.parse(again.stdout)]).toEqual([
       0,
       "",
-      { ok: true, findings: [] },
+      { ok: true, findings: [], suppressed: [] },
     ]);
     expect(fs.readFileSync(file, "utf8")).toBe(text);
   });
