@@ -177,7 +177,7 @@ def commas(s: String, +at: U32, acc: List<&2, U32>) -> List<&2, U32>:
       commas(rest, U32.add(at, 1), keep(comma_before_word(c, rest), at, acc))
 
 def diag_at(+span: Lint.Span) -> Lint.Diag:
-  Lint.Diag{Lint.Warning{}, "Add a space after the comma.", Some{span}, [Lint.Fix{"Insert space", Lint.Safe{}, [Lint.Edit{span, " "}]}]}
+  Lint.Diag{Lint.Warning{}, "Add a space after the comma.", Some{span}, [Lint.Fix{"Insert space", Lint.Safe{}, [Lint.Edit{span, " "}]}], None{}}
 
 def diag(path: String, +at: U32) -> Lint.Diag:
   diag_at(Lint.Span{path, at, at})
@@ -191,7 +191,7 @@ def diags(+path: String, ats: List<&2, U32>) -> List<&2, Lint.Diag>:
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
-    case Lint.Input{Lint.Source{+path, text, root}, sources, options}:
+    case Lint.Input{Lint.Source{+path, text, root}, sources, options, prior}:
       IO.pure(List<&2, Lint.Diag>, diags(path, commas(text, 0, [])))
 
 def main() -> IO(Unit):
@@ -293,7 +293,7 @@ def step(found: List<&2, Lint.Diag>, +f: Lint.Fact) -> IO(List<&2, Lint.Diag>):
     same : Bool <- compare(b, type_of(f))
     here : String <- text_of(span_of(bare))
     us : List<&2, Lint.Use> <- Lint.uses(f)
-    return Lint.Diag{Lint.Hint{}, name_of(bare) ++ ": " ++ shown ++ " = " ++ nf ++ verdict(same) ++ ", text " ++ here ++ ", demanded " ++ quantity(quantity_of(f)) ++ ", uses " ++ first_use(us), fact_span(f), []} <> found
+    return Lint.Diag{Lint.Hint{}, name_of(bare) ++ ": " ++ shown ++ " = " ++ nf ++ verdict(same) ++ ", text " ++ here ++ ", demanded " ++ quantity(quantity_of(f)) ++ ", uses " ++ first_use(us), fact_span(f), [], Some{f}} <> found
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   Lint.fold_facts(~List<&2, Lint.Diag>, ~step, [])
@@ -418,15 +418,15 @@ def facts() -> Lint.Want:
   Lint.NoFacts{}
 
 def options() -> List<&2, Lint.Declared>:
-  [Lint.Declared{"width", Lint.NumberOption{2, 1, 80}}, Lint.Declared{"wrap", Lint.FlagOption{False{}}}, Lint.Declared{"name", Lint.TextOption{"none", []}}]
+  [Lint.Declared{"width", Lint.Num{2}, Lint.NumberOption{1, 80}}, Lint.Declared{"wrap", Lint.Flag{False{}}, Lint.FlagOption{}}, Lint.Declared{"name", Lint.Text{"none"}, Lint.TextOption{[]}}]
 
 def summary(+opts: List<&2, Lint.Option>) -> String:
   U32.show(Lint.option_number(opts, "width")) ++ " " ++ Bool.show(Lint.option_flag(opts, "wrap")) ++ " " ++ Lint.option_text(opts, "name")
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
-    case Lint.Input{root, sources, +options}:
-      IO.pure(List<&2, Lint.Diag>, [Lint.Diag{Lint.Hint{}, summary(options), None{}, []}])
+    case Lint.Input{root, sources, +options, prior}:
+      IO.pure(List<&2, Lint.Diag>, [Lint.Diag{Lint.Hint{}, summary(options), None{}, [], None{}}])
 
 def main() -> IO(Unit):
   Lint.serve(run)
@@ -449,7 +449,7 @@ def add(n: U32, +f: Lint.Fact) -> IO(U32):
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   do IO<List<&2, Lint.Diag>>:
     n : U32 <- Lint.fold_facts(~U32, ~add, 0)
-    return [Lint.Diag{Lint.Hint{}, U32.show(n), None{}, []}]
+    return [Lint.Diag{Lint.Hint{}, U32.show(n), None{}, [], None{}}]
 
 def main() -> IO(Unit):
   Lint.serve(run)
@@ -543,7 +543,61 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
     k : String <- back(m)
     none : Maybe<&2, Lint.Node> <- Lint.body("nope")
     t2 : String <- top(none)
-    return [Lint.Diag{Lint.Hint{}, t ++ "; " ++ k ++ "; " ++ t2, None{}, []}]
+    return [Lint.Diag{Lint.Hint{}, t ++ "; " ++ k ++ "; " ++ t2, None{}, [], None{}}]
+
+def main() -> IO(Unit):
+  Lint.serve(run)
+`;
+
+// A Bend rule that reads what TS rules read beyond facts: earlier
+// findings, the formatter's guard, the abort signal, and a union option.
+const PARITY_BEND = String.raw`import Base
+import ../../bend/lint.bend as Lint
+
+def id() -> String:
+  "test/parity"
+
+def facts() -> Lint.Want:
+  Lint.NoFacts{}
+
+def options() -> List<&2, Lint.Declared>:
+  [Lint.Declared{"wrap", Lint.Num{100}, Lint.AnyOption{[Lint.NumberOption{1, 1000}, Lint.TextOption{["never"]}]}}]
+
+def codes(ps: List<&2, Lint.Found>) -> String:
+  match ps:
+    case Nil{}:
+      ""
+    case Con{Lint.Found{code, d}, rest}:
+      code ++ " " ++ codes(rest)
+
+def shown(m: Maybe<&2, Lint.Value>) -> String:
+  match m:
+    case Some{Lint.Num{n}}:
+      U32.show(n)
+    case Some{Lint.Text{t}}:
+      t
+    case Some{Lint.Flag{b}}:
+      "flag"
+    case None{}:
+      "none"
+
+def yes(b: Bool) -> String:
+  match b:
+    case True{}:
+      "yes"
+    case False{}:
+      "no"
+
+def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
+  match input:
+    case Lint.Input{Lint.Source{path, text, root}, sources, +options, prior}:
+      do IO<List<&2, Lint.Diag>>:
+        same : Bool <- Lint.same_declarations(text)
+        other : Bool <- Lint.same_declarations("def other() -> Type:
+  Type
+")
+        stop : Bool <- Lint.aborted()
+        return [Lint.diag(Lint.Hint{}, codes(prior) ++ "| " ++ yes(same) ++ " " ++ yes(other) ++ " " ++ yes(stop) ++ " " ++ shown(Lint.find(options, "wrap")), Lint.Span{path, 0, 0})]
 
 def main() -> IO(Unit):
   Lint.serve(run)
@@ -1777,6 +1831,22 @@ describe("rules written in Bend", () => {
       Array(2).fill("x: Alias = N (same as its binder), text x, demanded once, uses x once"),
     );
     expect(res.diags.every((d) => d.span?.file === root(res.sources))).toBe(true);
+    expect(res.diags.every((d) => d.def === "id" && d.fact?.owner === "id")).toBe(true);
+    expect(render(res.diags[0])).toContain("Context:");
+  });
+
+  test("a rule reads earlier findings, the formatter's guard, the abort and a union option", async () => {
+    const rule = await bendRule(fixture("parity_rule.bend", PARITY_BEND));
+    const said = async (rules: object) =>
+      (await lint(userland, [commaSpace, rule], { config: { rules } as api.Config })).diags.at(-1)!
+        .message;
+    expect(await said({})).toBe("style/comma-space | yes no no 100");
+    expect(await said({ "test/parity": { wrap: "never" } })).toBe(
+      "style/comma-space | yes no no never",
+    );
+    for (const wrap of [0, "always", true]) {
+      await expect(said({ "test/parity": { wrap } })).rejects.toThrow("wrap must match");
+    }
   });
 
   test("a rule reads the term view through effects", async () => {

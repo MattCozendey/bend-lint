@@ -188,14 +188,14 @@ export type LintError = {
 // with the linter that made them.
 export type Linter = {
   BEND2: string; // the bend2 folder it uses
-  lint(
+  lint: (
     file: string,
     rules: LintRule[],
     options?: LintOptions,
-  ): Promise<Result<LintResult, LintError>>;
-  bendRule(file: string): Promise<Result<LintRule, LintError>>;
-  loadRules(files: string[]): Promise<Result<LintRule[], LintError>>;
-  render(d: Diag): string;
+  ) => Promise<Result<LintResult, LintError>>;
+  bendRule: (file: string) => Promise<Result<LintRule, LintError>>;
+  loadRules: (files: string[]) => Promise<Result<LintRule[], LintError>>;
+  render: (d: Diag) => string;
 };
 
 // An LSP position: 0-based line and character, in UTF-16 units.
@@ -205,7 +205,12 @@ export type Position = { line: number; character: number };
 type Spot = { path: string; beg: number; end: number };
 
 // What a Bend rule reports, as effects.js reads it.
-type Reported = {
+// A fact as it crosses to a Bend rule: its node and type as indexes.
+type Wire = Omit<Fact, "node" | "type" | "span"> & { node: number; type: number; span?: Spot };
+
+// A finding as it crosses: from a Bend rule its fact is a node index (A
+// = number); to one, as a prior finding, a Wire.
+type Reported<A> = {
   severity: Severity;
   message: string;
   span?: Spot;
@@ -214,17 +219,21 @@ type Reported = {
     applicability: Applicability;
     edits: Array<{ span: Spot; text: string }>;
   }>;
+  about?: A;
 };
-
-// A fact as it crosses to a Bend rule: its node and type as indexes.
-type Wire = Omit<Fact, "node" | "type" | "span"> & { node: number; type: number; span?: Spot };
 
 // What effects.js asks of bend-lint while a Bend rule runs. Nodes and types
 // cross as indexes into the run's tables; a fact, by its node.
 type Channel = {
-  input(): { sources: Array<{ path: string; text: string; root: boolean }>; options: Options };
+  input(): {
+    sources: Array<{ path: string; text: string; root: boolean }>;
+    options: Options;
+    prior: Array<{ code: string; diag: Reported<Wire> }>;
+  };
+  sameDeclarations(text: string): boolean;
+  aborted(): boolean;
   next(): Wire | undefined;
-  report(diags: Reported[]): void;
+  report(diags: Array<Reported<number>>): void;
   text(span: Spot): string;
   body(name: string): number | undefined;
   shape(node: number): Omit<Shape, "span" | "children"> & { span?: Spot; children: number[] };
@@ -485,14 +494,8 @@ const settings = (
       throw fault("config", where + " has no option " + key);
     }
     if (!fits(schema, value)) {
-      throw fault(
-        "config",
-        where +
-          ": " +
-          key +
-          " must match " +
-          JSON.stringify(schema, (k, v) => (k === "default" ? undefined : v)),
-      );
+      const shown = JSON.stringify(schema, (k, v) => (k === "default" ? undefined : v));
+      throw fault("config", `${where}: ${key} must match ${shown}`);
     }
   }
   return { off: false, severity, options: { ...defaults, ...options } };
@@ -526,11 +529,7 @@ const lintWith = async (
   if (bad >= 0) {
     throw fault(
       "rule-module",
-      "invalid rule at " +
-        bad +
-        " (" +
-        JSON.stringify(rules[bad]?.id) +
-        "): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter, and options, if given, schemas their defaults match",
+      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter, and options, if given, schemas their defaults match`,
     );
   }
   const plans = rules
@@ -701,11 +700,7 @@ export function applyFixes(
 const renderWith = (m: Loaded, d: Diag): string => {
   const fixes = d.fixes.map(
     (fix) =>
-      "\n\nFix: " +
-      fix.title +
-      " [" +
-      fix.applicability +
-      "]" +
+      `\n\nFix: ${fix.title} [${fix.applicability}]` +
       [...new Set(fix.edits.map((e) => e.span.file))]
         .map((file) => {
           const mine = fix.edits.filter((e) => e.span.file === file);
@@ -733,15 +728,7 @@ const renderWith = (m: Loaded, d: Diag): string => {
                 (l.endsWith("\n") ? "" : "\n\\ No newline at end of file"),
             );
           return (
-            "\n--- " +
-            name +
-            "\n+++ " +
-            name +
-            "\n@@ -" +
-            range(gone.length) +
-            " +" +
-            range(came.length) +
-            " @@\n" +
+            `\n--- ${name}\n+++ ${name}\n@@ -${range(gone.length)} +${range(came.length)} @@\n` +
             [...show(gone, "-"), ...show(came, "+")].join("\n")
           );
         })
@@ -791,12 +778,11 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
         tables.set(text, { points, units });
         return { points, units };
       };
-      const spot = (span: Span | undefined): Spot | undefined => {
-        const t = span && table(span.file.text);
-        return (
-          span && t && { path: span.file.path, beg: t.points[span.beg], end: t.points[span.end] }
-        );
+      const spotOf = (span: Span): Spot => {
+        const { points } = table(span.file.text);
+        return { path: span.file.path, beg: points[span.beg], end: points[span.end] };
       };
+      const spot = (span: Span | undefined): Spot | undefined => span && spotOf(span);
       const span = (s: Spot): Span => {
         const src = cx.sources.find((x) => x.path === s.path);
         if (src === undefined) {
@@ -830,12 +816,27 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
         }
         return f;
       };
-      const found: Reported[][] = [];
+      const found: Array<Array<Reported<number>>> = [];
       shared.BEND_LINT = {
         input: () => ({
           sources: cx.sources.map((s) => ({ path: s.path, text: s.text, root: s.root })),
           options: cx.options,
+          prior: cx.prior.map((d) => ({
+            code: d.code,
+            diag: {
+              severity: d.severity,
+              message: d.message,
+              span: spot(d.span),
+              fixes: d.fixes.map((f) => ({
+                ...f,
+                edits: f.edits.map((e) => ({ span: spotOf(e.span), text: e.text })),
+              })),
+              about: d.fact && wire(d.fact),
+            },
+          })),
         }),
+        sameDeclarations: (text) => cx.sameDeclarations(text),
+        aborted: () => cx.signal.aborted,
         next: () => (given < cx.facts.length ? wire(cx.facts[given++]) : undefined),
         report: (diags) => void found.push(diags),
         text: (s) => {
@@ -885,6 +886,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
           message: d.message,
           severity: d.severity,
           span: d.span && span(d.span),
+          fact: d.about === undefined ? undefined : factOf(d.about),
           fixes: d.fixes.map((f) => ({
             ...f,
             edits: f.edits.map((e) => {
@@ -957,17 +959,12 @@ const cli = async (argv: string[]): Promise<number> => {
   }
   if (fixed !== undefined && fixed.skipped > 0) {
     console.error(
-      "bend-lint: skipped " +
-        fixed.skipped +
-        " fix(es) that clash with earlier ones; run the fix again to apply them",
+      `bend-lint: skipped ${fixed.skipped} fix(es) that clash with earlier ones; run the fix again to apply them`,
     );
   }
   if (fixed !== undefined && fixed.elsewhere > 0) {
     console.error(
-      "bend-lint: skipped " +
-        fixed.elsewhere +
-        " fix(es) that also edit other files; --fix writes only " +
-        fixed.root.path,
+      `bend-lint: skipped ${fixed.elsewhere} fix(es) that also edit other files; --fix writes only ${fixed.root.path}`,
     );
   }
   return failed ? 1 : 0;

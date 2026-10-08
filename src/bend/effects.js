@@ -2,18 +2,22 @@
 // globalThis.BEND_LINT before it runs a rule, and removes it after. Bool,
 // String and U32 are native JS values here; other data is {$: CID(Name), ...}.
 
+// Each name's constructor, and back.
 const LINT_SEVERITY = {
-  [CID(Error)]: "error",
-  [CID(Warning)]: "warning",
-  [CID(Information)]: "information",
-  [CID(Hint)]: "hint",
+  error: CID(Error),
+  warning: CID(Warning),
+  information: CID(Information),
+  hint: CID(Hint),
 };
 const LINT_QUANTITY = { erased: CID(Erased), once: CID(Once), many: CID(Many) };
 const LINT_APPLICABILITY = {
-  [CID(Safe)]: "safe",
-  [CID(Suggested)]: "suggested",
-  [CID(Dangerous)]: "dangerous",
+  safe: CID(Safe),
+  suggested: CID(Suggested),
+  dangerous: CID(Dangerous),
 };
+const LINT_NAMES = Object.fromEntries(
+  [LINT_SEVERITY, LINT_APPLICABILITY].flatMap((m) => Object.entries(m).map(([n, c]) => [c, n])),
+);
 
 function lint_host() {
   const host = globalThis.BEND_LINT;
@@ -83,8 +87,29 @@ function lint_source(s) {
   return { $: CID(Source), path: s.path, text: s.text, root: s.root };
 }
 
+// A finding as the host gives it, as a Lint.Diag.
+function lint_diag(d) {
+  return {
+    $: CID(Diag),
+    severity: { $: LINT_SEVERITY[d.severity] },
+    message: d.message,
+    span: lint_maybe(d.span && lint_span(d.span)),
+    fixes: lint_list(
+      d.fixes.map((f) => ({
+        $: CID(Fix),
+        title: f.title,
+        applicability: { $: LINT_APPLICABILITY[f.applicability] },
+        edits: lint_list(
+          f.edits.map((e) => ({ $: CID(Edit), span: lint_span(e.span), text: e.text })),
+        ),
+      })),
+    ),
+    about: lint_fact(d.about),
+  };
+}
+
 function lint_input() {
-  const { sources, options } = lint_host().input();
+  const { sources, options, prior } = lint_host().input();
   return {
     $: CID(Input),
     root: lint_source(sources.find((s) => s.root)),
@@ -92,20 +117,22 @@ function lint_input() {
     options: lint_list(
       Object.entries(options).map(([key, v]) => ({ $: CID(Option), key, value: lint_value(v) })),
     ),
+    prior: lint_list(prior.map((p) => ({ $: CID(Found), code: p.code, diag: lint_diag(p.diag) }))),
   };
 }
 
 function lint_report(diags) {
   lint_host().report(
     lint_unlist(diags).map((d) => ({
-      severity: LINT_SEVERITY[d.severity.$],
+      severity: LINT_NAMES[d.severity.$],
       message: d.message,
       span: d.span.$ === CID(Some) ? lint_spot(d.span.value) : undefined,
       fixes: lint_unlist(d.fixes).map((f) => ({
         title: f.title,
-        applicability: LINT_APPLICABILITY[f.applicability.$],
+        applicability: LINT_NAMES[f.applicability.$],
         edits: lint_unlist(f.edits).map((e) => ({ span: lint_spot(e.span), text: e.text })),
       })),
+      about: d.about.$ === CID(Some) ? d.about.value.node.id : undefined,
     })),
   );
   return { $: CID(Unit) };
@@ -114,6 +141,8 @@ function lint_report(diags) {
 io_eff(CID(input), lint_input);
 io_eff(CID(report), lint_report);
 io_eff(CID(next_fact), () => lint_fact(lint_host().next()));
+io_eff(CID(same_declarations), (text) => lint_host().sameDeclarations(text));
+io_eff(CID(aborted), () => lint_host().aborted());
 io_eff(CID(text), (span) => lint_host().text(lint_spot(span)));
 io_eff(CID(body), (name) => {
   const id = lint_host().body(name);

@@ -19,6 +19,8 @@ import type {
   FactFilter,
   LintRule,
   Node,
+  OptionSchema,
+  OptionValue,
   Quantity,
   RuleContext,
   Shape,
@@ -1005,31 +1007,40 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   const bool = (t: LTerm | undefined): boolean | undefined =>
     [true, false].find((b) => args(t, b ? "True" : "False") !== undefined);
   const texts = (t: LTerm | undefined): string[] | undefined => list(t, text);
-  // Each Lint.Spec constructor, as a schema with its default.
-  const specs: Record<string, (xs: LTerm[]) => Record<string, unknown>> = {
-    NumberOption: ([d, lo, hi]) => ({
-      type: "integer",
-      default: whole(d),
-      minimum: whole(lo),
-      maximum: whole(hi),
-    }),
-    FlagOption: ([d]) => ({ type: "boolean", default: bool(d) }),
-    TextOption: ([d, choices]) => ({
-      type: "string",
-      default: text(d),
-      ...(args(choices, "Nil") === undefined ? { enum: texts(choices) } : {}),
-    }),
-  };
-  const declare = (t: LTerm): [string, Declared] | undefined => {
-    const [key, kind] = args(t, "Declared") ?? [];
-    const name = text(key);
-    const one = Object.entries(specs).flatMap(([k, of]) => {
-      const xs = args(kind, k);
+  // The first of `table`'s constructors that `t` is, read by its decoder.
+  const one = <T>(t: LTerm | undefined, table: Record<string, (xs: LTerm[]) => T>): T | undefined =>
+    Object.entries(table).flatMap(([k, of]) => {
+      const xs = args(t, k);
       return xs === undefined ? [] : [of(xs)];
     })[0];
-    return name === undefined || one === undefined || Object.values(one).includes(undefined)
+  const known = <T extends object>(x: T | undefined): T | undefined =>
+    x === undefined || Object.values(x).includes(undefined) ? undefined : x;
+  // A Lint.Spec as a schema, and a Lint.Value as an option value.
+  const schema = (t: LTerm | undefined): OptionSchema | undefined =>
+    known(
+      one<Record<string, unknown>>(t, {
+        NumberOption: ([lo, hi]) => ({ type: "integer", minimum: whole(lo), maximum: whole(hi) }),
+        FlagOption: () => ({ type: "boolean" }),
+        TextOption: ([choices]) =>
+          args(choices, "Nil") === undefined
+            ? { type: "string", enum: texts(choices) }
+            : { type: "string" },
+        AnyOption: ([specs]) => ({ anyOf: list(specs, schema) }),
+      }),
+    ) as OptionSchema | undefined;
+  const optionValue = (t: LTerm | undefined): OptionValue | undefined =>
+    one<OptionValue | undefined>(t, {
+      Num: ([n]) => whole(n),
+      Flag: ([b]) => bool(b),
+      Text: ([x]) => text(x),
+    });
+  const declare = (t: LTerm): [string, Declared] | undefined => {
+    const [key, given, spec] = args(t, "Declared") ?? [];
+    const name = text(key);
+    const declared = known({ ...schema(spec), default: optionValue(given) });
+    return name === undefined || schema(spec) === undefined || declared === undefined
       ? undefined
-      : [name, one as Declared];
+      : [name, declared as Declared];
   };
   const asked = value("facts");
   const [scope, kinds, defs, names, instances] = args(asked, "Want") ?? [];

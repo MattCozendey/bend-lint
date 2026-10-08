@@ -10,7 +10,7 @@ def facts() -> Lint.Want:
   Lint.NoFacts{}
 
 def options() -> List<&2, Lint.Declared>:
-  [Lint.Declared{"maxLines", Lint.NumberOption{500, 0, 4294967295}}]
+  [Lint.Declared{"maxLines", Lint.Num{500}, Lint.NumberOption{0, 4294967295}}]
 
 # Count physical lines in one tail-recursive scan, without allocating a
 # line list. An empty file has zero lines; a final newline adds no sentinel.
@@ -49,7 +49,7 @@ def check(+max: U32, source: Lint.Source) -> List<&2, Lint.Diag>:
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
   match input:
-    case Lint.Input{root, sources, options}:
+    case Lint.Input{root, sources, options, prior}:
       IO.pure(List<&2, Lint.Diag>, check(Lint.option_number(options, "maxLines"), root))
 
 def main() -> IO(Unit):

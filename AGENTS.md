@@ -265,9 +265,12 @@ def main() -> IO(Unit):
   Lint.serve(run)
 ```
 
-`input` is `Lint.Input{root, sources, options}`: the linted file, it and its
-imports, and the options. `Lint.diag(severity, message, span)` makes a finding
-with no fix; build a `Lint.Diag` to add fixes. To get facts, return a filter from
+`input` is `Lint.Input{root, sources, options, prior}`: the linted file, it and
+its imports, the options, and what earlier rules found (`Lint.Found{code,
+diag}`). `Lint.diag(severity, message, span)` makes a finding with no fix; build
+a `Lint.Diag{severity, message, span, fixes, about}` to add fixes or the fact it
+is about (`about` shows its scope as the finding's context, as `fact` does in
+TS). To get facts, return a filter from
 `facts()`, e.g. `Lint.Want{Lint.File{}, ["Var"], [], [], False{}}`. Empty lists
 match everything, `Lint.Program{}` adds imports (not Base), and `True{}` at the
 end adds template instances.
@@ -284,20 +287,24 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 
 `step` goes in as a template (`~step`) and takes the fact as `+f`, a
 `Lint.Fact{node, owner, inst, quantity, term, span}` (`term` is its type).
-Effects: `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`, `uses`, `same`, `show`,
-`normal` and `text`, plus Base's.
+Effects: `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`, `uses`,
+`same`, `show`, `normal`, `text`, `same_declarations` (the formatter's guard)
+and `aborted` (a long rule can stop early; bend-lint cannot stop a Bend rule
+in the middle), plus Base's own I/O: files, processes, sockets. While a Bend
+rule waits on I/O, it blocks bend-lint.
 
-A rule with options declares them, and reads them with `Lint.option_number`,
-`option_flag` and `option_text`:
+A rule with options declares each with its default and what it accepts, and
+reads them with `Lint.option_number`, `option_flag` and `option_text`, or
+`Lint.find` for the `Lint.Value` itself:
 
 ```python
 def options() -> List<&2, Lint.Declared>:
-  [Lint.Declared{"maxLines", Lint.NumberOption{500, 0, 4294967295}}]
+  [Lint.Declared{"maxLines", Lint.Num{500}, Lint.NumberOption{0, 4294967295}}]
 ```
 
-`NumberOption{default, minimum, maximum}` is a whole number (a U32),
-`FlagOption{default}` a boolean, and `TextOption{default, choices}` text, one
-of `choices` unless that is empty.
+`NumberOption{minimum, maximum}` is a whole number (a U32), `FlagOption{}` a
+boolean, `TextOption{choices}` text, one of `choices` unless that is empty, and
+`AnyOption{specs}` what one of `specs` accepts, e.g. a width or `"never"`.
 
 Spans count Unicode code points here. TypeScript counts UTF-16 units.
 
@@ -305,8 +312,9 @@ The rule is compiled once and runs on Bend's JavaScript runtime. Use tail
 recursion over long text or lists to stay inside the stack. Streaming facts
 saves building a list of all of them.
 
-For examples see [file_length.bend](rules/file_length.bend). `COMMA_BEND`, `TYPES_BEND` and `COUNT_BEND` in
-[src/lint.test.ts](src/lint.test.ts) cover fixes and facts.
+For examples see [file_length.bend](rules/file_length.bend). `COMMA_BEND`,
+`TYPES_BEND`, `COUNT_BEND` and `PARITY_BEND` in [src/lint.test.ts](src/lint.test.ts)
+cover fixes, facts, earlier findings, the guard and union options.
 
 ### As a library
 

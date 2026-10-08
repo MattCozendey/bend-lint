@@ -34,20 +34,17 @@ type Value is Data:
 type Option is Data:
   Option{key: String, value: Value}
 
-# What an option accepts, and its default. NumberOption: a whole number
-# from minimum to maximum. TextOption: one of choices, or any text if
-# there are none.
+# What an option accepts: a whole number from minimum to maximum, a
+# boolean, text (one of choices, or any text if there are none), or what
+# one of the specs accepts.
 type Spec is Data:
-  NumberOption{default: U32, minimum: U32, maximum: U32}
-  FlagOption{default: Bool}
-  TextOption{default: String, choices: List<&2, String>}
+  NumberOption{minimum: U32, maximum: U32}
+  FlagOption{}
+  TextOption{choices: List<&2, String>}
+  AnyOption{specs: List<&2, Spec>}
 
 type Declared is Data:
-  Declared{key: String, spec: Spec}
-
-# root: the linted file. sources: it and its imports.
-type Input is Data:
-  Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>}
+  Declared{key: String, default: Value, spec: Spec}
 
 # File: facts of the linted file. Program: of its imports too, never Base.
 type Scope is Data:
@@ -84,9 +81,6 @@ type Edit is Data:
 type Fix is Data:
   Fix{title: String, applicability: Applicability, edits: List<&2, Edit>}
 
-type Diag is Data:
-  Diag{severity: Severity, message: String, span: Maybe<&2, Span>, fixes: List<&2, Fix>}
-
 # How many times a term may be used.
 type Quantity is Data:
   Erased{}
@@ -103,14 +97,28 @@ type Use is Data:
 type Fact is Data:
   Fact{node: Node, owner: String, inst: Bool, quantity: Quantity, term: Term, span: Maybe<&2, Span>}
 
+# A finding. about: the fact it is about, if any; its scope shows as the
+# finding's context.
+type Diag is Data:
+  Diag{severity: Severity, message: String, span: Maybe<&2, Span>, fixes: List<&2, Fix>, about: Maybe<&2, Fact>}
+
+# A finding of an earlier rule, with that rule's id.
+type Found is Data:
+  Found{code: String, diag: Diag}
+
+# root: the linted file. sources: it and its imports. prior: what earlier
+# rules found.
+type Input is Data:
+  Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>, prior: List<&2, Found>}
+
 # A node: its kind, annotations kept (Ann, Var, App, ...), the name a Var
 # or Ref points to (else ""), its span, and its children, in bend's order.
 type Shape is Data:
   Shape{kind: String, name: String, span: Maybe<&2, Span>, children: List<&2, Node>}
 
-# A finding at a span, with no fix.
+# A finding at a span, with no fix, about no fact.
 def diag(severity: Severity, message: String, span: Span) -> Diag:
-  Diag{severity, message, Some{span}, []}
+  Diag{severity, message, Some{span}, [], None{}}
 
 def input() -> IO(Input):
   import "./effects.js"
@@ -138,6 +146,15 @@ def fold_facts(~A: Type, ~step: A -> @+f: Fact -> IO(A), acc: A) -> IO(A):
   do IO<A>:
     m : Maybe<&2, Fact> <- next_fact()
     fold_next(~A, ~step, m, acc, a => fold_facts(~A, ~step, a))
+
+# Whether `text` declares what the linted file declares, compared as
+# parsed, not checked: a formatter's guard.
+def same_declarations(text: String) -> IO(Bool):
+  import "./effects.js"
+
+# Whether the run was aborted; a long rule can stop early.
+def aborted() -> IO(Bool):
+  import "./effects.js"
 
 # The text under a span, in the file on disk.
 def text(span: Span) -> IO(String):
@@ -192,6 +209,7 @@ def pick(hit: Bool, v: Value, later: Maybe<&2, Value>) -> Maybe<&2, Value>:
     case False{}:
       later
 
+# An option's value; for an AnyOption, match on it.
 def find(opts: List<&2, Option>, +key: String) -> Maybe<&2, Value>:
   match opts:
     case Nil{}:
