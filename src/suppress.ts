@@ -5,8 +5,10 @@
 // the next line that holds code. A finding is covered when its span starts on
 // a covered line (a finding without a span counts as line 1). Directives that
 // stack on consecutive comment-only lines must be in order, by rule, severity
-// and keyword. Only the linted file is read, and the checker's and bend-lint's
-// own findings cannot be suppressed.
+// and keyword. A comment covers the findings of its own file: the linted
+// file, or an import, which only a rule of program scope reports in. Only the
+// linted file's directives are checked for form and order; an import's own run
+// does that. The checker's and bend-lint's own findings cannot be suppressed.
 
 import { line, starts } from "./seam.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
@@ -39,10 +41,12 @@ type Bucket = { lines: Map<number, Covering[]>; ranges: Covering[] };
 
 // What suppress needs to know of the run: every rule it has (a directive for
 // another one is an error), the ones that ran (only their directives can be
-// unused), and what a severity is.
+// unused), those of them that looked at the imports too (only they can be
+// judged there), and what a severity is.
 type Context = {
   known: ReadonlySet<string>;
   ran: ReadonlySet<string>;
+  program: ReadonlySet<string>;
   isSeverity: (s: string) => s is Severity;
 };
 
@@ -271,21 +275,12 @@ const covers = (
     .filter((d) => d.action === "disable" || d.severity === severity);
 };
 
-// Splits the findings into those that stay and those a directive covers, and
-// adds the findings about the directives: a malformed one, a disable that
-// covered nothing, an expect that was not met. Only the linted file's
-// directives count, and only for rules that ran.
-export const suppress = (
-  root: Source,
-  diags: Diag[],
-  ctx: Context,
-): { diags: Diag[]; suppressed: Diag[] } => {
-  if (!root.text.includes("bend-lint:")) {
-    return { diags, suppressed: [] };
-  }
-  const { comments, code } = scan(root.text);
+// What a file's comments say: their directives, the lines they cover, what
+// is wrong with them, and the covering ones by rule.
+const read = (file: Source, ctx: Context) => {
+  const { comments, code } = scan(file.text);
   const parsed = comments.flatMap((c) => {
-    const body = root.text.slice(c.beg + 1, c.end);
+    const body = file.text.slice(c.beg + 1, c.end);
     return PREFIX.test(body) ? [{ c, result: parse(body, c, ctx) }] : [];
   });
   const found = parsed.flatMap(({ result }) => (typeof result === "string" ? [] : [result]));
@@ -299,37 +294,62 @@ export const suppress = (
     code: "bend-lint/directive",
     severity: "error" as const,
     message: why,
-    span: { file: root, beg: at.beg, end: at.end },
+    span: { file, beg: at.beg, end: at.end },
     fixes: [],
   }));
-  const by = index(covering);
-  const ss = starts(root, root.text);
+  return { found, covering, wrong, by: index(covering), ss: starts(file, file.text) };
+};
+
+// Splits the findings into those that stay and those a directive covers, and
+// adds the findings about the directives: a malformed one (the linted file's
+// only), a disable that covered nothing, an expect that was not met. Those
+// two are judged for rules that ran, and in an import for those of program
+// scope.
+export const suppress = (
+  root: Source,
+  sources: Source[],
+  diags: Diag[],
+  ctx: Context,
+): { diags: Diag[]; suppressed: Diag[] } => {
+  const files = new Map(
+    sources
+      .filter((f) => !f.base && f.text.includes("bend-lint:"))
+      .map((f) => [f, read(f, ctx)] as const),
+  );
+  if (files.size === 0) {
+    return { diags, suppressed: [] };
+  }
   const used = new Set<Parsed>();
   const kept: Diag[] = [];
   const suppressed: Diag[] = [];
   for (const d of diags) {
-    const here = d.span === undefined || d.span.file.root;
-    const row = d.span === undefined ? 0 : line(ss, d.span.beg);
-    const hits = here ? covers(by, d.code, d.severity, row) : [];
+    const mine = files.get(d.span?.file ?? root);
+    const row = d.span === undefined || mine === undefined ? 0 : line(mine.ss, d.span.beg);
+    const hits = mine === undefined ? [] : covers(mine.by, d.code, d.severity, row);
     hits.forEach((h) => used.add(h));
     (hits.length > 0 ? suppressed : kept).push(d);
   }
-  const unmet = covering.flatMap(({ directive: d }) => {
-    if (used.has(d) || !ctx.ran.has(d.rule)) {
-      return [];
-    }
-    const expect = d.action === "expect";
-    return [
-      {
-        code: expect ? "bend-lint/unmet-expectation" : "bend-lint/unused-disable",
-        severity: expect ? ("error" as const) : ("warning" as const),
-        message: expect
-          ? "Expected a " + d.rule + "@" + d.severity + " finding on the lines this covers; none."
-          : "This disables " + d.rule + ", but nothing on the lines it covers needs it.",
-        span: { file: root, beg: d.comment.beg, end: d.comment.end },
-        fixes: [],
-      },
-    ];
-  });
-  return { diags: [...kept, ...wrong, ...unsorted(root, found), ...unmet], suppressed };
+  const unmet = [...files].flatMap(([file, r]) =>
+    r.covering.flatMap(({ directive: d }) => {
+      const judged = ctx.ran.has(d.rule) && (file.root || ctx.program.has(d.rule));
+      if (used.has(d) || !judged) {
+        return [];
+      }
+      const expect = d.action === "expect";
+      return [
+        {
+          code: expect ? "bend-lint/unmet-expectation" : "bend-lint/unused-disable",
+          severity: expect ? ("error" as const) : ("warning" as const),
+          message: expect
+            ? "Expected a " + d.rule + "@" + d.severity + " finding on the lines this covers; none."
+            : "This disables " + d.rule + ", but nothing on the lines it covers needs it.",
+          span: { file, beg: d.comment.beg, end: d.comment.end },
+          fixes: [],
+        },
+      ];
+    }),
+  );
+  const own = files.get(root);
+  const about = own === undefined ? [] : [...own.wrong, ...unsorted(root, own.found)];
+  return { diags: [...kept, ...about, ...unmet], suppressed };
 };

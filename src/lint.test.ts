@@ -2783,4 +2783,91 @@ describe("suppression", () => {
       ["format/layout"],
     ]);
   });
+  // A rule of program scope finds each use of a variable, in any file but Base.
+  const uses: LintRule = {
+    id: "demo/var",
+    facts: { scope: "program", kinds: ["Var"] },
+    run: (cx) =>
+      cx.facts.flatMap((f) => (f.span ? [cx.diag({ message: "use", span: f.span })] : [])),
+  };
+
+  // main.bend imports lib.bend, which holds `twice` after the given lines.
+  const withLib = async (before: string[], rules: LintRule[] = [uses]): Promise<LintResult> => {
+    const n = count++;
+    fixture(
+      "lib" + n + ".bend",
+      text("import Base", "", "def twice(x: U32) -> U32:", ...before, "  x"),
+    );
+    const main = fixture(
+      "main" + n + ".bend",
+      text(
+        "import Base",
+        "import lib" + n + ".bend as Lib",
+        "",
+        "def main() -> U32:",
+        "  Lib.twice(1)",
+      ),
+    );
+    return unwrap(await linter.lint(main, rules));
+  };
+
+  const whereIn = (diags: Diag[], code: string): string[] =>
+    diags
+      .filter((d) => d.code === code)
+      .map(
+        (d) =>
+          path.basename(d.span?.file.path ?? "") +
+          ":" +
+          (d.span ? d.span.file.text.slice(0, d.span.beg).split("\n").length : 0),
+      );
+
+  test("a rule of program scope reports in an import, and the import's directive covers it", async () => {
+    const open = await withLib([]);
+    expect(whereIn(open.diags, "demo/var")).toEqual([expect.stringMatching(/^lib\d+\.bend:4$/)]);
+    const covered = await withLib(["  # bend-lint: disable-next demo/var -- why"]);
+    expect(codes(covered)).toEqual([]);
+    expect(whereIn(covered.suppressed, "demo/var")).toEqual([
+      expect.stringMatching(/^lib\d+\.bend:5$/),
+    ]);
+  });
+
+  test("an expectation in an import is met by its finding, and unmet without one", async () => {
+    const met = await withLib(["  # bend-lint: expect-next demo/var@warning -- why"]);
+    expect(codes(met)).toEqual([]);
+    const unmet = await withLib([], [uses]).then(() =>
+      withLib(["  # bend-lint: expect-next demo/var@hint -- wrong severity"]),
+    );
+    expect(codes(unmet).sort()).toEqual(["bend-lint/unmet-expectation", "demo/var"]);
+    expect(whereIn(unmet.diags, "bend-lint/unmet-expectation")).toEqual([
+      expect.stringMatching(/^lib\d+\.bend:4$/),
+    ]);
+  });
+
+  test("a disable in an import that covers nothing is a warning for a rule of program scope", async () => {
+    const res = await withLib(
+      ["  # bend-lint: disable-next demo/other -- why"],
+      [
+        {
+          ...uses,
+          id: "demo/other",
+          facts: { scope: "program", kinds: ["Var"], names: ["nothing"] },
+        },
+      ],
+    );
+    expect(codes(res)).toEqual(["bend-lint/unused-disable"]);
+    expect(whereIn(res.diags, "bend-lint/unused-disable")).toEqual([
+      expect.stringMatching(/^lib\d+\.bend:4$/),
+    ]);
+  });
+
+  test("a rule that does not look at imports is not judged in them, and form is checked only in the linted file", async () => {
+    const res = await withLib(
+      [
+        "  # bend-lint: expect-next demo/a@warning -- not judged here",
+        "  # bend-lint: disable-next demo/var",
+      ],
+      [a, uses],
+    );
+    expect(codes(res)).toEqual(["demo/var"]);
+  });
 });

@@ -148,7 +148,10 @@ finding is a `bend-lint/unmet-expectation` error, and a `disable` that covers
 nothing is a `bend-lint/unused-disable` warning. A directive that is wrong is a
 `bend-lint/directive` error. Directives stacked on consecutive comment lines
 must be ordered by rule, then severity, then keyword; the safe fix sorts them.
-Only comments in the linted file count, and the findings of Bend's checker
+A comment covers the findings in its own file. A rule that looks at the imports
+too (`program` scope) can report in an imported file, and that file's comments
+apply there. In an import, a `disable` or `expect` is judged only for such rules,
+and its form is checked when you lint that file. The findings of Bend's checker
 (`bend/...`) and of bend-lint itself (`bend-lint/...`) cannot be suppressed.
 
 ## What you get back

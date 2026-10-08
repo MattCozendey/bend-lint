@@ -649,9 +649,11 @@ const lintWith = async (
     });
     diags = [...diags, ...found];
   }
-  const shown = suppress(root, diags, {
+  const survived = runnable.filter((p) => !crashed.has(p.rule.id));
+  const shown = suppress(root, sources, diags, {
     known: new Set(rules.map((r) => r.id)),
-    ran: new Set(runnable.map((p) => p.rule.id).filter((id) => !crashed.has(id))),
+    ran: new Set(survived.map((p) => p.rule.id)),
+    program: new Set(survived.filter((p) => p.want?.scope === "program").map((p) => p.rule.id)),
     isSeverity,
   });
   return { ...shown, sources, root, facts, unstable: ops.unstable };
