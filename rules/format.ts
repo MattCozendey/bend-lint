@@ -5,9 +5,7 @@
 // Config: { "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
 // Both numbers are positive integers; "never" disables optional wrapping.
 // endOfLine: "lf" (default), "crlf", or "preserve" (first ending, LF fallback).
-import * as path from "node:path";
-import type { Options, RuleContext, LintRule } from "../src/lint.ts";
-import type { Book, HTerm } from "bend2/bend.ts";
+import type { Options, LintRule } from "../src/lint.ts";
 
 export type FormatOptions = {
   tabWidth: number;
@@ -429,91 +427,6 @@ export function format(source: string, opts: FormatOptions): string {
   return rows.join(newline).trimEnd() + newline;
 }
 
-// Reparse both versions with the same imported declarations. No typecheck,
-// disk writes or import fetches. Compare parsed terms, not checked terms:
-// checking unfolds definitions and would hide changes in source meaning.
-export function sameProgram(
-  cx: Pick<RuleContext, "Bend" | "book" | "root" | "sources" | "walk">,
-  text: string,
-): boolean {
-  const B = cx.Bend,
-    root = cx.root;
-  const body = (s: string) =>
-    s
-      .split("\n")
-      .map((line) => (/^import\s/.test(line) ? "" : line))
-      .join("\n");
-  const original = body(root.text);
-  let aliases: Record<string, string> = {};
-  if (/^import\s+\S+\s+as\s+/m.test(root.text)) {
-    search: for (const tld of Object.values(cx.book.tlds)) {
-      for (const term of [tld.T, ...(tld.$ === "Def" && tld.v ? [tld.v] : [])]) {
-        for (const tm of cx.walk(B.term_lower(term))) {
-          if (tm.s?.file.str === original) {
-            aliases = tm.s.file.al;
-            break search;
-          }
-        }
-      }
-    }
-  }
-  // A proof consisting solely of {==} has no body span. Resolve local
-  // aliases from the already loaded sources in that case.
-  for (const m of root.text.matchAll(/^import\s+(\S+)\s+as\s+(\w+)/gm)) {
-    if (aliases[m[2]] !== undefined) continue;
-    const importedPath = path.resolve(path.dirname(root.path), m[1]).replaceAll("\\", "/");
-    const imported = cx.sources.find((s) => s.path === importedPath);
-    if (imported) aliases = { ...aliases, [m[2]]: imported.ns };
-  }
-  const qualify = (name: string) => {
-    const dot = name.indexOf(".");
-    return dot >= 0 && aliases[name.slice(0, dot)] !== undefined
-      ? aliases[name.slice(0, dot)] + ":" + name.slice(dot + 1)
-      : (root.ns ? root.ns + ":" : "") + name;
-  };
-  const own = new Set(
-    [...root.text.matchAll(/^(?:@unsafe\s+)?(?:def|type|law)\s+([\w.]+)/gm)].map((m) =>
-      qualify(m[1]),
-    ),
-  );
-  const seed = (): Book => {
-    const book = B.book_nil();
-    book.tlds = { ...cx.book.tlds };
-    book.ctrs = { ...cx.book.ctrs };
-    for (const k of own) {
-      const tld = book.tlds[k];
-      // A proof of an imported law fills its declaration rather than creating one.
-      if (k.includes(":") && !k.startsWith(root.ns + ":") && tld?.$ === "Def") {
-        book.tlds[k] = { ...tld, v: null, i: undefined, u: false };
-      } else {
-        if (tld?.$ === "ADT") for (const c of tld.c) delete book.ctrs[c.k];
-        delete book.tlds[k];
-      }
-    }
-    return book;
-  };
-  const snapshot = (s: string) => {
-    const book = seed();
-    const dir = root.path.slice(0, root.path.lastIndexOf("/") + 1);
-    B.parse_book(book, dir, body(s), root.ns, aliases);
-    const lower = (t: HTerm | null) => (t === null ? null : B.term_lower(t));
-    return JSON.stringify(
-      book.order.map((k) => {
-        const t = book.tlds[k];
-        return t.$ === "ADT"
-          ? [k, t.n, t.g, lower(t.T), t.c.map((c) => [c.k, c.n, lower(c.T)])]
-          : [k, t.n, t.x, t.u ?? false, t.i, lower(t.T), lower(t.v)];
-      }),
-      (k, v) => (k === "s" ? undefined : v),
-    );
-  };
-  try {
-    return snapshot(root.text) === snapshot(text);
-  } catch {
-    return false;
-  }
-}
-
 export const rules: LintRule[] = [
   {
     id: "format/layout",
@@ -521,20 +434,20 @@ export const rules: LintRule[] = [
       const opts = formatOptions(cx.options);
       const text = format(cx.root.text, opts);
       if (text === cx.root.text) return [];
-      const spn = { file: cx.root.file, beg: 0, end: cx.root.text.length };
-      if (!sameProgram(cx, text))
+      const span = { file: cx.root, beg: 0, end: cx.root.text.length };
+      if (!cx.sameDeclarations(text))
         return [
           cx.diag({
             message:
               "Cannot safely format this syntax: the result parses differently. No fix was offered.",
-            spn,
+            span,
           }),
         ];
       return [
         cx.diag({
           message: "Apply canonical formatting.",
-          spn,
-          fixes: [{ title: "Format file", applicability: "safe", edits: [{ spn, text }] }],
+          span,
+          fixes: [{ title: "Format file", applicability: "safe", edits: [{ span, text }] }],
         }),
       ];
     },

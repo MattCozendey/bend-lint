@@ -8,7 +8,7 @@ const LINT_SEVERITY = {
   [CID(Information)]: "information",
   [CID(Hint)]: "hint",
 };
-const LINT_QUANTITY = { None: CID(Erased), Lone: CID(Once), Many: CID(Many) };
+const LINT_QUANTITY = { erased: CID(Erased), once: CID(Once), many: CID(Many) };
 const LINT_APPLICABILITY = {
   [CID(Safe)]: "safe",
   [CID(Suggested)]: "suggested",

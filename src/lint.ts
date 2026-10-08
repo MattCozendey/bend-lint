@@ -1,54 +1,77 @@
 #!/usr/bin/env bun
 // bend-lint checks a Bend file with bend's checker, then runs rules over
 // its source and the checker's results. Rules are TS modules, or Bend files
-// built on ./lint.bend. It reaches bend2 only through ./seam.ts; anything there
-// it cannot follow stops it with a DriftError. As a CLI, it exits 0 when
-// ok, 1 when it found an error, 2 on bad usage or a tool failure.
+// built on ./lint.bend. It reaches bend2 only through ./seam.ts; anything
+// there it cannot follow stops it with a DriftError. The types below are
+// bend-lint's own, so a rule does not depend on bend2's internals. As a
+// CLI, it exits 0 when ok, 1 when it found an error, 2 on bad usage or a
+// tool failure.
 
 import * as url from "node:url";
 import * as util from "node:util";
 
-import type * as BendModule from "bend2/bend.ts";
-import type { Ann, Book, Ctx, HTerm, LTerm, Name, Quant, Span, Uses } from "bend2/bend.ts";
 import {
-  binder,
   check,
   compile,
   fs,
   layout,
   line,
   load,
-  matches,
-  normal,
+  operations,
   path,
-  same,
-  shape,
-  show,
+  select,
   starts,
-  uses,
-  view,
-  walk,
 } from "./seam.ts";
-import type { Mapper } from "./seam.ts";
+import type { Unstable } from "./seam.ts";
 
 // Types
 // =====
 
-export type Bend = typeof BendModule;
 export type Severity = "error" | "warning" | "information" | "hint";
 // safe keeps behavior; suggested may change it; dangerous may break code.
 export type Applicability = "safe" | "suggested" | "dangerous";
-export type Edit = { spn: Span; text: string };
+
+// A file of the book, as it is on disk (or as the editor holds it unsaved).
+export type Source = { path: string; text: string; root: boolean; base: boolean };
+
+// A range of a source, in UTF-16 offsets.
+export type Span = { file: Source; beg: number; end: number };
+
+export type Edit = { span: Span; text: string };
 export type Fix = { title: string; applicability: Applicability; edits: Edit[] };
+
+declare const OPAQUE: unique symbol;
+
+// A checked term, and a type, as handles: what they hold is bend2's, and a
+// rule reaches it only through the RuleContext.
+export type Fact = { readonly [OPAQUE]: "fact" };
+export type Type = { readonly [OPAQUE]: "type" };
+
+// How many times a term is demanded, or a variable is used.
+export type Quantity = "erased" | "once" | "many";
+
+// A fact's term: its kind (annotations stripped: Var, Ref, App, ...), the
+// name a Var or Ref points to, the def whose body holds it, and how many
+// times it is demanded. A template body is checked as written, then again
+// for each instance (generic~0) at the same spans; `inst` marks the facts
+// of an instance. `inner` is the term's span without its annotations.
+export type View = {
+  owner: string;
+  inst: boolean;
+  kind: string;
+  name: string;
+  quantity: Quantity;
+  span?: Span;
+  inner?: Span;
+};
 
 export type Diag = {
   code: string;
   severity: Severity;
   message: string;
-  spn?: Span;
-  def?: Name;
-  ctx?: Ctx;
-  bok?: Book;
+  span?: Span;
+  def?: string;
+  fact?: Fact; // its scope shows as the finding's context
   fixes: Fix[];
   core?: unknown; // bend's own failure, when the check failed
 };
@@ -56,39 +79,10 @@ export type Diag = {
 export type DiagInit = {
   message: string;
   severity?: Severity;
-  spn?: Span;
+  span?: Span;
   fact?: Fact;
-  def?: Name;
+  def?: string;
   fixes?: Fix[];
-};
-
-// A file of the book, as it is on disk.
-export type SourceFile = { str: string; ns: string; al: Record<Name, Name>; path: string };
-export type Source = {
-  path: string;
-  ns: string;
-  text: string;
-  root: boolean;
-  base: boolean;
-  file: SourceFile;
-};
-
-// `tm` checked (or inferred) as `ty` at depth `dep` in `ctx`, in def `def`,
-// demanded `qt` times, using the variables in `us`. `bok` is the book it was
-// checked in (a template body has its own). A template body is checked as
-// written, then again for each instance (generic~0) at the same spans;
-// `inst` marks the facts of an instance.
-export type Fact = {
-  tm: LTerm;
-  ty: HTerm;
-  bok: Book;
-  ctx: Ctx;
-  dep: number;
-  def: Name;
-  qt: Quant;
-  us: Uses;
-  inst: boolean;
-  spn?: Span;
 };
 
 // The checker's facts a rule gets. A fact must match each list given; an
@@ -97,26 +91,29 @@ export type Fact = {
 export type FactFilter = {
   scope?: "file" | "program"; // file (the default): the linted file; program: its imports too, never Base
   kinds?: string[]; // the term's kind, annotations stripped: Var, Ref, App, ...
-  defs?: Name[]; // the def whose body holds the term
-  names?: Name[]; // the name a Var or Ref points to
+  defs?: string[]; // the def whose body holds the term
+  names?: string[]; // the name a Var or Ref points to
 };
 
+// `type`, `binder`, `same`, `show` and `normal` work in the fact's scope.
+// `unstable` is bend2's own objects: code that uses it breaks when bend2
+// changes.
 export type RuleContext = {
-  Bend: Bend;
-  book: Book;
   sources: Source[];
   root: Source;
   options: Options; // the rule's defaults, with the config's values
-  facts?: Map<LTerm, Fact>; // only for a rule with facts, and only those it asked for
+  facts?: Fact[]; // only for a rule with facts, and only those it asked for
   prior: readonly Diag[]; // what earlier rules found
-  span: Mapper; // a bend.ts span, in the file on disk
-  walk(tm: LTerm): Generator<LTerm>;
-  binder(fact: Fact, v: LTerm): Ann | null;
-  show(fact: Fact, ty: HTerm): string;
-  same(fact: Fact, a: HTerm, b: HTerm): boolean;
-  normal(fact: Fact, ty: HTerm): HTerm;
-  uses(fact: Fact): Array<{ name: Name; quantity: Quant }>;
+  view(fact: Fact): View;
+  type(fact: Fact): Type;
+  binder(fact: Fact): Type | undefined; // the declared type of the variable a Var fact uses
+  same(fact: Fact, a: Type, b: Type): boolean;
+  show(fact: Fact, type: Type): string;
+  normal(fact: Fact, type: Type): Type;
+  uses(fact: Fact): Array<{ name: string; quantity: Quantity }>;
+  sameDeclarations(text: string): boolean; // whether `text` declares what the linted file declares
   diag(init: DiagInit): Diag;
+  unstable: Unstable;
 };
 
 // A rule option's value. A default's type is its option's type.
@@ -145,8 +142,8 @@ export type LintResult = {
   ok: boolean;
   diags: Diag[];
   sources: Source[];
-  book: Book;
-  facts?: Map<LTerm, Fact>;
+  facts?: Fact[];
+  unstable: Unstable;
 };
 
 // An LSP position: 0-based line and character, in UTF-16 units.
@@ -173,21 +170,13 @@ type Channel = {
   input(): { sources: Array<{ path: string; text: string; root: boolean }>; options: Options };
   next(): number | undefined;
   report(diags: Reported[]): void;
-  view(fact: number): {
-    owner: Name;
-    inst: boolean;
-    kind: string;
-    name: string;
-    quantity: Quant["$"];
-    span?: Spot;
-    inner?: Spot;
-  };
+  view(fact: number): Omit<View, "span" | "inner"> & { span?: Spot; inner?: Spot };
   type(fact: number): number;
   binder(fact: number): number | undefined;
   same(fact: number, a: number, b: number): boolean;
   show(fact: number, t: number): string;
   normal(fact: number, t: number): number;
-  uses(fact: number): Array<{ name: Name; quantity: Quant["$"] }>;
+  uses(fact: number): Array<{ name: string; quantity: Quantity }>;
   text(span: Spot): string;
 };
 
@@ -352,15 +341,17 @@ export async function lint(
     }))
     .filter((p) => !p.off);
   const program = plans.some((p) => p.want?.scope === "program");
-  const { book, sources, span, facts, failure } = await check(
+  const checked = await check(
     loaded,
     file,
     plans.flatMap((p) => (p.want === undefined ? [] : [p.want])),
     signal,
     held,
   );
+  const { sources, facts, failure } = checked;
+  const ops = operations(loaded, checked);
   if (failure !== undefined) {
-    return { ok: false, diags: [failure], sources, book };
+    return { ok: false, diags: [failure], sources, unstable: ops.unstable };
   }
   const root = sources.find((s) => s.root)!;
   let diags: Diag[] = [];
@@ -368,41 +359,19 @@ export async function lint(
     signal.throwIfAborted();
     const out = await rule.run(
       {
-        Bend,
-        book,
+        ...ops,
         sources,
         root,
-        span,
-        walk,
         options,
-        // A filter that matches all, in the scope of every kept fact, gets the map as is.
-        facts:
-          want === undefined || facts === undefined
-            ? undefined
-            : [want.kinds, want.defs, want.names].every((xs) => !xs?.length) &&
-                (want.scope === "program" || !program)
-              ? facts
-              : new Map(
-                  [...facts].filter(([tm, f]) => {
-                    if (want.scope !== "program" && f.spn?.file !== root.file) return false;
-                    const { kind, name } = shape(loaded, tm);
-                    return matches(want, kind, f.def, name);
-                  }),
-                ),
+        facts: want === undefined ? undefined : select(loaded, checked, want, program),
         prior: diags,
-        binder: (fact, v) => binder(loaded, fact, v),
-        show: (fact, ty) => show(loaded, fact, ty),
-        same: (fact, a, b) => same(loaded, fact, a, b),
-        normal: (fact, ty) => normal(loaded, fact, ty),
-        uses: (fact) => uses(loaded, fact),
         diag: (d) => ({
           code: rule.id,
           severity: d.severity ?? "warning",
           message: d.message,
-          spn: d.spn,
-          def: d.def ?? d.fact?.def,
-          ctx: d.fact?.ctx,
-          bok: d.fact?.bok ?? book,
+          span: d.span,
+          def: d.def ?? (d.fact && ops.view(d.fact).owner),
+          fact: d.fact,
           fixes: d.fixes ?? [],
         }),
       },
@@ -416,18 +385,13 @@ export async function lint(
       ...d,
       code: rule.id,
       severity: severity ?? d.severity,
-      spn: span(d.spn),
-      fixes: d.fixes.map((f) => ({
-        ...f,
-        edits: f.edits.map((e) => ({ ...e, spn: span(e.spn) })),
-      })),
     }));
     const broken = settled
       .flatMap((d) => d.fixes)
       .find((f) =>
         f.edits.some(
-          ({ spn }, i) =>
-            !validRange(spn.beg, spn.end, spn.file.str.length) ||
+          ({ span }, i) =>
+            !validRange(span.beg, span.end, span.file.text.length) ||
             f.edits.some((o, j) => j !== i && clash(f.edits[i], o)),
         ),
       );
@@ -443,10 +407,10 @@ export async function lint(
     const stop = settled.findIndex((d) => d.severity === "error");
     diags = [...diags, ...(stop < 0 ? settled : settled.slice(0, stop + 1))];
     if (stop >= 0) {
-      return { ok: false, diags, sources, book, facts };
+      return { ok: false, diags, sources, facts, unstable: ops.unstable };
     }
   }
-  return { ok: true, diags, sources, book, facts };
+  return { ok: true, diags, sources, facts, unstable: ops.unstable };
 }
 
 function validRange(beg: number, end: number, length: number): boolean {
@@ -457,9 +421,9 @@ function validRange(beg: number, end: number, length: number): boolean {
 // or they insert at the same point.
 function clash(a: Edit, b: Edit): boolean {
   return (
-    a.spn.file === b.spn.file &&
-    ((a.spn.beg < b.spn.end && b.spn.beg < a.spn.end) ||
-      (a.spn.beg === b.spn.beg && a.spn.end === b.spn.end))
+    a.span.file === b.span.file &&
+    ((a.span.beg < b.span.end && b.span.beg < a.span.end) ||
+      (a.span.beg === b.span.beg && a.span.end === b.span.end))
   );
 }
 
@@ -467,15 +431,15 @@ function clash(a: Edit, b: Edit): boolean {
 // do not clash.
 function apply(text: string, edits: Edit[]): string {
   return [...edits]
-    .sort((a, b) => b.spn.beg - a.spn.beg || b.spn.end - a.spn.end)
-    .reduce((s, { spn, text: t }) => s.slice(0, spn.beg) + t + s.slice(spn.end), text);
+    .sort((a, b) => b.span.beg - a.span.beg || b.span.end - a.span.end)
+    .reduce((s, { span, text: t }) => s.slice(0, span.beg) + t + s.slice(span.end), text);
 }
 
 // The text of `file` with the fixes of the given levels applied, in order.
 // An edit equal to one already taken is merged; a fix with an edit that
 // clashes with one already taken is skipped and counted.
 export function applyFixes(
-  file: SourceFile,
+  file: Source,
   diags: Diag[],
   levels: Applicability[] = ["safe"],
 ): { text: string; skipped: number } {
@@ -484,8 +448,10 @@ export function applyFixes(
   for (const fix of diags.flatMap((d) => d.fixes).filter((f) => levels.includes(f.applicability))) {
     const fresh = fix.edits.filter(
       (e) =>
-        e.spn.file === file &&
-        !kept.some((k) => k.spn.beg === e.spn.beg && k.spn.end === e.spn.end && k.text === e.text),
+        e.span.file === file &&
+        !kept.some(
+          (k) => k.span.beg === e.span.beg && k.span.end === e.span.end && k.text === e.text,
+        ),
     );
     if (fresh.some((e) => kept.some((k) => clash(k, e)))) {
       skipped += 1;
@@ -493,7 +459,7 @@ export function applyFixes(
       kept.push(...fresh);
     }
   }
-  return { text: apply(file.str, kept), skipped };
+  return { text: apply(file.text, kept), skipped };
 }
 
 // bend's own error layout; the head names the severity and the code, and
@@ -506,24 +472,24 @@ export function render(d: Diag): string {
       " [" +
       fix.applicability +
       "]" +
-      [...new Set(fix.edits.map((e) => e.spn.file))]
+      [...new Set(fix.edits.map((e) => e.span.file))]
         .map((file) => {
-          const mine = fix.edits.filter((e) => e.spn.file === file);
-          const ls = starts(file);
-          const first = line(ls, Math.min(...mine.map((e) => e.spn.beg)));
+          const mine = fix.edits.filter((e) => e.span.file === file);
+          const ls = starts(file, file.text);
+          const first = line(ls, Math.min(...mine.map((e) => e.span.beg)));
           const from = ls[first];
-          const to = ls[line(ls, Math.max(...mine.map((e) => e.spn.end))) + 1] ?? file.str.length;
-          const old = file.str.slice(from, to);
+          const to = ls[line(ls, Math.max(...mine.map((e) => e.span.end))) + 1] ?? file.text.length;
+          const old = file.text.slice(from, to);
           const gone = old.match(LINE) ?? [];
           const came =
             apply(
               old,
               mine.map((e) => ({
                 ...e,
-                spn: { ...e.spn, beg: e.spn.beg - from, end: e.spn.end - from },
+                span: { ...e.span, beg: e.span.beg - from, end: e.span.end - from },
               })),
             ).match(LINE) ?? [];
-          const name = (file as SourceFile).path;
+          const name = file.path;
           const range = (n: number): string => (n === 0 ? first : first + 1) + "," + n;
           const show = (xs: string[], sign: string): string[] =>
             xs.map(
@@ -553,13 +519,13 @@ export function render(d: Diag): string {
 }
 
 // The LSP range of a span in a file on disk.
-export function position(spn: Span): { start: Position; end: Position } {
-  const ss = starts(spn.file);
+export function position(span: Span): { start: Position; end: Position } {
+  const ss = starts(span.file, span.file.text);
   const at = (off: number): Position => {
     const i = line(ss, off);
     return { line: i, character: off - ss[i] };
   };
-  return { start: at(spn.beg), end: at(spn.end) };
+  return { start: at(span.beg), end: at(span.end) };
 }
 
 // A rule written in Bend: a file built on ./lint.bend (see there). It is
@@ -576,8 +542,6 @@ export async function bendRule(file: string): Promise<LintRule> {
     id,
     ...(want === null ? {} : { facts: want }),
     run: (cx) => {
-      // Built once per text: the character at each UTF-16 offset (points),
-      // and the UTF-16 offset of each character (units); both end at the end.
       const tables = new Map<string, { points: number[]; units: number[] }>();
       const table = (text: string): { points: number[]; units: number[] } => {
         const known = tables.get(text);
@@ -595,15 +559,10 @@ export async function bendRule(file: string): Promise<LintRule> {
         tables.set(text, { points, units });
         return { points, units };
       };
-      const spot = (spn: Span | undefined): Spot | undefined => {
-        const t = spn && table(spn.file.str);
+      const spot = (span: Span | undefined): Spot | undefined => {
+        const t = span && table(span.file.text);
         return (
-          spn &&
-          t && {
-            path: (spn.file as SourceFile).path,
-            beg: t.points[spn.beg],
-            end: t.points[spn.end],
-          }
+          span && t && { path: span.file.path, beg: t.points[span.beg], end: t.points[span.end] }
         );
       };
       const span = (s: Spot): Span => {
@@ -615,11 +574,11 @@ export async function bendRule(file: string): Promise<LintRule> {
         }
         const { units } = table(src.text);
         const at = (n: number): number => units[Math.min(n, units.length - 1)];
-        return { file: src.file, beg: at(s.beg), end: at(s.end) };
+        return { file: src, beg: at(s.beg), end: at(s.end) };
       };
-      const facts = [...(cx.facts?.values() ?? [])];
-      let given = 0; // facts handed to the rule so far
-      const terms: HTerm[] = [];
+      const facts = cx.facts ?? [];
+      let given = 0;
+      const types: Type[] = [];
       const pick = <T>(xs: T[], i: number, what: string): T => {
         if (xs[i] === undefined) {
           throw new Error(
@@ -628,7 +587,7 @@ export async function bendRule(file: string): Promise<LintRule> {
         }
         return xs[i];
       };
-      const keep = (t: HTerm): number => terms.push(t) - 1;
+      const keep = (t: Type): number => types.push(t) - 1;
       const found: Reported[][] = [];
       shared.BEND_LINT = {
         input: () => {
@@ -652,23 +611,22 @@ export async function bendRule(file: string): Promise<LintRule> {
         next: () => (given < facts.length ? given++ : undefined),
         report: (diags) => void found.push(diags),
         view: (i) => {
-          const { spn, inner, ...rest } = view(loaded, pick(facts, i, "fact"), cx.span);
-          return { ...rest, span: spot(spn), inner: spot(inner) };
+          const { span, inner, ...rest } = cx.view(pick(facts, i, "fact"));
+          return { ...rest, span: spot(span), inner: spot(inner) };
         },
-        type: (i) => keep(pick(facts, i, "fact").ty),
+        type: (i) => keep(cx.type(pick(facts, i, "fact"))),
         binder: (i) => {
-          const ann = binder(loaded, pick(facts, i, "fact"));
-          return ann === null ? undefined : keep(ann.T);
+          const t = cx.binder(pick(facts, i, "fact"));
+          return t === undefined ? undefined : keep(t);
         },
         same: (i, a, b) =>
-          cx.same(pick(facts, i, "fact"), pick(terms, a, "term"), pick(terms, b, "term")),
-        show: (i, t) => cx.show(pick(facts, i, "fact"), pick(terms, t, "term")),
-        normal: (i, t) => keep(cx.normal(pick(facts, i, "fact"), pick(terms, t, "term"))),
-        uses: (i) =>
-          cx.uses(pick(facts, i, "fact")).map((u) => ({ name: u.name, quantity: u.quantity.$ })),
+          cx.same(pick(facts, i, "fact"), pick(types, a, "term"), pick(types, b, "term")),
+        show: (i, t) => cx.show(pick(facts, i, "fact"), pick(types, t, "term")),
+        normal: (i, t) => keep(cx.normal(pick(facts, i, "fact"), pick(types, t, "term"))),
+        uses: (i) => cx.uses(pick(facts, i, "fact")),
         text: (s) => {
-          const spn = span(s);
-          return spn.file.str.slice(spn.beg, spn.end);
+          const { file, beg, end } = span(s);
+          return file.text.slice(beg, end);
         },
       };
       let code: number;
@@ -692,17 +650,17 @@ export async function bendRule(file: string): Promise<LintRule> {
         cx.diag({
           message: d.message,
           severity: d.severity,
-          spn: d.span && span(d.span),
+          span: d.span && span(d.span),
           fixes: d.fixes.map((f) => ({
             ...f,
             edits: f.edits.map((e) => {
-              const spn = span(e.span);
-              if (!validRange(e.span.beg, e.span.end, table(spn.file.str).units.length - 1)) {
+              const at = span(e.span);
+              if (!validRange(e.span.beg, e.span.end, table(at.file.text).units.length - 1)) {
                 throw new TypeError(
                   "rule " + id + ': fix "' + f.title + '" has an edit out of bounds',
                 );
               }
-              return { spn, text: e.text };
+              return { span: at, text: e.text };
             }),
           })),
         }),
@@ -743,9 +701,9 @@ async function cli(argv: string[]): Promise<number> {
   const levels = FIXES.find(([flag]) => values[flag])?.[1];
   const fixed =
     levels !== undefined && res.ok && root !== undefined
-      ? applyFixes(root.file, res.diags, levels)
+      ? applyFixes(root, res.diags, levels)
       : undefined;
-  const where = (spn: Span) => ({ path: (spn.file as SourceFile).path, range: position(spn) });
+  const where = (span: Span) => ({ path: span.file.path, range: position(span) });
   console.log(
     values.json
       ? JSON.stringify(
@@ -756,10 +714,10 @@ async function cli(argv: string[]): Promise<number> {
               severity: d.severity,
               message: d.message,
               def: d.def,
-              ...(d.spn && where(d.spn)),
+              ...(d.span && where(d.span)),
               fixes: d.fixes.map((f) => ({
                 ...f,
-                edits: f.edits.map((e) => ({ ...where(e.spn), text: e.text })),
+                edits: f.edits.map((e) => ({ ...where(e.span), text: e.text })),
               })),
             })),
           },
@@ -807,7 +765,7 @@ const loaded = await load(typeof given === "string" ? given : undefined).catch((
   import.meta.main ? fail(e) : Promise.reject(e),
 );
 
-export const { Bend, Comp, BEND2 } = loaded;
+export const { BEND2 } = loaded;
 
 if (import.meta.main) {
   process.exit(await cli(process.argv.slice(2)).catch(fail));

@@ -134,7 +134,7 @@ export const rules: LintRule[] = [{
   run(cx) {
     return [...cx.root.text.matchAll(/\t/g)].map((match) => cx.diag({
       message: "Use spaces instead of a tab.",
-      spn: { file: cx.root.file, beg: match.index!, end: match.index! + 1 },
+      span: { file: cx.root, beg: match.index!, end: match.index! + 1 },
     }));
   },
 }];

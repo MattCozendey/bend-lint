@@ -19,10 +19,21 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
-import type { Ann, Book, Ctx, Err, HTerm, LTerm, Name, Quant, Span, Uses } from "bend2/bend.ts";
+import type { Book, Ctx, Err, HTerm, LTerm, Name, Quant, Uses } from "bend2/bend.ts";
+import type { Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
-import type { Diag, Fact, FactFilter, Source, SourceFile } from "./lint.ts";
+import type {
+  Diag,
+  Fact,
+  FactFilter,
+  Quantity,
+  RuleContext,
+  Source,
+  Span,
+  Type,
+  View,
+} from "./lint.ts";
 
 // Types
 // =====
@@ -40,7 +51,7 @@ export type See = (
   ctx: Ctx,
   dep: number,
   def: Name,
-  spn: Span | undefined,
+  spn: BendSpan | undefined,
   qt: Quant,
   us: Uses,
 ) => void;
@@ -72,15 +83,44 @@ type Main = {
 // bend2 as load gives it: the patched modules and their folder.
 export type Loaded = { Bend: typeof BendModule; Comp: Comp; Main: Main; BEND2: string };
 
-export type Mapper = { (s: Span): Span; (s: Span | undefined): Span | undefined };
+// A source as bend.ts spans point at it.
+type File = { str: string; ns: string; al: Record<Name, Name>; path: string };
 
-export type Checked = {
-  book: Book;
-  sources: Source[];
-  span: Mapper;
-  facts?: Map<LTerm, Fact>;
-  failure?: Diag;
+export type Mapper = {
+  (s: BendSpan): BendSpan;
+  (s: BendSpan | undefined): BendSpan | undefined;
 };
+
+// A fact as the checker gives it: `tm` checked (or inferred) as `ty` at
+// depth `dep` in `ctx`, in def `def`, demanded `qt` times, using the
+// variables in `us`. `bok` is the book it was checked in (a template body
+// has its own). A template body is checked as written, then again for each
+// instance (generic~0) at the same spans; `inst` marks the facts of an
+// instance. `map` moves the run's bend.ts spans to the files on disk.
+export type Raw = {
+  tm: LTerm;
+  ty: HTerm;
+  bok: Book;
+  ctx: Ctx;
+  dep: number;
+  def: Name;
+  qt: Quant;
+  us: Uses;
+  inst: boolean;
+  spn?: BendSpan;
+  map: Mapper;
+};
+
+// bend2's own objects, for code that accepts to break when bend2 changes.
+export type Unstable = { Bend: typeof BendModule; book: Book; raw: (fact: Fact) => Raw };
+
+// The rule context's operations that ask bend2.
+export type Operations = Pick<
+  RuleContext,
+  "view" | "type" | "binder" | "same" | "show" | "normal" | "uses" | "sameDeclarations" | "unstable"
+>;
+
+export type Checked = { book: Book; sources: Source[]; facts?: Fact[]; failure?: Diag };
 
 // A rule written in Bend, checked and compiled: what its id(), facts() and
 // main() give.
@@ -162,8 +202,14 @@ const BASES = new Map<string, Promise<Book>>();
 // The check running now, or done; the next check waits for it.
 let queue: Promise<unknown> = Promise.resolve();
 
-// Line starts per file object (see starts).
+// Line starts per text owner (see starts).
 const STARTS = new WeakMap<object, number[]>();
+
+// Each checked source's File, and back.
+const FILES = new WeakMap<Source, File>();
+const SOURCES = new WeakMap<object, Source>();
+
+const QUANTITY: Record<Quant["$"], Quantity> = { None: "erased", Lone: "once", Many: "many" };
 
 // Binders are explicit in checked terms, so Var.v cells are not followed.
 // A new term kind is a type error here, and a DriftError when walked.
@@ -509,14 +555,14 @@ export function* walk(tm: LTerm): Generator<LTerm> {
   }
 }
 
-// Where each line of a file starts, computed once per file object.
-export const starts = (file: Span["file"]): number[] => {
-  const known = STARTS.get(file);
+// Where each line of `text` starts, computed once per owner of the text.
+export const starts = (owner: object, text: string): number[] => {
+  const known = STARTS.get(owner);
   if (known !== undefined) {
     return known;
   }
-  const out = [0, ...[...file.str.matchAll(/\n/g)].map((m) => m.index! + 1)];
-  STARTS.set(file, out);
+  const out = [0, ...[...text.matchAll(/\n/g)].map((m) => m.index! + 1)];
+  STARTS.set(owner, out);
   return out;
 };
 
@@ -534,18 +580,18 @@ export const line = (starts: number[], off: number): number => {
 // span moves to the file on disk by line and column. The copy's namespace,
 // folder and lines pick the file; a copy that matches no file, or two, is
 // a DriftError.
-export const mapper = (sources: Source[]): Mapper => {
-  const own = new Set<unknown>(sources.map((s) => s.file));
-  const memo = new WeakMap<object, { file: SourceFile; from: number[]; to: number[] }>();
+export const mapper = (files: File[]): Mapper => {
+  const own = new Set<unknown>(files);
+  const memo = new WeakMap<object, { file: File; from: number[]; to: number[] }>();
   const find = (
-    f: Span["file"] & { dir?: string },
-  ): { file: SourceFile; from: number[]; to: number[] } => {
+    f: BendSpan["file"] & { dir?: string },
+  ): { file: File; from: number[]; to: number[] } => {
     const lines = f.str.split("\n");
-    const found = sources.filter((src) => {
-      const theirs = src.text.split("\n");
+    const found = files.filter((file) => {
+      const theirs = file.str.split("\n");
       return (
-        f.ns === src.ns &&
-        (f.dir === undefined || f.dir === src.path.slice(0, src.path.lastIndexOf("/") + 1)) &&
+        f.ns === file.ns &&
+        (f.dir === undefined || f.dir === file.path.slice(0, file.path.lastIndexOf("/") + 1)) &&
         lines.length === theirs.length &&
         lines.every(
           (l, i) => l === theirs[i] || (l.trim() === "" && /^\s*import(\s|$)/.test(theirs[i])),
@@ -559,12 +605,12 @@ export const mapper = (sources: Source[]): Mapper => {
           " candidates); bend.ts may mask imports another way now",
       );
     }
-    Object.assign(found[0].file.al, f.al);
-    const known = { file: found[0].file, from: starts(f), to: starts(found[0].file) };
+    Object.assign(found[0].al, f.al);
+    const known = { file: found[0], from: starts(f, f.str), to: starts(found[0], found[0].str) };
     memo.set(f, known);
     return known;
   };
-  return ((s: Span | undefined): Span | undefined => {
+  return ((s: BendSpan | undefined): BendSpan | undefined => {
     if (s === undefined || own.has(s.file)) {
       return s;
     }
@@ -577,17 +623,36 @@ export const mapper = (sources: Source[]): Mapper => {
   }) as Mapper;
 };
 
+// A mapped bend.ts span as a span of a checked source, and back.
+const toSpan = (s: BendSpan | undefined): Span | undefined => {
+  const file = s && SOURCES.get(s.file);
+  return s && file && { file, beg: s.beg, end: s.end };
+};
+
+const fromSpan = (s: Span | undefined): BendSpan | undefined =>
+  s && {
+    file: FILES.get(s.file) ?? { str: s.file.text, ns: "", al: {}, path: s.file.path },
+    beg: s.beg,
+    end: s.end,
+  };
+
+// A fact or a type handle as what it holds, and back.
+const raw = (fact: Fact): Raw => fact as unknown as Raw;
+const handle = (r: Raw): Fact => r as unknown as Fact;
+const term = (t: Type): HTerm => t as unknown as HTerm;
+const typed = (t: HTerm): Type => t as unknown as Type;
+
 const isErr = (e: unknown): e is Err =>
   typeof e === "object" && e !== null && (e as { $?: unknown }).$ === "Err";
 
 // A term's kind, annotations stripped, and the name a Var or Ref points to.
-export const shape = (m: Loaded, tm: LTerm): { kind: string; name: Name } => {
+const shape = (m: Loaded, tm: LTerm): { kind: string; name: Name } => {
   const t = m.Bend.term_strip(tm);
   return { kind: t.$, name: t.$ === "Var" || t.$ === "Ref" ? t.k : "" };
 };
 
 // Whether a fact passes a filter, its scope aside.
-export const matches = (f: FactFilter, kind: string, def: Name, name: Name): boolean => {
+const matches = (f: FactFilter, kind: string, def: Name, name: Name): boolean => {
   const all = (xs: string[] | undefined, x: string): boolean =>
     xs === undefined || xs.length === 0 || xs.includes(x);
   return (
@@ -623,7 +688,7 @@ const checked = async (
 ): Promise<Checked> => {
   const { Bend, Main } = m;
   const seen = new Map<string, string | null>();
-  const found: Array<Omit<Fact, "inst">> = [];
+  const found: Array<Omit<Raw, "inst" | "map">> = [];
   const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
   const home = real.slice(0, real.lastIndexOf("/") + 1);
   const far = filters.filter((f) => f.scope === "program");
@@ -659,46 +724,41 @@ const checked = async (
     .filter((real) => fs.existsSync(real))
     .map((real): Source => {
       const text = fs.readFileSync(real, "utf8");
-      const ns = seen.get(real) ?? "";
-      return {
-        path: real,
-        ns,
-        text,
-        root: real === root,
-        base: real === Bend.BASE_BEND,
-        file: { str: text, ns, al: {}, path: real },
-      };
+      const source = { path: real, text, root: real === root, base: real === Bend.BASE_BEND };
+      const file = { str: text, ns: seen.get(real) ?? "", al: {}, path: real };
+      FILES.set(source, file);
+      SOURCES.set(file, source);
+      return source;
     });
-  const span = mapper(sources);
+  const map = mapper(sources.map((s) => FILES.get(s)!));
   if (caught === undefined) {
     const insts = new Set(Object.values(book.tmps).flatMap((t) => [...t.values()]));
     const own = new Set<unknown>(
-      sources.filter((s) => (program ? !s.base : s.root)).map((s) => s.file),
+      sources.filter((s) => (program ? !s.base : s.root)).map((s) => FILES.get(s)),
     );
     const facts = found.flatMap((f): Array<[LTerm, Fact]> => {
-      const spn = span(f.spn);
+      const spn = map(f.spn);
       return spn !== undefined && own.has(spn.file)
-        ? [[f.tm, { ...f, inst: insts.has(f.def), spn }]]
+        ? [[f.tm, handle({ ...f, inst: insts.has(f.def), spn, map })]]
         : [];
     });
-    return { book, sources, span, facts: filters.length > 0 ? new Map(facts) : undefined };
+    return { book, sources, facts: filters.length > 0 ? [...new Map(facts).values()] : undefined };
   }
   const err = isErr(caught.e) ? caught.e : undefined;
-  let spn: Span | undefined;
+  let span: Span | undefined;
   try {
-    spn = span(err?.spn);
+    span = toSpan(map(err?.spn));
   } catch {
-    spn = undefined;
+    span = undefined;
   }
   return {
     book,
     sources,
-    span,
     failure: {
       code: "bend/check",
       severity: "error",
       message: failure(m, caught.e),
-      spn,
+      span,
       def: err?.def,
       fixes: [],
       core: caught.e,
@@ -741,59 +801,171 @@ export const check = (
   return turn;
 };
 
-export const binder = (m: Loaded, fact: Fact, v: LTerm = m.Bend.term_strip(fact.tm)): Ann | null =>
-  v.$ === "Var" ? m.Bend.pmap_get(fact.ctx, v.i) : null;
-
-export const show = (m: Loaded, fact: Fact, ty: HTerm): string =>
-  m.Bend.term_show(m.Bend.term_lower(ty, fact.dep));
-
-export const same = (m: Loaded, fact: Fact, a: HTerm, b: HTerm): boolean =>
-  m.Bend.term_compare("EQ", fact.bok, a, b, fact.dep);
-
-export const normal = (m: Loaded, fact: Fact, ty: HTerm): HTerm => m.Bend.term_snf(fact.bok, ty);
-
-export const uses = (m: Loaded, fact: Fact): Array<{ name: Name; quantity: Quant }> =>
-  m.Bend.pmap_to_array(fact.us).flatMap(([v, quantity]) =>
-    quantity.$ === "None" ? [] : [{ name: m.Bend.pmap_get(fact.ctx, v)?.k ?? "", quantity }],
-  );
-
-// A fact as a Bend rule sees it; `inner` is the term's span without its
-// annotations.
-export const view = (
+// The facts one rule asked for, of those kept for all rules. A filter that
+// matches all, in the scope of every kept fact, gets them as they are.
+export const select = (
   m: Loaded,
-  fact: Fact,
-  span: Mapper,
-): {
-  owner: Name;
-  inst: boolean;
-  kind: string;
-  name: Name;
-  quantity: Quant["$"];
-  spn?: Span;
-  inner?: Span;
-} => ({
-  owner: fact.def,
-  inst: fact.inst,
-  ...shape(m, fact.tm),
-  quantity: fact.qt.$,
-  spn: fact.spn,
-  inner: span(m.Bend.term_strip(fact.tm).s),
-});
+  { sources, facts }: Checked,
+  want: FactFilter,
+  program: boolean,
+): Fact[] | undefined => {
+  const root = FILES.get(sources.find((s) => s.root)!);
+  const all = [want.kinds, want.defs, want.names].every((xs) => !xs?.length);
+  return facts === undefined || (all && (want.scope === "program" || !program))
+    ? facts
+    : facts.filter((fact) => {
+        const r = raw(fact);
+        const { kind, name } = shape(m, r.tm);
+        return (
+          (want.scope === "program" || r.spn?.file === root) && matches(want, kind, r.def, name)
+        );
+      });
+};
+
+// Whether `text` declares what the linted file declares: both are parsed
+// with the same imported declarations, and compared as parsed terms, not
+// checked ones, since checking unfolds definitions and would hide changes
+// in meaning. No typecheck, disk writes or import fetches. A proof made
+// only of {==} has no body span, so its aliases come from the sources.
+const sameDeclarations = (m: Loaded, { book, sources }: Checked, text: string): boolean => {
+  const { Bend } = m;
+  const root = sources.find((s) => s.root)!;
+  const ns = FILES.get(root)!.ns;
+  const body = (s: string) =>
+    s
+      .split("\n")
+      .map((line) => (/^import\s/.test(line) ? "" : line))
+      .join("\n");
+  const spanned = (): Record<Name, Name> => {
+    const original = body(root.text);
+    for (const tld of Object.values(book.tlds)) {
+      for (const t of [tld.T, ...(tld.$ === "Def" && tld.v ? [tld.v] : [])]) {
+        for (const tm of walk(Bend.term_lower(t))) {
+          if (tm.s?.file.str === original) {
+            return tm.s.file.al;
+          }
+        }
+      }
+    }
+    return {};
+  };
+  const aliases = [...root.text.matchAll(/^import\s+(\S+)\s+as\s+(\w+)/gm)].reduce<
+    Record<Name, Name>
+  >(
+    (known, [, at, alias]) => {
+      const imported = sources.find((s) => s.path === resolve(root.path, "..", at));
+      return known[alias] !== undefined || imported === undefined
+        ? known
+        : { ...known, [alias]: FILES.get(imported)!.ns };
+    },
+    /^import\s+\S+\s+as\s+/m.test(root.text) ? spanned() : {},
+  );
+  const qualify = (name: string) => {
+    const dot = name.indexOf(".");
+    return dot >= 0 && aliases[name.slice(0, dot)] !== undefined
+      ? aliases[name.slice(0, dot)] + ":" + name.slice(dot + 1)
+      : (ns ? ns + ":" : "") + name;
+  };
+  const own = new Set(
+    [...root.text.matchAll(/^(?:@unsafe\s+)?(?:def|type|law)\s+([\w.]+)/gm)].map((match) =>
+      qualify(match[1]),
+    ),
+  );
+  const seed = (): Book => {
+    const fresh = Bend.book_nil();
+    fresh.tlds = { ...book.tlds };
+    fresh.ctrs = { ...book.ctrs };
+    for (const k of own) {
+      const tld = fresh.tlds[k];
+      if (k.includes(":") && !k.startsWith(ns + ":") && tld?.$ === "Def") {
+        fresh.tlds[k] = { ...tld, v: null, i: undefined, u: false };
+      } else {
+        if (tld?.$ === "ADT") for (const c of tld.c) delete fresh.ctrs[c.k];
+        delete fresh.tlds[k];
+      }
+    }
+    return fresh;
+  };
+  const snapshot = (s: string) => {
+    const parsed = seed();
+    Bend.parse_book(
+      parsed,
+      root.path.slice(0, root.path.lastIndexOf("/") + 1),
+      body(s),
+      ns,
+      aliases,
+    );
+    const lower = (t: HTerm | null) => (t === null ? null : Bend.term_lower(t));
+    return JSON.stringify(
+      parsed.order.map((k) => {
+        const t = parsed.tlds[k];
+        return t.$ === "ADT"
+          ? [k, t.n, t.g, lower(t.T), t.c.map((c) => [c.k, c.n, lower(c.T)])]
+          : [k, t.n, t.x, t.u ?? false, t.i, lower(t.T), lower(t.v)];
+      }),
+      (k, v) => (k === "s" ? undefined : v),
+    );
+  };
+  try {
+    return snapshot(root.text) === snapshot(text);
+  } catch {
+    return false;
+  }
+};
+
+// What a rule asks bend2, over one check's book and facts. A proof of an
+// imported law fills its declaration rather than creating one.
+export const operations = (m: Loaded, run: Checked): Operations => {
+  const { Bend } = m;
+  return {
+    view: (fact): View => {
+      const r = raw(fact);
+      return {
+        owner: r.def,
+        inst: r.inst,
+        ...shape(m, r.tm),
+        quantity: QUANTITY[r.qt.$],
+        span: toSpan(r.spn),
+        inner: toSpan(r.map(Bend.term_strip(r.tm).s)),
+      };
+    },
+    type: (fact) => typed(raw(fact).ty),
+    binder: (fact) => {
+      const r = raw(fact);
+      const v = Bend.term_strip(r.tm);
+      const ann = v.$ === "Var" ? Bend.pmap_get(r.ctx, v.i) : null;
+      return ann === null ? undefined : typed(ann.T);
+    },
+    same: (fact, a, b) => Bend.term_compare("EQ", raw(fact).bok, term(a), term(b), raw(fact).dep),
+    show: (fact, t) => Bend.term_show(Bend.term_lower(term(t), raw(fact).dep)),
+    normal: (fact, t) => typed(Bend.term_snf(raw(fact).bok, term(t))),
+    uses: (fact) => {
+      const r = raw(fact);
+      return Bend.pmap_to_array(r.us).flatMap(([v, q]) =>
+        q.$ === "None" ? [] : [{ name: Bend.pmap_get(r.ctx, v)?.k ?? "", quantity: QUANTITY[q.$] }],
+      );
+    },
+    sameDeclarations: (text) => sameDeclarations(m, run, text),
+    unstable: { Bend, book: run.book, raw },
+  };
+};
 
 // bend's own error layout for a finding: its message, context and location.
-export const layout = (m: Loaded, d: Diag): string =>
-  m.Bend.err_show(
+export const layout = (m: Loaded, d: Diag): string => {
+  const r = d.fact && raw(d.fact);
+  return m.Bend.err_show(
     isErr(d.core)
       ? d.core
       : m.Bend.Err(
-          d.bok ?? m.Bend.book_nil(),
-          d.ctx ?? m.Bend.ctx_nil(),
+          r?.bok ?? m.Bend.book_nil(),
+          r?.ctx ?? m.Bend.ctx_nil(),
           d.message,
           undefined,
-          d.spn,
+          fromSpan(d.span),
           d.def,
         ),
   );
+};
 
 // A Bend rule's id(), facts() and main(), compiled as comp.ts io_run does.
 // facts(), checked: NoFacts{} gives null, Want{...} a filter.
@@ -887,9 +1059,9 @@ export const guardMain = (Main: Main): void => {
 const selfCheck = async (m: Loaded): Promise<void> => {
   const { Bend, Main } = m;
   const seen = new Map<string, string | null>();
-  const facts: Fact[] = [];
+  const facts: Array<Omit<Raw, "inst" | "map">> = [];
   hook.see = (bok, tm, ty, ctx, dep, def, spn, qt, us) =>
-    void facts.push({ tm, ty, bok, ctx, dep, def, spn, qt, us, inst: false });
+    void facts.push({ tm, ty, bok, ctx, dep, def, spn, qt, us });
   const book = await Main.book_read(SAMPLE, undefined, seen)
     .catch(() => undefined)
     .finally(() => {
@@ -900,7 +1072,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     (e: unknown) => e instanceof Main.Check_Fail,
   );
   const xs = facts.filter((f) => f.def === "id" && Bend.term_strip(f.tm).$ === "Var");
-  const kind = (f: Fact, t: HTerm) => (Bend.term_wnf(f.bok, t) as { k?: string }).k;
+  const kind = (f: { bok: Book }, t: HTerm) => (Bend.term_wnf(f.bok, t) as { k?: string }).k;
   const tagged = (x: unknown, tags: string[]) =>
     tags.includes((x as { $?: string } | null)?.$ ?? "");
   const read = (

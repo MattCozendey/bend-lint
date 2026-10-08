@@ -4,9 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Bend, lint, applyFixes, render } from "../src/lint.ts";
-import { walk } from "../src/seam.ts";
-import { format, formatOptions, rules, sameProgram } from "./format.ts";
+import { lint, applyFixes, render } from "../src/lint.ts";
+import type { LintRule } from "../src/lint.ts";
+import { format, formatOptions, rules } from "./format.ts";
 import type { FormatOptions } from "./format.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
@@ -25,13 +25,14 @@ async function fixed(text: string, options: FormatOptions = opts) {
   expect(result.ok).toBe(true);
   expect(result.diags.every((d) => d.fixes.length === 1)).toBe(true);
   const source = result.sources.find((s) => s.root)!;
-  const output = applyFixes(source.file, result.diags).text;
+  const output = applyFixes(source, result.diags).text;
   expect(format(output, options)).toBe(output);
   const again = await lint(fixture(output), rules, {
     config: { rules: { "format/layout": options } },
   });
   expect([again.ok, again.diags]).toEqual([true, []]);
-  const bodies = [result.book, again.book].map((book) =>
+  const Bend = result.unstable.Bend;
+  const bodies = [result.unstable.book, again.unstable.book].map((book) =>
     Object.fromEntries(
       book.order.flatMap((name) => {
         const tld = book.tlds[name];
@@ -231,16 +232,15 @@ def main() -> String:
   });
 
   test("the guard rejects a changed value or scope", async () => {
-    const result = await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), []);
-    const cx = {
-      Bend,
-      book: result.book,
-      sources: result.sources,
-      root: result.sources.find((s) => s.root)!,
-      walk,
+    const guard: LintRule = {
+      id: "test/guard",
+      run: (cx) => {
+        expect(cx.sameDeclarations("import Base\ndef main() -> U32:\n  2\n")).toBe(false);
+        expect(cx.sameDeclarations(format(cx.root.text, opts))).toBe(true);
+        return [];
+      },
     };
-    expect(sameProgram(cx, "import Base\ndef main() -> U32:\n  2\n")).toBe(false);
-    expect(sameProgram(cx, format(cx.root.text, opts))).toBe(true);
+    expect((await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), [guard])).ok).toBe(true);
   });
 
   test("configuration passes the union through the unchanged engine", async () => {

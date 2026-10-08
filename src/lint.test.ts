@@ -2,21 +2,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import type { Book, LTerm, Span } from "bend2/bend.ts";
-import {
-  BEND2,
-  Bend,
-  Comp,
-  applyFixes,
-  bendRule,
-  findConfig,
-  lint,
-  readConfig,
-  render,
-} from "./lint.ts";
-import type { Diag, Fact, LintRule, RuleContext, Source, SourceFile } from "./lint.ts";
+import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
+import type * as BendModule from "bend2/bend.ts";
+import { BEND2, applyFixes, bendRule, findConfig, lint, readConfig, render } from "./lint.ts";
+import type { Diag, Fact, LintRule, RuleContext, Source } from "./lint.ts";
 import {
   DriftError,
   bendDir,
@@ -32,15 +23,20 @@ import {
   seeInfer,
   walk,
 } from "./seam.ts";
+import type { Raw } from "./seam.ts";
 
 // Types
 // =====
 
-type Loose = Fact & { tm: { x?: { $: string; k?: string; i?: number } } };
+type Loose = Raw & { tm: { x?: { $: string; k?: string; i?: number } } };
 type Seen = { kind: string; def: string; name: string; path: string };
 
 // Constants
 // =========
+
+// bend2's modules as bend-lint patched them, for what the tests inspect.
+const Bend: typeof BendModule = await import(pathToFileURL(path.join(BEND2, "bend.ts")).href);
+const Comp: Record<string, unknown> = await import(pathToFileURL(path.join(BEND2, "comp.ts")).href);
 
 const USERLAND = String.raw`type N is Data:
   Z{}
@@ -309,12 +305,12 @@ const commaSpace: LintRule = {
   id: "style/comma-space",
   run: (cx) =>
     [...cx.root.text.matchAll(/,(?=\w)/g)].map((m) => {
-      const spn = { file: cx.root.file, beg: m.index! + 1, end: m.index! + 1 };
+      const span = { file: cx.root, beg: m.index! + 1, end: m.index! + 1 };
       return cx.diag({
         message: "Add a space after the comma.",
         severity: "warning",
-        spn,
-        fixes: [{ title: "Insert space", applicability: "safe", edits: [{ spn, text: " " }] }],
+        span,
+        fixes: [{ title: "Insert space", applicability: "safe", edits: [{ span, text: " " }] }],
       });
     }),
 };
@@ -325,16 +321,19 @@ const identity: LintRule = {
   run: async (cx, signal) => {
     await Promise.resolve();
     signal.throwIfAborted();
-    const body = facts(cx, "id").find((f) => f.dep === 1 && f.tm.x?.$ === "Var")!;
-    const ann = cx.Bend.pmap_get(body.ctx, body.tm.x!.i!)!;
+    const body = facts(cx, "id").find(
+      (f) => loose(cx, f).dep === 1 && loose(cx, f).tm.x?.$ === "Var",
+    )!;
+    const raw = loose(cx, body);
+    const ann = cx.unstable.Bend.pmap_get(raw.ctx, raw.tm.x!.i!)!;
     expect(ann.k).toBe("x");
-    expect((cx.Bend.term_wnf(body.bok, body.ty) as { k?: string }).k).toBe("N");
-    expect(cx.same(body, body.ty, ann.T)).toBe(true);
+    expect((cx.unstable.Bend.term_wnf(raw.bok, raw.ty) as { k?: string }).k).toBe("N");
+    expect(cx.same(body, cx.type(body), cx.binder(body)!)).toBe(true);
     return [
       cx.diag({
         message: "This function returns its parameter.",
         severity: "information",
-        spn: body.spn,
+        span: cx.view(body).span,
         fact: body,
       }),
     ];
@@ -356,52 +355,51 @@ const redundantAnnotation: LintRule = {
   id: "erasure/redundant-local-annotation",
   facts: true,
   run: (cx) =>
-    [...cx.facts!.values()].flatMap((fact): Diag[] => {
-      const term = cx.Bend.term_strip(fact.tm);
-      const value = cx.span(term.s);
-      const v = cx.binder(fact, term);
+    cx.facts!.flatMap((fact): Diag[] => {
+      const { inst, kind, name: used, span, inner } = cx.view(fact);
+      const declared = cx.binder(fact);
       if (
-        fact.inst ||
-        term.$ !== "Var" ||
-        fact.spn === undefined ||
-        value === undefined ||
-        v === null ||
-        !cx.same(fact, v.T, fact.ty)
+        inst ||
+        kind !== "Var" ||
+        span === undefined ||
+        inner === undefined ||
+        declared === undefined ||
+        !cx.same(fact, declared, cx.type(fact))
       ) {
         return [];
       }
-      const prefix = fact.spn.file.str.slice(fact.spn.beg, value.beg);
+      const prefix = span.file.text.slice(span.beg, inner.beg);
       const name = prefix.match(/^([A-Za-z_][A-Za-z_0-9]*)\s*:/);
       if (
-        fact.spn.file !== value.file ||
-        fact.spn.beg >= value.beg ||
+        span.file !== inner.file ||
+        span.beg >= inner.beg ||
         prefix.includes("#") ||
         name === null ||
         !prefix.trimEnd().endsWith("=")
       ) {
         return [];
       }
-      const spn = {
-        file: fact.spn.file,
-        beg: fact.spn.beg + name[1].length,
-        end: fact.spn.beg + prefix.lastIndexOf("="),
+      const at = {
+        file: span.file,
+        beg: span.beg + name[1].length,
+        end: span.beg + prefix.lastIndexOf("="),
       };
       return [
         cx.diag({
           message:
             "Remove the redundant annotation: " +
-            v.k +
+            used +
             " already has type " +
-            cx.show(fact, v.T) +
+            cx.show(fact, declared) +
             ".",
           severity: "hint",
-          spn,
+          span: at,
           fact,
           fixes: [
             {
               title: "Remove redundant local type annotation",
               applicability: "suggested",
-              edits: [{ spn, text: " " }],
+              edits: [{ span: at, text: " " }],
             },
           ],
         }),
@@ -464,15 +462,8 @@ const echo: LintRule = {
 // Functions
 // =========
 
-function source2(p: string, ns: string): Source {
-  return {
-    path: p,
-    ns,
-    text: "x\n",
-    root: false,
-    base: false,
-    file: { str: "x\n", ns, al: {}, path: p },
-  };
+function file2(p: string, ns: string): { str: string; ns: string; al: {}; path: string } {
+  return { str: "x\n", ns, al: {}, path: p };
 }
 
 function fixture(name: string, text: string): string {
@@ -481,11 +472,18 @@ function fixture(name: string, text: string): string {
   return file;
 }
 
-function facts(cx: Pick<RuleContext, "facts" | "book" | "walk">, name: string): Loose[] {
-  const tld = cx.book.tlds[name];
+// The facts of a def's checked body, in walk order.
+function facts(cx: RuleContext, name: string): Fact[] {
+  const tld = cx.unstable.book.tlds[name];
+  const byTerm = new Map((cx.facts ?? []).map((f) => [cx.unstable.raw(f).tm, f]));
   return tld.$ !== "Def" || tld.e === undefined
     ? []
-    : [...cx.walk(tld.e)].map((tm) => cx.facts!.get(tm)).filter((f): f is Loose => f !== undefined);
+    : [...walk(tld.e)].flatMap((tm) => byTerm.get(tm) ?? []);
+}
+
+// A fact as bend2 gives it.
+function loose(cx: RuleContext, fact: Fact): Loose {
+  return cx.unstable.raw(fact) as Loose;
 }
 
 function bodies(book: Book): Record<string, string> {
@@ -505,19 +503,21 @@ function root(sources: Source[]): Source {
 
 // The facts a rule with this filter gets: kind, def, name and file.
 async function seen(file: string, want: LintRule["facts"]): Promise<Seen[]> {
-  let got: Fact[] = [];
+  let got: Seen[] = [];
   await lint(file, [
-    { id: "test/seen", facts: want, run: (cx) => ((got = [...cx.facts!.values()]), []) },
+    {
+      id: "test/seen",
+      facts: want,
+      run: (cx) => {
+        got = cx.facts!.map((f) => {
+          const v = cx.view(f);
+          return { kind: v.kind, def: v.owner, name: v.name, path: v.span!.file.path };
+        });
+        return [];
+      },
+    },
   ]);
-  return got.map((f) => {
-    const t = Bend.term_strip(f.tm);
-    return {
-      kind: t.$,
-      def: f.def,
-      name: t.$ === "Var" || t.$ === "Ref" ? t.k : "",
-      path: (f.spn!.file as SourceFile).path,
-    };
-  });
+  return got;
 }
 
 // A GitHub that lists `tags` and serves this checkout's bend2 at any
@@ -770,13 +770,11 @@ describe("downloading bend", () => {
 });
 
 describe("spans", () => {
-  const source = (p: string, text: string): Source => ({
-    path: p,
+  const source = (p: string, text: string) => ({
+    str: text,
     ns: "",
-    text,
-    root: true,
-    base: false,
-    file: { str: text, ns: "", al: {}, path: p },
+    al: {} as Record<string, string>,
+    path: p,
   });
 
   for (const eol of ["\n", "\r\n"]) {
@@ -793,10 +791,10 @@ describe("spans", () => {
           file: { str: masked, ns: "", dir: "/p/", al: { A: "a" } },
           beg,
           end: beg + 1,
-        } as Span);
-        expect(got.file).toBe(src.file);
+        } as BendSpan);
+        expect(got.file).toBe(src);
         expect(text.slice(got.beg, got.end)).toBe("x");
-        expect(src.file.al.A).toBe("a");
+        expect(src.al.A).toBe("a");
       });
     }
   }
@@ -804,7 +802,7 @@ describe("spans", () => {
   test("a span on disk passes through; a copy that does not match fails", () => {
     const src = source("/p/m.bend", "import Base\ndef f() -> N:\n  x\n");
     const map = mapper([src]);
-    const spn = { file: src.file, beg: 2, end: 3 };
+    const spn = { file: src, beg: 2, end: 3 };
     expect(map(spn)).toBe(spn);
     expect(() =>
       map({ file: { str: "\ndef g() -> N:\n  x\n", ns: "", al: {} }, beg: 0, end: 0 }),
@@ -819,8 +817,8 @@ describe("spans", () => {
     const b = source("/b/m.bend", "import Base\nx\n");
     const map = mapper([a, b]);
     expect(
-      map({ file: { str: "\nx\n", ns: "", dir: "/b/", al: {} }, beg: 1, end: 2 } as Span).file,
-    ).toBe(b.file);
+      map({ file: { str: "\nx\n", ns: "", dir: "/b/", al: {} }, beg: 1, end: 2 } as BendSpan).file,
+    ).toBe(b);
   });
 });
 
@@ -831,7 +829,7 @@ describe("lint", () => {
     const res = await lint(userland, [commaSpace, identity]);
     expect(res.ok).toBe(true);
     expect(res.diags.map((d) => d.code)).toEqual([commaSpace.id, identity.id]);
-    expect(res.diags[0].fixes[0].edits[0].spn.file.str).toBe(USERLAND);
+    expect(res.diags[0].fixes[0].edits[0].span.file.text).toBe(USERLAND);
     expect(render(res.diags[0])).toStartWith("Warning [style/comma-space]:");
     expect(render(res.diags[0])).toContain("generic(~N, a)");
     expect(render(res.diags[1])).toContain("Context:");
@@ -854,24 +852,28 @@ describe("lint", () => {
       id: "test/probe",
       facts: true,
       run: (cx) => {
-        const generic = facts(cx, "generic").find((f) => f.tm.x?.$ === "Var" && f.tm.x.k === "x")!;
-        expect(generic.bok.tlds["generic~T"]).toBeDefined();
-        expect(generic.inst).toBe(false);
-        const inst = facts(cx, "generic~0").find((f) => f.tm.x?.$ === "Var" && f.tm.x.k === "x")!;
-        expect(inst.inst).toBe(true);
-        expect(inst.spn).toEqual(generic.spn);
-        expect(["None", "Lone", "Many"]).toContain(generic.qt.$);
-        expect(generic.us.$).toBeDefined();
-        const proof = facts(cx, "proof").find((f) => f.tm.x?.$ === "Rfl")!;
-        expect(proof.ty.$).toBe("Eql");
-        expect(proof.dep).toBe(1);
-        const peel = [...cx.walk((cx.book.tlds.peel as { e: LTerm }).e)];
+        const named = (def: string, kind: string, name = "") =>
+          facts(cx, def).find((f) => {
+            const x = loose(cx, f).tm.x;
+            return x?.$ === kind && (name === "" || x.k === name);
+          })!;
+        const generic = named("generic", "Var", "x");
+        expect(loose(cx, generic).bok.tlds["generic~T"]).toBeDefined();
+        expect(cx.view(generic).inst).toBe(false);
+        const inst = named("generic~0", "Var", "x");
+        expect(cx.view(inst).inst).toBe(true);
+        expect(cx.view(inst).span).toEqual(cx.view(generic).span);
+        expect(["erased", "once", "many"]).toContain(cx.view(generic).quantity);
+        expect(loose(cx, generic).us.$).toBeDefined();
+        const proof = named("proof", "Rfl");
+        expect(loose(cx, proof).ty.$).toBe("Eql");
+        expect(loose(cx, proof).dep).toBe(1);
+        const kept = new Set<unknown>(cx.facts!.map((f) => loose(cx, f).tm));
+        const peel = [...walk((cx.unstable.book.tlds.peel as { e: LTerm }).e)];
         expect(peel.some((tm) => tm.$ === "Mat")).toBe(true);
-        expect(peel.some((tm) => tm.$ === "Ann" && tm.x.$ === "Efq" && !cx.facts!.has(tm))).toBe(
-          true,
-        );
-        const field = facts(cx, "peel").find((f) => f.tm.x?.$ === "Var" && f.tm.x.k === "p")!;
-        expect(cx.Bend.pmap_get(field.ctx, field.tm.x!.i!)!.k).toBe("p");
+        expect(peel.some((tm) => tm.$ === "Ann" && tm.x.$ === "Efq" && !kept.has(tm))).toBe(true);
+        const field = loose(cx, named("peel", "Var", "p"));
+        expect(cx.unstable.Bend.pmap_get(field.ctx, field.tm.x!.i!)!.k).toBe("p");
         return [];
       },
     };
@@ -880,9 +882,10 @@ describe("lint", () => {
 
   test("walk reaches every kind in checked bodies; an unknown kind fails", async () => {
     const res = await lint(userland, []);
+    const { book } = res.unstable;
     const kinds = new Set(
-      res.book.order.flatMap((name) => {
-        const tld = res.book.tlds[name];
+      book.order.flatMap((name) => {
+        const tld = book.tlds[name];
         return tld.$ === "Def" && tld.e !== undefined ? [...walk(tld.e)].map((tm) => tm.$) : [];
       }),
     );
@@ -962,7 +965,7 @@ describe("lint", () => {
     const broken: LintRule = {
       id: "test/broken-fix",
       run: (cx) => {
-        const spn = { file: cx.root.file, beg: 0, end: 4 };
+        const span = { file: cx.root, beg: 0, end: 4 };
         return [
           cx.diag({
             message: "b",
@@ -971,8 +974,8 @@ describe("lint", () => {
                 title: "two",
                 applicability: "safe",
                 edits: [
-                  { spn, text: "a" },
-                  { spn, text: "b" },
+                  { span, text: "a" },
+                  { span, text: "b" },
                 ],
               },
             ],
@@ -1042,12 +1045,12 @@ describe("lint", () => {
       facts: true,
       run: (cx) => {
         expect(cx.root.path).toEndWith("/main.bend");
-        expect(cx.sources.find((s) => s.path.endsWith("/dep.bend"))!.ns).toBe("dep");
-        const texts = [...cx.facts!.values()]
-          .filter((f) => f.def === "main" && f.spn !== undefined)
-          .map((f) => {
-            expect(f.spn!.file).toBe(cx.root.file);
-            return cx.root.text.slice(f.spn!.beg, f.spn!.end);
+        const texts = cx
+          .facts!.map((f) => cx.view(f))
+          .filter((v) => v.owner === "main" && v.span !== undefined)
+          .map(({ span }) => {
+            expect(span!.file).toBe(cx.root);
+            return cx.root.text.slice(span!.beg, span!.end);
           });
         expect(texts.some((t) => t.startsWith("D.id") || t.startsWith("D.Z"))).toBe(true);
         return [];
@@ -1078,7 +1081,7 @@ describe("lint", () => {
               {
                 title: "bad offset",
                 applicability: "safe",
-                edits: [{ spn: { file: cx.root.file, beg, end }, text: "X" }],
+                edits: [{ span: { file: cx.root, beg, end }, text: "X" }],
               },
             ],
           }),
@@ -1097,15 +1100,16 @@ describe("lint", () => {
       run: (cx) => {
         expect(cx.root.path).toEndWith("/with_base.bend");
         expect(cx.sources.some((s) => s.base)).toBe(true);
-        expect([...cx.facts!.values()].some((f) => f.def === "main")).toBe(true);
-        expect([...cx.facts!.values()].every((f) => cx.book.tlds[f.def]?.b !== true)).toBe(true);
+        const owners = cx.facts!.map((f) => cx.view(f).owner);
+        expect(owners.some((def) => def === "main")).toBe(true);
+        expect(owners.every((def) => cx.unstable.book.tlds[def]?.b !== true)).toBe(true);
         return [];
       },
     };
     const first = await lint(withBase, [probe]);
     const second = await lint(withBase, [probe]);
     expect([first.ok, second.ok]).toEqual([true, true]);
-    expect(second.book.order).toEqual(first.book.order);
+    expect(second.unstable.book.order).toEqual(first.unstable.book.order);
     expect((await lint(fixture("without_base.bend", "def main() -> Nat:\n  1n\n"), [])).ok).toBe(
       false,
     );
@@ -1126,7 +1130,7 @@ describe("lint", () => {
     const first = lint(userland, [paused]);
     await entered.promise;
     const second = await lint(userland, [identity]).finally(() => gate.resolve());
-    expect(second.facts!.size).toBeGreaterThan(0);
+    expect(second.facts!.length).toBeGreaterThan(0);
     expect(second.diags.map((d) => d.code)).toEqual([identity.id]);
     expect((await first).diags).toEqual([]);
   });
@@ -1140,9 +1144,13 @@ describe("lint", () => {
       id: "test/api",
       facts: true,
       run: async (cx, signal) => {
-        const fact = cx.facts!.get((cx.book.tlds.id as { e: LTerm }).e)!;
-        const type = cx.Bend.term_wnf(fact.bok, fact.ty) as { A: typeof fact.ty };
-        const arg = cx.Bend.term_wnf(fact.bok, type.A) as { k?: string };
+        const body = (cx.unstable.book.tlds.id as { e: LTerm }).e;
+        const fact = loose(
+          cx,
+          cx.facts!.find((f) => loose(cx, f).tm === body)!,
+        );
+        const type = cx.unstable.Bend.term_wnf(fact.bok, fact.ty) as { A: typeof fact.ty };
+        const arg = cx.unstable.Bend.term_wnf(fact.bok, type.A) as { k?: string };
         const res = await fetch(server.url, {
           method: "POST",
           body: JSON.stringify({ type: arg.k }),
@@ -1316,9 +1324,8 @@ describe("review fixes", () => {
         id: "test/where",
         facts: true,
         run: (cx) => {
-          const facts = [...cx.facts!.values()];
-          expect(facts.length).toBeGreaterThan(0);
-          expect(facts.every((f) => f.spn?.file === cx.root.file)).toBe(true);
+          expect(cx.facts!.length).toBeGreaterThan(0);
+          expect(cx.facts!.every((f) => cx.view(f).span?.file === cx.root)).toBe(true);
           return [];
         },
       };
@@ -1338,7 +1345,7 @@ describe("review fixes", () => {
       facts: true,
       run: (cx) => [
         cx.diag({
-          message: [...new Set([...cx.facts!.values()].map((f) => f.def))].join(),
+          message: [...new Set(cx.facts!.map((f) => cx.view(f).owner))].join(),
           severity: "hint",
         }),
       ],
@@ -1361,17 +1368,20 @@ describe("review fixes", () => {
     const all: LintRule = {
       id: "test/all",
       facts: true,
-      run: (cx) => [...cx.facts!.values()].map((f) => cx.diag({ message: "f", spn: f.spn })),
+      run: (cx) => cx.facts!.map((f) => cx.diag({ message: "f", span: cx.view(f).span })),
     };
     const res = await lint(path.join(dir, "m.bend"), [all]);
     expect(res.ok).toBe(true);
     expect(res.diags.length).toBeGreaterThan(0);
-    const a = source2("/p/a.bend", "a"),
-      b = source2("/p/b.bend", "b");
+    const a = file2("/p/a.bend", "a"),
+      b = file2("/p/b.bend", "b");
     expect(
-      mapper([a, b])({ file: { str: "x\n", ns: "b", dir: "/p/", al: {} }, beg: 0, end: 1 } as Span)
-        .file,
-    ).toBe(b.file);
+      mapper([a, b])({
+        file: { str: "x\n", ns: "b", dir: "/p/", al: {} },
+        beg: 0,
+        end: 1,
+      } as BendSpan).file,
+    ).toBe(b);
   });
 
   test("walk is linear in a long list (it took 408 ms at 2,000 elements)", async () => {
@@ -1385,18 +1395,18 @@ describe("review fixes", () => {
     const res = await lint(file, []);
     expect(res.diags.map(render)).toEqual([]);
     const t = performance.now();
-    const count = [...walk((res.book.tlds.xs as { e: LTerm }).e)].length;
+    const count = [...walk((res.unstable.book.tlds.xs as { e: LTerm }).e)].length;
     expect(count).toBeGreaterThan(n);
     expect(performance.now() - t).toBeLessThan(100);
   });
 
   test("clashing fixes are skipped, not fatal; equal ones merge", () => {
-    const file: SourceFile = { str: "abcdef", ns: "", al: {}, path: "<fix>" };
+    const file: Source = { path: "<fix>", text: "abcdef", root: true, base: false };
     const fix = (beg: number, end: number, text: string): Diag => ({
       code: "t/f",
       severity: "hint",
       message: "",
-      fixes: [{ title: "f", applicability: "safe", edits: [{ spn: { file, beg, end }, text }] }],
+      fixes: [{ title: "f", applicability: "safe", edits: [{ span: { file, beg, end }, text }] }],
     });
     expect(
       applyFixes(file, [
@@ -1441,12 +1451,12 @@ describe("rules", () => {
     const file = fixture("erasure.bend", ERASURE);
     const res = await lint(file, [redundantAnnotation]);
     expect(res.diags.map((d) => d.def).sort()).toEqual(["alias", "dependent", "direct", "generic"]);
-    const cleaned = applyFixes(root(res.sources).file, res.diags, ["suggested"]).text;
+    const cleaned = applyFixes(root(res.sources), res.diags, ["suggested"]).text;
     expect(cleaned).toContain("f : N -> N = y => y");
     expect(cleaned).toContain("value : N = Z{}");
     const after = await lint(fixture("erasure_fixed.bend", cleaned), [redundantAnnotation]);
     expect(after.diags).toEqual([]);
-    expect(bodies(after.book)).toEqual(bodies(res.book));
+    expect(bodies(after.unstable.book)).toEqual(bodies(res.unstable.book));
     for (const [annotation, binding] of [
       ["f : N -> N =", "f ="],
       ["value : N =", "value ="],
@@ -1461,7 +1471,7 @@ describe("rules", () => {
   });
 });
 
-describe("drift: the copy of book_read agrees with bend's own tests", () => {
+describe("drift: bend-lint agrees with bend's own tests", () => {
   for (const name of DRIFT) {
     const file = path.join(BEND2, "..", "tests", name + ".bend");
     test.skipIf(!fs.existsSync(file))(name, async () => {
@@ -1483,7 +1493,7 @@ describe("rules written in Bend", () => {
     const res = await lint(userland, [rule]);
     expect(res.diags.map((d) => [d.code, d.severity])).toEqual([["style/comma-space", "warning"]]);
     expect(render(res.diags[0])).toContain("generic(~N, a)");
-    expect(applyFixes(root(res.sources).file, res.diags).text).toContain("generic(~N, a)");
+    expect(applyFixes(root(res.sources), res.diags).text).toContain("generic(~N, a)");
   });
 
   test("a typed rule asks the checker through effects", async () => {
@@ -1493,7 +1503,7 @@ describe("rules written in Bend", () => {
     expect(res.diags.map((d) => d.message)).toEqual(
       Array(2).fill("x: Alias = N (same as its binder), text x, demanded once, uses x once"),
     );
-    expect(res.diags.every((d) => d.spn?.file === root(res.sources).file)).toBe(true);
+    expect(res.diags.every((d) => d.span?.file === root(res.sources))).toBe(true);
   });
 
   test("Bend fixes reject out-of-bounds code-point offsets instead of clamping them", async () => {
@@ -1518,7 +1528,7 @@ describe("rules written in Bend", () => {
       );
       const result = await lint(file, [diagnosticRule]);
       expect(result.ok).toBe(true);
-      expect(result.diags[0].spn!.end).toBe(source.length);
+      expect(result.diags[0].span!.end).toBe(source.length);
     }
   });
 });
@@ -1545,14 +1555,14 @@ describe("fact filters", () => {
     const rule = (id: string, kinds: string[]): LintRule => ({
       id,
       facts: { kinds },
-      run: (cx) => ((got[id] = [...cx.facts!.values()].map((f) => Bend.term_strip(f.tm).$)), []),
+      run: (cx) => ((got[id] = cx.facts!.map((f) => cx.view(f).kind)), []),
     });
     const res = await lint(userland, [rule("test/vars", ["Var"]), rule("test/refs", ["Ref"])]);
     expect(new Set(got["test/vars"])).toEqual(new Set(["Var"]));
     expect(new Set(got["test/refs"])).toEqual(new Set(["Ref"]));
-    expect(res.facts!.size).toBe(got["test/vars"].length + got["test/refs"].length);
-    expect(res.facts!.size).toBeLessThan(
-      (await lint(userland, [rule("test/all", [])])).facts!.size,
+    expect(res.facts!.length).toBe(got["test/vars"].length + got["test/refs"].length);
+    expect(res.facts!.length).toBeLessThan(
+      (await lint(userland, [rule("test/all", [])])).facts!.length,
     );
   });
 
@@ -1598,7 +1608,7 @@ describe("cli", () => {
   const first = module(
     "first.js",
     `[{ id: "cli/first", facts: true, run(cx) {
-    if (!cx.facts?.size || !cx.sources.length) throw new Error("missing metadata");
+    if (!cx.facts?.length || !cx.sources.length) throw new Error("missing metadata");
     return [cx.diag({ message: "First rule", severity: "warning" })];
   } }]`,
   );
@@ -1673,9 +1683,9 @@ describe("cli", () => {
       "json_comma.js",
       `[{ id: "style/comma-space", run: (cx) =>
       [...cx.root.text.matchAll(/,(?=\\w)/g)].map((m) => {
-        const spn = { file: cx.root.file, beg: m.index + 1, end: m.index + 1 };
-        return cx.diag({ message: "space", severity: "hint", spn,
-          fixes: [{ title: "Insert space", applicability: "safe", edits: [{ spn, text: " " }] }] });
+        const span = { file: cx.root, beg: m.index + 1, end: m.index + 1 };
+        return cx.diag({ message: "space", severity: "hint", span,
+          fixes: [{ title: "Insert space", applicability: "safe", edits: [{ span, text: " " }] }] });
       }) }]`,
     );
     const out = run(input, "--rules", comma, "--json");
@@ -1762,8 +1772,8 @@ describe("cli", () => {
     const everywhere = module(
       "everywhere.js",
       `[{ id: "test/everywhere", run: (cx) => cx.sources.filter((s) => !s.base).flatMap((s) => [0, 0, 1].map((n) => {
-      const spn = { file: s.file, beg: n, end: n };
-      return cx.diag({ message: "x", spn, fixes: [{ title: "x", applicability: "safe", edits: [{ spn, text: n === 0 ? "#" : "!" }] }] });
+      const span = { file: s, beg: n, end: n };
+      return cx.diag({ message: "x", span, fixes: [{ title: "x", applicability: "safe", edits: [{ span, text: n === 0 ? "#" : "!" }] }] });
     })) }]`,
     );
     const out = run(main, "--rules", everywhere, "--fix");
@@ -1778,8 +1788,8 @@ describe("cli", () => {
     const levels = module(
       "levels.js",
       `[{ id: "test/levels", run: (cx) => ["safe", "suggested", "dangerous"].map((applicability, n) => {
-      const spn = { file: cx.root.file, beg: n, end: n };
-      return cx.diag({ message: applicability, spn, fixes: [{ title: applicability, applicability, edits: [{ spn, text: String(n) }] }] });
+      const span = { file: cx.root, beg: n, end: n };
+      return cx.diag({ message: applicability, span, fixes: [{ title: applicability, applicability, edits: [{ span, text: String(n) }] }] });
     }) }]`,
     );
     const fixed = (flag: string) => {
@@ -1800,9 +1810,9 @@ describe("cli", () => {
       "comma.js",
       `[{ id: "style/comma-space", run: (cx) =>
       [...cx.root.text.matchAll(/,(?=\\w)/g)].map((m) => {
-        const spn = { file: cx.root.file, beg: m.index + 1, end: m.index + 1 };
-        return cx.diag({ message: "space", severity: "hint", spn,
-          fixes: [{ title: "Insert space", applicability: "safe", edits: [{ spn, text: " " }] }] });
+        const span = { file: cx.root, beg: m.index + 1, end: m.index + 1 };
+        return cx.diag({ message: "space", severity: "hint", span,
+          fixes: [{ title: "Insert space", applicability: "safe", edits: [{ span, text: " " }] }] });
       }) }]`,
     );
     expect(run(target, "--rules", comma, "--fix").status).toBe(0);
