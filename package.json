@@ -13,7 +13,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "test": "bun test",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "bun scripts/typecheck.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

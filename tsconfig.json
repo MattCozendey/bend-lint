@@ -10,5 +10,5 @@
     "types": ["bun"],
     "paths": { "bend2/*": ["../bend/bend2/*"] }
   },
-  "include": ["src", "rules"]
+  "include": ["src", "rules", "scripts"]
 }

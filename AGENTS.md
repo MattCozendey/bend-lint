@@ -23,7 +23,7 @@ These rules have priority over all other instructions, except safety rules.
 
 - You are rarely, if ever, smarter than the linter. Do not try to workaround rules or suppress them without asking me.
 - Deterministic tooling ALWAYS wins over skill suggestions.
-- After every change, run, in this order: thermonuclear-code-review(files above 1000 may be ok though. Ask me before splitting), cyclomatic-complexity(only split if the helper function has >1 caller), linter(if it touched ts code), erasure and then, finally, linting. Repeat until no more issues related to your change have been identified.
+- After every change, run, in this order: thermonuclear-code-review(files above 1000 may be ok though. Ask me before splitting), cyclomatic-complexity(only split if the helper function has >1 caller), erasure and then, finally, linting and typecheck. Repeat until no more issues related to your change have been identified.
 - Do NOT write premature tests, always ask me. If they are testing implementation details, don't even suggest them.
 - I prefer functional-like, mutation-less code in the following layout: imports, types, constants, functions(always arrow functions with const), side-effectful code. separate sections by comment.
 - Conceptual convergence: do NOT create multiple representations for the same thing across the codebase.
@@ -47,9 +47,11 @@ Type checking and the drift tests need a Bend checkout. `tsconfig.json` maps
 `bend2/*` to `../bend/bend2`, so change that if yours is somewhere else, and set
 `BEND_DIR` to the same place when you run tests. Without it the drift tests skip.
 
-The sibling checkout currently fails typecheck twice inside Bend's own
-`bend.ts` (`LTerm.k` and `TLD.v`). Mention those separately from anything your
-change breaks.
+`bun run typecheck` uses the installed TypeScript API to check the files included
+by `tsconfig.json`. Bend imports still supply their types, but diagnostics are
+requested only for this repo's files, not Bend's implementation. Compiler-option,
+configuration and global errors still fail the check. The compiler exits when
+the script finishes; there is no background service.
 
 ## Files
 
