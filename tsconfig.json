@@ -8,7 +8,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["bun"],
-    "paths": { "bend2/*": ["../bend/bend2/*"] }
+    "paths": { "bend2/*": ["./.bend2/*"] }
   },
   "include": ["src", "rules", "scripts"]
 }

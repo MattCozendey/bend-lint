@@ -43,10 +43,9 @@ bun run format:check
 git diff --check
 ```
 
-- Type checking and the drift tests need a Bend checkout.
-- `tsconfig.json` maps `bend2/*` to `../bend/bend2`. If your checkout is
-  somewhere else, change that, and set `BEND_DIR` to the same place.
-- Without `BEND_DIR`, the drift tests skip.
+- `bun run typecheck` and `bun run lint` link `.bend2` to the Bend that
+  `BEND_DIR` or the download picks.
+- The drift tests need a Bend checkout. Without `BEND_DIR`, they skip.
 - `bun test` does not type check. `bun run typecheck` does, for this repo's
   files only, not Bend's.
 
