@@ -956,13 +956,13 @@ describe("downloading bend", () => {
     expect((await rejection(fetchBend("../x", at, gh.get))).message).toMatch(/not a bend release/);
   });
 
-  test("bendDir downloads only when no bend is given or around it", async () => {
+  test("bendDir downloads only when no bend is given", async () => {
     const saved = process.env.BEND_DIR;
     delete process.env.BEND_DIR; // a given bend would win over all below
     try {
       const gh = github(["v2.0.35"]);
       const at = cache();
-      const away = { get: gh.get, cache: at, repo: DIR };
+      const away = { get: gh.get, cache: at };
       expect(await bendDir(undefined, { ...away, run: () => "bend 2.0.36\n" })).toBe(
         fs.realpathSync(path.join(at, "v2.0.36", "bend2")).replaceAll("\\", "/"),
       );
@@ -972,18 +972,10 @@ describe("downloading bend", () => {
       expect(
         (
           await rejection(
-            bendDir(undefined, { get: offline, cache: at, repo: DIR, run: () => "bend 2.0.40\n" }),
+            bendDir(undefined, { get: offline, cache: at, run: () => "bend 2.0.40\n" }),
           )
         ).message,
       ).toMatch(/could not download bend v2\.0\.40 \(offline\)/);
-      expect(
-        await bendDir(undefined, {
-          get: offline,
-          cache: at,
-          repo: BEND2,
-          run: () => "bend 2.0.40\n",
-        }),
-      ).toBe(BEND2);
     } finally {
       if (saved !== undefined) {
         process.env.BEND_DIR = saved;

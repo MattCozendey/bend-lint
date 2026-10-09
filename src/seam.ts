@@ -39,14 +39,13 @@ type Patch = { edits: Array<[string, string]>; needs?: string[]; tail: string; e
 
 export type Get = (url: string) => Promise<Response>;
 
-// How bendDir reaches the network, runs `bend`, where it caches, and where
-// the bend repo would be; tests give their own. run gives a command's
-// stdout, or undefined if it fails.
+// How bendDir reaches the network, runs `bend`, and where it caches;
+// tests give their own. run gives a command's stdout, or undefined if it
+// fails.
 export type FindOptions = {
   get?: Get;
   run?: (cmd: string[]) => string | undefined;
   cache?: string;
-  repo?: string;
 };
 
 // comp.ts as the patch exports it.
@@ -383,7 +382,7 @@ export const path = {
 const arity = (f: (...args: never[]) => unknown, n: number, name: string): void => {
   if (f.length !== n) {
     throw drift(
-      `${name} takes ${f.length} parameters, not ${n}; update the observers in tools/bend-lint/src/seam.ts`,
+      `${name} takes ${f.length} parameters, not ${n}; update the observers in src/seam.ts`,
     );
   }
 };
@@ -463,7 +462,7 @@ export const patch = (file: string, src: string): string => {
   const { edits, needs = [], tail, exports } = PATCHES[file];
   const mismatch = (what: string, n: number): never => {
     throw drift(
-      `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in tools/bend-lint/src/seam.ts.`,
+      `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in src/seam.ts.`,
     );
   };
   const edited = [...edits, ...needs.map((t): [string, string] => [t, t])].reduce(
@@ -609,18 +608,18 @@ export const fetchBend = async (
 // The bend2 folder to load, found in the order the docs give.
 export const bendDir = async (
   given: string | undefined,
-  { get = download, run = spawn, cache = CACHE, repo }: FindOptions = {},
+  { get = download, run = spawn, cache = CACHE }: FindOptions = {},
 ): Promise<string> => {
   const chosen = given ?? process.env.BEND_DIR;
-  const dir = path.resolve(chosen ?? repo ?? path.join(HERE, "..", "..", "..", "bend2"));
-  const found = [path.join(dir, "bend2"), dir].find((d) =>
-    nodeFs.existsSync(path.join(d, "bend.ts")),
-  );
-  if (found !== undefined) {
-    return fs.realpathSync(found);
-  }
   if (chosen !== undefined) {
-    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${GIVE}`);
+    const dir = path.resolve(chosen);
+    const found = [path.join(dir, "bend2"), dir].find((d) =>
+      nodeFs.existsSync(path.join(d, "bend.ts")),
+    );
+    if (found === undefined) {
+      throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${GIVE}`);
+    }
+    return fs.realpathSync(found);
   }
   const tag = installedTag(run) ?? (await latestTag(cache, get));
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
@@ -650,7 +649,7 @@ export function* walk(tm: LTerm): Generator<LTerm> {
 const children = (t: LTerm): LTerm[] => {
   const of = (CHILDREN as Record<string, ((tm: LTerm) => LTerm[]) | undefined>)[t.$];
   if (of === undefined) {
-    throw drift(`unknown term kind ${t.$}; update CHILDREN in tools/bend-lint/src/seam.ts`);
+    throw drift(`unknown term kind ${t.$}; update CHILDREN in src/seam.ts`);
   }
   return of(t);
 };
@@ -1700,8 +1699,7 @@ export const guardMain = (Main: Main): void =>
         typeof Main.Check_Fail === "function" && new Main.Check_Fail(MARK).why === MARK,
       ],
     ],
-    (wrong) =>
-      `bend2/main.ts no longer has ${wrong}; update PATCHES in tools/bend-lint/src/seam.ts`,
+    (wrong) => `bend2/main.ts no longer has ${wrong}; update PATCHES in src/seam.ts`,
   );
 
 // Checks src/bend/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
@@ -1750,7 +1748,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       ],
     ],
     (wrong) =>
-      `self-check failed: the patched bend2 gave the wrong ${wrong} for src/bend/sample.bend; update tools/bend-lint/src/seam.ts`,
+      `self-check failed: the patched bend2 gave the wrong ${wrong} for src/bend/sample.bend; update src/seam.ts`,
   );
 };
 

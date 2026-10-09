@@ -577,8 +577,7 @@ All of this lives in `src/seam.ts`.
 
 1. `--bend <dir>`, or `$BEND_DIR` without the flag: a checkout or its
    `bend2` folder.
-2. The checkout around bend-lint, when it is at `tools/bend-lint`.
-3. A downloaded release: the one `bend version` names, or the latest if
+2. A downloaded release: the one `bend version` names, or the latest if
    Bend is not installed.
 
 - The latest-release lookup is cached for a day. Offline, the newest cached

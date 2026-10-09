@@ -213,8 +213,7 @@ bend-lint loads Bend's TypeScript source and patches it in memory. It does not
 run the `bend` binary. It looks, in this order:
 
 1. `--bend <dir>`, or `$BEND_DIR`: a Bend checkout or its `bend2` folder.
-2. The Bend checkout around it, when bend-lint is at `tools/bend-lint`.
-3. A release from GitHub: the one `bend version` names, or the latest.
+2. A release from GitHub: the one `bend version` names, or the latest.
 
 Downloads go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%`
 on Windows). Offline, it uses the newest cached release.

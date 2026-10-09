@@ -32,7 +32,7 @@ function lint_host() {
   const host = globalThis.BEND_LINT;
   if (host === undefined) {
     throw new Error(
-      "this program is a rule; run it with bun tools/bend-lint/src/lint.ts <file.bend> --rules <rule.bend>",
+      "this program is a rule; run it with bun src/lint.ts <file.bend> --rules <rule.bend>",
     );
   }
   return host;
