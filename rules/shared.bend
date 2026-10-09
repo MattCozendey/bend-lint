@@ -284,3 +284,8 @@ def bodies(
         body(all, d),
         b => bodies(all, rest, List.append(&2, Body, acc, b))
       )
+
+def same_node(a: Lint.Node, b: Lint.Node) -> Bool:
+  match a b:
+    case Lint.Node{x} Lint.Node{y}:
+      U32.is_eq(x, y)

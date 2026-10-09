@@ -138,16 +138,43 @@ Agent result:
 - 4 tool calls, 23 s.
 - Its comment lines break `layout/format`. It ran only the performance rules.
 
+### `performance/deep-call-in-fork`
+
+A def has a parallel let, and its values, or the lets just before it, call
+a def of the file that recurses without a tail call. In our tests, such a
+call at each fork cut the 16-thread speedup from 10x to 1.9x. The same call
+in a leaf, a helper that does not recurse, or the same def with a tail
+call, kept the 10x. Why the runtime does this is not known.
+
+The finding says to make the callee tail-recursive with an accumulator, to
+compute the value with native operations (`U32.shln(1, p)`), or to pass it
+down as a parameter. There is no fix.
+
+Sample `samples/deep-call-in-fork/`: the `missed-fork` sample, but each
+fork computes the half's size with a `pow2` on `Nat`.
+
+| File          | 1 thread | 16 threads |
+| ------------- | -------- | ---------- |
+| `before.bend` | 0.86 s   | 0.42 s     |
+| `after.bend`  | 0.83 s   | 0.10 s     |
+
+Agent result:
+
+- 1 finding, without a fix. The agent took the first option: it made `pow2`
+  tail-recursive with an accumulator, and passed the start value at the
+  call. Each change has a comment. The result is the same.
+- 3 tool calls, 22 s.
+- Its comment lines break `layout/format`. It ran only the performance rules.
+
 ## Candidates
 
 Measured on an x86 CPU with 20 threads, Bend 2.0.36.
 
-| Pattern                                                          | Detect | Fix                  | Gain measured                                                                              |
-| ---------------------------------------------------------------- | ------ | -------------------- | ------------------------------------------------------------------------------------------ |
-| `Nat` arithmetic (`pow2`) in a fork's arguments                  | easy   | use `U32.shln(1, p)` | 10x gain cut to 1.9x                                                                       |
-| index-split fork: the whole collection shared, split by an index | medium | split the data       | 1.4x (`samples/matrix-vector/`); list-index-loop finds it, but advises a walk, not a split |
-| a `+` value that every leaf reads                                | easy   | none in general      | about 2x, also on one thread                                                               |
-| loops that are not tail calls                                    | easy   | accumulator          | almost none in native code                                                                 |
+| Pattern                                                          | Detect | Fix             | Gain measured                                                                                             |
+| ---------------------------------------------------------------- | ------ | --------------- | --------------------------------------------------------------------------------------------------------- |
+| index-split fork: the whole collection shared, split by an index | medium | split the data  | 1.4x (`samples/matrix-vector/`); list-index-loop and deep-call-in-fork report it; neither advises a split |
+| a `+` value that every leaf reads                                | easy   | none in general | about 2x, also on one thread                                                                              |
+| loops that are not tail calls                                    | easy   | accumulator     | almost none in native code                                                                                |
 
 On the GPU, not measured:
 

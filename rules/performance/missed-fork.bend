@@ -48,17 +48,12 @@ type Next is Data:
 
 # Helpers
 # =======
-def same_node(a: Lint.Node, b: Lint.Node) -> Bool:
-  match a b:
-    case Lint.Node{x} Lint.Node{y}:
-      U32.is_eq(x, y)
-
 def has_node(xs: List<&2, Lint.Node>, +n: Lint.Node) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case Con{x, rest}:
-      Bool.or(same_node(x, n), has_node(rest, n))
+      Bool.or(Shared.same_node(x, n), has_node(rest, n))
 
 def join(xs: List<&2, String>, +sep: String) -> String:
   match xs:
@@ -313,7 +308,7 @@ def put(gs: List<&2, Group>, +root: Lint.Node, +span: Lint.Span) -> List<&2, Gro
     case Con{Group{+r, +spans}, +rest}:
       Bool.pick(
         List<&2, Group>,
-        same_node(r, root),
+        Shared.same_node(r, root),
         Con{Group{r, List.append(&2, Lint.Span, spans, [span])}, rest},
         Con{Group{r, spans}, put(rest, root, span)}
       )
