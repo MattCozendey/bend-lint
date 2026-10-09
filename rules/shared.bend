@@ -71,3 +71,14 @@ def line_of(+text: String, span: Lint.Span) -> Lint.Span:
         U32.sub(beg, U32.from_nat(String.length(line_before(text, U32.to_nat(beg), "")))),
         line_rest(String.drop(text, U32.to_nat(end)), end)
       }
+
+# The text under each span.
+def texts(ss: List<&2, Lint.Span>) -> IO(List<&2, String>):
+  match ss:
+    case Nil{}:
+      IO.pure(List<&2, String>, [])
+    case Con{s, rest}:
+      do IO<List<&2, String>>:
+        t: String <- Lint.text(s)
+        ts: List<&2, String> <- texts(rest)
+        return Con{t, ts}

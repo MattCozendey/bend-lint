@@ -252,16 +252,6 @@ def names_in(ds: List<&2, Lint.Declaration>, +o: String) -> List<&2, String>:
     case Con{Lint.Declaration{kind, name, owner, span, refs, loads, fills, term}, rest}:
       List.append(&2, String, owned_name(owner, o, name), names_in(rest, o))
 
-def texts(ss: List<&2, Lint.Span>) -> IO(List<&2, String>):
-  match ss:
-    case Nil{}:
-      IO.pure(List<&2, String>, [])
-    case Con{s, rest}:
-      do IO<List<&2, String>>:
-        t : String <- Lint.text(s)
-        ts : List<&2, String> <- texts(rest)
-        return Con{t, ts}
-
 def all_are(xs: List<&2, String>, +x: String) -> Bool:
   match xs:
     case Nil{}:
@@ -294,8 +284,8 @@ def rename(
   +refs: List<&2, Lint.Reference>
 ) -> IO(List<&2, Lint.Fix>):
   do IO<List<&2, Lint.Fix>>:
-    own : List<&2, String> <- texts(spans(refs))
-    near : List<&2, String> <- texts(uses_in(ds, o))
+    own : List<&2, String> <- Shared.texts(spans(refs))
+    near : List<&2, String> <- Shared.texts(uses_in(ds, o))
     return renames(
       Bool.and(
         all_are(own, name),
