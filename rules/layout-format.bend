@@ -1,7 +1,7 @@
-# format/layout: one formatter owns indentation, spacing, declaration gaps
+# layout/format: one formatter owns indentation, spacing, declaration gaps
 # and wrapping.
-# Run: bun src/lint.ts file.bend --rules rules/format.bend --fix
-# Config: { "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
+# Run: bun src/lint.ts file.bend --rules rules/layout-format.bend --fix
+# Config: { "rules": { "layout/format": { "tabWidth": 2, "wrapAtWidth": 100 } } }
 # "never" disables optional wrapping. endOfLine "preserve" keeps the first
 # ending, or LF if there is none.
 #
@@ -2415,7 +2415,7 @@ def verdict(m: Maybe<&2, String>, +text: String, +span: Lint.Span) -> IO(List<&2
       changed(same(out, text), out, span)
 
 def id() -> String:
-  "format/layout"
+  "layout/format"
 
 def facts() -> Lint.Want:
   Lint.NoFacts{}

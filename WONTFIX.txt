@@ -11,7 +11,7 @@ Bend rules run on the JS lane only; there is no C lane
   We measured it, and it does not pay:
   - Speed: formatting a 143 KB file takes about 79 ms in C and about 79 ms
     in JS, before the C lane's process and pipe costs. On the JS lane,
-    rules/format.bend takes 1.2x as long as the TypeScript formatter it
+    rules/layout-format.bend takes 1.2x as long as the TypeScript formatter it
     replaced (6e65ef8), over the 1688 .bend files of the Bend checkout.
   - Reach: the JS lane runs wherever Bun runs. The C lane needs clang, and
     Bend's C runtime runs on Linux and macOS only.

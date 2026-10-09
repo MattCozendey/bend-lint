@@ -48,22 +48,22 @@ const fixture = (text: string, name = "main.bend") => {
   fs.writeFileSync(file, text);
   return file;
 };
-const rule = fileURLToPath(new URL("./format.bend", import.meta.url));
+const rule = fileURLToPath(new URL("./layout-format.bend", import.meta.url));
 const rules = unwrap(await linter.loadRules([rule]));
 
-describe("format/layout", () => {
+describe("layout/format", () => {
   // The text the rule's fix gives; a finding without a fix fails.
   const formatted = async (text: string, options: FormatOptions = opts): Promise<string> => {
     const result = await lint(fixture(text), rules, {
-      config: { rules: { "format/layout": options } },
+      config: { rules: { "layout/format": options } },
     });
-    const declined = result.diags.find((d) => d.code === "format/layout" && !d.fixes.length);
+    const declined = result.diags.find((d) => d.code === "layout/format" && !d.fixes.length);
     if (declined !== undefined) throw new Error(declined.message);
     return applyFixes(result.root!, result.diags).text;
   };
   const fixed = async (text: string, options: FormatOptions = opts): Promise<string> => {
     const result = await lint(fixture(text), rules, {
-      config: { rules: { "format/layout": options } },
+      config: { rules: { "layout/format": options } },
     });
     if (!clean(result)) throw new Error(result.diags.map(render).join("\n"));
     expect(clean(result)).toBe(true);
@@ -72,7 +72,7 @@ describe("format/layout", () => {
     const output = applyFixes(source, result.diags).text;
     expect(await formatted(output, options)).toBe(output);
     const again = await lint(fixture(output), rules, {
-      config: { rules: { "format/layout": options } },
+      config: { rules: { "layout/format": options } },
     });
     expect([clean(again), again.diags]).toEqual([true, []]);
     const Bend = result.unstable.Bend;
@@ -100,7 +100,7 @@ describe("format/layout", () => {
   test("its options: defaults, the wrapAtWidth union, and what it rejects", async () => {
     const file = fixture("import Base\n\ndef main() -> U32:\n  1\n");
     const run = (options: Options) =>
-      lint(file, rules, { config: { rules: { "format/layout": options } } });
+      lint(file, rules, { config: { rules: { "layout/format": options } } });
     expect((await run({})).diags).toEqual([]);
     for (const good of [
       { wrapAtWidth: "never" },
@@ -127,10 +127,10 @@ describe("format/layout", () => {
     const run = async (text: string) =>
       (await lint(fixture("import Base\n\n\ndef main() -> U32:\n    " + text + "\n"), rules)).diags;
     const typed = await run('"x"');
-    expect(typed.map((d) => d.code)).toEqual(["bend/check", "format/layout"]);
+    expect(typed.map((d) => d.code)).toEqual(["bend/check", "layout/format"]);
     expect(typed[1].fixes.length).toBe(1);
     const parsed = await run("(1");
-    expect(parsed.map((d) => [d.code, d.fixes.length])).not.toContainEqual(["format/layout", 1]);
+    expect(parsed.map((d) => [d.code, d.fixes.length])).not.toContainEqual(["layout/format", 1]);
   });
 
   test("one sweep formats spacing, indentation, gaps, CRLF and final newline", async () => {
@@ -366,7 +366,7 @@ def main() -> String:
   test("CLI --fix writes the same whole-file formatting in one sweep", () => {
     const file = fixture("import Base\ndef main()->U32: 1  \n");
     const config = fixture(
-      JSON.stringify({ rules: { "format/layout": { tabWidth: 4, wrapAtWidth: "never" } } }),
+      JSON.stringify({ rules: { "layout/format": { tabWidth: 4, wrapAtWidth: "never" } } }),
       "config.json",
     );
     const cli = fileURLToPath(new URL("../src/lint.ts", import.meta.url));

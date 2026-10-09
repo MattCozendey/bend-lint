@@ -3,7 +3,7 @@
 A linter and formatter for Bend 2.
 
 ```sh
-bun src/lint.ts main.bend --rules rules/format.bend --fix
+bun src/lint.ts main.bend --rules rules/layout-format.bend --fix
 ```
 
 ## What it does
@@ -36,11 +36,11 @@ bun src/lint.ts <glob>... [--imports] [--rules <file>]... [--config <file>]
                 [--json] [--show-suppressed] [--bend <dir>]
 ```
 
-| You want        | Command                                                         |
-| --------------- | --------------------------------------------------------------- |
-| One file        | `bun src/lint.ts main.bend --rules rules/format.bend`           |
-| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/format.bend`     |
-| A whole program | `bun src/lint.ts main.bend --imports --rules rules/format.bend` |
+| You want        | Command                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| One file        | `bun src/lint.ts main.bend --rules rules/layout-format.bend`           |
+| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/layout-format.bend`     |
+| A whole program | `bun src/lint.ts main.bend --imports --rules rules/layout-format.bend` |
 
 ### Which files get linted
 
@@ -113,9 +113,9 @@ bend-lint reads one config file:
 
 ```json
 {
-  "load": ["./rules/format.bend", "./rules/file_length.bend"],
+  "load": ["./rules/layout-format.bend", "./rules/file_length.bend"],
   "rules": {
-    "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 },
+    "layout/format": { "tabWidth": 2, "wrapAtWidth": 100 },
     "style/file-length": { "maxLines": 400, "severity": "warning" }
   }
 }
@@ -135,7 +135,7 @@ export const config = { rules: { "style/file-length": { maxLines: 400 } } };
 
 ## Bundled rules
 
-### `format/layout` (`rules/format.bend`)
+### `layout/format` (`rules/layout-format.bend`)
 
 The formatter. It fixes indentation, spacing, comments, blank lines between
 declarations, line wrapping and the final newline. Its fix is `safe`.
@@ -166,8 +166,8 @@ A comment can silence a rule (`disable`) or require a finding (`expect`):
 
 ```
 # bend-lint: disable-file style/file-length -- generated tables
-# bend-lint: disable-begin format/layout -- hand-aligned table
-# bend-lint: disable-end format/layout
+# bend-lint: disable-begin layout/format -- hand-aligned table
+# bend-lint: disable-end layout/format
 # bend-lint: disable-next my/rule -- the old name stays
 # bend-lint: expect-next my/rule@hint -- the sample must report this
 ```
@@ -185,7 +185,7 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`
 - `expect` names the severity the finding must have. `disable` names none.
 - A finding is covered when it starts on a covered line of its own file.
 - Only the comments of linted files count.
-- `format/layout` and `style/file-length` report on line 1. Use `file`, or a
+- `layout/format` and `style/file-length` report on line 1. Use `file`, or a
   region that starts on line 1.
 - Directives on consecutive comment lines must be sorted: by rule, then
   severity, then keyword. The `safe` fix sorts them.

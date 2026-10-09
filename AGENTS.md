@@ -137,8 +137,11 @@ Change the tests and these docs with any of these:
 
 ## Writing rules
 
-A rule has an ID like `namespace/name`. That ID is the `code` of its
-findings. Make rules idempotent.
+A rule file is named `namespace-snake_case_name.ts` or
+`namespace-snake_case_name.bend`. Its ID is `namespace/snake_case_name`;
+that ID is the `code` of its findings. For example, `layout-format.bend`
+exports `layout/format`. Name its tests `namespace-snake_case_name.test.ts`.
+Make rules idempotent.
 
 ### TypeScript
 
@@ -395,12 +398,12 @@ Good to know:
 - A branch that uses a string or character its match took apart gets it
   rebuilt: a string as a rope of the whole rest, which the next read copies.
   Take the value twice and match one copy (`keep` in
-  [rules/format.bend](rules/format.bend)).
+  [rules/layout-format.bend](rules/layout-format.bend)).
 - `Bool.pick` evaluates both branches. Match on a `Bool` parameter when a
   branch is costly.
 
 Examples: [rules/file_length.bend](rules/file_length.bend), and the
-formatter, [rules/format.bend](rules/format.bend). In
+formatter, [rules/layout-format.bend](rules/layout-format.bend). In
 [src/lint.test.ts](src/lint.test.ts), `COMMA_BEND`, `TYPES_BEND`,
 `COUNT_BEND` and `PARITY_BEND` cover fixes, facts, earlier findings, the
 guard and union options.
@@ -416,7 +419,7 @@ import { ERROR, ERROR_METADATA } from "./src/result.ts";
 const made = await createLinter();
 if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
 const linter = made.OK;
-const rules = await linter.loadRules(["rules/format.bend", "rules/file_length.bend"]);
+const rules = await linter.loadRules(["rules/layout-format.bend", "rules/file_length.bend"]);
 if (ERROR in rules) throw new Error(rules[ERROR][ERROR_METADATA].message);
 const res = await linter.lint("src/bend/sample.bend", rules.OK);
 if (ERROR in res) {

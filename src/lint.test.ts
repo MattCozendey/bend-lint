@@ -50,7 +50,7 @@ type Seen = { kind: string; def: string; name: string; path: string };
 
 const linter = unwrap(await createLinter());
 const { BEND2, render } = linter;
-const formatRule = fileURLToPath(new URL("../rules/format.bend", import.meta.url));
+const formatRule = fileURLToPath(new URL("../rules/layout-format.bend", import.meta.url));
 const formatRules = unwrap(await linter.loadRules([formatRule]));
 
 // bend2's modules as bend-lint patched them, for what the tests inspect.
@@ -2350,7 +2350,7 @@ describe("linted files", () => {
     expect(seen(alone)).toContain(
       "test/refs keep main " + alone.root!.text.indexOf("keep(U.Z") + " 0",
     );
-    expect(seen(alone).some((s) => s.startsWith("format/layout"))).toBe(true);
+    expect(seen(alone).some((s) => s.startsWith("layout/format"))).toBe(true);
   });
 
   test("a rule of file scope that reports in another file crashes", async () => {
@@ -3006,7 +3006,7 @@ describe("suppression", () => {
     expect(applyFixes(res.root!, res.diags).text).toBe(HEADER + source);
   });
 
-  test("directives in a formatted file stay put under format/layout", async () => {
+  test("directives in a formatted file stay put under layout/format", async () => {
     const source = text(
       "def a() -> P:",
       "  # bend-lint: disable-next demo/a -- why",
@@ -3015,24 +3015,24 @@ describe("suppression", () => {
     const res = await lintText(source, [...formatRules, a, b]);
     expect(codes(res)).toEqual([]);
     expect(res.suppressed.map((d) => d.code).sort()).toEqual(["demo/a", "demo/b"]);
-    expect(res.diags.filter((d) => d.code === "format/layout")).toEqual([]);
+    expect(res.diags.filter((d) => d.code === "layout/format")).toEqual([]);
   });
   test("the CLI counts what a directive covers; --json lists it, --show-suppressed prints it", () => {
     const input = fixture(
       "cli_suppressed.bend",
-      "# bend-lint: disable-file format/layout -- cli test\nimport Base\ntype N is Data:\n  Z{}\ndef   a() -> N:\n  Z{}\n",
+      "# bend-lint: disable-file layout/format -- cli test\nimport Base\ntype N is Data:\n  Z{}\ndef   a() -> N:\n  Z{}\n",
     );
     const plain = run(input, "--rules", formatRule);
     expect(plain.status).toBe(0);
-    expect(plain.stdout).not.toContain("[format/layout]");
+    expect(plain.stdout).not.toContain("[layout/format]");
     expect(plain.stdout).toContain("bend-lint: 0 finding(s), 1 suppressed");
     const shown = run(input, "--rules", formatRule, "--show-suppressed");
-    expect(shown.stdout).toContain("[format/layout]");
+    expect(shown.stdout).toContain("[layout/format]");
     const json = JSON.parse(run(input, "--rules", formatRule, "--json").stdout);
     expect([json.ok, json.findings, json.suppressed.map((f: { code: string }) => f.code)]).toEqual([
       true,
       [],
-      ["format/layout"],
+      ["layout/format"],
     ]);
   });
   // A rule of program scope finds each use of a variable, in any file but Base.
