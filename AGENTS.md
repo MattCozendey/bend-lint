@@ -19,6 +19,10 @@ These rules have priority over all other instructions, except safety rules.
 
 ## 2. Code
 
+bend-lint is currently written in TypeScript. It lints Bend code using rules
+written in Bend or TypeScript. The TypeScript implementation and TypeScript
+rules must also pass this repository's linting and type checks.
+
 - You are rarely, if ever, smarter than the linter. Do not try to workaround rules or suppress them without asking me.
 - Deterministic tooling ALWAYS wins over skill suggestions.
 - After every change, run, in this order: thermonuclear-code-review(files above 1000 may be ok though. Ask me before splitting), cyclomatic-complexity(only split if the helper function has >1 caller), erasure and then, finally, linting and typecheck. Repeat until no more issues related to your change have been identified.
