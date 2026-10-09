@@ -155,11 +155,12 @@ export type OptionValue =
 export type Options = Record<string, OptionValue>;
 
 // Config: rule files to load, globs of the program's entry files (readConfig
-// makes both absolute), and per rule id, "off", or a severity and option
-// values.
+// makes both absolute), the default of LintOptions' `imports`, and per rule
+// id, "off", or a severity and option values.
 export type Config = {
   load?: string[];
   entries?: string[];
+  imports?: boolean;
   rules?: Record<string, "off" | ({ severity?: Severity } & Options)>;
 };
 
@@ -327,7 +328,7 @@ const OPTIONS = {
 } as const;
 
 const USAGE =
-  "usage: bun src/lint.ts <glob>... [--imports] [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
+  "usage: bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
 
 // A path part with one of these is a glob.
 const GLOB = /[*?[\]{}!]/;
@@ -426,6 +427,9 @@ const configAt = (file: string): Config => {
       : JSON.parse(fs.readFileSync(file, "utf8"));
     if (!strings(config.load) || !strings(config.entries)) {
       throw new Error("`load` and `entries` must be lists of paths");
+    }
+    if (![undefined, true, false].includes(config.imports)) {
+      throw new Error("`imports` must be true or false");
     }
     const at = path.dirname(path.resolve(file));
     const absolute = (ps: string[] | undefined) => ps?.map((p) => path.resolve(at, p));
@@ -547,7 +551,7 @@ const lintWith = async (
     signal = new AbortController().signal,
     config = nearestConfig(file),
     unsaved: held,
-    imports = false,
+    imports = config.imports ?? false,
   }: LintOptions,
 ): Promise<LintResult> => {
   const extra = await rulesFrom(m, config.load ?? []).catch((e: unknown) => {
@@ -1115,6 +1119,7 @@ const cli = async (argv: string[]): Promise<number> => {
     args: argv,
     options: OPTIONS,
     allowPositionals: true,
+    allowNegative: true,
   });
   if (values.help) {
     console.log(USAGE);
@@ -1124,12 +1129,18 @@ const cli = async (argv: string[]): Promise<number> => {
     throw new Error("give the .bend files to lint\n" + USAGE);
   }
   const files = named(positionals);
-  if (values.imports && files.length !== 1) {
-    throw new Error("--imports takes one entry file; " + files.length + " match\n" + USAGE);
-  }
   const linter = unwrap(await createLinter({ bend: values.bend }));
   const rules = unwrap(await linter.loadRules(values.rules ?? []));
-  const config = values.config === undefined ? undefined : unwrap(await readConfig(values.config));
+  const given = values.config === undefined ? undefined : unwrap(await readConfig(values.config));
+  const configs = await Promise.all(
+    files.map(async (file) => given ?? unwrap(await findConfig(file))),
+  );
+  const imports = configs.map((c) => values.imports ?? c.imports ?? false);
+  if (files.length > 1 && imports.includes(true)) {
+    throw new Error(
+      "--imports takes one entry file, also from the config; " + files.length + " match\n" + USAGE,
+    );
+  }
   const levels = FIXES.find(([flag]) => values[flag])?.[1];
   const where = (span: Span) => ({ path: span.file.path, range: position(span) });
   const finding = (d: Diag) => ({
@@ -1146,8 +1157,8 @@ const cli = async (argv: string[]): Promise<number> => {
   const show = (d: Diag): unknown => (values.json ? finding(d) : linter.render(d));
   // Each file is linted, fixed and shown in turn, so only one check is held.
   const reports: Array<{ failed: boolean; diags: unknown[]; suppressed: unknown[] }> = [];
-  for (const file of files) {
-    const res = unwrap(await linter.lint(file, rules, { config, imports: values.imports }));
+  for (const [i, file] of files.entries()) {
+    const res = unwrap(await linter.lint(file, rules, { config: configs[i], imports: imports[i] }));
     for (const at of levels === undefined ? [] : res.linted) {
       const { text, skipped, elsewhere } = applyFixes(at, res.diags, levels);
       if (text !== at.text) {

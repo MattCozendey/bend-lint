@@ -584,12 +584,12 @@ severity `error`.
 
 ### `linter.lint(file, rules, options)`
 
-| Option    | What                                                         |
-| --------- | ------------------------------------------------------------ |
-| `imports` | also lint every file the check reads, except Base            |
-| `config`  | the config. Without it, the nearest one is read              |
-| `signal`  | aborts the run                                               |
-| `unsaved` | file paths mapped to editor text not saved yet, for this run |
+| Option    | What                                                                               |
+| --------- | ---------------------------------------------------------------------------------- |
+| `imports` | also lint every file the check reads, except Base. Default: the config's `imports` |
+| `config`  | the config. Without it, the nearest one is read                                    |
+| `signal`  | aborts the run                                                                     |
+| `unsaved` | file paths mapped to editor text not saved yet, for this run                       |
 
 - The result has `diags`, `suppressed`, `sources`, `root` (the named file),
   `linted`, `facts` and `unstable`.

@@ -32,7 +32,7 @@ bun install
 ## Run it
 
 ```sh
-bun src/lint.ts <glob>... [--imports] [--rules <file>]... [--config <file>]
+bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <file>]... [--config <file>]
                 [--fix | --fix-suggested | --fix-dangerously]
                 [--json] [--show-suppressed] [--bend <dir>]
 ```
@@ -57,6 +57,8 @@ Findings appear only in the **linted files**:
 - Without `--imports`: each file you name.
 - With `--imports`: the one file you name, and every file it imports, except
   Base. `--imports` takes one file, and ignores `entries`.
+- `"imports": true` in the config turns `--imports` on. `--no-imports` turns
+  it off.
 
 A rule can read more than the linted files. It still shows findings only in
 them.
@@ -131,6 +133,7 @@ bend-lint reads one config file:
 | --------- | ------------------------------------------------------------- |
 | `load`    | rule files, relative to the config. They run after `--rules`. |
 | `entries` | globs of the program's entry files, relative to the config.   |
+| `imports` | `true` to lint as with `--imports`.                           |
 | `rules`   | per rule: `"off"`, or its options and a `severity`.           |
 
 - Severities: `error`, `warning`, `information`, `hint`.
