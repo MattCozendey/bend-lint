@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { applyFixes, createLinter } from "../src/lint.ts";
 import type { LintOptions, LintResult, LintRule, Options } from "../src/lint.ts";
 import { unwrap } from "../src/result.ts";
-import { format, rules } from "./format.ts";
+import { rules } from "./format.ts";
 import type { FormatOptions } from "./format.ts";
 
 const linter = unwrap(await createLinter());
@@ -44,40 +44,57 @@ const fixture = (text: string, name = "main.bend") => {
   fs.writeFileSync(file, text);
   return file;
 };
-async function fixed(text: string, options: FormatOptions = opts) {
-  const result = await lint(fixture(text), rules, {
-    config: { rules: { "format/layout": options } },
-  });
-  if (!clean(result)) throw new Error(result.diags.map(render).join("\n"));
-  expect(clean(result)).toBe(true);
-  expect(result.diags.every((d) => d.fixes.length === 1)).toBe(true);
-  const source = result.root!;
-  const output = applyFixes(source, result.diags).text;
-  expect(format(output, options)).toBe(output);
-  const again = await lint(fixture(output), rules, {
-    config: { rules: { "format/layout": options } },
-  });
-  expect([clean(again), again.diags]).toEqual([true, []]);
-  const Bend = result.unstable.Bend;
-  const bodies = [result.unstable.book, again.unstable.book].map((book) =>
-    Object.fromEntries(
-      book.order.flatMap((name) => {
-        const tld = book.tlds[name];
-        return tld.$ === "Def" && tld.e !== undefined && !tld.b
-          ? [[name, Bend.term_show(tld.e)]]
-          : [];
-      }),
-    ),
-  );
-  expect(bodies[1]).toEqual(bodies[0]);
-  return output;
-}
+const twins: Array<[string, LintRule[]]> = [
+  ["format.ts", rules],
+  [
+    "format.bend",
+    unwrap(await linter.loadRules([fileURLToPath(new URL("./format.bend", import.meta.url))])),
+  ],
+];
 
-describe("format/layout", () => {
-  test("ordinary names cannot open delimiter groups", () => {
+describe.each(twins)("format/layout in %s", (twin, rules) => {
+  // The text the rule's fix gives; a finding without a fix fails.
+  const formatted = async (text: string, options: FormatOptions = opts): Promise<string> => {
+    const result = await lint(fixture(text), rules, {
+      config: { rules: { "format/layout": options } },
+    });
+    const declined = result.diags.find((d) => d.code === "format/layout" && !d.fixes.length);
+    if (declined !== undefined) throw new Error(declined.message);
+    return applyFixes(result.root!, result.diags).text;
+  };
+  const fixed = async (text: string, options: FormatOptions = opts): Promise<string> => {
+    const result = await lint(fixture(text), rules, {
+      config: { rules: { "format/layout": options } },
+    });
+    if (!clean(result)) throw new Error(result.diags.map(render).join("\n"));
+    expect(clean(result)).toBe(true);
+    expect(result.diags.every((d) => d.fixes.length === 1)).toBe(true);
+    const source = result.root!;
+    const output = applyFixes(source, result.diags).text;
+    expect(await formatted(output, options)).toBe(output);
+    const again = await lint(fixture(output), rules, {
+      config: { rules: { "format/layout": options } },
+    });
+    expect([clean(again), again.diags]).toEqual([true, []]);
+    const Bend = result.unstable.Bend;
+    const bodies = [result.unstable.book, again.unstable.book].map((book) =>
+      Object.fromEntries(
+        book.order.flatMap((name) => {
+          const tld = book.tlds[name];
+          return tld.$ === "Def" && tld.e !== undefined && !tld.b
+            ? [[name, Bend.term_show(tld.e)]]
+            : [];
+        }),
+      ),
+    );
+    expect(bodies[1]).toEqual(bodies[0]);
+    return output;
+  };
+
+  test("ordinary names cannot open delimiter groups", async () => {
     const source =
       "import Base\ndef constructor() -> U32: 1\ndef toString() -> U32: 2\ndef valueOf() -> U32: 3\n";
-    expect(format(source, opts)).toBe(
+    expect(await formatted(source)).toBe(
       "import Base\n\ndef constructor() -> U32:\n  1\n\ndef toString() -> U32:\n  2\n\ndef valueOf() -> U32:\n  3\n",
     );
   });
@@ -145,16 +162,16 @@ describe("format/layout", () => {
     expect(await fixed("def main() -> Type: Type", options)).toBe("def main() -> Type:\n  Type\n");
   });
 
-  test("line ending options preserve literal contents", () => {
+  test("line ending options preserve literal contents", async () => {
     const source = 'def main() -> String:\n  "first\r\nsecond\nthird"\n';
     for (const endOfLine of ["lf", "crlf", "preserve"] as const) {
       const options = { ...opts, endOfLine };
       const newline = endOfLine === "crlf" ? "\r\n" : "\n";
-      const output = format(source, options);
+      const output = await formatted(source, options);
       expect(output).toBe(
         "def main() -> String:" + newline + '  "first\r\nsecond\nthird"' + newline,
       );
-      expect(format(output, options)).toBe(output);
+      expect(await formatted(output, options)).toBe(output);
     }
   });
 
@@ -278,17 +295,17 @@ def main() -> String:
   });
 
   test("the guard rejects a changed value or scope", async () => {
+    const source = "import Base\ndef main() -> U32:\n  1\n";
+    const text = await formatted(source);
     const guard: LintRule = {
       id: "test/guard",
       run: (cx) => {
         expect(cx.sameDeclarations("import Base\ndef main() -> U32:\n  2\n")).toBe(false);
-        expect(cx.sameDeclarations(format(cx.root.text, opts))).toBe(true);
+        expect(cx.sameDeclarations(text)).toBe(true);
         return [];
       },
     };
-    expect(clean(await lint(fixture("import Base\ndef main() -> U32:\n  1\n"), [guard]))).toBe(
-      true,
-    );
+    expect(clean(await lint(fixture(source), [guard]))).toBe(true);
   });
 
   test("operator chains wrap at boundaries and stay stable", async () => {
@@ -300,28 +317,28 @@ def main() -> String:
     );
   });
 
-  test("width counts code points", () => {
+  test("width counts code points", async () => {
     const source = 'def main() -> U32:\n  f("😀😀😀😀😀😀", 123)\n';
-    expect(format(source, { tabWidth: 2, wrapAtWidth: 18 })).toBe(source);
+    expect(await formatted(source, { tabWidth: 2, wrapAtWidth: 18 })).toBe(source);
   });
 
-  test("a character outside the BMP stays whole outside literals", () => {
+  test("a character outside the BMP stays whole outside literals", async () => {
     const source = "def main() -> U32:\n  😀\n";
-    expect(format(source, opts)).toBe(source);
+    expect(await formatted(source)).toBe(source);
   });
 
-  test("only Bend's whitespace is trimmed", () => {
+  test("only Bend's whitespace is trimmed", async () => {
     const source = "# note \u000b\n";
-    expect(format(source, opts)).toBe(source);
+    expect(await formatted(source)).toBe(source);
   });
 
-  test("empty files, comments and indivisible tokens have a canonical ending", () => {
-    expect(format("", opts)).toBe("\n");
-    expect(format("\n\n# comment\n\n", opts)).toBe("# comment\n");
+  test("empty files, comments and indivisible tokens have a canonical ending", async () => {
+    expect(await formatted("")).toBe("\n");
+    expect(await formatted("\n\n# comment\n\n")).toBe("# comment\n");
     const source = 'import Base\ndef main() -> String:\n  "an indivisible literal with spaces"\n';
-    const output = format(source, { tabWidth: 1, wrapAtWidth: 1 });
+    const output = await formatted(source, { tabWidth: 1, wrapAtWidth: 1 });
     expect(output).toContain(' "an indivisible literal with spaces"');
-    expect(format(output, { tabWidth: 1, wrapAtWidth: 1 })).toBe(output);
+    expect(await formatted(output, { tabWidth: 1, wrapAtWidth: 1 })).toBe(output);
   });
 
   test("CLI --fix writes the same whole-file formatting in one sweep", () => {
@@ -331,7 +348,7 @@ def main() -> String:
       "config.json",
     );
     const cli = fileURLToPath(new URL("../src/lint.ts", import.meta.url));
-    const rule = fileURLToPath(new URL("./format.ts", import.meta.url));
+    const rule = fileURLToPath(new URL("./" + twin, import.meta.url));
     const args = [cli, file, "--rules", rule, "--config", config, "--fix", "--json"];
     const result = spawnSync(process.execPath, args, { encoding: "utf8" });
     expect(result.status).toBe(0);
