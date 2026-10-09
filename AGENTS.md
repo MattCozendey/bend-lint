@@ -36,7 +36,7 @@ rules must also pass this repository's linting and type checks.
 
 ```sh
 bun install
-BEND_DIR=../bend bun test
+BEND_DIR=/path/to/bend bun test
 bun run typecheck
 bun run lint
 bun run format:check
@@ -46,6 +46,9 @@ git diff --check
 - `bun run typecheck` and `bun run lint` link `.bend2` to the Bend that
   `BEND_DIR` or the download picks.
 - The drift tests need a Bend checkout. Without `BEND_DIR`, they skip.
+- CI (`.github/workflows/ci.yml`) runs these on Linux and Windows: pushes
+  and pull requests against the pinned release, the daily run against
+  Bend's main.
 - `bun test` does not type check. `bun run typecheck` does, for this repo's
   files only, not Bend's.
 
@@ -576,11 +579,11 @@ All of this lives in `src/seam.ts`.
 
 1. `--bend <dir>`, or `$BEND_DIR` without the flag: a checkout or its
    `bend2` folder.
-2. A downloaded release: the one `bend version` names, or the latest if
-   Bend is not installed.
+2. A downloaded release: the one `bend version` names, or the pinned one
+   (`bendRelease` in package.json) if Bend is not installed.
 
-- The latest-release lookup is cached for a day. Offline, the newest cached
-  release is used.
+- `bun run sync-bend` moves the pin to Bend's newest release, only if the
+  tests, typecheck and lint pass on a clone of it.
 - A version picked by flag or PATH needs its source.
 - A download is `bend2/bend.ts`, `comp.ts`, `main.ts`, `safe.ts`,
   `base.bend` and the `effs/` files Base imports.
@@ -643,7 +646,8 @@ it read (unsaved text included) are unchanged. To tell, as git does:
 
 ### Staying compatible
 
-No Bend version is pinned. On every load, for checkouts and downloads:
+Only the fallback download is pinned. On every load, for checkouts and
+downloads:
 
 - Each source edit must match exactly once, after CRLF line ends become LF.
 - The compiler exports and runtime names bend-lint needs must be there once.

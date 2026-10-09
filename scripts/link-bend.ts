@@ -22,7 +22,5 @@ const now = fs.lstatSync(LINK, { throwIfNoEntry: false });
 if (now !== undefined && !now.isSymbolicLink()) {
   throw new Error(LINK + " is not a link; move it away");
 }
-if (now === undefined || fs.realpathSync(LINK) !== fs.realpathSync(dir)) {
-  if (now !== undefined) fs.unlinkSync(LINK);
-  fs.symlinkSync(dir, LINK, "junction");
-}
+if (now !== undefined) fs.unlinkSync(LINK);
+fs.symlinkSync(dir, LINK, "junction");

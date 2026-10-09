@@ -4,6 +4,7 @@
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "private": true,
   "type": "module",
+  "bendRelease": "v2.0.36",
   "bin": {
     "bend-lint": "src/lint.ts"
   },
@@ -13,7 +14,8 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "test": "bun test",
-    "typecheck": "bun scripts/link-bend.ts && bun scripts/typecheck.ts"
+    "typecheck": "bun scripts/link-bend.ts && bun scripts/typecheck.ts",
+    "sync-bend": "bun scripts/sync-bend.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

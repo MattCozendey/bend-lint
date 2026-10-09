@@ -9,6 +9,8 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
+import pkg from "../package.json" with { type: "json" };
+
 import type { Book, Ctx, Err, HTerm, LTerm, Name, Parse, Quant, Uses } from "bend2/bend.ts";
 import type { Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
@@ -164,12 +166,14 @@ const SAMPLE = nodePath.join(HERE, "bend", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
 
-const GIT = "https://github.com/bendlang/bend.git/info/refs?service=git-upload-pack";
 const RAW = "https://raw.githubusercontent.com/bendlang/bend/";
 const RELEASE = /^v\d+\.\d+\.\d+$/;
-const DAY = 24 * 60 * 60 * 1000;
 const EFF = /^effs\/[\w.-]+$/;
 const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
+
+// The newest bend release this repo's checks passed with; scripts/sync-bend.ts
+// moves it.
+export const PIN: string = pkg.bendRelease;
 
 // Downloaded bends, one folder per release.
 const CACHE = nodePath.join(
@@ -516,46 +520,6 @@ export const installedTag = (
   return version === undefined ? undefined : "v" + version;
 };
 
-// The newest release, from git's list of refs (GitHub's API limits calls).
-// It asks at most once a day (a missing or damaged note asks again).
-export const latestTag = async (cache: string = CACHE, get: Get = download): Promise<string> => {
-  const note = nodePath.join(cache, "latest.json");
-  const known = await Bun.file(note)
-    .json()
-    .catch(() => undefined);
-  if (RELEASE.test(String(known?.tag)) && Date.now() - Number(known?.at) < DAY) {
-    return String(known.tag);
-  }
-  const newest = (tags: string[]): string | undefined =>
-    tags
-      .filter((t) => RELEASE.test(t))
-      .map((t) => t.slice(1).split(".").map(Number))
-      .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
-      .map((v) => "v" + v.join("."))[0];
-  const got = await get(GIT)
-    .then((res) => text(res, ""))
-    .then(
-      (refs) => ({ refs }),
-      (e: unknown) => ({ e }),
-    );
-  if ("e" in got) {
-    // Offline: the newest cached release, left out of the note, so the
-    // next run asks again.
-    const cached = newest(nodeFs.existsSync(cache) ? nodeFs.readdirSync(cache) : []);
-    if (cached === undefined) {
-      throw new Error(`cannot list bend's releases (${message(got.e)}); ${GIVE}`);
-    }
-    return cached;
-  }
-  const listed = newest([...got.refs.matchAll(/refs\/tags\/(v[\d.]+)$/gm)].map((m) => m[1]));
-  if (listed === undefined) {
-    throw new Error(`bend has no release tags; ${GIVE}`);
-  }
-  nodeFs.mkdirSync(cache, { recursive: true });
-  nodeFs.writeFileSync(note, JSON.stringify({ tag: listed, at: Date.now() }));
-  return listed;
-};
-
 // bend2 at a release (the PATCHED files, safe.ts, base.bend and the effs/
 // files Base imports), kept in <cache>/<tag>/bend2.
 // A download goes to a temporary folder first, so the cache never holds a
@@ -621,7 +585,7 @@ export const bendDir = async (
     }
     return fs.realpathSync(found);
   }
-  const tag = installedTag(run) ?? (await latestTag(cache, get));
+  const tag = installedTag(run) ?? PIN;
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
   const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
     throw new Error(`could not download bend ${tag} (${message(e)}); ${GIVE}`);
