@@ -3,7 +3,7 @@
 A linter and formatter for Bend 2.
 
 ```sh
-bun src/lint.ts main.bend --rules rules/format.ts --fix
+bun src/lint.ts main.bend --rules rules/format.bend --fix
 ```
 
 ## What it does
@@ -33,11 +33,11 @@ bun src/lint.ts <glob>... [--imports] [--rules <file>]... [--config <file>]
                 [--json] [--show-suppressed] [--bend <dir>]
 ```
 
-| You want        | Command                                                       |
-| --------------- | ------------------------------------------------------------- |
-| One file        | `bun src/lint.ts main.bend --rules rules/format.ts`           |
-| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/format.ts`     |
-| A whole program | `bun src/lint.ts main.bend --imports --rules rules/format.ts` |
+| You want        | Command                                                         |
+| --------------- | --------------------------------------------------------------- |
+| One file        | `bun src/lint.ts main.bend --rules rules/format.bend`           |
+| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/format.bend`     |
+| A whole program | `bun src/lint.ts main.bend --imports --rules rules/format.bend` |
 
 ### Which files get linted
 
@@ -110,7 +110,7 @@ bend-lint reads one config file:
 
 ```json
 {
-  "load": ["./rules/format.ts", "./rules/file_length.bend"],
+  "load": ["./rules/format.bend", "./rules/file_length.bend"],
   "rules": {
     "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 },
     "style/file-length": { "maxLines": 400, "severity": "warning" }
@@ -132,7 +132,7 @@ export const config = { rules: { "style/file-length": { maxLines: 400 } } };
 
 ## Bundled rules
 
-### `format/layout` (`rules/format.ts`)
+### `format/layout` (`rules/format.bend`)
 
 The formatter. It fixes indentation, spacing, comments, blank lines between
 declarations, line wrapping and the final newline. Its fix is `safe`.
@@ -144,6 +144,8 @@ declarations, line wrapping and the final newline. Its fix is `safe`.
 | `endOfLine`   | `"lf"`  | `"lf"`, `"crlf"`, `"preserve"`   |
 
 - `wrapAtWidth` is a target. Long literals and comments can go past it.
+- Width counts code points: an emoji is 1, as are a CJK character and a
+  combining mark.
 - `"preserve"` keeps the first line ending, or LF if there is none.
 - It keeps literals, comments and declaration order. It only adds a space
   after a `#` that has none.

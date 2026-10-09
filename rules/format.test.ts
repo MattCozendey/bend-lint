@@ -7,8 +7,12 @@ import { fileURLToPath } from "node:url";
 import { applyFixes, createLinter } from "../src/lint.ts";
 import type { LintOptions, LintResult, LintRule, Options } from "../src/lint.ts";
 import { unwrap } from "../src/result.ts";
-import { rules } from "./format.ts";
-import type { FormatOptions } from "./format.ts";
+
+type FormatOptions = {
+  tabWidth: number;
+  wrapAtWidth: number | "never";
+  endOfLine?: "lf" | "crlf" | "preserve";
+};
 
 const linter = unwrap(await createLinter());
 const lint = async (
@@ -44,15 +48,10 @@ const fixture = (text: string, name = "main.bend") => {
   fs.writeFileSync(file, text);
   return file;
 };
-const twins: Array<[string, LintRule[]]> = [
-  ["format.ts", rules],
-  [
-    "format.bend",
-    unwrap(await linter.loadRules([fileURLToPath(new URL("./format.bend", import.meta.url))])),
-  ],
-];
+const rule = fileURLToPath(new URL("./format.bend", import.meta.url));
+const rules = unwrap(await linter.loadRules([rule]));
 
-describe.each(twins)("format/layout in %s", (twin, rules) => {
+describe("format/layout", () => {
   // The text the rule's fix gives; a finding without a fix fails.
   const formatted = async (text: string, options: FormatOptions = opts): Promise<string> => {
     const result = await lint(fixture(text), rules, {
@@ -371,7 +370,6 @@ def main() -> String:
       "config.json",
     );
     const cli = fileURLToPath(new URL("../src/lint.ts", import.meta.url));
-    const rule = fileURLToPath(new URL("./" + twin, import.meta.url));
     const args = [cli, file, "--rules", rule, "--config", config, "--fix", "--json"];
     const result = spawnSync(process.execPath, args, { encoding: "utf8" });
     expect(result.status).toBe(0);

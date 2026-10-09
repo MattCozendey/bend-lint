@@ -1,6 +1,6 @@
 ---
 name: erasure
-description: 'Spend half of the effort on removal: duplicated concepts to unify, dead code to delete, tangled logic to simplify, stale comments and prose to cut. Use on every code change, refactor, fix, review, or doc/memory edit, prompted or not, and before finishing any task: ask what the change made obsolete, and delete it.'
+description: "Spend half of the effort on removal: duplicated concepts to unify, dead code to delete, tangled logic to simplify, stale comments and prose to cut. Use on every code change, refactor, fix, review, or doc/memory edit, prompted or not, and before finishing any task: ask what the change made obsolete, and delete it."
 ---
 
 # Erasure

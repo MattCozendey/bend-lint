@@ -1,6 +1,9 @@
-# format/layout, in Bend: the twin of format.ts, which explains the layout.
-# Both rules give the same text; rules/format.test.ts runs each.
+# format/layout: one formatter owns indentation, spacing, declaration gaps
+# and wrapping.
 # Run: bun src/lint.ts file.bend --rules rules/format.bend --fix
+# Config: { "rules": { "format/layout": { "tabWidth": 2, "wrapAtWidth": 100 } } }
+# "never" disables optional wrapping. endOfLine "preserve" keeps the first
+# ending, or LF if there is none.
 #
 # A String is a JS string at run time: ++ is native, and a match on SCon
 # reads one character and slices off the rest. So the lexer reads the text
@@ -158,7 +161,9 @@ type Measure is Data:
   Measure{width: U32, tail: Maybe<&2, U32>, keep: U32}
 
 # How build reads a list of trees: a record, a group's children as a raw
-# block, as comma-separated parts, or a group with no children.
+# block, as comma-separated parts, or a group with no children. A block is
+# an embedded statement body: its line and column boundaries mean
+# something, so it keeps them, while ordinary calls inside it still wrap.
 type Mode is Data:
   Plain{}
   Block{open: Token, close: Token}
@@ -714,7 +719,9 @@ def comment(r: Run) -> Scan:
     case Run{text, len, rest, last}:
       Tok{text, len, rest, last, Comment{}, Word{}, False{}, None{}}
 
-# The token at the start of s; prev is the character before it.
+# The token at the start of s; prev is the character before it. Literals
+# and comment text are kept verbatim: a quote or # inside a string is not
+# syntax. Successor notation (1n+) and quantities (&2) are single tokens.
 # A run of whitespace on one line.
 def blanks(s: String, keep: String, n: U32, last: Char) -> Scan:
   match s:
@@ -1340,6 +1347,10 @@ def is_inc(s: Sym) -> Bool:
     case _:
       False{}
 
+# What goes between x and the tree b that y starts. A constructor's brace
+# is glued to its name; a brace after a space can instead be the next
+# (annotated) argument of a call without commas, so the space stays. Other
+# atoms need a space.
 def separator.of(+x: Token, +y: Token, +group: Bool, +b: Tree) -> Doc:
   Bool.pick(
     Doc,
@@ -1386,6 +1397,8 @@ def separator.of(+x: Token, +y: Token, +group: Bool, +b: Tree) -> Doc:
 def separator(a: Tree, +b: Tree) -> Doc:
   separator.of(last(a), first(b), Bool.not(is_leaf(b)), b)
 
+# "#x" gets a space; empty comments, whitespace, test expectations (#|),
+# directives (#!) and headings (##) stay as they are.
 def comment_text.after(rest: String, +keep: String) -> String:
   match rest:
     case SNil{}:
@@ -1699,7 +1712,8 @@ def opening(comments: Bool) -> Doc:
     case False{}:
       soft("", 0)
 
-# A generic's closing > stays glued to the term before it.
+# A generic's closing > stays glued to the term before it: Bend parses a
+# spaced > as a comparison, even across a newline.
 def closing(+close: Token, comments: Bool) -> Doc:
   Bool.pick(Doc, is_sym(Token.sym(close), Gt{}), nothing(), opening(comments))
 
@@ -2003,6 +2017,9 @@ def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +bud
       )
 
 # The doc at indent; fuel bounds the steps of the printer and of each fit.
+# A group is all flat if it fits; else its separators break together.
+# Nesting is relative, never aligned under a function name. The width is a
+# target, not a license to split atoms.
 def print(doc: Doc, +width: Maybe<&2, U32>, +indent: U32, +newline: String, +fuel: Nat) -> String:
   print.go(
     fuel,
@@ -2154,6 +2171,8 @@ def import_doc.of(h: Hash) -> Doc:
 def record_end(head: Token, record: List<&2, Tree>) -> U32:
   Token.end(last(Maybe.default(&2, Tree, last_of(record, None{}), Leaf{head})))
 
+# Paths and aliases have their own grammar: / and - are not operators there,
+# so an import keeps its text and only its spacing changes.
 def import_doc(+head: Token, record: List<&2, Tree>) -> Doc:
   import_doc.of(
     split_hash(
@@ -2173,6 +2192,8 @@ def decl_doc.of(inline: Bool, c: Cut, record: List<&2, Tree>, +tab: U32, +col: U
 def decl_doc.cut(+c: Cut, record: List<&2, Tree>, +declaration: Bool, +tab: U32, +col: U32) -> Doc:
   decl_doc.of(U32.is_zero(col) && declaration && cut.inline(c), c, record, tab, col)
 
+# A declaration's body on the line of its colon moves to the next line,
+# indented.
 def decl_doc(+record: List<&2, Tree>, +declaration: Bool, +tab: U32, +col: U32) -> Doc:
   decl_doc.cut(cut.go(record, Cut{[], [], False{}}), record, declaration, tab, col)
 

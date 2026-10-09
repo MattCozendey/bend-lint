@@ -34,8 +34,8 @@ Do not stop these rules when the topic changes.
 
 Stop these rules only when the user says:
 
-* "stop adhd mode"
-* "normal mode"
+- "stop adhd mode"
+- "normal mode"
 
 When the user stops the mode, confirm this in one short sentence.
 
@@ -151,10 +151,10 @@ Repeat only information that the reader needs for the next action.
 
 When useful, state:
 
-* the current step,
-* the completed step,
-* the next step,
-* an important value that must remain visible.
+- the current step,
+- the completed step,
+- the next step,
+- an important value that must remain visible.
 
 Bad:
 
@@ -252,21 +252,21 @@ It does not limit analysis, search, candidate generation, or retained informatio
 
 Do not start with phrases such as:
 
-* "Great question."
-* "Let me explain."
-* "I will..."
-* "Sure."
-* "Looking at your..."
-* "To answer your question..."
+- "Great question."
+- "Let me explain."
+- "I will..."
+- "Sure."
+- "Looking at your..."
+- "To answer your question..."
 
 Start with the answer or action.
 
 Do not end with phrases such as:
 
-* "Let me know if you need anything else."
-* "Hope this helps."
-* "Happy to clarify."
-* "Feel free to ask."
+- "Let me know if you need anything else."
+- "Hope this helps."
+- "Happy to clarify."
+- "Feel free to ask."
 
 Do not repeat a summary after the task is complete unless the summary adds necessary information.
 
@@ -286,11 +286,11 @@ For destructive actions, confirm before the action when confirmation is required
 
 Examples include:
 
-* `rm -rf`
-* force push
-* destructive database migration
-* dropping a table
-* deleting important data
+- `rm -rf`
+- force push
+- destructive database migration
+- dropping a table
+- deleting important data
 
 Safety requirements have priority over brevity.
 

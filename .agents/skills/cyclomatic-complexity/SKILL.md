@@ -14,12 +14,14 @@ CC = decision points + 1. Decision points: `if`, `else if`, `case`, loops, `catc
 Project linter config wins. If eslintrc, radon config, sonar config, or similar sets a complexity threshold, use that. No config: use defaults below.
 
 Thresholds:
+
 - 1-5: fine, leave alone
 - 6-10: watch, refactor if touching anyway
 - 11-15: refactor now
 - 15+: must split, no debate
 
 Prefer real tools over eyeballing when environment allows:
+
 - Python: `radon cc -s -a <path>`
 - JS/TS: eslint `complexity` rule
 - Go: `gocyclo`

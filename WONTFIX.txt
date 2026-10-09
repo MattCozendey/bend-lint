@@ -1,0 +1,22 @@
+WONTFIX: what bend-lint will not do, and why. Each entry is a design choice
+we made on purpose. Read this file before you open an issue.
+
+DESIGN (intentional choices)
+
+Bend rules run on the JS lane only; there is no C lane
+  A Bend rule is compiled to JS and run inside bend-lint. A C lane would
+  build each rule with clang and run it as a separate process that answers
+  lint.bend's effects over a pipe: an effects.c, a long-lived process, a
+  build cache and a fallback to JS.
+  We measured it, and it does not pay:
+  - Speed: formatting a 143 KB file takes about 79 ms in C and about 79 ms
+    in JS, before the C lane's process and pipe costs. On the JS lane,
+    rules/format.bend takes 1.2x as long as the TypeScript formatter it
+    replaced (6e65ef8), over the 1688 .bend files of the Bend checkout.
+  - Reach: the JS lane runs wherever Bun runs. The C lane needs clang, and
+    Bend's C runtime runs on Linux and macOS only.
+  - Cost: the C lane's only clear win is memory (about 17 MB against 147
+    MB), which a linter does not need.
+  Bend's C target keeps a String as a list of cells and has no native
+  string operations, so text-heavy rules gain least from it. Revisit this
+  if a rule is heavy on numbers or memory, not text.

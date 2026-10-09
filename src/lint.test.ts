@@ -21,7 +21,6 @@ import type {
   Source,
 } from "./lint.ts";
 import { ERROR, unwrap } from "./result.ts";
-import { rules as formatRules } from "../rules/format.ts";
 import type { Result } from "./result.ts";
 import {
   DRIFT,
@@ -51,6 +50,8 @@ type Seen = { kind: string; def: string; name: string; path: string };
 
 const linter = unwrap(await createLinter());
 const { BEND2, render } = linter;
+const formatRule = fileURLToPath(new URL("../rules/format.bend", import.meta.url));
+const formatRules = unwrap(await linter.loadRules([formatRule]));
 
 // bend2's modules as bend-lint patched them, for what the tests inspect.
 const Bend: typeof BendModule = await import(pathToFileURL(path.join(BEND2, "bend.ts")).href);
@@ -3023,14 +3024,13 @@ describe("suppression", () => {
       "cli_suppressed.bend",
       "# bend-lint: disable-file format/layout -- cli test\nimport Base\ntype N is Data:\n  Z{}\ndef   a() -> N:\n  Z{}\n",
     );
-    const format = fileURLToPath(new URL("../rules/format.ts", import.meta.url));
-    const plain = run(input, "--rules", format);
+    const plain = run(input, "--rules", formatRule);
     expect(plain.status).toBe(0);
     expect(plain.stdout).not.toContain("[format/layout]");
     expect(plain.stdout).toContain("bend-lint: 0 finding(s), 1 suppressed");
-    const shown = run(input, "--rules", format, "--show-suppressed");
+    const shown = run(input, "--rules", formatRule, "--show-suppressed");
     expect(shown.stdout).toContain("[format/layout]");
-    const json = JSON.parse(run(input, "--rules", format, "--json").stdout);
+    const json = JSON.parse(run(input, "--rules", formatRule, "--json").stdout);
     expect([json.ok, json.findings, json.suppressed.map((f: { code: string }) => f.code)]).toEqual([
       true,
       [],

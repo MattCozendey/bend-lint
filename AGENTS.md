@@ -365,8 +365,17 @@ Good to know:
 - It runs on Bend's JavaScript runtime. Use tail recursion over long text or
   lists, to stay inside the stack.
 - Streaming facts saves building a list of all of them.
+- A `String` is a JS string at run time: `++` and `String.length` are
+  native; a match on `SCon` reads one character and slices off the rest.
+- A branch that uses a string or character its match took apart gets it
+  rebuilt: a string as a rope of the whole rest, which the next read copies.
+  Take the value twice and match one copy (`keep` in
+  [rules/format.bend](rules/format.bend)).
+- `Bool.pick` evaluates both branches. Match on a `Bool` parameter when a
+  branch is costly.
 
-Examples: [rules/file_length.bend](rules/file_length.bend). In
+Examples: [rules/file_length.bend](rules/file_length.bend), and the
+formatter, [rules/format.bend](rules/format.bend). In
 [src/lint.test.ts](src/lint.test.ts), `COMMA_BEND`, `TYPES_BEND`,
 `COUNT_BEND` and `PARITY_BEND` cover fixes, facts, earlier findings, the
 guard and union options.
@@ -378,13 +387,13 @@ From a file in the repo root:
 ```ts
 import { applyFixes, createLinter } from "./src/lint.ts";
 import { ERROR, ERROR_METADATA } from "./src/result.ts";
-import { rules } from "./rules/format.ts";
 
 const made = await createLinter();
 if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
 const linter = made.OK;
-const more = await linter.loadRules(["rules/file_length.bend"]);
-const res = await linter.lint("example.bend", [...rules, ...(ERROR in more ? [] : more.OK)]);
+const rules = await linter.loadRules(["rules/format.bend", "rules/file_length.bend"]);
+if (ERROR in rules) throw new Error(rules[ERROR][ERROR_METADATA].message);
+const res = await linter.lint("src/bend/sample.bend", rules.OK);
 if (ERROR in res) {
   console.error(res[ERROR].type, res[ERROR][ERROR_METADATA].message);
 } else {
