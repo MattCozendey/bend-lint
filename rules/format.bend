@@ -79,7 +79,7 @@ type Sym is Data:
 
 # Offsets and columns count code points. name: whether the text matches
 # /^[\w.]+$/. tail: for a literal across lines, how many characters follow
-# its last newline.
+# its last newline. from: the text from the token on.
 type Token is Data:
   Token{
     text: String,
@@ -89,7 +89,8 @@ type Token is Data:
     lex: Lex,
     sym: Sym,
     name: Bool,
-    tail: Maybe<&2, U32>
+    tail: Maybe<&2, U32>,
+    from: String
   }
 
 # What the lexer read: the end of the text, one whitespace character, or a
@@ -127,24 +128,31 @@ type Class is Data:
 
 type Tree is Data:
   Leaf{token: Token}
-  Group{open: Token, close: Token, children: List<&2, Tree>}
+  Group{open: Token, close: Token, children: List<&2, Tree>, block: Bool}
 
-# A group the tree has opened: the sym that closes it, children last first.
+# A group the tree has opened: the sym that closes it, children last first,
+# and whether a child is a token that makes it a block.
 type Open is Data:
-  Open{token: Token, close: Sym, children: List<&2, Tree>}
+  Open{token: Token, close: Sym, children: List<&2, Tree>, block: Bool}
 
 type Built is Data:
   Built{stack: List<&2, Open>, root: List<&2, Tree>}
 
+# A doc printed flat: its width up to the first break it cannot lose (a
+# hard line, or a newline in text), and whether it has one.
+type Flat is Data:
+  Flat{width: U32, brk: Bool}
+
 # Str: text without its trailing whitespace, that whitespace, the width, and
 # how many characters follow the last newline, if any. Line: the text and
-# width when flat.
+# width when flat. Grp, Nest and Cat keep their Flat; Cat its docs last
+# first.
 type Doc is Data:
   Str{body: String, blank: String, width: U32, tail: Maybe<&2, U32>}
   Line{flat: String, width: U32, hard: Bool, offset: U32}
-  Grp{doc: Doc}
-  Nest{doc: Doc, amount: U32}
-  Cat{docs: List<&2, Doc>}
+  Grp{doc: Doc, flat: Flat}
+  Nest{doc: Doc, amount: U32, flat: Flat}
+  Cat{docs: List<&2, Doc>, flat: Flat}
 
 type Measure is Data:
   Measure{width: U32, tail: Maybe<&2, U32>, keep: U32}
@@ -297,25 +305,18 @@ def take.go(n: Nat, s: String, acc: String) -> String:
 def take(s: String, n: Nat) -> String:
   take.go(n, s, "")
 
-# Whether a and b both end here, or start with the same character.
-def heads(a: String, b: String) -> Bool:
-  match a b:
-    case SNil{} SNil{}:
-      True{}
-    case SCon{x, xs} SCon{y, ys}:
-      Char.is_eq(x, y)
-    case _ _:
-      False{}
-
+# ok: whether the characters so far were the same.
 def same.go(a: String, b: String, ok: Bool) -> Bool:
   match a b ok:
-    case SCon{x, +xs} SCon{y, +ys} True{}:
-      same.go(xs, ys, heads(xs, ys))
-    case _ _ done:
+    case SCon{x, xs} SCon{y, ys} True{}:
+      same.go(xs, ys, Char.is_eq(x, y))
+    case SNil{} SNil{} done:
       done
+    case _ _ _:
+      False{}
 
-def same(+a: String, +b: String) -> Bool:
-  same.go(a, b, heads(a, b))
+def same(a: String, b: String) -> Bool:
+  same.go(a, b, True{})
 
 # Lexer
 # -----
@@ -756,59 +757,72 @@ def next_col(lex: Lex, tail: Maybe<&2, U32>, +col: U32, +len: U32) -> U32:
       (col + len: U32)
 
 # Each step reads at least one character, so the text's length is fuel.
-def lex.go(fuel: Nat, sc: Scan, +at: U32, +col: U32, acc: List<&2, Token>) -> List<&2, Token>:
+def lex.go(
+  fuel: Nat,
+  sc: Scan,
+  from: String,
+  +at: U32,
+  +col: U32,
+  acc: List<&2, Token>
+) -> List<&2, Token>:
   match fuel sc:
     case 1n+k Tok{text, +len, +rest, last, +lex, sym, name, +tail}:
       lex.go(
         k,
         lex.token(rest, rest, last),
+        rest,
         (at + len: U32),
         next_col(lex, tail, col, len),
-        Con{Token{text, at, (at + len: U32), col, lex, sym, name, tail}, acc}
+        Con{Token{text, at, (at + len: U32), col, lex, sym, name, tail, from}, acc}
       )
     case 1n+k Blank{+rest, last}:
-      lex.go(k, lex.token(rest, rest, last), (at + 1: U32), (col + 1: U32), acc)
+      lex.go(k, lex.token(rest, rest, last), rest, (at + 1: U32), (col + 1: U32), acc)
     case _ _:
       List.reverse(&2, Token, acc)
 
 def tokens(+s: String) -> List<&2, Token>:
-  lex.go(1n+String.length(s), lex.token(s, s, '\0'), 0, 0, [])
+  lex.go(1n+String.length(s), lex.token(s, s, '\0'), s, 0, 0, [])
 
 # Tokens
 # ------
 def Token.text(t: Token) -> String:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       text
 
 def Token.beg(t: Token) -> U32:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       beg
 
 def Token.end(t: Token) -> U32:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       end
 
 def Token.col(t: Token) -> U32:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       col
 
 def Token.sym(t: Token) -> Sym:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       sym
 
 def Token.name(t: Token) -> Bool:
   match t:
-    case Token{text, beg, end, col, lex, sym, name, tail}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       name
+
+def Token.from(t: Token) -> String:
+  match t:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
+      from
 
 def is_comment(t: Token) -> Bool:
   match t:
-    case Token{+text, beg, end, col, Comment{}, sym, name, tail}:
+    case Token{+text, beg, end, col, Comment{}, sym, name, tail, from}:
       True{}
     case _:
       False{}
@@ -1048,19 +1062,19 @@ def first(n: Tree) -> Token:
   match n:
     case Leaf{t}:
       t
-    case Group{open, close, children}:
+    case Group{open, close, children, block}:
       open
 
 def last(n: Tree) -> Token:
   match n:
     case Leaf{t}:
       t
-    case Group{open, close, children}:
+    case Group{open, close, children, block}:
       close
 
 def is_newline(n: Tree) -> Bool:
   match n:
-    case Leaf{Token{text, beg, end, col, Newline{}, sym, name, tail}}:
+    case Leaf{Token{text, beg, end, col, Newline{}, sym, name, tail, from}}:
       True{}
     case _:
       False{}
@@ -1099,7 +1113,7 @@ def upcoming(xs: List<&2, Tree>) -> Maybe<&2, Tree>:
   match xs:
     case Nil{}:
       None{}
-    case Con{Leaf{Token{text, beg, end, col, Newline{}, sym, name, tail}}, rest}:
+    case Con{Leaf{Token{text, beg, end, col, Newline{}, sym, name, tail, from}}, rest}:
       upcoming(rest)
     case Con{x, rest}:
       Some{x}
@@ -1142,26 +1156,33 @@ def opens.of(s: Sym, +t: Token, prev: Maybe<&2, Token>) -> Bool:
 def opens(+t: Token, prev: Maybe<&2, Token>) -> Bool:
   opens.of(Token.sym(t), t, prev)
 
-def add(n: Tree, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
+def is_block_leaf(n: Tree) -> Bool:
+  match n:
+    case Leaf{t}:
+      is_block_word(Token.sym(t))
+    case _:
+      False{}
+
+def add(+n: Tree, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
   match stack:
     case Nil{}:
       Built{Nil{}, Con{n, root}}
-    case Con{Open{t, close, children}, rest}:
-      Built{Con{Open{t, close, Con{n, children}}, rest}, root}
+    case Con{Open{t, close, children, block}, rest}:
+      Built{Con{Open{t, close, Con{n, children}, block || is_block_leaf(n)}, rest}, root}
 
 def waits(stack: List<&2, Open>, s: Sym) -> Bool:
   match stack:
     case Nil{}:
       False{}
-    case Con{Open{t, close, children}, rest}:
+    case Con{Open{t, close, children, block}, rest}:
       is_sym(close, s)
 
 def pop(t: Token, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
   match stack:
     case Nil{}:
       Built{Nil{}, root}
-    case Con{Open{open, close, children}, rest}:
-      add(Group{open, t, List.reverse(&2, Tree, children)}, rest, root)
+    case Con{Open{open, close, children, block}, rest}:
+      add(Group{open, t, List.reverse(&2, Tree, children), block}, rest, root)
 
 def tree.close(closes: Bool, +t: Token, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
   match closes:
@@ -1173,7 +1194,7 @@ def tree.close(closes: Bool, +t: Token, stack: List<&2, Open>, root: List<&2, Tr
 def tree.step(opens: Bool, +t: Token, +stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
   match opens:
     case True{}:
-      Built{Con{Open{t, closer(Token.sym(t)), []}, stack}, root}
+      Built{Con{Open{t, closer(Token.sym(t)), [], False{}}, stack}, root}
     case False{}:
       tree.close(waits(stack, Token.sym(t)), t, stack, root)
 
@@ -1232,9 +1253,55 @@ def soft(flat: String, width: U32) -> Doc:
 def hard(offset: U32) -> Doc:
   Line{"", 0, True{}, offset}
 
+def flat_of(d: Doc) -> Flat:
+  match d:
+    case Str{body, blank, width, Some{t}}:
+      Flat{0, True{}}
+    case Str{body, blank, width, None{}}:
+      Flat{width, False{}}
+    case Line{text, width, True{}, offset}:
+      Flat{0, True{}}
+    case Line{text, width, False{}, offset}:
+      Flat{width, False{}}
+    case Grp{doc, f}:
+      f
+    case Nest{doc, amount, f}:
+      f
+    case Cat{docs, f}:
+      f
+
+# The Flat of a doc a, then of what follows it.
+def flat_then(a: Flat, rest: Flat) -> Flat:
+  match a rest:
+    case Flat{w, True{}} r:
+      Flat{w, True{}}
+    case Flat{w, False{}} Flat{v, b}:
+      Flat{(w + v: U32), b}
+
+def flat_rev(docs: List<&2, Doc>, acc: Flat) -> Flat:
+  match docs:
+    case Nil{}:
+      acc
+    case Con{d, rest}:
+      flat_rev(rest, flat_then(flat_of(d), acc))
+
+def grp(+d: Doc) -> Doc:
+  Grp{d, flat_of(d)}
+
+def nest(+d: Doc, amount: U32) -> Doc:
+  Nest{d, amount, flat_of(d)}
+
+# A Cat of docs last first.
+def cat_rev(+docs: List<&2, Doc>) -> Doc:
+  Cat{docs, flat_rev(docs, Flat{0, False{}})}
+
+# A Cat of a few docs, in order.
+def cat(docs: List<&2, Doc>) -> Doc:
+  cat_rev(List.reverse(&2, Doc, docs))
+
 def code(t: Token) -> Doc:
   match t:
-    case Token{text, +beg, end, col, lex, sym, name, tail}:
+    case Token{text, +beg, end, col, lex, sym, name, tail, from}:
       Str{text, "", (end - beg: U32), None{}}
 
 def glued_prefix(+a: Token, b: Maybe<&2, Tree>) -> Bool:
@@ -1325,13 +1392,13 @@ def comment_text(text: String, keep: String) -> String:
 
 def leaf_doc(+t: Token) -> Doc:
   match t:
-    case Token{text, beg, end, col, Newline{}, sym, name, tail}:
+    case Token{text, beg, end, col, Newline{}, sym, name, tail, from}:
       nothing()
-    case Token{+text, beg, end, col, Comment{}, sym, name, tail}:
+    case Token{+text, beg, end, col, Comment{}, sym, name, tail, from}:
       str(comment_text(text, text))
-    case Token{text, beg, end, col, Literal{}, sym, name, tail}:
+    case Token{text, beg, end, col, Literal{}, sym, name, tail, from}:
       str(text)
-    case Token{text, beg, end, col, Code{}, sym, name, tail}:
+    case Token{text, beg, end, col, Code{}, sym, name, tail, from}:
       code(t)
 
 # Levels
@@ -1396,9 +1463,9 @@ def Seq.chain(s: Seq) -> Seq:
 def Seq.doc(s: Seq, +tab: U32) -> Doc:
   match s:
     case Seq{out, None{}, prev, levels, skip}:
-      Grp{Cat{List.reverse(&2, Doc, out)}}
+      grp(cat_rev(out))
     case Seq{out, Some{chain}, prev, levels, skip}:
-      Grp{Cat{List.reverse(&2, Doc, Con{Nest{Cat{List.reverse(&2, Doc, chain)}, tab}, out})}}
+      grp(cat_rev(Con{nest(cat_rev(chain), tab), out}))
 
 def prev_comment(prev: Maybe<&2, Tree>) -> Bool:
   match prev:
@@ -1598,10 +1665,11 @@ def content.sep(comment: Bool, acc: List<&2, Doc>) -> List<&2, Doc>:
 def content.go(parts: List<&2, Part>, comment: Bool, acc: List<&2, Doc>) -> List<&2, Doc>:
   match parts:
     case Nil{}:
-      List.reverse(&2, Doc, acc)
+      acc
     case Con{Part{d, newlines, next}, rest}:
       content.go(rest, next, Con{d, content.sep(comment, acc)})
 
+# The parts' docs with their separators, last first.
 def content(parts: List<&2, Part>) -> List<&2, Doc>:
   match parts:
     case Nil{}:
@@ -1623,42 +1691,35 @@ def closing(+close: Token, comments: Bool) -> Doc:
 def Split.doc(+open: Token, +close: Token, +tab: U32, st: State) -> Doc:
   match st:
     case State{seq, Split{+parts, newlines, comment, attach, +comments}}:
-      Grp{
-        Cat{
+      grp(
+        cat(
           [
             code(open),
-            Nest{
-              Cat{
+            nest(
+              cat(
                 [
                   opening(comments),
-                  Cat{content(List.reverse(&2, Part, drop_parts(parts, should_drop(parts))))}
+                  cat_rev(content(List.reverse(&2, Part, drop_parts(parts, should_drop(parts)))))
                 ]
-              },
+              ),
               tab
-            },
+            ),
             closing(close, comments),
             code(close)
           ]
-        }
-      }
+        )
+      )
 
 # Build
 # -----
-def is_block(xs: List<&2, Tree>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{Leaf{t}, rest}:
-      is_block_word(Token.sym(t)) || is_block(rest)
-    case Con{Group{open, close, children}, rest}:
-      is_block(rest)
-
-def mode_of(+open: Token, +close: Token, +children: List<&2, Tree>) -> Mode:
-  match children:
-    case Nil{}:
+def mode_of(+open: Token, +close: Token, children: List<&2, Tree>, block: Bool) -> Mode:
+  match children block:
+    case Nil{} _:
       Bare{open, close}
-    case Con{x, xs}:
-      Bool.pick(Mode, is_block(Con{x, xs}), Block{open, close}, Parts{open, close})
+    case _ True{}:
+      Block{open, close}
+    case _ False{}:
+      Parts{open, close}
 
 def start(+base: U32) -> State:
   State{fresh(base), Split.fresh()}
@@ -1687,11 +1748,11 @@ def finish(mode: Mode, st: State, +tab: U32, +base: U32) -> Doc:
     case Plain{} State{seq, sp}:
       Seq.doc(seq, tab)
     case Block{open, close} State{seq, sp}:
-      Cat{[code(open), Seq.doc(seq, tab), code(close)]}
+      cat([code(open), Seq.doc(seq, tab), code(close)])
     case Parts{open, close} st2:
       Split.doc(open, close, tab, Split.end(tab, base, st2))
     case Bare{open, close} st2:
-      Cat{[code(open), code(close)]}
+      cat([code(open), code(close)])
 
 # The doc of a list of trees, read as mode says. A group's children are
 # built first, by the same def, as a smaller part of the list.
@@ -1701,7 +1762,7 @@ def build(nodes: List<&2, Tree>, +tab: U32, +base: U32, +mode: Mode, st: State) 
       finish(mode, st, tab, base)
     case Con{Leaf{+t}, +rest}:
       build(rest, tab, base, mode, visit(mode, Leaf{t}, leaf_doc(t), rest, tab, base, st))
-    case Con{Group{+open, +close, +children}, +rest}:
+    case Con{Group{+open, +close, +children, +block}, +rest}:
       build(
         rest,
         tab,
@@ -1709,8 +1770,8 @@ def build(nodes: List<&2, Tree>, +tab: U32, +base: U32, +mode: Mode, st: State) 
         mode,
         visit(
           mode,
-          Group{open, close, children},
-          build(children, tab, base, mode_of(open, close, children), start(base)),
+          Group{open, close, children, block},
+          build(children, tab, base, mode_of(open, close, children, block), start(base)),
           rest,
           tab,
           base,
@@ -1723,15 +1784,28 @@ def sequence(nodes: List<&2, Tree>, +tab: U32, +base: U32) -> Doc:
 
 # Printer
 # -------
-def push_rev(docs: List<&2, Doc>, +indent: U32, +flat: Bool, jobs: List<&2, Job>) -> List<&2, Job>:
+# Jobs for a Cat's docs, last first, so its first doc ends on top.
+def push(docs: List<&2, Doc>, +indent: U32, +flat: Bool, jobs: List<&2, Job>) -> List<&2, Job>:
   match docs:
     case Nil{}:
       jobs
     case Con{d, rest}:
-      push_rev(rest, indent, flat, Con{Job{d, indent, flat}, jobs})
+      push(rest, indent, flat, Con{Job{d, indent, flat}, jobs})
 
-def push_all(docs: List<&2, Doc>, +indent: U32, +flat: Bool, jobs: List<&2, Job>) -> List<&2, Job>:
-  push_rev(List.reverse(&2, Doc, docs), indent, flat, jobs)
+def fits.flat.of(over: Bool, brk: Bool, jobs: List<&2, Job>, left: U32) -> Fit:
+  match over brk:
+    case True{} _:
+      Stop{False{}}
+    case False{} True{}:
+      Stop{True{}}
+    case False{} False{}:
+      Go{jobs, left}
+
+# A doc printed flat, whole: past the width, or up to a break within it.
+def fits.flat(f: Flat, jobs: List<&2, Job>, +left: U32) -> Fit:
+  match f:
+    case Flat{+w, brk}:
+      fits.flat.of(U32.is_gt(w, left), brk, jobs, (left - w: U32))
 
 def fits.width(stop: Bool, +n: U32, jobs: List<&2, Job>, +left: U32) -> Fit:
   match stop:
@@ -1755,12 +1829,14 @@ def fits.step(jobs: List<&2, Job>, +left: U32) -> Fit:
       fits.width(is_some(tail), width, rest, left)
     case Con{Job{Line{text, width, hard, offset}, indent, flat}, rest}:
       fits.width(hard || Bool.not(flat), width, rest, left)
-    case Con{Job{Grp{doc}, indent, flat}, rest}:
-      Go{Con{Job{doc, indent, True{}}, rest}, left}
-    case Con{Job{Nest{doc, amount}, indent, flat}, rest}:
-      Go{Con{Job{doc, (indent + amount: U32), True{}}, rest}, left}
-    case Con{Job{Cat{docs}, indent, flat}, rest}:
-      Go{push_all(docs, indent, flat, rest), left}
+    case Con{Job{Grp{doc, f}, indent, flat}, rest}:
+      fits.flat(f, rest, left)
+    case Con{Job{Nest{doc, amount, f}, indent, flat}, rest}:
+      fits.flat(f, rest, left)
+    case Con{Job{Cat{docs, f}, indent, True{}}, rest}:
+      fits.flat(f, rest, left)
+    case Con{Job{Cat{docs, f}, indent, False{}}, rest}:
+      Go{push(docs, indent, False{}, rest), left}
 
 def fits.go(fuel: Nat, f: Fit) -> Bool:
   match fuel f:
@@ -1871,9 +1947,9 @@ def print.step(
         w,
         newline
       )
-    case Con{Job{Nest{doc, amount}, indent, flat}, rest}:
+    case Con{Job{Nest{doc, amount, f}, indent, flat}, rest}:
       Print{Con{Job{doc, (indent + amount: U32), flat}, rest}, out, pending, col}
-    case Con{Job{Grp{+doc}, +indent, +flat}, +rest}:
+    case Con{Job{Grp{+doc, f}, +indent, +flat}, +rest}:
       Print{
         Con{
           Job{doc, indent, print.flat(flat, fuel, width, col, Con{Job{doc, indent, True{}}, rest})},
@@ -1883,8 +1959,8 @@ def print.step(
         pending,
         col
       }
-    case Con{Job{Cat{docs}, indent, flat}, rest}:
-      Print{push_all(docs, indent, flat, rest), out, pending, col}
+    case Con{Job{Cat{docs, f}, indent, flat}, rest}:
+      Print{push(docs, indent, flat, rest), out, pending, col}
 
 # The text so far; pending whitespace is never written at the end.
 def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +budget: Nat) -> String:
@@ -2042,28 +2118,31 @@ def import_doc.of(h: Hash) -> Doc:
     case Hash{before, None{}}:
       str(alias(import_space(trim_end(before))))
     case Hash{before, Some{+comment}}:
-      Cat{
+      cat(
         [
           str(alias(import_space(trim_end(before)))),
           space("  ", 2),
           str(comment_text(comment, comment))
         ]
-      }
+      )
 
 # Where the record that head starts ends.
 def record_end(head: Token, record: List<&2, Tree>) -> U32:
   Token.end(last(Maybe.default(&2, Tree, last_of(record, None{}), Leaf{head})))
 
-def slice(+source: String, +beg: U32, +end: U32) -> String:
-  take(String.drop(source, U32.to_nat(beg)), U32.to_nat((end - beg: U32)))
-
-def import_doc(+source: String, +head: Token, record: List<&2, Tree>) -> Doc:
-  import_doc.of(split_hash(trim_end(slice(source, Token.beg(head), record_end(head, record)))))
+def import_doc(+head: Token, record: List<&2, Tree>) -> Doc:
+  import_doc.of(
+    split_hash(
+      trim_end(
+        take(Token.from(head), U32.to_nat((record_end(head, record) - Token.beg(head): U32)))
+      )
+    )
+  )
 
 def decl_doc.of(inline: Bool, c: Cut, record: List<&2, Tree>, +tab: U32, +col: U32) -> Doc:
   match inline c:
     case True{} Cut{before, after, found}:
-      Cat{[sequence(before, tab, col), Nest{Cat{[hard(0), sequence(after, tab, col)]}, tab}]}
+      cat([sequence(before, tab, col), nest(cat([hard(0), sequence(after, tab, col)]), tab)])
     case False{} c2:
       sequence(record, tab, col)
 
@@ -2075,7 +2154,6 @@ def decl_doc(+record: List<&2, Tree>, +declaration: Bool, +tab: U32, +col: U32) 
 
 def record_doc(
   is_import: Bool,
-  +source: String,
   +head: Token,
   +record: List<&2, Tree>,
   +declaration: Bool,
@@ -2084,7 +2162,7 @@ def record_doc(
 ) -> Doc:
   match is_import:
     case True{}:
-      import_doc(source, head, record)
+      import_doc(head, record)
     case False{}:
       decl_doc(record, declaration, tab, col)
 
@@ -2110,13 +2188,7 @@ def gapped(gap: Bool, rows: List<&2, String>) -> List<&2, String>:
     case _ rows2:
       rows2
 
-def rows.line(
-  +head: Token,
-  +record: List<&2, Tree>,
-  +source: String,
-  +set: Settings,
-  r: Rows
-) -> Rows:
+def rows.line(+head: Token, +record: List<&2, Tree>, +set: Settings, r: Rows) -> Rows:
   match set r:
     case Settings{+tab, +width, +newline} Rows{levels, +blank, unsafe, prior, rows}:
       +col = Token.col(head)
@@ -2129,7 +2201,7 @@ def rows.line(
         (declaration && Bool.not(prior) && Bool.not(unsafe)) || (comment && blank),
         blank
       )
-      +doc = record_doc(is_import(Token.sym(head)), source, head, record, declaration, tab, col)
+      +doc = record_doc(is_import(Token.sym(head)), head, record, declaration, tab, col)
       +fuel = U32.to_nat(
         (fuel_per_point() * ((record_end(head, record) - Token.beg(head): U32) + 1): U32)
       )
@@ -2141,19 +2213,19 @@ def rows.line(
         Con{print(doc, width, (depth(levels2) * tab: U32), newline, fuel), gapped(gap, rows)}
       }
 
-def rows.step(record: List<&2, Tree>, +source: String, +set: Settings, r: Rows) -> Rows:
+def rows.step(record: List<&2, Tree>, +set: Settings, r: Rows) -> Rows:
   match record r:
     case Nil{} Rows{levels, blank, unsafe, comment, rows}:
       Rows{levels, True{}, unsafe, comment, rows}
     case Con{+x, xs} r2:
-      rows.line(first(x), Con{x, xs}, source, set, r2)
+      rows.line(first(x), Con{x, xs}, set, r2)
 
-def rows.go(records: List<&2, List<&2, Tree>>, +source: String, +set: Settings, r: Rows) -> Rows:
+def rows.go(records: List<&2, List<&2, Tree>>, +set: Settings, r: Rows) -> Rows:
   match records:
     case Nil{}:
       r
     case Con{record, rest}:
-      rows.go(rest, source, set, rows.step(record, source, set, r))
+      rows.go(rest, set, rows.step(record, set, r))
 
 def head_empty(rows: List<&2, String>) -> Bool:
   match rows:
@@ -2193,11 +2265,7 @@ def format.text(r: Rows, +newline: String) -> String:
     case Rows{levels, blank, unsafe, comment, rows}:
       text_of(rows, newline)
 
-def format.of(
-  nodes: Maybe<&2, List<&2, Tree>>,
-  +source: String,
-  +set: Settings
-) -> Maybe<&2, String>:
+def format.of(nodes: Maybe<&2, List<&2, Tree>>, +set: Settings) -> Maybe<&2, String>:
   match nodes set:
     case None{} s:
       None{}
@@ -2206,7 +2274,6 @@ def format.of(
         format.text(
           rows.go(
             records(ns, Recs{[], []}),
-            source,
             Settings{tab, width, newline},
             Rows{[0], False{}, False{}, False{}, []}
           ),
@@ -2215,8 +2282,8 @@ def format.of(
       }
 
 # The formatted text, or None{} if its delimiters do not balance.
-def format(+source: String, +set: Settings) -> Maybe<&2, String>:
-  format.of(tree.go(tokens(source), None{}, Built{[], []}), source, set)
+def format(source: String, +set: Settings) -> Maybe<&2, String>:
+  format.of(tree.go(tokens(source), None{}, Built{[], []}), set)
 
 # Rule
 # ----
