@@ -97,7 +97,7 @@ type Token is Data:
 # token; with the text after it and its last character.
 type Scan is Data:
   Eof{}
-  Blank{rest: String, last: Char}
+  Blank{rest: String, last: Char, len: U32}
   Tok{
     text: String,
     len: U32,
@@ -594,7 +594,7 @@ def single(c: Char) -> Sym:
 def lex.other(class: Class, +c: Char, +rest: String) -> Scan:
   match class:
     case IsBlank{}:
-      Blank{rest, c}
+      Blank{rest, c, 1}
     case IsHead{}:
       ident(scan(~ident_at, rest, rest, ident_at(rest), char(c), 1, c))
     case IsDigit{}:
@@ -714,10 +714,24 @@ def comment(r: Run) -> Scan:
       Tok{text, len, rest, last, Comment{}, Word{}, False{}, None{}}
 
 # The token at the start of s; prev is the character before it.
+# A run of whitespace on one line.
+def blanks(s: String, keep: String, n: U32, last: Char) -> Scan:
+  match s:
+    case SCon{' ', +rest}:
+      blanks(rest, rest, (n + 1: U32), ' ')
+    case SCon{'\t', +rest}:
+      blanks(rest, rest, (n + 1: U32), '\t')
+    case SCon{'\r', +rest}:
+      blanks(rest, rest, (n + 1: U32), '\r')
+    case _:
+      Blank{keep, last, n}
+
 def lex.token(s: String, +keep: String, +prev: Char) -> Scan:
   match s:
     case SNil{}:
       Eof{}
+    case SCon{' ', +rest}:
+      blanks(rest, rest, 1, ' ')
     case SCon{'\n', rest}:
       Tok{"\n", 1, rest, '\n', Newline{}, Word{}, False{}, None{}}
     case SCon{'#', +rest}:
@@ -775,8 +789,8 @@ def lex.go(
         next_col(lex, tail, col, len),
         Con{Token{text, at, (at + len: U32), col, lex, sym, name, tail, from}, acc}
       )
-    case 1n+k Blank{+rest, last}:
-      lex.go(k, lex.token(rest, rest, last), rest, (at + 1: U32), (col + 1: U32), acc)
+    case 1n+k Blank{+rest, last, +len}:
+      lex.go(k, lex.token(rest, rest, last), rest, (at + len: U32), (col + len: U32), acc)
     case _ _:
       List.reverse(&2, Token, acc)
 
