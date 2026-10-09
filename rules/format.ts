@@ -196,7 +196,6 @@ const separator = (a: Node, b: Node): string => {
 
 const sequence = (
   nodes: Node[],
-  source: string,
   opts: FormatOptions,
   base: number,
   raw = false,
@@ -231,13 +230,13 @@ const sequence = (
         continuation.push(soft());
       } else (continuation ?? out).push(separator(prev, n));
     }
-    (continuation ?? out).push(nodeDoc(n, source, opts, base));
+    (continuation ?? out).push(nodeDoc(n, opts, base));
     prev = n;
   }
   return group(out);
 };
 
-const nodeDoc = (n: Node, source: string, opts: FormatOptions, base: number): Doc => {
+const nodeDoc = (n: Node, opts: FormatOptions, base: number): Doc => {
   if (!("open" in n))
     return n.kind === "newline" ? "" : n.kind === "comment" ? commentText(n.text) : n.text;
   const children = n.children;
@@ -247,17 +246,13 @@ const nodeDoc = (n: Node, source: string, opts: FormatOptions, base: number): Do
   const block = children.some(
     (c) => !("open" in c) && ["match", "case", "do", "=", ";", "%", "\\"].includes(c.text),
   );
-  if (block) return [n.open.text, sequence(children, source, opts, base, true), n.close.text];
+  if (block) return [n.open.text, sequence(children, opts, base, true), n.close.text];
   const parts: Node[][] = [[]];
   for (let i = 0; i < children.length; i++) {
     const c = children[i];
     if (!("open" in c) && c.text === ",") {
       const next = children[i + 1];
-      if (
-        next &&
-        first(next).kind === "comment" &&
-        !source.slice(c.end, first(next).beg).includes("\n")
-      ) {
+      if (next && first(next).kind === "comment") {
         parts[parts.length - 1].push(c, next);
         i++;
       }
@@ -273,7 +268,7 @@ const nodeDoc = (n: Node, source: string, opts: FormatOptions, base: number): Do
       if (prev.length && last(prev[prev.length - 1]).kind === "comment") content.push(hard());
       else content.push(",", soft());
     }
-    content.push(sequence(parts[i], source, opts, base));
+    content.push(sequence(parts[i], opts, base));
   }
   const comments = children.some((c) => first(c).kind === "comment");
   // A generic closing '>' must stay glued to its preceding term: a spaced
@@ -407,10 +402,10 @@ export const format = (source: string, opts: FormatOptions): string => {
         col === 0 && declaration ? record.findIndex((n) => !("open" in n) && n.text === ":") : -1;
       if (colon >= 0 && colon < record.length - 1 && first(record[colon + 1]).kind !== "comment") {
         doc = [
-          sequence(record.slice(0, colon + 1), source, opts, col),
-          nest([hard(), sequence(record.slice(colon + 1), source, opts, col)], opts.tabWidth),
+          sequence(record.slice(0, colon + 1), opts, col),
+          nest([hard(), sequence(record.slice(colon + 1), opts, col)], opts.tabWidth),
         ];
-      } else doc = sequence(record, source, opts, col);
+      } else doc = sequence(record, opts, col);
     }
     rows.push(
       print(doc, opts.wrapAtWidth === "never" ? Infinity : opts.wrapAtWidth, indent, newline),
