@@ -40,7 +40,6 @@ const DELIMITERS = new Map([
 ]);
 // Whitespace, as Bend's parser reads it.
 const BLANK = " \t\n\r";
-const TRAILING_BLANK = new RegExp(`[${BLANK}]+$`);
 const UNSPACED_COMMENT = new RegExp(`^#[^${BLANK}#!|]`, "u");
 const IMPORT = new RegExp(`^import[${BLANK}]+`);
 const ALIAS = new RegExp(`[${BLANK}]+as[${BLANK}]+`);
@@ -151,7 +150,12 @@ const tree = (ts: Token[]): Node[] => {
 // Width counts code points, as Bend does.
 // oxlint-disable-next-line typescript/no-misused-spread
 const points = (text: string): number => [...text].length;
-const trimEnd = (text: string): string => text.replace(TRAILING_BLANK, "");
+// A loop, not /[ \t\n\r]+$/: that regex scans every whitespace run to its end.
+const trimEnd = (text: string): string => {
+  let end = text.length;
+  while (end > 0 && BLANK.includes(text[end - 1])) end--;
+  return text.slice(0, end);
+};
 
 const first = (n: Node): Token => ("open" in n ? n.open : n);
 const last = (n: Node): Token => ("open" in n ? n.close : n);
