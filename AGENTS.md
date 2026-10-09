@@ -102,18 +102,19 @@ git diff --check
 
 ## Files
 
-| File                   | Holds                                                           |
-| ---------------------- | --------------------------------------------------------------- |
-| `src/lint.ts`          | the rule runner, findings, fixes, library API and CLI           |
-| `src/seam.ts`          | everything about Bend's internals (see [Internals](#internals)) |
-| `src/suppress.ts`      | `# bend-lint:` directives                                       |
-| `src/result.ts`        | the `Result` that entry points return                           |
-| `src/bend/lint.bend`   | what a Bend rule imports                                        |
-| `src/bend/effects.js`  | the effects a Bend rule calls                                   |
-| `src/bend/sample.bend` | the program the startup self-check reads                        |
-| `rules/`               | bundled rules, one folder per namespace, each with its tests    |
-| `rules/shared.ts`      | logic that more than one TypeScript rule uses                   |
-| `rules/shared.bend`    | logic that more than one Bend rule uses                         |
+| File                  | Holds                                                           |
+| --------------------- | --------------------------------------------------------------- |
+| `src/lint.ts`         | the rule runner, findings, fixes, library API and CLI           |
+| `src/seam.ts`         | everything about Bend's internals (see [Internals](#internals)) |
+| `src/suppress.ts`     | `# bend-lint:` directives                                       |
+| `src/result.ts`       | the `Result` that entry points return                           |
+| `src/bend/lint.bend`  | what a Bend rule imports                                        |
+| `src/bend/effects.js` | the effects a Bend rule calls                                   |
+| `samples/`            | `.bend` files to lint by hand                                   |
+| `samples/sample.bend` | the program the startup self-check reads                        |
+| `rules/`              | bundled rules, one folder per namespace, each with its tests    |
+| `rules/shared.ts`     | logic that more than one TypeScript rule uses                   |
+| `rules/shared.bend`   | logic that more than one Bend rule uses                         |
 
 ## How a run works
 
@@ -578,7 +579,7 @@ if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
 const linter = made.OK;
 const rules = await linter.loadRules(["rules/layout/format.bend"]);
 if (ERROR in rules) throw new Error(rules[ERROR][ERROR_METADATA].message);
-const res = await linter.lint("src/bend/sample.bend", rules.OK);
+const res = await linter.lint("samples/sample.bend", rules.OK);
 if (ERROR in res) {
   console.error(res[ERROR].type, res[ERROR][ERROR_METADATA].message);
 } else {
@@ -805,7 +806,7 @@ download, checks:
   time.
 - `book_read`, `book_err` and `Check_Fail` take the arguments bend-lint gives
   them.
-- A self-check runs `src/bend/sample.bend`:
+- A self-check runs `samples/sample.bend`:
   - in `def id(x: N) -> N: x`, `x` has the right type, binder, quantity, uses
     and span;
   - each checker wrapper reports the terms only it sees;

@@ -43,6 +43,9 @@ bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <file>]... [--conf
 | Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/layout/format.bend`     |
 | A whole program | `bun src/lint.ts main.bend --imports --rules rules/layout/format.bend` |
 
+The `samples/` folder holds `.bend` files to try bend-lint on, for example
+`bun src/lint.ts "samples/*.bend" --rules rules/layout/format.bend`.
+
 ### Inputs
 
 - Each input is a glob. A plain path matches only that file.

@@ -175,7 +175,7 @@ export const DRIFT = Symbol("DriftError");
 const HERE = url.fileURLToPath(new URL(".", import.meta.url));
 const DRIVE = /^[A-Za-z]:(?=\/)/;
 const SHIM = JSON.stringify(url.pathToFileURL(nodePath.join(HERE, "seam.ts")).href);
-const SAMPLE = nodePath.join(HERE, "bend", "sample.bend");
+const SAMPLE = nodePath.join(HERE, "..", "samples", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
 
@@ -1806,7 +1806,7 @@ export const guardMain = (Main: Main): void =>
     (wrong) => `bend2/main.ts no longer has ${wrong}; update PATCHES in src/seam.ts`,
   );
 
-// Checks src/bend/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
+// Checks samples/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
 // must be a Var typed N, bound as an N, used once, at its own span; `id` in
 // main is reported only by term_infer, and the Lam only by term_check.
 const selfCheck = async (m: Loaded): Promise<void> => {
@@ -1852,7 +1852,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       ],
     ],
     (wrong) =>
-      `self-check failed: the patched bend2 gave the wrong ${wrong} for src/bend/sample.bend; update src/seam.ts`,
+      `self-check failed: the patched bend2 gave the wrong ${wrong} for samples/sample.bend; update src/seam.ts`,
   );
 };
 
