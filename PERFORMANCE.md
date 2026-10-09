@@ -109,17 +109,45 @@ Agent result:
 - 4 tool calls, 28 s.
 - Its comment lines break `layout/format`. It ran only the performance rules.
 
+### `performance/append-in-loop`
+
+A def passes `List.append(acc, ..)` or `acc ++ ..` to its own call, for its
+parameter `acc`. Each append copies `acc`, so building it is O(n²). The
+finding says to build at the head and reverse once, or, for a string, to
+collect the pieces and join them once. Its advice spells the call's
+quantity and type, so that it compiles as written.
+
+There is no fix: the rewrite changes the loop's end.
+
+Sample `samples/append-in-loop/`: the squares of 0 .. 29999, collected in a
+list.
+
+| File          | 1 thread     | 16 threads   |
+| ------------- | ------------ | ------------ |
+| `before.bend` | 1.68 s       | 1.69 s       |
+| `after.bend`  | under 0.01 s | under 0.01 s |
+
+Agent result:
+
+- 1 finding, without a fix. The agent made the two changes it asked for by
+  hand, with a comment after each: cons at the head, and reverse when the
+  loop ends. The result is the same.
+- The finding then suggested `List.reverse(acc)`, which does not compile.
+  The agent found the right call, `List.reverse(&2, U32, acc)`, and
+  reported the mistake. The advice now spells it.
+- 4 tool calls, 23 s.
+- Its comment lines break `layout/format`. It ran only the performance rules.
+
 ## Candidates
 
 Measured on an x86 CPU with 20 threads, Bend 2.0.36.
 
-| Pattern                                                          | Detect | Fix                  | Gain measured                   |
-| ---------------------------------------------------------------- | ------ | -------------------- | ------------------------------- |
-| append in a loop (`acc ++ [x]`)                                  | easy   | cons, then reverse   | not measured                    |
-| `Nat` arithmetic (`pow2`) in a fork's arguments                  | easy   | use `U32.shln(1, p)` | 10x gain cut to 1.9x            |
-| index-split fork: the whole collection shared, split by an index | medium | split the data       | 1.4x (`samples/matrix-vector/`) |
-| a `+` value that every leaf reads                                | easy   | none in general      | about 2x, also on one thread    |
-| loops that are not tail calls                                    | easy   | accumulator          | almost none in native code      |
+| Pattern                                                          | Detect | Fix                  | Gain measured                                                                              |
+| ---------------------------------------------------------------- | ------ | -------------------- | ------------------------------------------------------------------------------------------ |
+| `Nat` arithmetic (`pow2`) in a fork's arguments                  | easy   | use `U32.shln(1, p)` | 10x gain cut to 1.9x                                                                       |
+| index-split fork: the whole collection shared, split by an index | medium | split the data       | 1.4x (`samples/matrix-vector/`); list-index-loop finds it, but advises a walk, not a split |
+| a `+` value that every leaf reads                                | easy   | none in general      | about 2x, also on one thread                                                               |
+| loops that are not tail calls                                    | easy   | accumulator          | almost none in native code                                                                 |
 
 On the GPU, not measured:
 

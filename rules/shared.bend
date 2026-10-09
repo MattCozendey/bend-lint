@@ -10,6 +10,18 @@ import ../src/bend/lint.bend as Lint
 type Spine is Data:
   Spine{head: Lint.Node, args: List<&2, Lint.Node>}
 
+# An argument of a call: the variable it is (or ""), and its span.
+type Arg is Data:
+  Arg{name: String, span: Maybe<&2, Lint.Span>}
+
+# A call in a def's body: its head's name, its arguments, and its span.
+type Call is Data:
+  Call{head: String, args: List<&2, Arg>, span: Maybe<&2, Lint.Span>}
+
+# A def's name, parameters and calls.
+type Body is Data:
+  Body{name: String, params: List<&2, String>, calls: List<&2, Call>}
+
 # Constants
 # =========
 
@@ -128,3 +140,147 @@ def head_shape(sp: Spine) -> IO(Lint.Shape):
   match sp:
     case Spine{head, args}:
       Lint.shape(head)
+
+def nth(xs: List<&2, String>, n: Nat) -> String:
+  match xs n:
+    case Con{x, rest} 0n:
+      x
+    case Con{x, rest} 1n+k:
+      nth(rest, k)
+    case Nil{} _:
+      ""
+
+# The position of `x` in `xs`, from `i`, if it is there.
+def position(xs: List<&2, String>, +x: String, +i: Nat) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{y, rest}:
+      Bool.pick(Maybe<&2, Nat>, String.eq(y, x), Some{i}, position(rest, x, 1n+i))
+
+def names(args: List<&2, Arg>) -> List<&2, String>:
+  match args:
+    case Nil{}:
+      []
+    case Con{Arg{name, span}, rest}:
+      Con{name, names(rest)}
+
+def arg_of(s: Lint.Shape) -> Arg:
+  match s:
+    case Lint.Shape{"Var", name, span, kids}:
+      Arg{name, span}
+    case Lint.Shape{kind, name, span, kids}:
+      Arg{"", span}
+
+def args_of(ns: List<&2, Lint.Node>) -> IO(List<&2, Arg>):
+  match ns:
+    case Nil{}:
+      IO.pure(List<&2, Arg>, [])
+    case Con{n, rest}:
+      do IO<List<&2, Arg>>:
+        bare: Lint.Node <- Lint.strip(n)
+        s: Lint.Shape <- Lint.shape(bare)
+        as: List<&2, Arg> <- args_of(rest)
+        return Con{arg_of(s), as}
+
+def ref_name(s: Lint.Shape) -> String:
+  match s:
+    case Lint.Shape{"Ref", name, span, kids}:
+      name
+    case _:
+      ""
+
+def call_at(sp: Spine, span: Maybe<&2, Lint.Span>) -> IO(Call):
+  match sp:
+    case Spine{head, args}:
+      do IO<Call>:
+        h: Lint.Shape <- Lint.shape(head)
+        as: List<&2, Arg> <- args_of(args)
+        return Call{ref_name(h), as, span}
+
+def calls_in(s: Lint.Shape, +n: Lint.Node) -> IO(List<&2, Call>):
+  match s:
+    case Lint.Shape{"App", name, span, kids}:
+      do IO<List<&2, Call>>:
+        sp: Spine <- call_of(n)
+        c: Call <- call_at(sp, span)
+        return [c]
+    case _:
+      IO.pure(List<&2, Call>, [])
+
+# Every call in `ns`, last first. A call of n arguments is n nested App
+# nodes; each is listed, with its own count of arguments.
+def calls(ns: List<&2, Lint.Node>, acc: List<&2, Call>) -> IO(List<&2, Call>):
+  match ns:
+    case Nil{}:
+      IO.pure(List<&2, Call>, acc)
+    case Con{+n, rest}:
+      do IO<List<&2, Call>>:
+        s: Lint.Shape <- Lint.shape(n)
+        cs: List<&2, Call> <- calls_in(s, n)
+        calls(rest, List.append(&2, Call, cs, acc))
+
+def body_of(
+  +name: String,
+  +params: List<&2, String>,
+  m: Maybe<&2, Lint.Node>
+) -> IO(List<&2, Body>):
+  match m:
+    case None{}:
+      IO.pure(List<&2, Body>, [])
+    case Some{b}:
+      do IO<List<&2, Body>>:
+        ns: List<&2, Lint.Node> <- Lint.nodes(b)
+        cs: List<&2, Call> <- calls(ns, [])
+        return [Body{name, params, cs}]
+
+def param_name(
+  owner: Maybe<&2, String>,
+  kind: Lint.DeclarationKind,
+  +o: String,
+  +name: String,
+  +rest: List<&2, String>
+) -> List<&2, String>:
+  match owner kind:
+    case Some{x} Lint.Parameter{}:
+      Bool.pick(List<&2, String>, String.eq(x, o), Con{name, rest}, rest)
+    case _ _:
+      rest
+
+# The parameters of def `o`, in order.
+def params_of(ds: List<&2, Lint.Declaration>, +o: String) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      []
+    case Con{Lint.Declaration{kind, name, owner, span, refs, loads, fills, term}, rest}:
+      param_name(owner, kind, o, name, params_of(rest, o))
+
+def body(+all: List<&2, Lint.Declaration>, d: Lint.Declaration) -> IO(List<&2, Body>):
+  match d:
+    case Lint.Declaration{Lint.Definition{}, +name, None{}, span, refs, loads, fills, term}:
+      IO.bind(
+        Maybe<&2, Lint.Node>,
+        List<&2, Body>,
+        Lint.body(name),
+        m => body_of(name, params_of(all, name), m)
+      )
+    case _:
+      IO.pure(List<&2, Body>, [])
+
+# The body of each top-level def of `ds`, in file order; `all` are the
+# file's declarations.
+def bodies(
+  +all: List<&2, Lint.Declaration>,
+  ds: List<&2, Lint.Declaration>,
+  acc: List<&2, Body>
+) -> IO(List<&2, Body>):
+  match ds:
+    case Nil{}:
+      IO.pure(List<&2, Body>, acc)
+    case Con{d, rest}:
+      IO.bind(
+        List<&2, Body>,
+        List<&2, Body>,
+        body(all, d),
+        b => bodies(all, rest, List.append(&2, Body, acc, b))
+      )
