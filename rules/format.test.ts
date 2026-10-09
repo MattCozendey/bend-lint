@@ -300,6 +300,21 @@ def main() -> String:
     );
   });
 
+  test("width counts code points", () => {
+    const source = 'def main() -> U32:\n  f("😀😀😀😀😀😀", 123)\n';
+    expect(format(source, { tabWidth: 2, wrapAtWidth: 18 })).toBe(source);
+  });
+
+  test("a character outside the BMP stays whole outside literals", () => {
+    const source = "def main() -> U32:\n  😀\n";
+    expect(format(source, opts)).toBe(source);
+  });
+
+  test("only Bend's whitespace is trimmed", () => {
+    const source = "# note \u000b\n";
+    expect(format(source, opts)).toBe(source);
+  });
+
   test("empty files, comments and indivisible tokens have a canonical ending", () => {
     expect(format("", opts)).toBe("\n");
     expect(format("\n\n# comment\n\n", opts)).toBe("# comment\n");

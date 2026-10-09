@@ -38,6 +38,12 @@ const DELIMITERS = new Map([
   ["{", "}"],
   ["<", ">"],
 ]);
+// Whitespace, as Bend's parser reads it.
+const BLANK = " \t\n\r";
+const TRAILING_BLANK = new RegExp(`[${BLANK}]+$`);
+const UNSPACED_COMMENT = new RegExp(`^#[^${BLANK}#!|]`, "u");
+const IMPORT = new RegExp(`^import[${BLANK}]+`);
+const ALIAS = new RegExp(`[${BLANK}]+as[${BLANK}]+`);
 // A word, a number, or a symbol of more than one character, at lastIndex.
 const ATOM =
   /[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*|\d+(?:n\+?|\.\d+(?:[eE][+-]?\d+)?)?|<&>|\.&\.|\.\|\.|\.\^\.|->|=>|<-|==|!=|<=|>=|<<|&&|\|\||\+\+|<>|&[012]/y;
@@ -79,8 +85,8 @@ const tokens = (source: string): Token[] => {
     start = 0;
   while (at < source.length) {
     const beg = at,
-      c = source[at];
-    if (" \t\r".includes(c)) {
+      c = String.fromCodePoint(source.codePointAt(at)!);
+    if (c !== "\n" && BLANK.includes(c)) {
       at++;
       continue;
     }
@@ -104,7 +110,7 @@ const tokens = (source: string): Token[] => {
     } else {
       ATOM.lastIndex = at;
       if (source.startsWith("<-", at) && /[\w.]/.test(source[at - 1] ?? "")) at++;
-      else if (source.startsWith(">>", at) && /\s/.test(source[at - 1] ?? "")) at += 2;
+      else if (source.startsWith(">>", at) && at > 0 && BLANK.includes(source[at - 1])) at += 2;
       else at += (ATOM.exec(source)?.[0] ?? c).length;
     }
     out.push({ text: source.slice(beg, at), beg, end: at, col: beg - start, kind });
@@ -141,6 +147,11 @@ const tree = (ts: Token[]): Node[] => {
   if (stack.length !== 1) throw new Error("unbalanced delimiters");
   return root;
 };
+
+// Width counts code points, as Bend does.
+// oxlint-disable-next-line typescript/no-misused-spread
+const points = (text: string): number => [...text].length;
+const trimEnd = (text: string): string => text.replace(TRAILING_BLANK, "");
 
 const first = (n: Node): Token => ("open" in n ? n.open : n);
 const last = (n: Node): Token => ("open" in n ? n.close : n);
@@ -278,7 +289,7 @@ const nodeDoc = (n: Node, source: string, opts: FormatOptions, base: number): Do
 
 // Keep empty comments, whitespace, test expectations, directives and headings.
 const commentText = (text: string): string =>
-  /^#[^\s#!|]/u.test(text) ? "# " + text.slice(1) : text;
+  UNSPACED_COMMENT.test(text) ? "# " + text.slice(1) : text;
 
 // A small document printer: a group is entirely flat if it fits; otherwise
 // its list separators break together. Nesting is relative, never alignment
@@ -293,11 +304,11 @@ const print = (doc: Doc, width: number, indent: number, newline: string): string
         d = f.doc;
       if (typeof d === "string") {
         if (d.includes("\n")) return true;
-        remaining -= d.length;
+        remaining -= points(d);
       } else if (Array.isArray(d)) pending.push(...d.map((doc) => ({ ...f, doc })).reverse());
       else if (d.kind === "line") {
         if (d.hard || !f.flat) return true;
-        remaining -= d.flat.length;
+        remaining -= points(d.flat);
       } else pending.push({ doc: d.doc, indent: f.indent + (d.amount ?? 0), flat: true });
     }
     return remaining >= 0;
@@ -307,15 +318,15 @@ const print = (doc: Doc, width: number, indent: number, newline: string): string
       d = f.doc;
     if (typeof d === "string") {
       out += d;
-      col = d.includes("\n") ? d.length - d.lastIndexOf("\n") - 1 : col + d.length;
+      col = d.includes("\n") ? points(d.slice(d.lastIndexOf("\n") + 1)) : col + points(d);
     } else if (Array.isArray(d)) stack.push(...d.map((doc) => ({ ...f, doc })).reverse());
     else if (d.kind === "line") {
       if (!d.hard && (f.flat || width === Infinity)) {
         out += d.flat;
-        col += d.flat.length;
+        col += points(d.flat);
       } else {
         col = f.indent + (d.offset ?? 0);
-        out = out.trimEnd() + newline + " ".repeat(col);
+        out = trimEnd(out) + newline + " ".repeat(col);
       }
     } else if (d.kind === "nest")
       stack.push({ doc: d.doc, indent: f.indent + d.amount!, flat: f.flat });
@@ -329,7 +340,7 @@ const print = (doc: Doc, width: number, indent: number, newline: string): string
           fits(width - col, [...stack, { doc: d.doc, indent: f.indent, flat: true }]),
       });
   }
-  return out.trimEnd();
+  return trimEnd(out);
 };
 
 export const format = (source: string, opts: FormatOptions): string => {
@@ -384,12 +395,11 @@ export const format = (source: string, opts: FormatOptions): string => {
     let doc: Doc;
     if (head.text === "import") {
       // Paths and aliases use their own grammar; do not treat / or - as operators.
-      const text = source.slice(head.beg, last(record[record.length - 1]).end).trimEnd();
+      const text = trimEnd(source.slice(head.beg, last(record[record.length - 1]).end));
       const at = text.indexOf("#");
-      doc = (at < 0 ? text : text.slice(0, at))
-        .trim()
-        .replace(/^import\s+/, "import ")
-        .replace(/\s+as\s+/, " as ");
+      doc = trimEnd(at < 0 ? text : text.slice(0, at))
+        .replace(IMPORT, "import ")
+        .replace(ALIAS, " as ");
       if (at >= 0) doc = [doc, "  ", commentText(text.slice(at))];
     } else {
       // Canonicalize an inline declaration body into the indented body form.
@@ -409,7 +419,7 @@ export const format = (source: string, opts: FormatOptions): string => {
     previousComment = comment;
     blank = false;
   }
-  return rows.join(newline).trimEnd() + newline;
+  return trimEnd(rows.join(newline)) + newline;
 };
 
 export const rules: LintRule[] = [
