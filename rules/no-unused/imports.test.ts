@@ -11,8 +11,8 @@ const linter = unwrap(await createLinter());
 const rules = unwrap(
   await linter.loadRules([fileURLToPath(new URL("./imports.bend", import.meta.url))]),
 );
-const dir = fs
-  .realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bend-unused-")))
+const dir = fs.realpathSync
+  .native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-unused-")))
   .replaceAll("\\", "/");
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const fixture = (name: string, text: string): string => {

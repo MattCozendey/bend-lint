@@ -68,31 +68,6 @@ def canon(+parts: List<&2, String>) -> String:
 
 # Import lines
 # ------------
-def drop_blank(+s: String) -> String:
-  match s:
-    case SCon{' ', rest}:
-      drop_blank(rest)
-    case SCon{'\t', rest}:
-      drop_blank(rest)
-    case _:
-      s
-
-# The text up to the first blank.
-def word(s: String) -> String:
-  match s:
-    case SCon{' ', rest}:
-      ""
-    case SCon{'\t', rest}:
-      ""
-    case SCon{c, rest}:
-      SCon{c, word(rest)}
-    case SNil{}:
-      ""
-
-# What follows "import" and its blanks, on a line that ends before an alias.
-def after_import(line: String) -> String:
-  drop_blank(String.drop(drop_blank(line), 6n))
-
 # Base, whose line has no path before the alias, and hub paths.
 def skipped(+path: String) -> Bool:
   Bool.or(
@@ -141,10 +116,10 @@ def path_at(
 # from the path to the alias at `beg`. `target` is the file it loads.
 def path_of(+file: String, target: String, +after: String, +beg: U32) -> List<&2, Lint.Diag>:
   path_at(
-    skipped(word(after)),
+    skipped(Shared.word(after)),
     file,
     target,
-    word(after),
+    Shared.word(after),
     U32.sub(beg, U32.from_nat(String.length(after)))
   )
 
@@ -159,7 +134,7 @@ def check(+text: String, d: Lint.Declaration) -> List<&2, Lint.Diag>:
       Some{target},
       fills
     }:
-      path_of(file, target, after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
+      path_of(file, target, Shared.after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
     case _:
       []
 

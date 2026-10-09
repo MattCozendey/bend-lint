@@ -11,8 +11,8 @@ const linter = unwrap(await createLinter());
 const rules = unwrap(
   await linter.loadRules([fileURLToPath(new URL("./canon-import-path.bend", import.meta.url))]),
 );
-const dir = fs
-  .realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bend-imports-")))
+const dir = fs.realpathSync
+  .native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-imports-")))
   .replaceAll("\\", "/");
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const fixture = (name: string, text: string): string => {
@@ -37,7 +37,9 @@ const lint = async (name: string, imports: string): Promise<LintResult> =>
 // Each finding as the path it flags and the path its fix writes.
 const flagged = async (name: string, imports: string): Promise<string[][]> => {
   const res = await lint(name, imports);
-  expect(res.diags.filter((d) => d.code !== "layout/canon-import-path")).toEqual([]);
+  expect(res.diags.filter((d) => d.code !== "layout/canon-import-path").map(linter.render)).toEqual(
+    [],
+  );
   return res.diags.map((d) => [
     d.span!.file.text.slice(d.span!.beg, d.span!.end),
     d.fixes[0].edits[0].text,
@@ -95,6 +97,8 @@ describe("layout/canon-import-path", () => {
       "import Base\nimport   ./x.bend   as X  # the leaf\n\ndef main() -> U32:\n  1\n",
     );
     fs.writeFileSync(res.root!.path, text);
-    expect(unwrap(await linter.lint(res.root!.path, rules, { config: {} })).diags).toEqual([]);
+    expect(
+      unwrap(await linter.lint(res.root!.path, rules, { config: {} })).diags.map(linter.render),
+    ).toEqual([]);
   });
 });

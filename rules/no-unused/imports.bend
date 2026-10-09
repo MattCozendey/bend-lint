@@ -76,26 +76,6 @@ def chain(fuel: Nat, w: Walk) -> IO(Bool):
 # Import lines
 # ============
 
-# The characters from `s` to the end of its line, newline included, plus n.
-def line_rest(s: String, n: U32) -> U32:
-  match s:
-    case SNil{}:
-      n
-    case SCon{'\n', rest}:
-      U32.inc(n)
-    case SCon{c, rest}:
-      line_rest(rest, U32.inc(n))
-
-# The whole line of a span, newline included.
-def line_of(+text: String, span: Lint.Span) -> Lint.Span:
-  match span:
-    case Lint.Span{path, +beg, +end}:
-      Lint.Span{
-        path,
-        U32.sub(beg, U32.from_nat(String.length(Shared.line_before(text, U32.to_nat(beg), "")))),
-        line_rest(String.drop(text, U32.to_nat(end)), end)
-      }
-
 # Rule
 # ====
 def unused(used: Bool, +text: String, name: String, +span: Lint.Span) -> List<&2, Lint.Diag>:
@@ -108,7 +88,7 @@ def unused(used: Bool, +text: String, name: String, +span: Lint.Span) -> List<&2
           Lint.Warning{},
           "Remove the import " ++ name ++ ": nothing uses it.",
           Some{span},
-          [Lint.Fix{"Remove the import", Lint.Safe{}, [Lint.Edit{line_of(text, span), ""}]}],
+          [Lint.Fix{"Remove the import", Lint.Safe{}, [Lint.Edit{Shared.line_of(text, span), ""}]}],
           None{}
         }
       ]

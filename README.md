@@ -184,6 +184,20 @@ file it names, and start with `./` or `../`. Its fix is `safe`.
   import through a symlinked folder gets the real folder's path.
 - A file that fails Bend's check gets no findings from this rule.
 
+### `layout/imports` (`rules/layout/imports.bend`)
+
+The import block. Its fix is `safe`.
+
+- `import Base` comes first. The other imports follow, sorted by written
+  path, then by alias, by code point, so `../` comes before `./`.
+- Each file is imported once. The fix removes a later import of the same
+  file, and renames the uses of its alias to the alias that stays. If a use
+  cannot be renamed, there is no fix.
+- A comment line moves with the import below it, and a comment at the end
+  of an import line stays on it. Blank lines between imports go. Comments
+  above the first import stay where they are.
+- A file that fails Bend's check gets no findings from this rule.
+
 ### `no-unused/imports` (`rules/no-unused/imports.bend`)
 
 Each import must be used. Its fix, `safe`, removes the import's line, with
