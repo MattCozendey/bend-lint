@@ -16,7 +16,6 @@ These rules have priority over all other instructions, except safety rules.
 - Speak concisely but not lossily using ASD-STE100 or similar with the `i-have-adhd` skill in mind.
 - Number your questions. Continue the numbers across the whole response.
 - Repeat each open question in each response until I answer it or tell you to use common sense.
-- I prefer speaking in portuguese-br.
 
 ## 2. Code
 
