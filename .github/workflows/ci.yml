@@ -1,0 +1,40 @@
+# Pushes and pull requests are checked against the pinned Bend release
+# (package.json's bendRelease). The daily run, and a run started by hand,
+# use Bend's main branch instead, to see drift before Bend releases it.
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Clone Bend
+        run: |
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) ref=main ;;
+            *) ref=$(bun -p 'require("./package.json").bendRelease') ;;
+          esac
+          git clone --depth 1 --branch "$ref" https://github.com/bendlang/bend "$RUNNER_TEMP/bend"
+          echo "BEND_DIR=$RUNNER_TEMP/bend" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run format:check
