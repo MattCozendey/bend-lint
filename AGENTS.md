@@ -26,7 +26,7 @@ rules must also pass this repository's linting and type checks.
 - You are rarely, if ever, smarter than the linter. Do not try to workaround rules or suppress them without asking me.
 - Deterministic tooling ALWAYS wins over skill suggestions.
 - After every change, run, in this order: thermonuclear-code-review(files above 1000 may be ok though. Ask me before splitting), cyclomatic-complexity(only split if the helper function has >1 caller), erasure and then, finally, linting and typecheck. Repeat until no more issues related to your change have been identified.
-- Do NOT write premature tests, always ask me. If they are testing implementation details, don't even suggest them.
+- For new rules, always add behavior regression tests without asking. For other changes, do NOT write premature tests, always ask me. If they are testing implementation details, don't even suggest them.
 - I prefer functional-like, mutation-less code in the following layout: imports, types, constants, functions(always arrow functions with const), side-effectful code. separate sections by comment.
 - Conceptual convergence: do NOT create multiple representations for the same thing across the codebase.
 - Each fact has one location. Do not repeat in a comment what the docs state or clearly imply.
