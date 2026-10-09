@@ -9,6 +9,7 @@ import type * as BendModule from "bend2/bend.ts";
 import * as api from "./lint.ts";
 import { applyFixes, createLinter } from "./lint.ts";
 import type {
+  Declaration,
   Diag,
   Edit,
   Fact,
@@ -769,6 +770,11 @@ describe("patch", () => {
     expect(out).not.toMatch(/^export function term_(infer|check)\(/m);
     expect(out).toMatch(/^import \{ fs \} from "file:.*seam\.ts";/m);
     expect(out).toMatch(/^import \{ path \} from "file:.*seam\.ts";/m);
+  });
+
+  test("bend.ts: patches a CRLF checkout as it patches LF", () => {
+    const lf = src.replace(/\r\n/g, "\n");
+    expect(patch("bend.ts", lf.replace(/\n/g, "\r\n"))).toBe(patch("bend.ts", lf));
   });
 
   test("comp.ts: exports RUNTIME_MAIN and js_sat", () => {
@@ -3153,5 +3159,342 @@ describe("suppression", () => {
     ]);
     const unknown = await withLib(["  # bend-lint: disable-next demo/zzz -- why"]);
     expect(messages(unknown, "bend-lint/directive")).toEqual(["There is no rule demo/zzz."]);
+  });
+});
+
+describe("declaration API", () => {
+  const declarations = async (
+    file: string,
+    program = false,
+    options: LintOptions = {},
+  ): Promise<Declaration[]> => {
+    let found: Declaration[] = [];
+    const result = await lint(
+      file,
+      [
+        {
+          id: "test/declarations",
+          ...(program ? { facts: { scope: "program" as const, kinds: ["Hol"] } } : {}),
+          run: (cx) => {
+            found = cx.declarations();
+            expect(cx.declarations()).toEqual(found);
+            return [];
+          },
+        },
+      ],
+      { config: {}, ...options },
+    );
+    expect(result.diags.map(render)).toEqual([]);
+    return found;
+  };
+  const summary = (items: Declaration[]) =>
+    items.map((d) => ({
+      kind: d.kind,
+      name: d.name,
+      owner: d.owner,
+      text: d.span.file.text.slice(d.span.beg, d.span.end),
+      references: d.references.map((r) => ({
+        owner: r.owner,
+        text: r.span.file.text.slice(r.span.beg, r.span.end),
+      })),
+    }));
+
+  test("lists declarations, fields and bindings without collecting checker facts", async () => {
+    const file = fixture(
+      "declarations.bend",
+      `type N is Data:
+  Z{}
+  S{tail: N}
+def unused(x: N) -> N:
+  Z{}
+def main() -> N:
+  a b = {Z{} : N} {Z{} : N}
+  a
+`,
+    );
+    const items = summary(await declarations(file));
+    expect(items.map((d) => [d.kind, d.name, d.owner, d.text])).toEqual([
+      ["type", "N", undefined, "N"],
+      ["constructor", "Z", "N", "Z"],
+      ["constructor", "S", "N", "S"],
+      ["field", "tail", "N", "tail"],
+      ["def", "unused", undefined, "unused"],
+      ["parameter", "x", "unused", "x"],
+      ["def", "main", undefined, "main"],
+      ["variable", "a", "main", "a"],
+      ["variable", "b", "main", "b"],
+    ]);
+    expect(items.find((d) => d.name === "x")?.references).toEqual([]);
+    expect(items.find((d) => d.name === "a")?.references).toEqual([{ owner: "main", text: "a" }]);
+    expect(items.find((d) => d.name === "b")?.references).toEqual([]);
+    expect(items.find((d) => d.name === "Z")?.references).toHaveLength(3);
+  });
+
+  test("distinguishes shadowed bindings and preserves catch-all and field pattern names", async () => {
+    const file = fixture(
+      "declaration_scopes.bend",
+      `type N is Data:
+  Z{}
+  S{tail: N}
+def shadow(x: N) -> N:
+  x : N = Z{}
+  x
+def catchall(x: N) -> N:
+  match x:
+    case whole:
+      whole
+def fields(x: N) -> N:
+  match x:
+    case Z{}:
+      Z{}
+    case S{unused}:
+      Z{}
+def lambda(x: N) -> N:
+  f : N -> N = x => x
+  f(x)
+`,
+    );
+    const items = await declarations(file);
+    expect(
+      items.filter((d) => d.owner === "shadow" && d.name === "x").map((d) => d.references.length),
+    ).toEqual([0, 1]);
+    expect(items.find((d) => d.name === "whole")?.references).toHaveLength(1);
+    expect(items.find((d) => d.name === "unused")?.references).toEqual([]);
+    expect(
+      items.filter((d) => d.owner === "lambda" && d.name === "x").map((d) => d.references.length),
+    ).toEqual([1, 1]);
+  });
+
+  test("includes type, proof and template references without instantiation duplicates", async () => {
+    const file = fixture(
+      "declaration_types.bend",
+      `type N is Data:
+  Z{}
+def proof(-x: N) -> {x == x : N}:
+  {==}
+def generic(~T: Type, x: T) -> T:
+  x
+def main() -> N:
+  generic(~N, Z{})
+`,
+    );
+    const items = await declarations(file, true);
+    expect(items.find((d) => d.name === "x" && d.owner === "proof")?.references).toHaveLength(2);
+    expect(items.find((d) => d.name === "T")?.references).toHaveLength(2);
+    expect(items.find((d) => d.name === "generic")?.references).toHaveLength(1);
+    expect(items.some((d) => d.name.includes("~"))).toBe(false);
+  });
+
+  test("tracks do-block results and implicit Base references", async () => {
+    const file = fixture(
+      "declaration_do.bend",
+      `import Base
+def main() -> IO(Unit):
+  do IO<Unit>:
+    unused : U32 <- IO.pure(U32, 1)
+    return Unit{}
+`,
+    );
+    const items = await declarations(file);
+    expect(items.find((d) => d.name === "unused")?.references).toEqual([]);
+    expect(
+      items.find((d) => d.kind === "import" && d.name === "Base")?.references.length,
+    ).toBeGreaterThan(0);
+    expect(items.some((d) => d.span.file.base)).toBe(false);
+  });
+
+  test("uses file spelling, program spelling and the alias actually used", async () => {
+    const lib = fixture(
+      "declaration_lib.bend",
+      `type N is Data:
+  Z{}
+def keep() -> N:
+  Z{}
+`,
+    );
+    const file = fixture(
+      "declaration_entry.bend",
+      `import declaration_lib.bend as U
+import declaration_lib.bend as V
+def main() -> U.N:
+  V.keep()
+`,
+    );
+    const local = await declarations(file);
+    expect(
+      local.filter((d) => d.kind === "import").map((d) => [d.name, d.references.length]),
+    ).toEqual([
+      ["U", 1],
+      ["V", 1],
+    ]);
+    const all = await declarations(file, true);
+    expect(
+      all.find((d) => d.name === "declaration_lib:keep")?.references.map((r) => r.owner),
+    ).toEqual(["main"]);
+    const alone = summary(await declarations(lib));
+    const through = summary(await declarations(lib, false, { config: { entries: [file] } }));
+    expect(through).toEqual(alone);
+  });
+
+  test("ignores names inside literals and reads unsaved source", async () => {
+    const file = fixture(
+      "declaration_text.bend",
+      `import Base
+def main() -> String:
+  "\ndef fake() -> String: fake\nimport fake.bend as Fake\n"
+`,
+    );
+    expect((await declarations(file)).map((d) => d.name)).toEqual(["Base", "main"]);
+    const changed = await declarations(file, false, {
+      unsaved: new Map([[file, "import Base\ndef edited() -> U32:\n  1\n"]]),
+    });
+    expect(changed.map((d) => d.name)).toEqual(["Base", "edited"]);
+  });
+
+  test("a failed check has no declaration view", async () => {
+    const file = fixture("declaration_bad.bend", 'def main() -> U32:\n  "wrong"\n');
+    const result = await lint(file, [
+      {
+        id: "test/declarations",
+        run: (cx) => {
+          expect(cx.declarations()).toEqual([]);
+          return [];
+        },
+      },
+    ]);
+    expect(result.diags.map((d) => d.code)).toEqual(["bend/check"]);
+  });
+
+  test("keeps law and proof binders separate and counts an imported law fill as an import use", async () => {
+    const file = fixture(
+      "declaration_law.bend",
+      `type N is Data:
+  Z{}
+law reflexive:
+  for x: N
+  {x == x : N}
+def reflexive(x):
+  {==}
+`,
+    );
+    const items = await declarations(file);
+    expect(items.filter((d) => d.name === "x").map((d) => d.references.length)).toEqual([2, 0]);
+    fixture(
+      "declaration_laws.bend",
+      `import Base
+law one:
+  {1 == 1 : U32}
+`,
+    );
+    const proof = fixture(
+      "declaration_proof.bend",
+      `import Base
+import declaration_laws.bend as Laws
+def Laws.one():
+  {==}
+`,
+    );
+    expect((await declarations(proof)).find((d) => d.name === "Laws")?.references).toHaveLength(1);
+    const program = await declarations(proof, true);
+    expect(
+      program.filter((d) => d.name === "declaration_laws:one").map((d) => d.span.file.path),
+    ).toEqual([proof, path.join(DIR, "declaration_laws.bend").replaceAll("\\", "/")]);
+  });
+
+  test("records resolved operator targets and excludes constructor patterns from declaration inventory", async () => {
+    fixture(
+      "declaration_operators.bend",
+      `type N is Data:
+  Z{}
+def N.add(x: N, y: N) -> N:
+  y
+`,
+    );
+    const file = fixture(
+      "declaration_operator_entry.bend",
+      `import declaration_operators.bend as U
+def main() -> U.N:
+  (U.Z{} + U.Z{} : U.N)
+`,
+    );
+    const items = await declarations(file, true);
+    const add = items.find((d) => d.name === "declaration_operators:N.add");
+    expect(add?.references.map((r) => r.span.file.text.slice(r.span.beg, r.span.end))).toEqual([
+      "+",
+    ]);
+    const scopes = fixture(
+      "declaration_constructor_pattern.bend",
+      `type N is Data:
+  Z{}
+def main(x: N) -> N:
+  match x:
+    case Z{}:
+      Z{}
+`,
+    );
+    expect(
+      (await declarations(scopes)).filter((d) => d.kind === "constructor").map((d) => d.name),
+    ).toEqual(["Z"]);
+  });
+
+  test("declaration reads leave the checked book and the formatter guard unchanged", async () => {
+    const text = `import Base
+def main() -> String:
+  "\nimport imaginary.bend as Fake\n"
+`;
+    const file = fixture("declaration_guard.bend", text);
+    const result = await lint(file, [
+      {
+        id: "test/declaration_guard",
+        run: (cx) => {
+          const before = bodies(cx.unstable.book);
+          cx.declarations();
+          expect(bodies(cx.unstable.book)).toEqual(before);
+          expect(cx.sameDeclarations(text)).toBe(true);
+          return [];
+        },
+      },
+    ]);
+    expect(result.diags.map(render)).toEqual([]);
+  });
+
+  test("Bend receives the same declarations and references with code-point spans", async () => {
+    const rule = await bendRule(
+      fixture(
+        "declaration_rule.bend",
+        `import Base
+import ../../bend/lint.bend as Lint
+def id() -> String:
+  "test/declaration_bridge"
+def facts() -> Lint.Want:
+  Lint.NoFacts{}
+def one(d: Lint.Declaration) -> Lint.Diag:
+  match d:
+    case Lint.Declaration{kind, +name, owner, span, refs}:
+      Lint.diag(Lint.Warning{}, name ++ ":" ++ Nat.show(List.length(&2, Lint.Reference, refs)), span)
+def reports(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.Diag>:
+  match ds:
+    case Nil{}:
+      []
+    case Con{d, rest}:
+      one(d) <> reports(rest)
+def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
+  do IO<List<&2, Lint.Diag>>:
+    ds : List<&2, Lint.Declaration> <- Lint.declarations()
+    return reports(ds)
+def main() -> IO(Unit):
+  Lint.serve(run)
+`,
+      ),
+    );
+    const file = fixture(
+      "declaration_unicode.bend",
+      "# 😀\r\nimport Base\r\ndef main(x: U32) -> U32:\r\n  x\r\n",
+    );
+    const expected = await declarations(file);
+    const result = await lint(file, [rule]);
+    expect(result.diags.map((d) => [d.message, d.span?.beg, d.span?.end])).toEqual(
+      expected.map((d) => [d.name + ":" + d.references.length, d.span.beg, d.span.end]),
+    );
   });
 });

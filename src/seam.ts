@@ -9,12 +9,13 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
-import type { Book, Ctx, Err, HTerm, LTerm, Name, Quant, Uses } from "bend2/bend.ts";
+import type { Book, Ctx, Err, HTerm, LTerm, Name, Parse, Quant, Uses } from "bend2/bend.ts";
 import type { Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 import type {
   Diag,
+  Declaration,
   Fact,
   FactFilter,
   LintRule,
@@ -87,6 +88,11 @@ export type Raw = {
 // What the wrappers report for each checked term.
 type Report = Omit<Raw, "inst">;
 
+type Syntax = {
+  declarations: Array<Omit<Declaration, "references"> & { key: Name | number }>;
+  references: Array<{ key: Name | number; owner: string; span: Span }>;
+};
+
 // A rule option's schema and default.
 type Declared = NonNullable<LintRule["options"]>[string];
 
@@ -118,14 +124,19 @@ export type Operations = Omit<
   "sources" | "root" | "options" | "facts" | "prior" | "signal" | "fact" | "diag" | "unstable"
 >;
 
+// A declaration's or import's name, as bend's parser read it.
+type Heading = Omit<Declaration, "owner" | "references">;
+
 // root: the file checked, unless bend could not read it. beyond: whether
 // facts were kept beyond the root; instances: whether instances' were.
+// headings: what bend's parser read, by file and offset; none on failure.
 export type Checked = {
   book: Book;
   sources: Source[];
   root?: Source;
   map: Mapper;
   facts: Fact[];
+  headings: Heading[];
   beyond: boolean;
   instances: boolean;
   failure?: Diag;
@@ -181,8 +192,25 @@ const PATCHES: Record<string, Patch> = {
       ...SHIMMED,
       ["export function term_infer(", "function unseen_term_infer("],
       ["export function term_check(", "function unseen_term_check("],
+      ["export function parse_bind(", "function unseen_parse_bind("],
+      ["export function parse_tele(", "function unseen_parse_tele("],
+      ["export function parse_term(", "function unseen_parse_term("],
+      ["const nm  = parse_name(p);", 'const nm  = seeDeclared(p, parse_name(p), "def");'],
+      [
+        'if (parse_word(p, "type")) {\n      const k = parse_fresh(p, parse_name(p));',
+        'if (parse_word(p, "type")) {\n      const k = parse_fresh(p, seeDeclared(p, parse_name(p), "type"));',
+      ],
+      [
+        'if (parse_word(p, "law")) {\n      const k = parse_fresh(p, parse_name(p));',
+        'if (parse_word(p, "law")) {\n      const k = parse_fresh(p, seeDeclared(p, parse_name(p), "def"));',
+      ],
+      [
+        "parse_fresh(p, parse_name(p), book.ctrs,",
+        'parse_fresh(p, seeDeclared(p, parse_name(p), "constructor"), book.ctrs,',
+      ],
+      ['body[i] = "";', 'body[i] = "";\n    seeImported(real, at, lines[i], m);'],
     ],
-    tail: `import { seeInfer, seeCheck } from ${SHIM};\nexport const term_infer = seeInfer(unseen_term_infer);\nexport const term_check = seeCheck(unseen_term_check);\n`,
+    tail: `import { seeInfer, seeCheck, seeParseBind, seeParseTele, seeParseTerm, seeDeclared, seeImported } from ${SHIM};\nexport const term_infer = seeInfer(unseen_term_infer);\nexport const term_check = seeCheck(unseen_term_check);\nexport const parse_bind = seeParseBind(unseen_parse_bind);\nexport const parse_tele = seeParseTele(unseen_parse_tele);\nexport const parse_term = seeParseTerm(unseen_parse_term);\n`,
     exports: [],
   },
   "comp.ts": {
@@ -197,8 +225,22 @@ const PATCHES: Record<string, Patch> = {
 // The bend2 files bend-lint patches and imports.
 export const PATCHED = Object.keys(PATCHES);
 
-// Where the wrappers report, set for one check at a time.
-export const hook: { see?: (report: Report) => void } = {};
+// Where the wrappers and probes report: see, declare and import for one
+// check at a time, parse while a rule's source metadata is read.
+export const hook: {
+  see?: (report: Report) => void;
+  declare?: (kind: Heading["kind"], name: Name, span: BendSpan) => void;
+  import?: (path: string, name: Name, beg: number) => void;
+  parse?: {
+    binding: (
+      name: Name,
+      index: number,
+      span: BendSpan | undefined,
+      kind: Declaration["kind"],
+    ) => void;
+    term: (p: Parse, t: LTerm) => void;
+  };
+} = {};
 
 // A comment, a string or char literal (maybe over several lines, maybe
 // unterminated), a newline, or any other character that is not a space.
@@ -341,7 +383,7 @@ export const path = {
 const arity = (f: (...args: never[]) => unknown, n: number, name: string): void => {
   if (f.length !== n) {
     throw drift(
-      `${name} takes ${f.length} parameters, not ${n}; update seeInfer and seeCheck in tools/bend-lint/src/seam.ts`,
+      `${name} takes ${f.length} parameters, not ${n}; update the observers in tools/bend-lint/src/seam.ts`,
     );
   }
 };
@@ -370,7 +412,53 @@ export const seeCheck = (f: typeof BendModule.term_check): typeof BendModule.ter
   };
 };
 
-// `file` is one of PATCHED.
+export const seeParseBind = (f: typeof BendModule.parse_bind): typeof BendModule.parse_bind => {
+  arity(f, 2, "parse_bind");
+  return (...args) => {
+    const t = f(...args);
+    hook.parse?.binding(t.k, t.i, t.s, "variable");
+    return t;
+  };
+};
+
+export const seeParseTele = (f: typeof BendModule.parse_tele): typeof BendModule.parse_tele => {
+  arity(f, 2, "parse_tele");
+  return (...args) => {
+    const t = f(...args);
+    t.forEach(([, k, i, , s]) =>
+      hook.parse?.binding(k, i, s, args[1] === "}" ? "field" : "parameter"),
+    );
+    return t;
+  };
+};
+
+export const seeParseTerm = (f: typeof BendModule.parse_term): typeof BendModule.parse_term => {
+  arity(f, 1, "parse_term");
+  return (...args) => {
+    const t = f(...args);
+    hook.parse?.term(args[0], t);
+    return t;
+  };
+};
+
+// Where bend's parser reads a declaration's name; the name passes through.
+export const seeDeclared = (p: Parse, name: Name, kind: Heading["kind"]): Name => {
+  hook.declare?.(kind, name, { file: p, beg: p.pos - name.length, end: p.pos });
+  return name;
+};
+
+// Where bend reads an import line: `m` is its match, `at` the line's offset.
+export const seeImported = (path: string, at: number, line: string, m: RegExpExecArray): void => {
+  const from = line.indexOf(m[1]);
+  hook.import?.(
+    path,
+    m[2] ?? "Base",
+    at + (m[2] === undefined ? from : line.indexOf(m[2], from + m[1].length)),
+  );
+};
+
+// `file` is one of PATCHED. Its line ends become LF, as JS reads them
+// anyway, so an edit can span lines in a CRLF checkout.
 export const patch = (file: string, src: string): string => {
   const { edits, needs = [], tail, exports } = PATCHES[file];
   const mismatch = (what: string, n: number): never => {
@@ -383,7 +471,7 @@ export const patch = (file: string, src: string): string => {
       const n = out.split(at).length - 1;
       return n === 1 ? out.replace(at, () => to) : mismatch(JSON.stringify(at), n);
     },
-    src,
+    src.replace(/\r\n/g, "\n"),
   );
   const declared = (name: string, exported: string): RegExp =>
     new RegExp(`^${exported}(?:async function|function|class|const|let) ${name}\\b`, "gm");
@@ -744,6 +832,8 @@ const checked = async (
   const { Bend, Main } = m;
   const seen = new Map<string, string | null>();
   const found: Report[] = [];
+  const declared: Array<{ kind: Heading["kind"]; name: Name; span: BendSpan }> = [];
+  const imported: Array<{ path: string; name: Name; beg: number }> = [];
   const real = fs.existsSync(file) ? fs.realpathSync(file) : "";
   const home = real.slice(0, real.lastIndexOf("/") + 1);
   // A file filter's names are matched later, as each file spells them (see
@@ -777,6 +867,8 @@ const checked = async (
   const read = await Promise.resolve(seeded ? BASE?.book : undefined)
     .then((base) => {
       hook.see = filters.length > 0 ? see : undefined;
+      hook.declare = (kind, name, span) => declared.push({ kind, name, span });
+      hook.import = (path, name, beg) => imported.push({ path, name, beg });
       return Main.book_read(file, base, seen);
     })
     .then(
@@ -815,7 +907,31 @@ const checked = async (
         ? [[f.tm, record({ ...f, inst, spn })]]
         : [];
     });
-    return { book, sources, root, map, facts: [...new Map(facts).values()], beyond, instances };
+    const headings = [
+      ...imported.flatMap(({ path, name, beg }): Heading[] => {
+        const at = sources.find((s) => s.path === path);
+        return at === undefined
+          ? []
+          : [{ kind: "import", name, span: { file: at, beg, end: beg + name.length } }];
+      }),
+      ...declared.flatMap(({ kind, name, span }): Heading[] => {
+        const at = toSpan(map(span));
+        return at === undefined ? [] : [{ kind, name, span: at }];
+      }),
+    ].sort(
+      (a, b) =>
+        sources.indexOf(a.span.file) - sources.indexOf(b.span.file) || a.span.beg - b.span.beg,
+    );
+    return {
+      book,
+      sources,
+      root,
+      map,
+      facts: [...new Map(facts).values()],
+      headings,
+      beyond,
+      instances,
+    };
   }
   const err = isErr(read.e) ? read.e : undefined;
   return {
@@ -824,6 +940,7 @@ const checked = async (
     root,
     map,
     facts: [],
+    headings: [],
     beyond,
     instances,
     failure: {
@@ -897,6 +1014,8 @@ export const check = (
       return run;
     } finally {
       hook.see = undefined;
+      hook.declare = undefined;
+      hook.import = undefined;
       reads = undefined;
       unsaved.clear();
     }
@@ -917,6 +1036,7 @@ type Shared = {
   order?: Order;
   paths?: Map<string, Source>;
   byFile?: Map<unknown, Fact[]>;
+  syntax?: Map<Source, Syntax>;
 };
 
 const SHARED = new WeakMap<Checked, Shared>();
@@ -957,13 +1077,10 @@ const aliasesOf = (m: Loaded, book: Book): Map<string, Record<Name, Name>> => {
   return out;
 };
 
-const sourceCode = (text: string): string =>
-  text.replace(SOURCE_TOKEN, (t) =>
+const unimported = (text: string): string => {
+  const code = text.replace(SOURCE_TOKEN, (t) =>
     ["#", '"', "'"].includes(t[0]) ? t.replace(/[^\r\n]/g, " ") : t,
   );
-
-const unimported = (text: string): string => {
-  const code = sourceCode(text);
   const declaration = code.search(/^[ \t]*(?:@unsafe\s+)?(?:def|type|law)\b/m);
   const end = declaration < 0 ? text.length : declaration;
   return text.replace(/^[ \t]*import[^\S\n].*$/gm, (s, at: number) =>
@@ -1102,28 +1219,15 @@ const layer = <T>(under: Record<Name, T>, hidden: (k: Name) => boolean): Record<
   });
 };
 
-// Whether `text` declares what `file` declares: both are parsed with the
-// same imported declarations, and compared as parsed terms, not checked
-// ones, since checking unfolds definitions and would hide changes in
-// meaning. No typecheck, disk writes or import fetches. A proof made only
-// of {==} has no body span, so its aliases come from the sources. A proof
-// of an imported law fills its declaration rather than creating one.
-// `file` is parsed once, for every text compared with it, against the book
-// as bend had it when it parsed `file`: what came before it, its own
-// declarations aside.
-const sameDeclarations = (
-  m: Loaded,
-  run: Checked,
-  shared: Shared,
-  file: Source,
-): ((text: string) => boolean) => {
+// Parse in the file's original scope, with writes confined to a fresh layer.
+const parseSource = (m: Loaded, run: Checked, shared: Shared, file: Source, text: string): Book => {
   const { Bend } = m;
   const { book, root } = run;
   const { ns, aliases, qualify } = spellingIn(m, run, file);
   const dir = file.path.slice(0, file.path.lastIndexOf("/") + 1);
-  const own = [...file.text.matchAll(/^(?:@unsafe\s+)?(?:def|type|law)\s+([\w.]+)/gm)].map(
-    (match) => qualify(match[1]),
-  );
+  const own = run.headings
+    .filter((d) => d.span.file === file && (d.kind === "def" || d.kind === "type"))
+    .map((d) => qualify(d.name));
   const fills = new Set(
     own.filter((k) => k.includes(":") && !k.startsWith(ns + ":") && book.tlds[k]?.$ === "Def"),
   );
@@ -1131,18 +1235,36 @@ const sameDeclarations = (
   const order = (shared.order ??= orderOf(book));
   const cut = file === root ? Infinity : (order.first.get(ns) ?? Infinity);
   const hidden = (k: Name): boolean => gone.has(k) || (order.at.get(k) ?? -1) >= cut;
-  const snapshot = (s: string) => {
-    const parsed = Bend.book_nil();
-    parsed.tlds = layer(book.tlds, hidden);
-    parsed.ctrs = layer(book.ctrs, (c) => {
-      const owner = order.ctr.get(c);
-      return owner !== undefined && hidden(owner);
-    });
-    for (const k of fills) {
-      const tld = book.tlds[k];
-      parsed.tlds[k] = tld.$ === "Def" ? { ...tld, v: null, i: undefined, u: false } : tld;
-    }
-    Bend.parse_book(parsed, dir, unimported(s), ns, aliases);
+  const parsed = Bend.book_nil();
+  parsed.tlds = layer(book.tlds, hidden);
+  parsed.ctrs = layer(book.ctrs, (c) => {
+    const owner = order.ctr.get(c);
+    return owner !== undefined && hidden(owner);
+  });
+  for (const k of fills) {
+    const tld = book.tlds[k];
+    parsed.tlds[k] = tld.$ === "Def" ? { ...tld, v: null, i: undefined, u: false } : tld;
+  }
+  // A check can be waiting on I/O meanwhile; its headings are not this parse's.
+  const held = hook.declare;
+  hook.declare = undefined;
+  try {
+    Bend.parse_book(parsed, dir, unimported(text), ns, aliases);
+  } finally {
+    hook.declare = held;
+  }
+  return parsed;
+};
+
+const sameDeclarations = (
+  m: Loaded,
+  run: Checked,
+  shared: Shared,
+  file: Source,
+): ((text: string) => boolean) => {
+  const { Bend } = m;
+  const snapshot = (text: string) => {
+    const parsed = parseSource(m, run, shared, file, text);
     const lower = (t: HTerm | null) => (t === null ? null : Bend.term_lower(t));
     return JSON.stringify(
       parsed.order.map((k) => {
@@ -1156,6 +1278,199 @@ const sameDeclarations = (
   };
   const original = tried(() => snapshot(file.text));
   return (text) => original !== undefined && tried(() => snapshot(text)) === original;
+};
+
+const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax => {
+  const out: Syntax = { declarations: [], references: [] };
+  const { qualify, aliases } = spellingIn(m, run, file);
+  const read = run.headings
+    .filter((d) => d.span.file === file)
+    .map((d) => ({ ...d, name: qualify(d.name) }));
+  const heads = read.filter((d) => d.kind === "def" || d.kind === "type");
+  const backwards = [...heads].reverse();
+  // bend reads only imports before the first declaration, so one encloses
+  // every span it parses after them.
+  const enclosing = (span: Span) => {
+    const found = backwards.find((d) => d.span.beg <= span.beg);
+    if (found === undefined) {
+      throw drift(`no declaration encloses ${file.path}:${span.beg}`);
+    }
+    return found;
+  };
+  out.declarations.push(
+    ...heads.map((d) => ({ ...d, key: d.name })),
+    ...read
+      .filter((d) => d.kind === "constructor")
+      .map((d) => ({ ...d, key: d.name, owner: enclosing(d.span).name })),
+  );
+  const indices = new Map<string, number>();
+  const localKey = (index: number, span: Span): number => {
+    const key = [enclosing(span).span.beg, index].join("\0");
+    const known = indices.get(key) ?? indices.size;
+    indices.set(key, known);
+    return known;
+  };
+  const at = (s: BendSpan | undefined): Span | undefined => toSpan(run.map(s));
+  const reference = (key: Name | number, s: BendSpan | undefined): void => {
+    const span = at(s);
+    if (span !== undefined)
+      out.references.push({
+        key: typeof key === "number" ? localKey(key, span) : key,
+        owner: enclosing(span).name,
+        span,
+      });
+  };
+  heads.forEach((d) => {
+    const alias = file.text.slice(d.span.beg, d.span.end).split(".")[0];
+    if (aliases[alias] !== undefined) reference(d.name, fromSpan(d.span));
+  });
+  const binding = (
+    name: Name,
+    index: number,
+    s: BendSpan | undefined,
+    kind: Declaration["kind"],
+  ): void => {
+    const span = at(s);
+    if (span === undefined || span.file !== file) return;
+    const token = file.text.slice(span.beg, span.end).match(/^[@&]?\s*[+-]?\s*([A-Za-z_]\w*)/);
+    if (token?.[1] !== name) return;
+    const beg = span.beg + token[0].length - name.length;
+    out.declarations.push({
+      key: localKey(index, span),
+      kind,
+      name,
+      owner: enclosing(span).name,
+      span: { file, beg, end: beg + name.length },
+    });
+  };
+  const visited = new WeakSet<LTerm>();
+  const globals = new Set<Extract<LTerm, { $: "Ref" | "ADT" | "Ctr" | "Mat" | "Lit" }>>();
+  hook.parse = {
+    binding,
+    term: (p, root) => {
+      const stack = [root];
+      for (let t = stack.pop(); t !== undefined; t = stack.pop()) {
+        if (visited.has(t)) continue;
+        visited.add(t);
+        stack.push(...children(t));
+        switch (t.$) {
+          case "Ref":
+          case "ADT":
+          case "Ctr":
+          case "Mat":
+          case "Lit":
+            globals.add(t);
+            break;
+          case "Var":
+            if (t.v?.$ === "Ref") globals.add(t.v);
+            else reference(t.i, t.s);
+            break;
+          case "All":
+          case "Lam":
+            if (t.s !== undefined && /^[@&]/.test(p.str.slice(t.s.beg, t.s.end))) {
+              binding(t.k, t.i, t.s, "parameter");
+            }
+        }
+      }
+    },
+  };
+  try {
+    const parsed = parseSource(m, run, shared, file, file.text);
+    for (const d of heads) {
+      const tld = parsed.tlds[d.name];
+      let t = tld.T;
+      for (let i = 0; i < tld.n && t.$ === "All"; i += 1) {
+        binding(t.k, t.i, t.s, "parameter");
+        t = t.B(m.Bend.Var(t.k, t.i));
+      }
+    }
+  } finally {
+    hook.parse = undefined;
+  }
+  for (const t of globals) {
+    reference(t.k, t.s);
+  }
+  const declarations = [...new Map(out.declarations.map((d) => [d.span.beg, d])).values()];
+  const binders = new Set(
+    declarations.filter((d) => typeof d.key === "number").map((d) => d.span.beg),
+  );
+  const references = [
+    ...new Map(
+      out.references
+        .filter((r) => !binders.has(r.span.beg))
+        .map((r) => [[r.key, r.span.beg].join("\0"), r]),
+    ).values(),
+  ];
+  return { declarations, references };
+};
+
+const declarationsOf = (
+  m: Loaded,
+  run: Checked,
+  shared: Shared,
+  file: Source,
+  program: boolean,
+): Declaration[] => {
+  if (run.failure !== undefined) return [];
+  const files = program ? run.sources.filter((s) => !s.base) : [file];
+  const syntax = files.map((f) => {
+    shared.syntax ??= new Map();
+    const known = shared.syntax.get(f) ?? syntaxOf(m, run, shared, f);
+    shared.syntax.set(f, known);
+    return { file: f, ...known };
+  });
+  const target = (key: Name | number, file: Source): string =>
+    typeof key === "string" ? "global\0" + key : [file.path, key].join("\0");
+  const references = syntax
+    .flatMap((s) => s.references)
+    .reduce((groups, r) => {
+      const key = target(r.key, r.span.file);
+      groups.set(key, groups.get(key) ?? []);
+      groups.get(key)!.push(r);
+      return groups;
+    }, new Map<string, Syntax["references"]>());
+  const spelling = program ? undefined : spellingIn(m, run, file);
+  const name = (k: Name): Name => (spelling === undefined ? k : spelling.spell(k));
+  const symbols = syntax.flatMap((s) =>
+    s.declarations.map((d): Declaration => ({
+      kind: d.kind,
+      name: typeof d.key === "number" ? d.name : name(d.name),
+      owner: d.owner === undefined ? undefined : name(d.owner),
+      span: d.span,
+      references: (references.get(target(d.key, s.file)) ?? []).map((r) => ({
+        owner: name(r.owner),
+        span: r.span,
+      })),
+    })),
+  );
+  const imports = syntax.flatMap((s) =>
+    run.headings
+      .filter((d) => d.span.file === s.file && d.kind === "import")
+      .map(({ name: alias, span }): Declaration => {
+        const aliases = spellingIn(m, run, s.file).aliases;
+        const refs = s.references.filter((r) => {
+          if (typeof r.key !== "string") return false;
+          const explicit = s.file.text
+            .slice(r.span.beg, r.span.end)
+            .match(/^([A-Za-z_]\w*)\./)?.[1];
+          if (explicit !== undefined && aliases[explicit] !== undefined) return explicit === alias;
+          const ns = r.key.includes(":") ? r.key.slice(0, r.key.indexOf(":")) : "";
+          const family = (shared.order ??= orderOf(run.book)).ctr.get(r.key);
+          return alias === "Base"
+            ? run.book.tlds[family ?? r.key]?.b === true
+            : aliases[alias] === ns;
+        });
+        return {
+          kind: "import",
+          name: alias,
+          span,
+          references: refs.map((r) => ({ owner: name(r.owner), span: r.span })),
+        };
+      }),
+  );
+  return [...symbols, ...imports].sort(
+    (a, b) => files.indexOf(a.span.file) - files.indexOf(b.span.file) || a.span.beg - b.span.beg,
+  );
 };
 
 // What a rule asks bend2, over one check's book and facts, for a run on
@@ -1173,6 +1488,7 @@ export const operations = (m: Loaded, run: Checked, file: Source, program: boole
     return known;
   };
   return {
+    declarations: () => declarationsOf(m, run, shared, file, program),
     body: (name) => {
       const tld = run.book.tlds[spelling === undefined ? name : spelling.key(name)];
       return tld?.$ === "Def" && tld.e !== undefined ? node(tld.e) : undefined;
@@ -1397,6 +1713,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
   const views = run.facts.map((fact) => ({ fact, ...ops.shape(ops.strip(fact.node)) }));
   const x = views.find((v) => v.kind === "Var" && v.name === "x");
   const bound = x && ops.binder(x.fact);
+  const declarations = ops.declarations();
   demand(
     [
       ["check", run.failure === undefined],
@@ -1407,6 +1724,30 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       ["quantity", x?.fact.quantity === "once"],
       ["uses", JSON.stringify(x && ops.uses(x.fact)) === '[{"name":"x","quantity":"once"}]'],
       ["span", x?.fact.span?.file.text.slice(x.fact.span.beg, x.fact.span.end) === "x"],
+      [
+        "declarations",
+        declarations.some((d) => d.kind === "def" && d.name === "id" && d.references.length === 1),
+      ],
+      [
+        "bindings",
+        declarations.some(
+          (d) =>
+            d.kind === "parameter" &&
+            d.name === "x" &&
+            d.owner === "id" &&
+            d.references.length === 1,
+        ),
+      ],
+      [
+        "constructors",
+        declarations.some(
+          (d) =>
+            d.kind === "constructor" &&
+            d.name === "Z" &&
+            d.owner === "N" &&
+            d.references.length === 1,
+        ),
+      ],
     ],
     (wrong) =>
       `self-check failed: the patched bend2 gave the wrong ${wrong} for src/bend/sample.bend; update tools/bend-lint/src/seam.ts`,

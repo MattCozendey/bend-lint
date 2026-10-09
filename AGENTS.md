@@ -186,6 +186,7 @@ What is on `cx`:
 | `facts`                  | the facts this rule asked for (none if it asked for none)   |
 | `prior`                  | what earlier rules found in the files this run reaches      |
 | `signal`                 | aborts with the run                                         |
+| `declarations()`         | named declarations and bindings, with their references      |
 | `body(name)`             | a def's checked body, as a node                             |
 | `shape(node)`            | a node's kind, name, span and children                      |
 | `nodes(root)`            | a node and every node under it, parents first               |
@@ -227,6 +228,38 @@ return [
 - Offsets are whole UTF-16 units inside the source.
 - A span of length zero inserts.
 - The edits of one fix must not overlap.
+
+#### Declarations
+
+`cx.declarations()` returns source declarations in file and offset order.
+It does not collect checker facts. Each record has `kind`, `name`, `span`,
+`references`, and an optional `owner`:
+
+| TypeScript kind | Bend kind            | Declares                               |
+| --------------- | -------------------- | -------------------------------------- |
+| `import`        | `Lint.Import{}`      | an import alias, or `Base`             |
+| `def`           | `Lint.Definition{}`  | a def or law                           |
+| `type`          | `Lint.Datatype{}`    | a datatype                             |
+| `constructor`   | `Lint.Constructor{}` | a datatype's constructor               |
+| `parameter`     | `Lint.Parameter{}`   | a parameter or named type binder       |
+| `variable`      | `Lint.Variable{}`    | a local, lambda, pattern or do binding |
+| `field`         | `Lint.Field{}`       | a constructor field                    |
+
+- `span` covers the written name. Bindings and constructors have an `owner`:
+  their enclosing def or datatype. Top-level declarations and imports do not.
+- Each reference has its enclosing declaration's `owner` and its source `span`.
+  A reference span can cover an expression when syntax supplies an implicit use.
+  References include types, proofs, patterns, operators and template arguments.
+  Self-references are kept. Template instances do not duplicate source uses.
+- Shadowed bindings remain separate records. A law and its proof fill also have
+  separate records, even when their names agree. Do not identify bindings by name.
+- For a file rule, declarations and references come only from `root`, and names
+  use that file's spelling. For a program rule (`facts.scope: "program"`), they
+  come from every checked source except Base and use the check's names. An import
+  of Base is still listed, with references to its symbols. A proof fill counts as
+  a use of the alias through which it names its law.
+- A failed check returns an empty list. Source metadata is parsed lazily, once
+  per checked source, without another type check, disk writes or import fetching.
 
 #### Nodes
 
@@ -362,9 +395,15 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 - A fact is `Lint.Fact{node, owner, inst, quantity, term, span}`. `term` is
   its type.
 
-Effects: `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`,
+Effects: `declarations`, `body`, `shape`, `nodes`, `parent`, `strip`, `fact`, `binder`,
 `uses`, `same`, `show`, `normal`, `text`, `same_declarations`, `aborted`,
 plus Base's own I/O (files, processes, sockets).
+
+`Lint.declarations()` returns `IO(List<&2, Lint.Declaration>)`. Its records are
+`Lint.Declaration{kind, name, owner, span, references}`; `owner` is a
+`Maybe<&2, String>`, and each reference is `Lint.Reference{owner, span}`.
+The kinds and scope are as in [Declarations](#declarations). One effect gives
+the whole batch; inspect or fold the list with ordinary Bend code.
 
 - `aborted` lets a long rule stop early. bend-lint cannot stop a Bend rule.
 - While a Bend rule waits on I/O, bend-lint waits too.
@@ -556,6 +595,13 @@ Bun patches Bend's modules while they load:
 
 - `term_infer` and `term_check` are wrapped. The wrappers pass every
   argument on, and report what they return to `hook.see`.
+- `parse_bind`, `parse_tele` and `parse_term` are wrapped too, and report to
+  `hook.parse` only while a rule's source metadata is read. They keep names
+  and binding identities from before Bend lowers the source.
+- Probes in `parse_book`, `parse_def` and `book_load` report each
+  declaration's and import's name, with its span, to `hook.declare` and
+  `hook.import` in every check. The guard and source metadata read these
+  names. bend-lint has no parser of its own for them.
 - The hook is global, so checks run one at a time.
 - `fs` and `path` in `bend.ts` and `main.ts` are swapped for adapters that
   turn real paths into `/` paths, so imports resolve on Windows.
@@ -583,7 +629,8 @@ parsed that file. Declarations parsed after it are hidden. Writes go to a
 layer of their own, so the book never changes and is never copied.
 
 Per check, these are made once, when first asked: walks and parents, each
-file's spelling and guard, aliases, the book's order, and the facts by file.
+file's spelling, guard and source metadata, aliases, the book's order, and
+the facts by file. The guard and source metadata use the same parsing boundary.
 
 An entry's check that passed is kept, one per entry, and given again to the
 next `lint` while the bend2 folder, the filters and the text of every file
@@ -600,7 +647,7 @@ it read (unsaved text included) are unchanged. To tell, as git does:
 
 No Bend version is pinned. On every load, for checkouts and downloads:
 
-- Each source edit must match exactly once.
+- Each source edit must match exactly once, after CRLF line ends become LF.
 - The compiler exports and runtime names bend-lint needs must be there once.
 - Wrapper signatures are checked at type-check time, and argument counts at
   run time.
@@ -608,7 +655,9 @@ No Bend version is pinned. On every load, for checkouts and downloads:
   gives them.
 - A self-check runs `src/bend/sample.bend`. In `def id(x: N) -> N: x`, `x`
   must have the right type, binder, quantity, uses and span, and each
-  wrapper must report the terms only it sees.
+  checker wrapper must report the terms only it sees. The source metadata
+  must also report `id`, its parameter `x`, and the constructor `Z` of `N`,
+  each with one reference.
 
 Any mismatch throws a drift error (`name` is `DriftError`, and `e[DRIFT]` is
 true, with `DRIFT` from `src/seam.ts`), and loading stops. The tests add more

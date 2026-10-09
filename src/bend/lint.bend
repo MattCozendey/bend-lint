@@ -73,6 +73,21 @@ type Entries is Data:
 type Span is Data:
   Span{path: String, beg: U32, end: U32}
 
+type DeclarationKind is Data:
+  Import{}
+  Definition{}
+  Datatype{}
+  Constructor{}
+  Parameter{}
+  Variable{}
+  Field{}
+
+type Reference is Data:
+  Reference{owner: String, span: Span}
+
+type Declaration is Data:
+  Declaration{kind: DeclarationKind, name: String, owner: Maybe<&2, String>, span: Span, references: List<&2, Reference>}
+
 type Severity is Data:
   Error{}
   Warning{}
@@ -168,6 +183,9 @@ def aborted() -> IO(Bool):
 
 # The text under a span, in the file on disk.
 def text(span: Span) -> IO(String):
+  import "./effects.js"
+
+def declarations() -> IO(List<&2, Declaration>):
   import "./effects.js"
 
 # A def's checked body, if it has one.

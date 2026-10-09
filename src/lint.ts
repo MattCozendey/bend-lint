@@ -45,6 +45,16 @@ export type Source = { path: string; text: string; base: boolean };
 // A range of a source, in UTF-16 offsets.
 export type Span = { file: Source; beg: number; end: number };
 
+export type Reference = { owner: string; span: Span };
+
+export type Declaration = {
+  kind: "import" | "def" | "type" | "constructor" | "parameter" | "variable" | "field";
+  name: string;
+  owner?: string;
+  span: Span;
+  references: Reference[];
+};
+
 export type Edit = { span: Span; text: string };
 export type Fix = { title: string; applicability: Applicability; edits: Edit[] };
 
@@ -118,6 +128,7 @@ export type RuleContext<O extends Options = Options> = {
   facts: Fact[]; // the facts it asked for; none if it asked for none
   prior: readonly Diag[]; // what earlier rules found in the files this run reaches
   signal: AbortSignal; // aborts with the run
+  declarations(): Declaration[]; // source declarations and their references, in this rule's scope
   body(name: string): Node | undefined; // a def's checked body
   shape(node: Node): Shape;
   nodes(root: Node): Node[]; // root and every node under it, parents first
@@ -248,6 +259,12 @@ type Channel = {
   next(): Wire | undefined;
   report(diags: Array<Reported<number>>): void;
   text(span: Spot): string;
+  declarations(): Array<
+    Omit<Declaration, "span" | "references"> & {
+      span: Spot;
+      references: Array<{ owner: string; span: Spot }>;
+    }
+  >;
   body(name: string): number | undefined;
   shape(node: number): Omit<Shape, "span" | "children"> & { span?: Spot; children: number[] };
   nodes(root: number): number[];
@@ -995,6 +1012,12 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
           const { file, beg, end } = span(s);
           return file.text.slice(beg, end);
         },
+        declarations: () =>
+          cx.declarations().map((d) => ({
+            ...d,
+            span: spotOf(d.span),
+            references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
+          })),
         body: (name) => {
           const n = cx.body(name);
           return n === undefined ? undefined : hold(n);

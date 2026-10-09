@@ -10,6 +10,15 @@ const LINT_SEVERITY = {
   hint: CID(Hint),
 };
 const LINT_QUANTITY = { erased: CID(Erased), once: CID(Once), many: CID(Many) };
+const LINT_DECLARATION = {
+  import: CID(Import),
+  def: CID(Definition),
+  type: CID(Datatype),
+  constructor: CID(Constructor),
+  parameter: CID(Parameter),
+  variable: CID(Variable),
+  field: CID(Field),
+};
 const LINT_APPLICABILITY = {
   safe: CID(Safe),
   suggested: CID(Suggested),
@@ -143,6 +152,26 @@ io_eff(CID(next_fact), () => lint_fact(lint_host().next()));
 io_eff(CID(same_declarations), (text) => lint_host().sameDeclarations(text));
 io_eff(CID(aborted), () => lint_host().aborted());
 io_eff(CID(text), (span) => lint_host().text(lint_spot(span)));
+io_eff(CID(declarations), () =>
+  lint_list(
+    lint_host()
+      .declarations()
+      .map((d) => ({
+        $: CID(Declaration),
+        kind: { $: LINT_DECLARATION[d.kind] },
+        name: d.name,
+        owner: lint_maybe(d.owner),
+        span: lint_span(d.span),
+        references: lint_list(
+          d.references.map((r) => ({
+            $: CID(Reference),
+            owner: r.owner,
+            span: lint_span(r.span),
+          })),
+        ),
+      })),
+  ),
+);
 io_eff(CID(body), (name) => lint_maybe(lint_host().body(name), lint_node));
 io_eff(CID(shape), (n) => {
   const s = lint_host().shape(n.id);
