@@ -200,10 +200,11 @@ type Act is Data:
 type Job is Data:
   Job{doc: Doc, indent: U32, flat: Bool}
 
-# The printer: jobs left, the text so far, the whitespace not written yet
-# (dropped at a break or at the end), and the column.
+# The printer: jobs left, the text so far as chunks last first, the
+# whitespace not written yet (dropped at a break or at the end), and the
+# column.
 type Print is Data:
-  Print{jobs: List<&2, Job>, out: String, pending: String, col: U32}
+  Print{jobs: List<&2, Job>, out: List<&2, String>, pending: String, col: U32}
 
 type Fit is Data:
   Go{jobs: List<&2, Job>, left: U32}
@@ -1886,7 +1887,7 @@ def print.str(
   keep: String,
   +blank: String,
   jobs: List<&2, Job>,
-  out: String,
+  out: List<&2, String>,
   pending: String,
   col: U32
 ) -> Print:
@@ -1894,14 +1895,14 @@ def print.str(
     case SNil{}:
       Print{jobs, out, pending ++ blank, col}
     case _:
-      Print{jobs, out ++ pending ++ keep, blank, col}
+      Print{jobs, Con{keep, Con{pending, out}}, blank, col}
 
 def print.line(
   flat: Bool,
   text: String,
   +at: U32,
   jobs: List<&2, Job>,
-  out: String,
+  out: List<&2, String>,
   pending: String,
   +col: U32,
   +width: U32,
@@ -1937,7 +1938,7 @@ def unbounded(width: Maybe<&2, U32>) -> Bool:
 
 def print.step(
   jobs: List<&2, Job>,
-  out: String,
+  out: List<&2, String>,
   pending: String,
   +col: U32,
   +width: Maybe<&2, U32>,
@@ -1976,13 +1977,22 @@ def print.step(
     case Con{Job{Cat{docs, f}, indent, flat}, rest}:
       Print{push(docs, indent, flat, rest), out, pending, col}
 
+# Chunks last first, joined from the right: each ++ copies one chunk at
+# most, and a token adds its chunks in one step.
+def chunks(xs: List<&2, String>, acc: String) -> String:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{x, rest}:
+      chunks(rest, x ++ acc)
+
 # The text so far; pending whitespace is never written at the end.
 def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +budget: Nat) -> String:
   match fuel p:
     case _ Print{Nil{}, out, pending, col}:
-      out
+      chunks(out, "")
     case 0n Print{jobs, out, pending, col}:
-      out
+      chunks(out, "")
     case 1n+k Print{jobs, out, pending, col}:
       print.go(
         k,
@@ -1996,7 +2006,7 @@ def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +bud
 def print(doc: Doc, +width: Maybe<&2, U32>, +indent: U32, +newline: String, +fuel: Nat) -> String:
   print.go(
     fuel,
-    Print{[Job{doc, indent, False{}}], "", pad(U32.to_nat(indent), ""), indent},
+    Print{[Job{doc, indent, False{}}], [], pad(U32.to_nat(indent), ""), indent},
     width,
     newline,
     fuel
