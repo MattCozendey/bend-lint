@@ -16,6 +16,7 @@ import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./result.ts";
 import type { Result } from "./result.ts";
 import {
   DRIFT,
+  cachedRule,
   check,
   compile,
   foreign,
@@ -30,7 +31,7 @@ import {
   starts,
   unstable,
 } from "./seam.ts";
-import type { Checked, Loaded, Operations, Unstable } from "./seam.ts";
+import type { Checked, Compiled, Loaded, Operations, Unstable } from "./seam.ts";
 import { suppress } from "./suppress.ts";
 
 // Types
@@ -304,9 +305,9 @@ const isSeverity = (s: string): s is Severity => Object.hasOwn(HEAD, s);
 
 const shared = globalThis as typeof globalThis & { BEND_LINT?: Channel };
 
-// Compiled Bend rules, by bend2 folder and path, with the text they were
-// compiled from.
-const COMPILED = new Map<string, { text: string; rule: LintRule }>();
+// Compiled Bend rules, by bend2 folder and path, with whether the files
+// they were compiled from are unchanged.
+const COMPILED = new Map<string, { current: () => boolean; rule: LintRule }>();
 
 // Linters, by the --bend folder asked for ("" for none).
 const LINTERS = new Map<string, Promise<Result<Linter, LintError>>>();
@@ -380,7 +381,7 @@ const linterOf = (m: Loaded): Linter => ({
   BEND2: m.BEND2,
   lint: (file, rules, options = {}) =>
     attempted("internal", () => lintWith(m, file, rules, options), options.signal),
-  bendRule: (file) => attempted("rule-module", () => bendRuleFrom(m, file)),
+  bendRule: (file) => attempted("rule-module", async () => (await bendRuleFrom(m, file)).rule),
   loadRules: (files) => attempted("rule-module", () => rulesFrom(m, files)),
   render: (d) => renderWith(m, d),
 });
@@ -458,17 +459,17 @@ const exported = (file: string): Config => {
 };
 
 // The rules of rule files: a TS or JS module's `rules`, or a Bend rule. A
-// Bend rule is compiled again only when its text changes.
+// Bend rule is compiled again only when a file it reads, or the compiler,
+// changes.
 const rulesFrom = async (m: Loaded, files: string[]): Promise<LintRule[]> => {
   const modules = await Promise.all(
     files.map(async (file): Promise<LintRule[]> => {
       if (file.endsWith(".bend")) {
-        const text = fs.readFileSync(file, "utf8");
         const key = m.BEND2 + "\0" + path.resolve(file);
         const known = COMPILED.get(key);
-        const rule = known?.text === text ? known.rule : await bendRuleFrom(m, file);
-        COMPILED.set(key, { text, rule });
-        return [rule];
+        const made = known?.current() === true ? known : await bendRuleFrom(m, file);
+        COMPILED.set(key, made);
+        return [made.rule];
       }
       const { rules } = await import(url.pathToFileURL(path.resolve(file)).href);
       if (!Array.isArray(rules)) {
@@ -911,15 +912,22 @@ export const position = (span: Span): { start: Position; end: Position } => {
 };
 
 // A rule written in Bend: a file built on ./bend/lint.bend (see there). It is
-// checked and compiled once; each run calls its main, while effects.js
-// reaches bend-lint through globalThis.BEND_LINT. Offsets cross as code points.
-const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
-  const checked = await check(m, file, [], new AbortController().signal);
-  if (checked.failure !== undefined) {
-    throw fault("rule-module", file + " does not check:\n" + renderWith(m, checked.failure));
-  }
-  const { id, want, options, entries, main } = compile(m, checked, file);
-  return {
+// checked and compiled once, or taken from the disk cache; each run calls
+// its main, while effects.js reaches bend-lint through globalThis.BEND_LINT.
+// Offsets cross as code points.
+const bendRuleFrom = async (
+  m: Loaded,
+  file: string,
+): Promise<{ current: () => boolean; rule: LintRule }> => {
+  const compiled = async (): Promise<Compiled> => {
+    const checked = await check(m, file, [], new AbortController().signal);
+    if (checked.failure !== undefined) {
+      throw fault("rule-module", file + " does not check:\n" + renderWith(m, checked.failure));
+    }
+    return compile(m, checked, file);
+  };
+  const { id, want, options, entries, main, current } = cachedRule(m, file) ?? (await compiled());
+  const rule: LintRule = {
     id,
     ...(want === null ? {} : { facts: want }),
     ...(options === undefined ? {} : { options }),
@@ -1093,6 +1101,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
       );
     },
   };
+  return { current, rule };
 };
 
 // The files the inputs name. Each is a glob with / between its parts (a

@@ -1865,6 +1865,60 @@ describe("rules written in Bend", () => {
     expect(res.diags.map((d) => d.message)).toEqual(["Ann > Lam^; Ann > Var^ found; no body"]);
   });
 
+  describe("compiled rules are cached", () => {
+    const cache = fs.mkdtempSync(path.join(DIR, "cache-"));
+    const helper = fixture("cached_helper.bend", "");
+    const rule = fixture(
+      "cached_rule.bend",
+      `import Base
+import ../../bend/lint.bend as Lint
+import ./cached_helper.bend as H
+def id() -> String:
+  "test/cached"
+def facts() -> Lint.Want:
+  Lint.NoFacts{}
+def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
+  IO.pure(List<&2, Lint.Diag>, [Lint.Diag{Lint.Hint{}, H.word(), None{}, [], None{}}])
+def main() -> IO(Unit):
+  Lint.serve(run)
+`,
+    );
+    const said = (): string[] => {
+      const out = spawnSync(process.execPath, [CLI, userland, "--rules", rule, "--json"], {
+        encoding: "utf8",
+        env: { ...process.env, XDG_CACHE_HOME: cache, BEND_DIR: BEND2 },
+      });
+      return JSON.parse(out.stdout).findings.map((f: { message: string }) => f.message);
+    };
+    const word = (w: string) =>
+      fs.writeFileSync(helper, `import Base\ndef word() -> String:\n  "${w}"\n`);
+
+    test("a rule picks up a change to a file it imports, in a new run", () => {
+      word("one");
+      expect(said()).toEqual(["one"]);
+      expect(said()).toEqual(["one"]);
+      word("two");
+      expect(said()).toEqual(["two"]);
+    });
+
+    test("a rule picks up a change to a file it imports, in the same linter", async () => {
+      word("one");
+      const first = unwrap(await linter.loadRules([rule]));
+      expect((await lint(userland, first)).diags.map((d) => d.message)).toEqual(["one"]);
+      word("two");
+      const second = unwrap(await linter.loadRules([rule]));
+      expect((await lint(userland, second)).diags.map((d) => d.message)).toEqual(["two"]);
+    });
+
+    test("a corrupt cache entry still loads the rule", () => {
+      word("one");
+      expect(said()).toEqual(["one"]);
+      const kept = path.join(cache, "bend-lint", "rules");
+      for (const name of fs.readdirSync(kept)) fs.writeFileSync(path.join(kept, name), "{");
+      expect(said()).toEqual(["one"]);
+    });
+  });
+
   test("Bend fixes reject out-of-bounds code-point offsets instead of clamping them", async () => {
     for (const source of [USERLAND, "# 😀\n" + USERLAND]) {
       // Bend counts code points: UTF-16 units, less one per surrogate pair.

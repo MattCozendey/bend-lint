@@ -146,13 +146,24 @@ export type Checked = {
 };
 
 // A rule written in Bend, checked and compiled: what its id(), facts(),
-// options() (if it has them) and main() give.
-type Compiled = {
+// options() (if it has them) and main() give, and whether the compiler and
+// every file it was made from are unchanged.
+export type Compiled = {
   id: string;
   want: FactFilter | null;
   options?: LintRule["options"];
   entries?: LintRule["entries"];
   main: (args: string[]) => number;
+  current: () => boolean;
+};
+
+// A compiled Bend rule as the disk keeps it: its file, the compiler's hash,
+// each file it was made from with its text's hash, and main() as Bend's JS.
+type Kept = {
+  file: string;
+  compiler: string;
+  files: Array<[string, string]>;
+  rule: Omit<Compiled, "main" | "current"> & { js: string };
 };
 
 // Constants
@@ -177,7 +188,7 @@ const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
 // moves it.
 export const PIN: string = pkg.bendRelease;
 
-// Downloaded bends, one folder per release.
+// Downloaded bends, one folder per release, and compiled Bend rules.
 const CACHE = nodePath.join(
   process.env.XDG_CACHE_HOME ??
     (process.platform === "win32"
@@ -185,6 +196,11 @@ const CACHE = nodePath.join(
       : nodePath.join(os.homedir(), ".cache")),
   "bend-lint",
 );
+
+const KEPT = nodePath.join(CACHE, "rules");
+
+// Each loaded bend2's compiler hash, made once.
+const COMPILERS = new WeakMap<Loaded, string>();
 
 const SHIMMED: Array<[string, string]> = [
   ['import * as fs from "node:fs";', "import { fs } from " + SHIM + ";"],
@@ -1580,11 +1596,78 @@ export const layout = (m: Loaded, d: Diag, head: string): string => {
   ).replace(/^Error:/, head);
 };
 
+const digest = (text: string): string => Bun.hash(text).toString(36);
+
+const hashed = (p: string): string | undefined => {
+  const text = tried(() => nodeFs.readFileSync(p, "utf8"));
+  return text === undefined ? undefined : digest(text);
+};
+
+// The compiler's hash: bend2's sources, and this file, which patches them.
+const compilerOf = (m: Loaded): string => {
+  const known =
+    COMPILERS.get(m) ??
+    digest(
+      [...["bend.ts", "comp.ts", "main.ts"].map((f) => nodePath.join(m.BEND2, f)), import.meta.path]
+        .map((p) => hashed(p) ?? "")
+        .join("\0"),
+    );
+  COMPILERS.set(m, known);
+  return known;
+};
+
+// The .js files of a book's foreign defs: comp.ts copies them into the JS.
+const effectsOf = (book: Book): string[] => [
+  ...new Set(
+    Object.values(book.tlds).flatMap((t) =>
+      t.$ === "Def" && t.i !== undefined
+        ? t.i.filter((x) => x.endsWith(".js")).map((x) => slash(nodeFs.realpathSync(x)))
+        : [],
+    ),
+  ),
+];
+
+const keptPath = (file: string): string =>
+  nodePath.join(KEPT, digest(slash(nodePath.resolve(file))) + ".json");
+
+const unchanged = (m: Loaded, kept: Kept): boolean =>
+  kept.compiler === compilerOf(m) && kept.files.every(([p, h]) => hashed(p) === h);
+
+const made = (m: Loaded, kept: Kept): Compiled => {
+  const { js, ...rule } = kept.rule;
+  return {
+    ...rule,
+    // The rule is Bend's own compiled JS, run as comp.ts io_run runs it.
+    // oxlint-disable-next-line typescript/no-implied-eval
+    main: new Function("require", js)(import.meta.require) as (args: string[]) => number,
+    current: () => unchanged(m, kept),
+  };
+};
+
+// Writes `kept` whole or not at all, and drops the entries of rule files
+// that are gone. A cache that cannot be written is skipped.
+const keep = (kept: Kept): void => {
+  tried(() => {
+    nodeFs.mkdirSync(KEPT, { recursive: true });
+    for (const name of nodeFs.readdirSync(KEPT)) {
+      const at = nodePath.join(KEPT, name);
+      const old = tried(() => JSON.parse(nodeFs.readFileSync(at, "utf8")) as Kept);
+      if (old === undefined || !nodeFs.existsSync(old.file)) tried(() => nodeFs.rmSync(at));
+    }
+    const to = keptPath(kept.file);
+    const temp = `${to}.${process.pid}.${Date.now()}`;
+    nodeFs.writeFileSync(temp, JSON.stringify(kept));
+    nodeFs.renameSync(temp, to);
+  });
+};
+
 // A Bend rule's id(), facts(), options(), entries() and main(), compiled as
 // comp.ts io_run does. facts(), checked: NoFacts{} gives null, Want{...} a
 // filter. options(): each Lint.Declared as a schema with its default.
-// entries(), if defined: SomeEntry{} or EveryEntry{}.
-export const compile = (m: Loaded, { book }: Checked, file: string): Compiled => {
+// entries(), if defined: SomeEntry{} or EveryEntry{}. The result is also kept
+// on disk, for cachedRule.
+export const compile = (m: Loaded, checked: Checked, file: string): Compiled => {
+  const { book } = checked;
   const { Bend, Comp } = m;
   const value = (k: Name): LTerm | undefined => {
     const tld = book.tlds[k];
@@ -1681,20 +1764,32 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
         " must define id() -> String, facts() -> Lint.Want, main() -> IO(Unit), options() -> List<&2, Lint.Declared> if it has options, and entries() -> Lint.Entries if it says how entries count",
     );
   }
-  // The rule is Bend's own compiled JS, run as comp.ts io_run runs it.
-  // oxlint-disable-next-line typescript/no-implied-eval
-  const main = new Function(
-    "require",
-    `${Comp.js_lib(book)}\n${Comp.RUNTIME_MAIN}\nreturn (args) => { cli_args = args; return io_run(${Comp.js_sat("main")}); };`,
-  )(import.meta.require) as (args: string[]) => number;
-  return {
-    id,
-    want,
-    ...(declared.length === 0 ? {} : { options: Object.fromEntries(declared) }),
-    ...(entries === null ? {} : { entries }),
-    main,
+  const kept: Kept = {
+    file: slash(nodePath.resolve(file)),
+    compiler: compilerOf(m),
+    files: [
+      ...checked.sources.map((s): [string, string] => [s.path, digest(s.text)]),
+      ...effectsOf(book).map((p): [string, string] => [p, hashed(p) ?? ""]),
+    ],
+    rule: {
+      id,
+      want,
+      ...(declared.length === 0 ? {} : { options: Object.fromEntries(declared) }),
+      ...(entries === null ? {} : { entries }),
+      js: `${Comp.js_lib(book)}\n${Comp.RUNTIME_MAIN}\nreturn (args) => { cli_args = args; return io_run(${Comp.js_sat("main")}); };`,
+    },
   };
+  keep(kept);
+  return made(m, kept);
 };
+
+// The rule kept on disk for `file`, if its compiler and every file it was
+// made from are unchanged.
+export const cachedRule = (m: Loaded, file: string): Compiled | undefined =>
+  tried(() => {
+    const kept = JSON.parse(nodeFs.readFileSync(keptPath(file), "utf8")) as Kept;
+    return unchanged(m, kept) ? made(m, kept) : undefined;
+  });
 
 // What main.ts must give, as bend-lint calls it; a mismatch is a drift
 // error.

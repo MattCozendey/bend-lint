@@ -542,7 +542,10 @@ Read them with `Lint.option_number`, `Lint.option_flag` and
 #### Good to know
 
 - Spans count Unicode code points here. TypeScript counts UTF-16 units.
-- The rule is compiled once, and again only when its text changes.
+- The rule is compiled once, and again only when a file it reads (its
+  imports and their `.js` effects included) or the compiler changes. The
+  compiled rule is kept in `~/.cache/bend-lint/rules/`, one file per rule
+  file. An entry whose rule file is gone is deleted.
 - It runs on Bend's JavaScript runtime. Use tail recursion over long text or
   lists, to stay inside the stack.
 - Streaming facts saves building a list of all of them.

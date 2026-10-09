@@ -272,8 +272,9 @@ run the `bend` binary. It looks, in this order:
 2. A release from GitHub: the one `bend version` names, or else the one this
    bend-lint is tested with.
 
-Downloads go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%`
-on Windows), and are reused.
+Downloads and compiled Bend rules go to `~/.cache/bend-lint/`
+(`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%` on Windows), and are reused. You can
+delete this folder at any time.
 
 ## Write a rule
 
