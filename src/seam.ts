@@ -90,7 +90,9 @@ export type Raw = {
 type Report = Omit<Raw, "inst">;
 
 type Syntax = {
-  declarations: Array<Omit<Declaration, "references"> & { key: Name | number }>;
+  declarations: Array<
+    Omit<Declaration, "references" | "type"> & { key: Name | number; type?: Scoped }
+  >;
   references: Array<{ key: Name | number; owner: string; span: Span }>;
 };
 
@@ -126,7 +128,7 @@ export type Operations = Omit<
 >;
 
 // A declaration's or import's name, as bend's parser read it.
-type Heading = Omit<Declaration, "owner" | "references">;
+type Heading = Omit<Declaration, "owner" | "references" | "type">;
 
 // root: the file checked, unless bend could not read it. beyond: whether
 // facts were kept beyond the root; instances: whether instances' were.
@@ -1270,7 +1272,6 @@ const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax
     return found;
   };
   out.declarations.push(
-    ...heads.map((d) => ({ ...d, key: d.name })),
     ...read
       .filter((d) => d.kind === "constructor")
       .map((d) => ({ ...d, key: d.name, owner: enclosing(d.span).name })),
@@ -1301,6 +1302,7 @@ const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax
     index: number,
     s: BendSpan | undefined,
     kind: Declaration["kind"],
+    type?: Scoped,
   ): void => {
     const span = at(s);
     if (span === undefined || span.file !== file) return;
@@ -1313,6 +1315,7 @@ const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax
       name,
       owner: enclosing(span).name,
       span: { file, beg, end: beg + name.length },
+      ...(type === undefined ? {} : { type }),
     });
   };
   const visited = new WeakSet<LTerm>();
@@ -1348,12 +1351,22 @@ const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax
   };
   try {
     const parsed = parseSource(m, run, shared, file, file.text);
+    // The first `n` binders of `T`, those from `from` on declared as
+    // `kind` with their written types, and the type after them.
+    const telescope = (T: HTerm, n: number, from: number, kind: Declaration["kind"]): Scoped => {
+      let t = T;
+      let i = 0;
+      for (; i < n && t.$ === "All"; i += 1) {
+        if (i >= from) binding(t.k, t.i, t.s, kind, { ty: t.A, bok: parsed, dep: i });
+        t = t.B(m.Bend.Var(t.k, i));
+      }
+      return { ty: t, bok: parsed, dep: i };
+    };
     for (const d of heads) {
       const tld = parsed.tlds[d.name];
-      let t = tld.T;
-      for (let i = 0; i < tld.n && t.$ === "All"; i += 1) {
-        binding(t.k, t.i, t.s, "parameter");
-        t = t.B(m.Bend.Var(t.k, t.i));
+      out.declarations.push({ ...d, key: d.name, type: telescope(tld.T, tld.n, 0, "parameter") });
+      if (tld.$ === "ADT") {
+        tld.c.forEach((c) => telescope(c.T, tld.n + c.n, tld.n, "field"));
       }
     }
   } finally {
@@ -1419,6 +1432,14 @@ const declarationsOf = (
         span: r.span,
       })),
       ...(typeof d.key === "string" && fills.has(d.key) ? { fills: true } : {}),
+      ...(d.type === undefined
+        ? {}
+        : {
+            type: typed({
+              ...d.type,
+              ...(program ? {} : { spelled: spellingIn(m, run, s.file).file }),
+            }),
+          }),
     }));
   });
   const imports = syntax.flatMap((s) =>

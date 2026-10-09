@@ -171,6 +171,7 @@ function lint_declarations(path) {
         ),
         loads: lint_maybe(d.loads),
         fills: d.fills === true,
+        term: lint_maybe(d.type, lint_term),
       })),
   );
 }

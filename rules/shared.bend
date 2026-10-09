@@ -15,6 +15,14 @@ def line_before(s: String, n: Nat, line: String) -> String:
     case SCon{c, rest} 1n+k:
       line_before(rest, k, SCon{c, line})
 
+# Whether `p` is in `xs`.
+def known(xs: List<&2, String>, +p: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{x, rest}:
+      Bool.or(String.eq(x, p), known(rest, p))
+
 def drop_blank(+s: String) -> String:
   match s:
     case SCon{' ', rest}:

@@ -86,9 +86,10 @@ type Reference is Data:
   Reference{owner: String, span: Span}
 
 # loads: an import's file, by path. fills: a def that fills a law of
-# another file.
+# another file. term: the written type of a parameter or field, or of a
+# def or datatype after its parameters.
 type Declaration is Data:
-  Declaration{kind: DeclarationKind, name: String, owner: Maybe<&2, String>, span: Span, references: List<&2, Reference>, loads: Maybe<&2, String>, fills: Bool}
+  Declaration{kind: DeclarationKind, name: String, owner: Maybe<&2, String>, span: Span, references: List<&2, Reference>, loads: Maybe<&2, String>, fills: Bool, term: Maybe<&2, Term>}
 
 type Severity is Data:
   Error{}

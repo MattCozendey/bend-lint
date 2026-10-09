@@ -56,6 +56,7 @@ export type Declaration = {
   references: Reference[];
   loads?: Source; // an import: the file it loads
   fills?: boolean; // a def: true when it fills a law of another file
+  type?: Type; // the written type: a parameter's or field's, or a def's or datatype's after its parameters
 };
 
 export type Edit = { span: Span; text: string };
@@ -264,10 +265,11 @@ type Channel = {
   report(diags: Array<Reported<number>>): void;
   text(span: Spot): string;
   declarations(path?: string): Array<
-    Omit<Declaration, "span" | "references" | "loads"> & {
+    Omit<Declaration, "span" | "references" | "loads" | "type"> & {
       span: Spot;
       references: Array<{ owner: string; span: Spot }>;
       loads?: string;
+      type?: number;
     }
   >;
   body(name: string): number | undefined;
@@ -1030,6 +1032,7 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
                 span: spotOf(d.span),
                 references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
                 loads: d.loads?.path,
+                type: d.type && keep(d.type),
               }));
         },
         body: (name) => {

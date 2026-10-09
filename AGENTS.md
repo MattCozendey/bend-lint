@@ -310,7 +310,7 @@ return [
 
 `cx.declarations()` returns the source's declarations, in file and offset
 order. It does not collect checker facts. Each record has `kind`, `name`,
-`span`, `references`, and the optional `owner`, `loads` and `fills`.
+`span`, `references`, and the optional `owner`, `loads`, `fills` and `type`.
 
 | TypeScript kind | Bend kind            | Declares                               |
 | --------------- | -------------------- | -------------------------------------- |
@@ -331,6 +331,10 @@ The record:
   and hub packages included.
 - `fills`, on a def, is `true` when the def fills a law of another file
   (`def B.L(x):`). A fill of a law of its own file has no `fills`.
+- `type` is the written type, as a type handle: a def's or datatype's
+  parameter's, a field's, or a def's or datatype's after its parameters.
+  Variables, binders inside terms (`@x: A ->`, lambdas) and the parameters
+  of a law's fill have none.
 
 References:
 
@@ -509,9 +513,10 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 - `Lint.declarations_of(path)` is `cx.declarations(file)` for the file at
   `path`.
 - A record is
-  `Lint.Declaration{kind, name, owner, span, references, loads, fills}`.
+  `Lint.Declaration{kind, name, owner, span, references, loads, fills, term}`.
   `owner` is a `Maybe<&2, String>`, `loads` a `Maybe<&2, String>` (a path),
-  and `fills` a `Bool`. A reference is
+  `fills` a `Bool`, and `term` a `Maybe<&2, Lint.Term>` (`type` in
+  TypeScript). A reference is
   `Lint.Reference{owner, span}`. Kinds and scope are as in
   [Declarations](#declarations).
 - `aborted` lets a long rule stop early. bend-lint cannot stop a Bend rule.

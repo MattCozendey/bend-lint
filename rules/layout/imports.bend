@@ -122,7 +122,7 @@ def block(ds: List<&2, Lint.Declaration>, +text: String, b: Block) -> Block:
   match ds:
     case Nil{}:
       b
-    case Con{Lint.Declaration{Lint.Import{}, name, owner, span, refs, Some{loads}, fills}, rest}:
+    case Con{Lint.Declaration{Lint.Import{}, name, owner, span, refs, Some{loads}, fills, term}, rest}:
       block(rest, text, add(text, Shared.line_of(text, span), name, refs, loads, b))
     case Con{d, rest}:
       block(rest, text, b)

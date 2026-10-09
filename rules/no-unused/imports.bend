@@ -16,18 +16,11 @@ type Walk is Data:
 
 # Load chain
 # ==========
-def known(xs: List<&2, String>, +p: String) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{x, rest}:
-      Bool.or(String.eq(x, p), known(rest, p))
-
 def any_fills(ds: List<&2, Lint.Declaration>) -> Bool:
   match ds:
     case Nil{}:
       False{}
-    case Con{Lint.Declaration{kind, name, owner, span, refs, loads, fills}, rest}:
+    case Con{Lint.Declaration{kind, name, owner, span, refs, loads, fills, term}, rest}:
       Bool.or(fills, any_fills(rest))
 
 def queue(skip: Bool, p: String, todo: List<&2, String>) -> List<&2, String>:
@@ -47,8 +40,8 @@ def loaded(
   match ds:
     case Nil{}:
       todo
-    case Con{Lint.Declaration{kind, name, owner, span, refs, Some{+p}, fills}, rest}:
-      loaded(rest, queue(Bool.or(known(todo, p), known(seen, p)), p, todo), seen)
+    case Con{Lint.Declaration{kind, name, owner, span, refs, Some{+p}, fills, term}, rest}:
+      loaded(rest, queue(Bool.or(Shared.known(todo, p), Shared.known(seen, p)), p, todo), seen)
     case Con{d, rest}:
       loaded(rest, todo, seen)
 
@@ -102,7 +95,7 @@ def imports(
   match ds:
     case Nil{}:
       IO.pure(List<&2, Lint.Diag>, List.reverse(&2, Lint.Diag, acc))
-    case Con{Lint.Declaration{Lint.Import{}, name, owner, span, Nil{}, Some{p}, fills}, rest}:
+    case Con{Lint.Declaration{Lint.Import{}, name, owner, span, Nil{}, Some{p}, fills, term}, rest}:
       IO.bind(
         Bool,
         List<&2, Lint.Diag>,

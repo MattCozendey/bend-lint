@@ -132,7 +132,8 @@ def check(+text: String, d: Lint.Declaration) -> List<&2, Lint.Diag>:
       Lint.Span{file, +beg, end},
       refs,
       Some{target},
-      fills
+      fills,
+      term
     }:
       path_of(file, target, Shared.after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
     case _:

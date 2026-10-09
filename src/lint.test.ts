@@ -3528,6 +3528,58 @@ def main() -> String:
     ]);
   });
 
+  test("a declaration has its written type: a parameter's, a field's, or a def's or type's after its parameters", async () => {
+    const file = fixture(
+      "typed.bend",
+      `import Base
+type Box<a, -A: Kind(a)> is Kind(a):
+  Box{val: A, n: U32}
+def Both(-A: Type, -B: Type) -> Type:
+  A & B
+def main() -> U32:
+  y : U32 = 2
+  y
+`,
+    );
+    const shown: Array<[string, string, string | undefined]> = [];
+    const result = await lint(
+      file,
+      [
+        {
+          id: "test/typed",
+          run: (cx) => {
+            shown.push(
+              ...cx
+                .declarations()
+                .map((d): [string, string, string | undefined] => [
+                  d.kind,
+                  d.name,
+                  d.type && cx.show(d.type),
+                ]),
+            );
+            return [];
+          },
+        },
+      ],
+      { config: {} },
+    );
+    expect(result.diags.map(render)).toEqual([]);
+    expect(shown).toEqual([
+      ["import", "Base", undefined],
+      ["type", "Box", "Kind(a^0)"],
+      ["parameter", "a", "Quant"],
+      ["parameter", "A", "Kind(a^0)"],
+      ["constructor", "Box", undefined],
+      ["field", "val", "A^1"],
+      ["field", "n", "U32"],
+      ["def", "Both", "Type"],
+      ["parameter", "A", "Type"],
+      ["parameter", "B", "Type"],
+      ["def", "main", "U32"],
+      ["variable", "y", undefined],
+    ]);
+  });
+
   test("declarations(file) spells names as that file does, and gives none for Base", async () => {
     fixture("spelled_dep.bend", "import Base\ndef one() -> U32:\n  1\n");
     const middle = fixture(
@@ -3581,12 +3633,18 @@ def flag(b: Bool) -> String:
       "fills"
     case False{}:
       ""
+def typed(m: Maybe<&2, Lint.Term>) -> String:
+  match m:
+    case Some{t}:
+      "typed"
+    case None{}:
+      ""
 def one(d: Lint.Declaration) -> Lint.Diag:
   match d:
-    case Lint.Declaration{kind, +name, owner, span, refs, loads, fills}:
+    case Lint.Declaration{kind, +name, owner, span, refs, loads, fills, term}:
       Lint.diag(
         Lint.Warning{},
-        name ++ ":" ++ Nat.show(List.length(&2, Lint.Reference, refs)) ++ ":" ++ path(loads) ++ ":" ++ flag(fills),
+        name ++ ":" ++ Nat.show(List.length(&2, Lint.Reference, refs)) ++ ":" ++ path(loads) ++ ":" ++ flag(fills) ++ ":" ++ typed(term),
         span
       )
 def reports(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.Diag>:
@@ -3612,9 +3670,13 @@ def main() -> IO(Unit):
     const result = await lint(file, [rule]);
     expect(result.diags.map((d) => [d.message, d.span?.beg, d.span?.end])).toEqual(
       expected.map((d) => [
-        [d.name, d.references.length, d.loads?.path ?? "", d.fills === true ? "fills" : ""].join(
-          ":",
-        ),
+        [
+          d.name,
+          d.references.length,
+          d.loads?.path ?? "",
+          d.fills === true ? "fills" : "",
+          d.type === undefined ? "" : "typed",
+        ].join(":"),
         d.span.beg,
         d.span.end,
       ]),
