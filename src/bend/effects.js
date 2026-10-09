@@ -152,10 +152,10 @@ io_eff(CID(next_fact), () => lint_fact(lint_host().next()));
 io_eff(CID(same_declarations), (text) => lint_host().sameDeclarations(text));
 io_eff(CID(aborted), () => lint_host().aborted());
 io_eff(CID(text), (span) => lint_host().text(lint_spot(span)));
-io_eff(CID(declarations), () =>
-  lint_list(
+function lint_declarations(path) {
+  return lint_list(
     lint_host()
-      .declarations()
+      .declarations(path)
       .map((d) => ({
         $: CID(Declaration),
         kind: { $: LINT_DECLARATION[d.kind] },
@@ -169,9 +169,14 @@ io_eff(CID(declarations), () =>
             span: lint_span(r.span),
           })),
         ),
+        loads: lint_maybe(d.loads),
+        fills: d.fills === true,
       })),
-  ),
-);
+  );
+}
+
+io_eff(CID(declarations), () => lint_declarations(undefined));
+io_eff(CID(declarations_of), lint_declarations);
 io_eff(CID(body), (name) => lint_maybe(lint_host().body(name), lint_node));
 io_eff(CID(shape), (n) => {
   const s = lint_host().shape(n.id);

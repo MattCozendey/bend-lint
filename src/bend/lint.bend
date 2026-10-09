@@ -85,8 +85,10 @@ type DeclarationKind is Data:
 type Reference is Data:
   Reference{owner: String, span: Span}
 
+# loads: an import's file, by path. fills: a def that fills a law of
+# another file.
 type Declaration is Data:
-  Declaration{kind: DeclarationKind, name: String, owner: Maybe<&2, String>, span: Span, references: List<&2, Reference>}
+  Declaration{kind: DeclarationKind, name: String, owner: Maybe<&2, String>, span: Span, references: List<&2, Reference>, loads: Maybe<&2, String>, fills: Bool}
 
 type Severity is Data:
   Error{}
@@ -186,6 +188,11 @@ def text(span: Span) -> IO(String):
   import "./effects.js"
 
 def declarations() -> IO(List<&2, Declaration>):
+  import "./effects.js"
+
+# The declarations of the file at `path`, as that file spells them; none
+# for Base, or a file the check did not read.
+def declarations_of(path: String) -> IO(List<&2, Declaration>):
   import "./effects.js"
 
 # A def's checked body, if it has one.

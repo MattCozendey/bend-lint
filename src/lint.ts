@@ -54,6 +54,8 @@ export type Declaration = {
   owner?: string;
   span: Span;
   references: Reference[];
+  loads?: Source; // an import: the file it loads
+  fills?: boolean; // a def: true when it fills a law of another file
 };
 
 export type Edit = { span: Span; text: string };
@@ -129,7 +131,7 @@ export type RuleContext<O extends Options = Options> = {
   facts: Fact[]; // the facts it asked for; none if it asked for none
   prior: readonly Diag[]; // what earlier rules found in the files this run reaches
   signal: AbortSignal; // aborts with the run
-  declarations(): Declaration[]; // source declarations and their references, in this rule's scope
+  declarations(file?: Source): Declaration[]; // source declarations and their references, in this rule's scope; with file, that file's, as it spells them
   body(name: string): Node | undefined; // a def's checked body
   shape(node: Node): Shape;
   nodes(root: Node): Node[]; // root and every node under it, parents first
@@ -261,10 +263,11 @@ type Channel = {
   next(): Wire | undefined;
   report(diags: Array<Reported<number>>): void;
   text(span: Spot): string;
-  declarations(): Array<
-    Omit<Declaration, "span" | "references"> & {
+  declarations(path?: string): Array<
+    Omit<Declaration, "span" | "references" | "loads"> & {
       span: Spot;
       references: Array<{ owner: string; span: Spot }>;
+      loads?: string;
     }
   >;
   body(name: string): number | undefined;
@@ -1018,12 +1021,17 @@ const bendRuleFrom = async (m: Loaded, file: string): Promise<LintRule> => {
           const { file, beg, end } = span(s);
           return file.text.slice(beg, end);
         },
-        declarations: () =>
-          cx.declarations().map((d) => ({
-            ...d,
-            span: spotOf(d.span),
-            references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
-          })),
+        declarations: (path) => {
+          const file = path === undefined ? undefined : cx.sources.find((s) => s.path === path);
+          return path !== undefined && file === undefined
+            ? []
+            : cx.declarations(file).map((d) => ({
+                ...d,
+                span: spotOf(d.span),
+                references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
+                loads: d.loads?.path,
+              }));
+        },
         body: (name) => {
           const n = cx.body(name);
           return n === undefined ? undefined : hold(n);

@@ -3456,6 +3456,109 @@ def main() -> String:
     expect(result.diags.map(render)).toEqual([]);
   });
 
+  test("an import names the file it loads, Base included", async () => {
+    fixture("loads_dep.bend", "import Base\ndef one() -> U32:\n  1\n");
+    const file = fixture(
+      "loads_main.bend",
+      "import Base\nimport ./loads_dep.bend as D\ndef main() -> U32:\n  D.one()\n",
+    );
+    const items = (await declarations(file)).filter((d) => d.kind === "import");
+    expect(items.map((d) => [d.name, d.loads?.base, path.basename(d.loads?.path ?? "")])).toEqual([
+      ["Base", true, "base.bend"],
+      ["D", false, "loads_dep.bend"],
+    ]);
+  });
+
+  test("an import of a hub package names the file it loads", () => {
+    const lib = path.join(DIR, "loads_hub").replaceAll("\\", "/");
+    const hub = "0x" + "b".repeat(32);
+    fs.mkdirSync(lib + "/" + hub, { recursive: true });
+    fs.writeFileSync(lib + "/" + hub + "/dep.bend", "def one() -> Type:\n  Type\n");
+    const main = fixture(
+      "loads_hub_main.bend",
+      "import " + hub + "/dep.bend as H\n\ndef main() -> Type:\n  H.one()\n",
+    );
+    const loads = module(
+      "loads_hub.js",
+      `[{ id: "test/loads", run: (cx) => cx.declarations().filter((d) => d.kind === "import").map((d) => cx.diag({ message: d.loads.path, span: d.span })) }]`,
+    );
+    const out = spawnSync(process.execPath, [CLI, main, "--rules", loads, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, BEND_LIB: lib },
+    });
+    expect(JSON.parse(out.stdout).findings.map((f: { message: string }) => f.message)).toEqual([
+      expect.stringMatching(new RegExp("/" + hub + "/dep\\.bend$")),
+    ]);
+  });
+
+  test("a def that fills another file's law is marked; a fill of its own law is not", async () => {
+    fixture(
+      "fills_law.bend",
+      "import Base\nlaw L:\n  for x: U32\n  U32\nlaw M:\n  U32\ndef M():\n  1\n",
+    );
+    fixture(
+      "fills_fill.bend",
+      "import Base\nimport ./fills_law.bend as B\ndef B.L(x):\n  x\ndef own() -> U32:\n  1\n",
+    );
+    const main = fixture(
+      "fills_main.bend",
+      "import Base\nimport ./fills_law.bend as B\nimport ./fills_fill.bend as F\ndef main() -> U32:\n  B.L(B.M())\n",
+    );
+    const seen: Array<[string, string, boolean | undefined]> = [];
+    await lint(main, [
+      {
+        id: "test/fills",
+        run: (cx) => {
+          for (const name of ["fills_fill.bend", "fills_law.bend"]) {
+            const file = cx.sources.find((f) => path.basename(f.path) === name);
+            for (const d of cx.declarations(file).filter((x) => x.kind === "def")) {
+              seen.push([name, d.name, d.fills]);
+            }
+          }
+          return [];
+        },
+      },
+    ]);
+    expect(seen).toEqual([
+      ["fills_fill.bend", "B.L", true],
+      ["fills_fill.bend", "own", undefined],
+      ["fills_law.bend", "L", undefined],
+      ["fills_law.bend", "M", undefined],
+      ["fills_law.bend", "M", undefined],
+    ]);
+  });
+
+  test("declarations(file) spells names as that file does, and gives none for Base", async () => {
+    fixture("spelled_dep.bend", "import Base\ndef one() -> U32:\n  1\n");
+    const middle = fixture(
+      "spelled_middle.bend",
+      "import Base\nimport ./spelled_dep.bend as Dep\ndef two() -> U32:\n  Dep.one()\n",
+    );
+    const main = fixture(
+      "spelled_main.bend",
+      "import Base\nimport ./spelled_middle.bend as M\ndef main() -> U32:\n  M.two()\n",
+    );
+    const alone = await declarations(middle);
+    const asked: Declaration[][] = [];
+    await lint(main, [
+      {
+        id: "test/spelled",
+        run: (cx) => {
+          asked.push(
+            cx.declarations(cx.sources.find((f) => f.path === middle)),
+            cx.declarations(cx.sources.find((f) => f.base)),
+          );
+          return [];
+        },
+      },
+    ]);
+    expect(summary(asked[0])).toEqual(summary(alone));
+    expect(summary(alone).find((d) => d.name === "Dep")?.references).toEqual([
+      { owner: "two", text: "Dep.one" },
+    ]);
+    expect(asked[1]).toEqual([]);
+  });
+
   test("Bend receives the same declarations and references with code-point spans", async () => {
     const rule = await bendRule(
       fixture(
@@ -3466,10 +3569,26 @@ def id() -> String:
   "test/declaration_bridge"
 def facts() -> Lint.Want:
   Lint.NoFacts{}
+def path(m: Maybe<&2, String>) -> String:
+  match m:
+    case Some{p}:
+      p
+    case None{}:
+      ""
+def flag(b: Bool) -> String:
+  match b:
+    case True{}:
+      "fills"
+    case False{}:
+      ""
 def one(d: Lint.Declaration) -> Lint.Diag:
   match d:
-    case Lint.Declaration{kind, +name, owner, span, refs}:
-      Lint.diag(Lint.Warning{}, name ++ ":" ++ Nat.show(List.length(&2, Lint.Reference, refs)), span)
+    case Lint.Declaration{kind, +name, owner, span, refs, loads, fills}:
+      Lint.diag(
+        Lint.Warning{},
+        name ++ ":" ++ Nat.show(List.length(&2, Lint.Reference, refs)) ++ ":" ++ path(loads) ++ ":" ++ flag(fills),
+        span
+      )
 def reports(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.Diag>:
   match ds:
     case Nil{}:
@@ -3492,7 +3611,13 @@ def main() -> IO(Unit):
     const expected = await declarations(file);
     const result = await lint(file, [rule]);
     expect(result.diags.map((d) => [d.message, d.span?.beg, d.span?.end])).toEqual(
-      expected.map((d) => [d.name + ":" + d.references.length, d.span.beg, d.span.end]),
+      expected.map((d) => [
+        [d.name, d.references.length, d.loads?.path ?? "", d.fills === true ? "fills" : ""].join(
+          ":",
+        ),
+        d.span.beg,
+        d.span.end,
+      ]),
     );
   });
 });

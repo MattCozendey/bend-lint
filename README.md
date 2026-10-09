@@ -184,6 +184,20 @@ file it names, and start with `./` or `../`. Its fix is `safe`.
   real folder. A symlink inside the import path is not resolved.
 - A file that fails Bend's check gets no findings from this rule.
 
+### `no-unused/imports` (`rules/no-unused/imports.bend`)
+
+Each import must be used. Its fix, `safe`, removes the import's line, with
+a comment on that line.
+
+An import is used when:
+
+- the file names something through its alias (`L.one()`); for
+  `import Base`, when it uses anything of Base, literals included; or
+- the file it loads, or a file that file imports, fills a law of another
+  file (`def B.L(x):`). Removing it would leave the law unfilled.
+
+A file that fails Bend's check gets no findings from this rule.
+
 ## Suppress findings
 
 A directive comment can silence a rule (`disable`) or require a finding

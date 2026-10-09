@@ -1186,6 +1186,13 @@ const layer = <T>(under: Record<Name, T>, hidden: (k: Name) => boolean): Record<
   });
 };
 
+// Of the check's names a file in namespace `ns` declares, those that fill a
+// law of another file: a def of an aliased name fills it.
+const fillsIn = (book: Book, ns: Name, own: Name[]): Set<Name> =>
+  new Set(
+    own.filter((k) => k.includes(":") && !k.startsWith(ns + ":") && book.tlds[k]?.$ === "Def"),
+  );
+
 // Parse in the file's original scope, with writes confined to a fresh layer.
 const parseSource = (m: Loaded, run: Checked, shared: Shared, file: Source, text: string): Book => {
   const { Bend } = m;
@@ -1195,9 +1202,7 @@ const parseSource = (m: Loaded, run: Checked, shared: Shared, file: Source, text
   const own = run.headings
     .filter((d) => d.span.file === file && (d.kind === "def" || d.kind === "type"))
     .map((d) => qualify(d.name));
-  const fills = new Set(
-    own.filter((k) => k.includes(":") && !k.startsWith(ns + ":") && book.tlds[k]?.$ === "Def"),
-  );
+  const fills = fillsIn(book, ns, own);
   const gone = new Set(own.filter((k) => !fills.has(k)));
   const order = (shared.order ??= orderOf(book));
   const cut = file === root ? Infinity : (order.first.get(ns) ?? Infinity);
@@ -1398,8 +1403,13 @@ const declarationsOf = (
     }, new Map<string, Syntax["references"]>());
   const spelling = program ? undefined : spellingIn(m, run, file);
   const name = (k: Name): Name => (spelling === undefined ? k : spelling.spell(k));
-  const symbols = syntax.flatMap((s) =>
-    s.declarations.map((d): Declaration => ({
+  const symbols = syntax.flatMap((s) => {
+    const fills = fillsIn(
+      run.book,
+      spellingIn(m, run, s.file).ns,
+      s.declarations.flatMap((d) => (d.kind === "def" && typeof d.key === "string" ? [d.key] : [])),
+    );
+    return s.declarations.map((d): Declaration => ({
       kind: d.kind,
       name: typeof d.key === "number" ? d.name : name(d.name),
       owner: d.owner === undefined ? undefined : name(d.owner),
@@ -1408,13 +1418,17 @@ const declarationsOf = (
         owner: name(r.owner),
         span: r.span,
       })),
-    })),
-  );
+      ...(typeof d.key === "string" && fills.has(d.key) ? { fills: true } : {}),
+    }));
+  });
   const imports = syntax.flatMap((s) =>
     run.headings
       .filter((d) => d.span.file === s.file && d.kind === "import")
       .map(({ name: alias, span }): Declaration => {
         const aliases = spellingIn(m, run, s.file).aliases;
+        const loads = run.sources.find((f) =>
+          alias === "Base" ? f.base : !f.base && FILES.get(f)!.ns === aliases[alias],
+        );
         const refs = s.references.filter((r) => {
           if (typeof r.key !== "string") return false;
           const explicit = s.file.text
@@ -1432,6 +1446,7 @@ const declarationsOf = (
           name: alias,
           span,
           references: refs.map((r) => ({ owner: name(r.owner), span: r.span })),
+          ...(loads === undefined ? {} : { loads }),
         };
       }),
   );
@@ -1455,7 +1470,12 @@ export const operations = (m: Loaded, run: Checked, file: Source, program: boole
     return known;
   };
   return {
-    declarations: () => declarationsOf(m, run, shared, file, program),
+    declarations: (of) =>
+      of === undefined
+        ? declarationsOf(m, run, shared, file, program)
+        : of.base || !run.sources.includes(of)
+          ? []
+          : declarationsOf(m, run, shared, of, false),
     body: (name) => {
       const tld = run.book.tlds[spelling === undefined ? name : spelling.key(name)];
       return tld?.$ === "Def" && tld.e !== undefined ? node(tld.e) : undefined;

@@ -265,7 +265,7 @@ What is on `cx`:
 | `facts`                  | the facts this rule asked for (none if it asked for none)                |
 | `prior`                  | what earlier rules found in the files where this run's findings can show |
 | `signal`                 | aborts with the run                                                      |
-| `declarations()`         | named declarations and bindings, with their references                   |
+| `declarations(file?)`    | named declarations and bindings, with their references                   |
 | `body(name)`             | a def's checked body, as a node                                          |
 | `shape(node)`            | a node's kind, name, span and children                                   |
 | `nodes(root)`            | a node and every node under it, parents first                            |
@@ -310,7 +310,7 @@ return [
 
 `cx.declarations()` returns the source's declarations, in file and offset
 order. It does not collect checker facts. Each record has `kind`, `name`,
-`span`, `references`, and an optional `owner`.
+`span`, `references`, and the optional `owner`, `loads` and `fills`.
 
 | TypeScript kind | Bend kind            | Declares                               |
 | --------------- | -------------------- | -------------------------------------- |
@@ -327,6 +327,10 @@ The record:
 - `span` covers the written name.
 - `owner` is the enclosing def or datatype. Bindings and constructors have
   one. Top-level declarations and imports do not.
+- `loads`, on an import, is the file it loads: a source of the check, Base
+  and hub packages included.
+- `fills`, on a def, is `true` when the def fills a law of another file
+  (`def B.L(x):`). A fill of a law of its own file has no `fills`.
 
 References:
 
@@ -353,6 +357,9 @@ Scope:
 - Program rule (`facts.scope: "program"`): they come from every checked
   source except Base and hub packages, with the check's names. An import of Base is still
   listed, with references to its symbols.
+- `cx.declarations(file)`, with a source of the check, gives that file's
+  declarations as that file spells them, in any scope: what a file rule on
+  it gets. Base, or a file the check did not read, gives an empty list.
 - A failed check gives an empty list.
 - Each checked source is parsed once, when first asked, without another type
   check, disk writes or import fetching.
@@ -493,14 +500,18 @@ def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
 
 #### Effects
 
-`declarations`, `body`, `shape`, `nodes`, `parent`, `strip`, `fact`,
+`declarations`, `declarations_of`, `body`, `shape`, `nodes`, `parent`, `strip`, `fact`,
 `binder`, `uses`, `same`, `show`, `normal`, `text`, `same_declarations` and
 `aborted`, plus Base's own I/O (files, processes, sockets).
 
 - `Lint.declarations()` returns `IO(List<&2, Lint.Declaration>)`, in one
   effect. Read the list with ordinary Bend code.
-- A record is `Lint.Declaration{kind, name, owner, span, references}`.
-  `owner` is a `Maybe<&2, String>`. A reference is
+- `Lint.declarations_of(path)` is `cx.declarations(file)` for the file at
+  `path`.
+- A record is
+  `Lint.Declaration{kind, name, owner, span, references, loads, fills}`.
+  `owner` is a `Maybe<&2, String>`, `loads` a `Maybe<&2, String>` (a path),
+  and `fills` a `Bool`. A reference is
   `Lint.Reference{owner, span}`. Kinds and scope are as in
   [Declarations](#declarations).
 - `aborted` lets a long rule stop early. bend-lint cannot stop a Bend rule.
@@ -680,6 +691,22 @@ failure messages can still go to stderr. A finding with a fix:
 ## Internals
 
 All of this lives in `src/seam.ts`.
+
+bend-lint works in three layers, however Bend is built:
+
+1. **Ask Bend.** The seam runs Bend's own parser and checker, and reads what
+   they computed: through probes, wrappers and the checked book.
+2. **Convert.** The seam turns that into bend-lint's own types: `Declaration`,
+   `Fact`, `Node`, `Span`. These types are the contract.
+3. **Work with it.** Rules see only the contract, except through
+   `cx.unstable`.
+
+- When Bend changes inside, only step 1 follows, or a drift check stops the
+  load. The contract and the rules stay.
+- When Bend is written in Bend, the seam goes. Something fills the same
+  contract, and the rules stay.
+- Put logic in rules (`rules/shared.*`), not in the seam. The seam only
+  passes on what Bend knows. Logic there is rewritten when the seam goes.
 
 ### Finding Bend
 

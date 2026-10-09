@@ -5,6 +5,7 @@
 # Run: bun src/lint.ts file.bend --rules rules/layout/canon-import-path.bend --fix
 import Base
 import ../../src/bend/lint.bend as Lint
+import ../shared.bend as Shared
 
 # Paths
 # -----
@@ -84,19 +85,6 @@ def canon(+parts: List<&2, String>) -> String:
 
 # Import lines
 # ------------
-
-# The text of the line that holds offset `n` of `s`, up to `n`.
-def line_before(s: String, n: Nat, line: String) -> String:
-  match s n:
-    case _ 0n:
-      String.reverse(line)
-    case SNil{} _:
-      String.reverse(line)
-    case SCon{'\n', rest} 1n+k:
-      line_before(rest, k, "")
-    case SCon{c, rest} 1n+k:
-      line_before(rest, k, SCon{c, line})
-
 def drop_blank(+s: String) -> String:
   match s:
     case SCon{' ', rest}:
@@ -172,8 +160,16 @@ def path_of(+file: String, +after: String, +beg: U32) -> List<&2, Lint.Diag>:
 
 def check(+text: String, d: Lint.Declaration) -> List<&2, Lint.Diag>:
   match d:
-    case Lint.Declaration{Lint.Import{}, name, owner, Lint.Span{file, +beg, end}, refs}:
-      path_of(file, after_import(line_before(text, U32.to_nat(beg), "")), beg)
+    case Lint.Declaration{
+      Lint.Import{},
+      name,
+      owner,
+      Lint.Span{file, +beg, end},
+      refs,
+      loads,
+      fills
+    }:
+      path_of(file, after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
     case _:
       []
 
