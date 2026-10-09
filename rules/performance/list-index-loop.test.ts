@@ -66,6 +66,33 @@ describe("performance/list-index-loop", () => {
     ]);
   });
 
+  test("a helper that gives the list to List.get is reported where the loop calls it", async () => {
+    const out = await found(
+      file(
+        "def at(xs: List<&2, U32>, i: Nat) -> U32:\n  or_zero(List.get(&2, U32, xs, i))\n",
+        loop("      f(p, xs, Nat.add(i, 1n), U32.add(acc, at(xs, i)))"),
+      ),
+    );
+    expect(out).toEqual([
+      {
+        text: "at(xs, i)",
+        message:
+          "at walks xs from its head (through List.get), and f passes xs unchanged to each call of itself: the loop is O(n²). Walk it instead: match it, use its head, and pass its tail to the next call.",
+      },
+    ]);
+  });
+
+  test("a helper called outside a loop passes", async () => {
+    expect(
+      await found(
+        file(
+          "def at(xs: List<&2, U32>, i: Nat) -> U32:\n  or_zero(List.get(&2, U32, xs, i))\n",
+          "def f(xs: List<&2, U32>) -> U32:\n  at(xs, 3n)\n",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
   test("a loop that passes the list's rest passes", async () => {
     expect(
       await found(

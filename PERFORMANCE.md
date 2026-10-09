@@ -87,8 +87,8 @@ before the loop.
 
 There is no fix: the rewrite changes the loop's parameters.
 
-The rule sees only calls in the loop itself. A lookup inside a helper that
-the loop calls (`at(xs, i)`) is not found.
+A lookup one call deep counts too: a def of the file that gives the list to
+one of those (`at(xs, i)`).
 
 Sample `samples/list-index-loop/`: the dot product of two lists of 16000
 values, by index.

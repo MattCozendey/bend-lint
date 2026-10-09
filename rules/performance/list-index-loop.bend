@@ -1,9 +1,10 @@
 # performance/list-index-loop: a loop that reads a list from its head on
 # each step. A def passes a list parameter unchanged to its own call, and
 # also gives it to List.get, List.drop, List.take, List.last or
-# List.length. Each of those walks the list from its head, so the loop is
-# O(n²) where a walk of the list is O(n). The finding has no fix: the
-# rewrite changes the loop's parameters.
+# List.length, or to a def of the file that gives it to one of those. Each
+# of those walks the list from its head, so the loop is O(n²) where a walk
+# of the list is O(n). The finding has no fix: the rewrite changes the
+# loop's parameters.
 # Run: bun src/lint.ts file.bend --rules rules/performance/list-index-loop.bend
 import Base
 import ../../src/bend/lint.bend as Lint
@@ -21,6 +22,15 @@ type Call is Data:
 # and what to do instead.
 type Walker is Data:
   Walker{name: String, arity: Nat, advice: String}
+
+# A call that walks one of its arguments from its head: the callee, its
+# arity, the argument's position, and the list function that walks it.
+type Site is Data:
+  Site{name: String, arity: Nat, at: Nat, walker: Walker}
+
+# A def's name, parameters and calls.
+type Body is Data:
+  Body{name: String, params: List<&2, String>, calls: List<&2, Call>}
 
 # Constants
 # =========
@@ -144,21 +154,88 @@ def passes_at(
 def kept(cs: List<&2, Call>, +self: String, +params: List<&2, String>, +v: String) -> Bool:
   passes_at(cs, self, List.length(&2, String, params), position(params, v, 0n), v)
 
-def walker_of(ws: List<&2, Walker>, +name: String, +arity: Nat) -> Maybe<&2, Walker>:
+# The list functions, as sites: each walks its third argument.
+def direct(ws: List<&2, Walker>) -> List<&2, Site>:
   match ws:
     case Nil{}:
-      None{}
-    case Con{Walker{+w, +a, +advice}, rest}:
-      Bool.pick(
-        Maybe<&2, Walker>,
-        Bool.and(String.eq(w, name), Nat.is_eq(a, arity)),
-        Some{Walker{w, a, advice}},
-        walker_of(rest, name, arity)
+      []
+    case Con{Walker{+name, +arity, advice}, rest}:
+      Con{Site{name, arity, 2n, Walker{name, arity, advice}}, direct(rest)}
+
+def fits(s: Site, +head: String, +arity: Nat) -> Bool:
+  match s:
+    case Site{name, a, at, w}:
+      Bool.and(String.eq(name, head), Nat.is_eq(a, arity))
+
+# The sites that a call of `head` with `arity` arguments is.
+def matching(ss: List<&2, Site>, +head: String, +arity: Nat) -> List<&2, Site>:
+  match ss:
+    case Nil{}:
+      []
+    case Con{+s, rest}:
+      +more = matching(rest, head, arity)
+      Bool.pick(List<&2, Site>, fits(s, head, arity), Con{s, more}, more)
+
+def helper_at(+g: String, arity: Nat, k: Maybe<&2, Nat>, w: Walker) -> List<&2, Site>:
+  match k:
+    case Some{at}:
+      [Site{g, arity, at, w}]
+    case None{}:
+      []
+
+# The sites that def `g` adds when it gives a parameter to the list
+# function of `ss`, with the call's arguments `args`.
+def helpers(
+  +g: String,
+  +params: List<&2, String>,
+  +args: List<&2, String>,
+  ss: List<&2, Site>
+) -> List<&2, Site>:
+  match ss:
+    case Nil{}:
+      []
+    case Con{Site{name, a, at, w}, rest}:
+      List.append(
+        &2,
+        Site,
+        helper_at(g, List.length(&2, String, params), position(params, nth(args, at), 0n), w),
+        helpers(g, params, args, rest)
       )
+
+def helpers_of_calls(
+  +direct: List<&2, Site>,
+  +g: String,
+  +params: List<&2, String>,
+  cs: List<&2, Call>
+) -> List<&2, Site>:
+  match cs:
+    case Nil{}:
+      []
+    case Con{Call{+head, +args, span}, rest}:
+      List.append(
+        &2,
+        Site,
+        helpers(g, params, args, matching(direct, head, List.length(&2, String, args))),
+        helpers_of_calls(direct, g, params, rest)
+      )
+
+# The sites of the list functions, and of the defs that give one of their
+# parameters to a list function: a call of those walks that argument.
+def sites(+direct: List<&2, Site>, bs: List<&2, Body>) -> List<&2, Site>:
+  match bs:
+    case Nil{}:
+      direct
+    case Con{Body{name, params, cs}, rest}:
+      List.append(&2, Site, helpers_of_calls(direct, name, params, cs), sites(direct, rest))
+
+# How the call of `head` walks the list: itself, or through a list function.
+def through(+head: String, +name: String) -> String:
+  Bool.pick(String, String.eq(head, name), "", " (through " ++ name ++ ")")
 
 def finding(
   hit: Bool,
   +self: String,
+  +head: String,
   +v: String,
   w: Walker,
   span: Maybe<&2, Lint.Span>
@@ -168,10 +245,12 @@ def finding(
       [
         Lint.Diag{
           Lint.Warning{},
-          name
+          head
             ++ " walks "
             ++ v
-            ++ " from its head, and "
+            ++ " from its head"
+            ++ through(head, name)
+            ++ ", and "
             ++ self
             ++ " passes "
             ++ v
@@ -189,18 +268,27 @@ def judged(
   +cs: List<&2, Call>,
   +self: String,
   +params: List<&2, String>,
-  m: Maybe<&2, Walker>,
-  args: List<&2, String>,
-  span: Maybe<&2, Lint.Span>
+  +head: String,
+  +args: List<&2, String>,
+  +span: Maybe<&2, Lint.Span>,
+  ss: List<&2, Site>
 ) -> List<&2, Lint.Diag>:
-  match m:
-    case Some{w}:
-      +v = nth(args, 2n)
-      finding(kept(cs, self, params, v), self, v, w, span)
-    case None{}:
+  match ss:
+    case Nil{}:
       []
+    case Con{Site{name, a, at, w}, rest}:
+      +v = nth(args, at)
+      List.append(
+        &2,
+        Lint.Diag,
+        finding(kept(cs, self, params, v), self, head, v, w, span),
+        judged(cs, self, params, head, args, span, rest)
+      )
 
+# The findings for the calls `cs` of def `self`; its calls of itself are
+# skipped.
 def findings(
+  +ss: List<&2, Site>,
   +all: List<&2, Call>,
   cs: List<&2, Call>,
   +self: String,
@@ -209,36 +297,54 @@ def findings(
   match cs:
     case Nil{}:
       []
-    case Con{Call{+head, +args, span}, rest}:
+    case Con{Call{+head, +args, +span}, rest}:
       List.append(
         &2,
         Lint.Diag,
-        judged(
-          all,
-          self,
-          params,
-          walker_of(walkers(), head, List.length(&2, String, args)),
-          args,
-          span
+        Bool.pick(
+          List<&2, Lint.Diag>,
+          String.eq(head, self),
+          [],
+          judged(
+            all,
+            self,
+            params,
+            head,
+            args,
+            span,
+            matching(ss, head, List.length(&2, String, args))
+          )
         ),
-        findings(all, rest, self, params)
+        findings(ss, all, rest, self, params)
+      )
+
+def all_findings(+ss: List<&2, Site>, bs: List<&2, Body>) -> List<&2, Lint.Diag>:
+  match bs:
+    case Nil{}:
+      []
+    case Con{Body{+name, +params, +cs}, rest}:
+      List.append(
+        &2,
+        Lint.Diag,
+        List.reverse(&2, Lint.Diag, findings(ss, cs, cs, name, params)),
+        all_findings(ss, rest)
       )
 
 # Rule
 # ====
-def in_body(
-  +self: String,
+def body_of(
+  +name: String,
   +params: List<&2, String>,
   m: Maybe<&2, Lint.Node>
-) -> IO(List<&2, Lint.Diag>):
+) -> IO(List<&2, Body>):
   match m:
     case None{}:
-      IO.pure(List<&2, Lint.Diag>, [])
+      IO.pure(List<&2, Body>, [])
     case Some{b}:
-      do IO<List<&2, Lint.Diag>>:
+      do IO<List<&2, Body>>:
         ns: List<&2, Lint.Node> <- Lint.nodes(b)
-        +cs: List<&2, Call> <- calls(ns, [])
-        return List.reverse(&2, Lint.Diag, findings(cs, cs, self, params))
+        cs: List<&2, Call> <- calls(ns, [])
+        return [Body{name, params, cs}]
 
 def param_name(
   owner: Maybe<&2, String>,
@@ -261,33 +367,37 @@ def params_of(ds: List<&2, Lint.Declaration>, +o: String) -> List<&2, String>:
     case Con{Lint.Declaration{kind, name, owner, span, refs, loads, fills, term}, rest}:
       param_name(owner, kind, o, name, params_of(rest, o))
 
-def check(+all: List<&2, Lint.Declaration>, d: Lint.Declaration) -> IO(List<&2, Lint.Diag>):
+def body(+all: List<&2, Lint.Declaration>, d: Lint.Declaration) -> IO(List<&2, Body>):
   match d:
     case Lint.Declaration{Lint.Definition{}, +name, None{}, span, refs, loads, fills, term}:
       IO.bind(
         Maybe<&2, Lint.Node>,
-        List<&2, Lint.Diag>,
+        List<&2, Body>,
         Lint.body(name),
-        m => in_body(name, params_of(all, name), m)
+        m => body_of(name, params_of(all, name), m)
       )
     case _:
-      IO.pure(List<&2, Lint.Diag>, [])
+      IO.pure(List<&2, Body>, [])
 
-def checks(
+# The body of each def, in file order.
+def bodies(
   +all: List<&2, Lint.Declaration>,
   ds: List<&2, Lint.Declaration>,
-  acc: List<&2, Lint.Diag>
-) -> IO(List<&2, Lint.Diag>):
+  acc: List<&2, Body>
+) -> IO(List<&2, Body>):
   match ds:
     case Nil{}:
-      IO.pure(List<&2, Lint.Diag>, acc)
+      IO.pure(List<&2, Body>, acc)
     case Con{d, rest}:
       IO.bind(
-        List<&2, Lint.Diag>,
-        List<&2, Lint.Diag>,
-        check(all, d),
-        found => checks(all, rest, List.append(&2, Lint.Diag, acc, found))
+        List<&2, Body>,
+        List<&2, Body>,
+        body(all, d),
+        b => bodies(all, rest, List.append(&2, Body, acc, b))
       )
+
+def judge(+bs: List<&2, Body>) -> List<&2, Lint.Diag>:
+  all_findings(sites(direct(walkers()), bs), bs)
 
 def id() -> String:
   "performance/list-index-loop"
@@ -296,12 +406,10 @@ def facts() -> Lint.Want:
   Lint.NoFacts{}
 
 def run(input: Lint.Input) -> IO(List<&2, Lint.Diag>):
-  IO.bind(
-    List<&2, Lint.Declaration>,
-    List<&2, Lint.Diag>,
-    Lint.declarations(),
-    +ds => checks(ds, ds, [])
-  )
+  do IO<List<&2, Lint.Diag>>:
+    +ds: List<&2, Lint.Declaration> <- Lint.declarations()
+    bs: List<&2, Body> <- bodies(ds, ds, [])
+    return judge(bs)
 
 def main() -> IO(Unit):
   Lint.serve(run)
