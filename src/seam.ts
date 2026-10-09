@@ -200,6 +200,11 @@ export const PATCHED = Object.keys(PATCHES);
 // Where the wrappers report, set for one check at a time.
 export const hook: { see?: (report: Report) => void } = {};
 
+// A comment, a string or char literal (maybe over several lines, maybe
+// unterminated), a newline, or any other character that is not a space.
+export const SOURCE_TOKEN =
+  /#[^\r\n]*|"(?:\\[^]|[^"\\])*(?:"|$)|'(?:\\[^]|[^'\\])*(?:'|$)|\n|[^\s#"']+/g;
+
 // Text an editor holds unsaved, by real path, set for one check at a time.
 // bend.ts reads it in place of the file on disk.
 export const unsaved = new Map<string, string>();
@@ -952,7 +957,19 @@ const aliasesOf = (m: Loaded, book: Book): Map<string, Record<Name, Name>> => {
   return out;
 };
 
-const unimported = (s: string): string => s.replace(/^import[^\S\n].*$/gm, "");
+const sourceCode = (text: string): string =>
+  text.replace(SOURCE_TOKEN, (t) =>
+    ["#", '"', "'"].includes(t[0]) ? t.replace(/[^\r\n]/g, " ") : t,
+  );
+
+const unimported = (text: string): string => {
+  const code = sourceCode(text);
+  const declaration = code.search(/^[ \t]*(?:@unsafe\s+)?(?:def|type|law)\b/m);
+  const end = declaration < 0 ? text.length : declaration;
+  return text.replace(/^[ \t]*import[^\S\n].*$/gm, (s, at: number) =>
+    at < end && /^[ \t]*import\b/.test(code.slice(at)) ? "" : s,
+  );
+};
 
 // How `file` spells the check's names, as bend's own name_show prints them
 // for it: its own names bare, an import's through its alias, any other

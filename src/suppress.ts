@@ -9,7 +9,7 @@
 // keyword. Only linted files' comments count. The checker's and bend-lint's
 // own findings cannot be suppressed.
 
-import { line, starts } from "./seam.ts";
+import { SOURCE_TOKEN, line, starts } from "./seam.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
 
 // Types
@@ -60,9 +60,6 @@ const SYNTAX =
 const PREFIX = /^\s*bend-lint:/;
 const DIRECTIVE =
   /^\s*bend-lint:\s*(\w+)-(\w+)\s+([^/\s@]+\/[^/\s@]+)(?:@(\S+))?(?:\s+--\s+(\S.*?))?\s*$/;
-// A comment, a string or char literal (maybe over several lines, maybe
-// unterminated), a newline, or any other character that is not a space.
-const TOKEN = /#[^\r\n]*|"(?:\\[^]|[^"\\])*(?:"|$)|'(?:\\[^]|[^'\\])*(?:'|$)|\n|[^\s#"']+/g;
 const RESERVED = new Set(["bend", "bend-lint"]);
 const NONE = { from: 1, to: 0 };
 
@@ -74,7 +71,7 @@ const NONE = { from: 1, to: 0 };
 const scan = (text: string): { comments: Comment[]; code: boolean[] } => {
   const comments: Comment[] = [];
   const code = [false];
-  for (const m of text.matchAll(TOKEN)) {
+  for (const m of text.matchAll(SOURCE_TOKEN)) {
     const token = m[0];
     const row = code.length - 1;
     if (token === "\n") {

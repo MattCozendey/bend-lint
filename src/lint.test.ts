@@ -1455,6 +1455,25 @@ describe("lint", () => {
     const res = await lint(userland, [remote, next]).finally(() => server.stop(true));
     expect(clean(res)).toBe(true);
   });
+
+  test("the formatter guard reads only the import header, outside literals", async () => {
+    const text = `import Base
+def main() -> String:
+  "\nimport imaginary.bend as Fake\n"
+`;
+    const file = fixture("guard_literal.bend", text);
+    const result = await lint(file, [
+      {
+        id: "test/guard_literal",
+        run: (cx) => {
+          expect(cx.sameDeclarations(text)).toBe(true);
+          expect(cx.sameDeclarations(text.replace("imaginary", "different"))).toBe(false);
+          return [];
+        },
+      },
+    ]);
+    expect(result.diags.map(render)).toEqual([]);
+  });
 });
 
 describe("options", () => {
