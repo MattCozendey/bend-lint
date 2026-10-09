@@ -19,7 +19,6 @@ import type {
   FactFilter,
   LintRule,
   Node,
-  OptionSchema,
   OptionValue,
   Quantity,
   RuleContext,
@@ -1282,7 +1281,7 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
   const known = <T extends object>(x: T | undefined): T | undefined =>
     x === undefined || Object.values(x).includes(undefined) ? undefined : x;
   // A Lint.Spec as a schema, and a Lint.Value as an option value.
-  const schema = (t: LTerm | undefined): OptionSchema | undefined =>
+  const schema = (t: LTerm | undefined): Record<string, unknown> | undefined =>
     known(
       one<Record<string, unknown>>(t, {
         NumberOption: ([lo, hi]) => ({ type: "integer", minimum: whole(lo), maximum: whole(hi) }),
@@ -1293,7 +1292,7 @@ export const compile = (m: Loaded, { book }: Checked, file: string): Compiled =>
             : { type: "string" },
         AnyOption: ([specs]) => ({ anyOf: list(specs, schema) }),
       }),
-    ) as OptionSchema | undefined;
+    );
   const optionValue = (t: LTerm | undefined): OptionValue | undefined =>
     one<OptionValue | undefined>(t, {
       Num: ([n]) => whole(n),

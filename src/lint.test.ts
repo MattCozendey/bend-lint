@@ -607,14 +607,14 @@ def main() -> IO(Unit):
 `;
 
 // A rule that reports its options.
-const echo: LintRule = {
+const echo: LintRule = api.defineRule({
   id: "test/echo",
   options: {
     tabWidth: { type: "integer", minimum: 1, default: 2 },
     breakLines: { type: "boolean", default: false },
   },
   run: (cx) => [cx.diag({ message: JSON.stringify(cx.options), severity: "hint" })],
-};
+});
 
 // Functions
 // =========
@@ -1478,16 +1478,16 @@ describe("options", () => {
 
   test("a wrong config fails loudly", async () => {
     expect((await rejection(messages({ rules: { "test/echo": { tabSize: 4 } } }))).message).toMatch(
-      /test\/echo has no option tabSize/,
+      /test\/echo: .*\/tabSize.*schema is false/,
     );
     expect(
       (await rejection(messages({ rules: { "test/echo": { tabWidth: "4" } } }))).message,
-    ).toMatch(/tabWidth must match/);
+    ).toMatch(/\/tabWidth must be integer/);
     expect(
       (await rejection(messages({ rules: { "test/echo": { severity: "loud" } } }))).message,
-    ).toMatch(/severity must be one of/);
+    ).toMatch(/\/severity must be equal to one of/);
     expect((await rejection(messages({ rules: { "test/echo": 4 } }))).message).toMatch(
-      /must be "off" or an object/,
+      /must be object/,
     );
   });
 
@@ -1602,7 +1602,7 @@ describe("options", () => {
       'export const config = { rules: { "test/echo": { tabWidth: "4" } } };',
     );
     expect((await rejection(messages(await readConfig(file)))).message).toMatch(
-      /tabWidth must match/,
+      /\/tabWidth must be integer/,
     );
   });
 
@@ -1622,7 +1622,7 @@ describe("options", () => {
     });
     for (const bad of [{ width: 1.5 }, { width: 81 }, { wrap: "yes" }, { other: 1 }]) {
       expect((await rejection(said({ rules: { "test/options": bad } }))).message).toMatch(
-        /must match|no option/,
+        /must be|additional properties/,
       );
     }
   });
@@ -1867,9 +1867,7 @@ describe("rules written in Bend", () => {
       "style/comma-space | yes no no never",
     );
     for (const wrap of [0, "always", true]) {
-      expect((await rejection(said({ "test/parity": { wrap } }))).message).toMatch(
-        "wrap must match",
-      );
+      expect((await rejection(said({ "test/parity": { wrap } }))).message).toMatch(/\/wrap .*must/);
     }
   });
 

@@ -9,6 +9,8 @@
 
 import * as url from "node:url";
 import * as util from "node:util";
+import type { Static } from "typebox";
+import { Compile } from "typebox/schema";
 
 import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./result.ts";
 import type { Result } from "./result.ts";
@@ -109,10 +111,10 @@ export type FactFilter = {
 // `same`, `show` and `normal` work in the scope of the (first) type.
 // `unstable` is bend2's own objects: code that uses it breaks when bend2
 // changes.
-export type RuleContext = {
+export type RuleContext<O extends Options = Options> = {
   sources: Source[]; // every file the check read
   root: Source; // the file this run is for
-  options: Options; // the rule's defaults, with the config's values
+  options: O; // the rule's defaults, with the config's values
   facts: Fact[]; // the facts it asked for; none if it asked for none
   prior: readonly Diag[]; // what earlier rules found in the files this run reaches
   signal: AbortSignal; // aborts with the run
@@ -132,19 +134,14 @@ export type RuleContext = {
   unstable: Unstable;
 };
 
-export type OptionValue = number | boolean | string;
+export type OptionValue =
+  | number
+  | boolean
+  | string
+  | null
+  | OptionValue[]
+  | { [key: string]: OptionValue };
 export type Options = Record<string, OptionValue>;
-
-// What a rule option accepts: a small part of JSON Schema. A value must
-// match each part given: its type ("integer": a whole number), one of
-// enum, at least minimum, at most maximum, and one of anyOf.
-export type OptionSchema = {
-  type?: "integer" | "number" | "boolean" | "string";
-  enum?: OptionValue[];
-  minimum?: number;
-  maximum?: number;
-  anyOf?: OptionSchema[];
-};
 
 // Config: rule files to load, globs of the program's entry files (readConfig
 // makes both absolute), and per rule id, "off", or a severity and option
@@ -169,7 +166,7 @@ export type LintRule = {
   id: string; // namespace/name; the code of its findings
   facts?: true | FactFilter; // the checker's facts it needs; true: all of the linted file's
   entries?: "some" | "every"; // scope program: a finding stands when some entry's check finds it, or every one's
-  options?: Record<string, OptionSchema & { default: OptionValue }>; // what it accepts; none if absent
+  options?: Record<string, Record<string, unknown> & { default: OptionValue }>; // what it accepts; none if absent
   run(cx: RuleContext): Diag[] | Promise<Diag[]>;
 };
 
@@ -330,6 +327,13 @@ const FIXES: ReadonlyArray<
 // Functions
 // =========
 
+export const defineRule = <const S extends NonNullable<LintRule["options"]>>(
+  rule: Omit<LintRule, "options" | "run"> & {
+    options: S;
+    run(cx: RuleContext<{ [K in keyof S]: Static<S[K]> & OptionValue }>): Diag[] | Promise<Diag[]>;
+  },
+): LintRule => rule;
+
 // The bend-lint over the bend2 that --bend, $BEND_DIR or the search in
 // seam.ts finds; made once per folder asked for, and again after a failure.
 export const createLinter = ({ bend }: { bend?: string } = {}): Promise<
@@ -463,15 +467,6 @@ const nearestConfig = (file: string): Config => {
   }
 };
 
-// Whether a value matches an option's schema.
-const fits = (s: OptionSchema, v: unknown): boolean =>
-  ["number", "boolean", "string"].includes(typeof v) &&
-  (s.type === undefined || (s.type === "integer" ? Number.isInteger(v) : typeof v === s.type)) &&
-  (s.enum === undefined || s.enum.includes(v as OptionValue)) &&
-  (s.minimum === undefined || (typeof v === "number" && v >= s.minimum)) &&
-  (s.maximum === undefined || (typeof v === "number" && v <= s.maximum)) &&
-  (s.anyOf === undefined || s.anyOf.some((a) => fits(a, v)));
-
 const strings = (xs: unknown): boolean =>
   xs === undefined || (Array.isArray(xs) && xs.every((x) => typeof x === "string"));
 
@@ -487,12 +482,6 @@ const validFacts = (f: LintRule["facts"]): boolean =>
     [undefined, true, false].includes(f.instances) &&
     (f.instances !== true || f.scope === "program"));
 
-const validOptions = (o: LintRule["options"]): boolean =>
-  o === undefined ||
-  (typeof o === "object" &&
-    o !== null &&
-    Object.values(o).every((s) => typeof s === "object" && s !== null && fits(s, s.default)));
-
 // What the config says for a rule: off, a severity, and its options (the
 // defaults, with the given values, which must be declared and match).
 const settings = (
@@ -504,29 +493,25 @@ const settings = (
   const defaults = Object.fromEntries(
     Object.entries(rule.options ?? {}).map(([key, s]) => [key, s.default]),
   );
+  const validator = Compile({
+    type: "object",
+    properties: { ...rule.options, severity: { enum: Object.keys(HEAD) } },
+    additionalProperties: false,
+  });
+  if (!validator.Check(defaults)) {
+    throw fault("rule-module", rule.id + ": option defaults must match their schemas");
+  }
   if (given === undefined || given === "off") {
     return { off: given === "off", options: defaults };
   }
-  if (typeof given !== "object" || given === null) {
-    throw fault("config", where + ' must be "off" or an object');
+  if (!validator.Check(given)) {
+    const [, errors] = validator.Errors(given);
+    throw fault(
+      "config",
+      where + ": " + errors.map((e) => e.instancePath + " " + e.message).join("; "),
+    );
   }
   const { severity, ...options } = given;
-  if (severity !== undefined && !isSeverity(severity)) {
-    throw fault("config", where + ": severity must be one of " + Object.keys(HEAD).join(", "));
-  }
-  for (const [key, value] of Object.entries(options)) {
-    const schema =
-      rule.options !== undefined && Object.hasOwn(rule.options, key)
-        ? rule.options[key]
-        : undefined;
-    if (schema === undefined) {
-      throw fault("config", where + " has no option " + key);
-    }
-    if (!fits(schema, value)) {
-      const shown = JSON.stringify(schema, (k, v) => (k === "default" ? undefined : v));
-      throw fault("config", `${where}: ${key} must match ${shown}`);
-    }
-  }
   return { off: false, severity, options: { ...defaults, ...options } };
 };
 
@@ -557,13 +542,12 @@ const lintWith = async (
       !RULE_ID.test(String(r?.id)) ||
       typeof r?.run !== "function" ||
       !validFacts(r.facts) ||
-      ![undefined, "some", "every"].includes(r.entries) ||
-      !validOptions(r.options),
+      ![undefined, "some", "every"].includes(r.entries),
   );
   if (bad >= 0) {
     throw fault(
       "rule-module",
-      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter (instances only with scope program), entries, if given, "some" or "every", and options, if given, schemas their defaults match`,
+      `invalid rule at ${bad} (${JSON.stringify(rules[bad]?.id)}): it needs an id like ns/name, a run function, facts, if given, true or a FactFilter (instances only with scope program), and entries, if given, "some" or "every"`,
     );
   }
   const plans = rules

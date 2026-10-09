@@ -267,15 +267,37 @@ facts: {
 
 #### Options
 
-Each option is a small part of JSON Schema (`type`, `enum`, `minimum`,
-`maximum`, `anyOf`) with a `default`:
+Each option is a JSON Schema with a `default`. Use `defineRule` to infer
+`cx.options` from the schemas:
 
 ```ts
-options: {
-  tabWidth: { type: "integer", minimum: 1, default: 2 },
-  wrapAtWidth: { anyOf: [{ type: "integer", minimum: 1 }, { enum: ["never"] }], default: 100 },
-}
+import { defineRule } from "../src/lint.ts";
+import type { LintRule } from "../src/lint.ts";
+
+export const rules: LintRule[] = [
+  defineRule({
+    id: "demo/width",
+    options: {
+      tabWidth: { type: "integer", minimum: 1, default: 2 },
+      wrapAtWidth: { anyOf: [{ type: "integer", minimum: 1 }, { enum: ["never"] }], default: 100 },
+    },
+    run: (cx) => [
+      cx.diag({
+        message:
+          "indent: " +
+          cx.options.tabWidth.toFixed(0) +
+          ", width: " +
+          (cx.options.wrapAtWidth === "never" ? "unlimited" : cx.options.wrapAtWidth.toFixed(0)),
+      }),
+    ],
+  }),
+];
 ```
+
+The schemas stay plain data. `tabWidth` is a `number`; `wrapAtWidth` is
+`number | "never"`. A schema known only at run time cannot give TypeScript
+these types. Defaults fill missing options; supplied values are checked
+with TypeBox.
 
 - `cx.options` has every declared option.
 - Unknown keys, and values that do not match, are config errors.

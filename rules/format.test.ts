@@ -109,18 +109,18 @@ describe("format/layout", () => {
       expect(clean(await run(good))).toBe(true);
     }
     for (const bad of [0, -1, 1.5, "2", true]) {
-      expect((await rejection(run({ tabWidth: bad }))).message).toMatch("tabWidth must match");
-      expect((await rejection(run({ wrapAtWidth: bad }))).message).toMatch(
-        "wrapAtWidth must match",
-      );
+      expect((await rejection(run({ tabWidth: bad }))).message).toMatch(/\/tabWidth must/);
+      expect((await rejection(run({ wrapAtWidth: bad }))).message).toMatch(/\/wrapAtWidth .*must/);
     }
     expect((await rejection(run({ wrapAtWidth: "always" }))).message).toMatch(
-      "wrapAtWidth must match",
+      /\/wrapAtWidth .*must/,
     );
     for (const endOfLine of ["auto", "LF", "", 1, true]) {
-      expect((await rejection(run({ endOfLine }))).message).toMatch("endOfLine must match");
+      expect((await rejection(run({ endOfLine }))).message).toMatch(/\/endOfLine must/);
     }
-    expect((await rejection(run({ breakLines: true }))).message).toMatch("no option breakLines");
+    expect((await rejection(run({ breakLines: true }))).message).toMatch(
+      /\/breakLines.*schema is false/,
+    );
   });
 
   test("formats a file with a type error, but not one that does not parse", async () => {
