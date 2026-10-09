@@ -198,12 +198,7 @@ const separator = (a: Node, b: Node): string => {
   return " ";
 };
 
-const sequence = (
-  nodes: Node[],
-  opts: FormatOptions,
-  base: number,
-  raw = false,
-): Doc => {
+const sequence = (nodes: Node[], opts: FormatOptions, base: number, raw = false): Doc => {
   const out: Doc[] = [];
   const levels = [base];
   let continuation: Doc[] | undefined;
