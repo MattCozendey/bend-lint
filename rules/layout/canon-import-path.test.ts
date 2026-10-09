@@ -81,6 +81,13 @@ describe("layout/canon-import-path", () => {
     ]);
   });
 
+  test("a path through a symlink gets the real one", async () => {
+    fs.symlinkSync(path.posix.join(dir, "sub"), path.posix.join(dir, "link"), "junction");
+    expect(await flagged("main.bend", "import ./link/y.bend as Y\n")).toEqual([
+      ["./link/y.bend", "./sub/y.bend"],
+    ]);
+  });
+
   test("the fix changes only the path, and the fixed file passes", async () => {
     const res = await lint("main.bend", "import   x.bend   as X  # the leaf\n");
     const { text } = applyFixes(res.root!, res.diags);

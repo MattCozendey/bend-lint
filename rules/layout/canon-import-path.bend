@@ -1,7 +1,7 @@
 # layout/canon-import-path: an import path is the shortest path from the
 # importer to the file it names, and starts with ./ or ../. Base and hub
-# imports are not paths, so the rule skips them. Bend resolves the written
-# path, as text, from the importer's real folder, and so does this rule.
+# imports are not paths, so the rule skips them. It compares with the real
+# path of the file the import loads, symlinks resolved.
 # Run: bun src/lint.ts file.bend --rules rules/layout/canon-import-path.bend --fix
 import Base
 import ../../src/bend/lint.bend as Lint
@@ -30,23 +30,6 @@ def segments.go(parts: List<&2, String>, acc: List<&2, String>) -> List<&2, Stri
 
 def segments(path: String) -> List<&2, String>:
   List.reverse(&2, String, segments.go(String.split(path, '/'), []))
-
-# A drive letter and its colon, or "" when there is none.
-def drive(s: String) -> String:
-  match s:
-    case SCon{d, SCon{':', rest}}:
-      SCon{d, ":"}
-    case _:
-      ""
-
-# The written path, from the folder of `file`. An absolute one keeps the
-# drive of `file`.
-def joined(file: String, +written: String) -> String:
-  match written:
-    case SCon{'/', rest}:
-      drive(file) ++ written
-    case _:
-      file ++ "/../" ++ written
 
 # Each segment of `from` as "..", then `to`.
 def ups(from: List<&2, String>, to: List<&2, String>) -> List<&2, String>:
@@ -141,22 +124,29 @@ def judge.of(+want: String, +written: String, +file: String, +beg: U32) -> List<
     Lint.Span{file, beg, U32.add(beg, U32.from_nat(String.length(written)))}
   )
 
-def path_at(skip: Bool, +file: String, +written: String, +beg: U32) -> List<&2, Lint.Diag>:
+def path_at(
+  skip: Bool,
+  +file: String,
+  target: String,
+  +written: String,
+  +beg: U32
+) -> List<&2, Lint.Diag>:
   match skip:
     case True{}:
       []
     case False{}:
-      judge.of(
-        canon(relative(segments(file ++ "/.."), segments(joined(file, written)))),
-        written,
-        file,
-        beg
-      )
+      judge.of(canon(relative(segments(file ++ "/.."), segments(target))), written, file, beg)
 
 # The import's path ends where its blanks before "as" begin; `after` runs
-# from the path to the alias at `beg`.
-def path_of(+file: String, +after: String, +beg: U32) -> List<&2, Lint.Diag>:
-  path_at(skipped(word(after)), file, word(after), U32.sub(beg, U32.from_nat(String.length(after))))
+# from the path to the alias at `beg`. `target` is the file it loads.
+def path_of(+file: String, target: String, +after: String, +beg: U32) -> List<&2, Lint.Diag>:
+  path_at(
+    skipped(word(after)),
+    file,
+    target,
+    word(after),
+    U32.sub(beg, U32.from_nat(String.length(after)))
+  )
 
 def check(+text: String, d: Lint.Declaration) -> List<&2, Lint.Diag>:
   match d:
@@ -166,10 +156,10 @@ def check(+text: String, d: Lint.Declaration) -> List<&2, Lint.Diag>:
       owner,
       Lint.Span{file, +beg, end},
       refs,
-      loads,
+      Some{target},
       fills
     }:
-      path_of(file, after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
+      path_of(file, target, after_import(Shared.line_before(text, U32.to_nat(beg), "")), beg)
     case _:
       []
 

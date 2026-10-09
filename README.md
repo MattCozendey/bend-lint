@@ -180,8 +180,8 @@ file it names, and start with `./` or `../`. Its fix is `safe`.
 | `/home/me/app/src/util.bend` | `./util.bend`   |
 
 - `import Base` and hub imports are skipped.
-- Paths are compared as text, as Bend reads them, from the importing file's
-  real folder. A symlink inside the import path is not resolved.
+- The shortest path goes between real paths, with symlinks resolved. An
+  import through a symlinked folder gets the real folder's path.
 - A file that fails Bend's check gets no findings from this rule.
 
 ### `no-unused/imports` (`rules/no-unused/imports.bend`)
