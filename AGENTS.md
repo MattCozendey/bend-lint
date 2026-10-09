@@ -79,18 +79,15 @@ git diff --check
 | file scope, or no facts | once per linted file | that file        | that file only  | as that file spells them |
 | `scope: "program"`      | once per check       | the check's root | any linted file | the check's              |
 
-4. A finding in another file:
-   - from a file rule: the rule crashes;
-   - from a program rule, outside the linted files: dropped.
-5. With several checks, a program rule's runs agree on a finding when it has
+4. With several checks, a program rule's runs agree on a finding when it has
    the same code, severity and span. The rule's `entries` says what stands:
    `"some"` (default) keeps a finding one run makes, `"every"` one all make.
    When an entry that imports the named file fails its check, no `"every"`
    rule runs.
-6. A finding without a span counts in the file its run was for.
-7. Directives are read from the linted files only. An unused `disable` or
+5. A finding without a span counts in the file its run was for.
+6. Directives are read from the linted files only. An unused `disable` or
    unmet `expect` is reported only where its rule ran to its end.
-8. The result lists findings file by file, in the check's order. Directive
+7. The result lists findings file by file, in the check's order. Directive
    findings come last.
 
 "As that file spells them" means as the file writes them in its source: its
@@ -98,6 +95,28 @@ own definitions bare (`keep`), an import's through its alias (`U.N`). This
 holds for `owner`, the `defs` and `names` filters, `shape().name`,
 `body()` and `show()`. So a file gets the same names whichever check it is
 read from.
+
+### Scope and `imports`
+
+Two settings decide a rule's run:
+
+- The rule's **scope** decides what the rule sees, and where it may report.
+- **`imports`** decides which files are linted: where you see findings.
+
+Say `main.bend` imports `util.bend`, and you lint `main.bend`:
+
+|              | without `imports` (linted: `main`)                                       | with `imports` (linted: `main`, `util`)                            |
+| ------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| file rule    | 1 run, on `main`. Sees `main`. Shows findings in `main`.                 | 2 runs, one per file. Each sees its file and shows findings in it. |
+| program rule | 1 run. Sees `main` and `util`. Shows findings in `main`; drops `util`'s. | 1 run. Sees `main` and `util`. Shows findings in both.             |
+
+- A file rule gives a file the same findings in every mode.
+- A program rule does not add linted files. Only `imports` does.
+- A file rule can read every file's text in `cx.sources`, but reports only in
+  `root`. A finding elsewhere is a bug in the rule, so the run crashes and
+  its other findings are discarded.
+- A program rule's finding in a file that is not linted is not a bug. It is
+  dropped, because you did not ask to see that file.
 
 ## Behavior that must not break
 

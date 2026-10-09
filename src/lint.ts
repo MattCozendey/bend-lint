@@ -656,7 +656,8 @@ const lintWith = async (
         "it reported in " +
           astray.span!.file.path +
           "; a rule of file scope reports only in " +
-          on.path,
+          on.path +
+          ". Give it program scope to report in other files",
       );
     }
     return settled;
