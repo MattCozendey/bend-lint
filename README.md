@@ -19,6 +19,9 @@ No rule runs by default. Load rules with `--rules` or with the config.
 
 Use Bun 1.4.2.
 
+As of 2026-10-09, run Bend itself only through WSL on Windows; do not run
+it natively. See [Bend's platform limitations](https://github.com/bendlang/bend#limitations).
+
 ```sh
 git clone https://github.com/MattCozendey/bend-lint.git
 cd bend-lint
