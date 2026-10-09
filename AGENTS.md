@@ -125,7 +125,7 @@ You lint one file: the **named file**.
      named file.
 2. **Pick the linted files.** Findings appear only in these.
    - Without `imports`: the named file.
-   - With `imports`: every file the check read, except Base.
+   - With `imports`: every file the check read, except Base and hub packages.
 3. **Run the rules**, in the given order. Each rule has a scope. See
    [Rule scope and `imports`](#rule-scope-and-imports).
 4. **Merge the checks.** With several checks, a program rule runs once per
@@ -149,10 +149,10 @@ Two settings decide what happens:
 - The rule's **scope** decides what the rule sees, and where it may report.
 - **`imports`** decides which files are linted: where you see findings.
 
-| Scope              | Runs                 | `cx.root`        | Sees                         | May report in | Names                    |
-| ------------------ | -------------------- | ---------------- | ---------------------------- | ------------- | ------------------------ |
-| file (the default) | once per linted file | that file        | that file                    | that file     | as that file spells them |
-| program            | once per check       | the check's root | the whole check, except Base | any file      | the check's              |
+| Scope              | Runs                 | `cx.root`        | Sees                                          | May report in | Names                    |
+| ------------------ | -------------------- | ---------------- | --------------------------------------------- | ------------- | ------------------------ |
+| file (the default) | once per linted file | that file        | that file                                     | that file     | as that file spells them |
+| program            | once per check       | the check's root | the whole check, except Base and hub packages | any file      | the check's              |
 
 Example: `main.bend` imports `util.bend`. You lint `main.bend`.
 
@@ -339,7 +339,7 @@ Scope:
 - File rule: declarations and references come only from `root`, with that
   file's spelling.
 - Program rule (`facts.scope: "program"`): they come from every checked
-  source except Base, with the check's names. An import of Base is still
+  source except Base and hub packages, with the check's names. An import of Base is still
   listed, with references to its symbols.
 - A failed check gives an empty list.
 - Each checked source is parsed once, when first asked, without another type
@@ -584,12 +584,12 @@ severity `error`.
 
 ### `linter.lint(file, rules, options)`
 
-| Option    | What                                                                               |
-| --------- | ---------------------------------------------------------------------------------- |
-| `imports` | also lint every file the check reads, except Base. Default: the config's `imports` |
-| `config`  | the config. Without it, the nearest one is read                                    |
-| `signal`  | aborts the run                                                                     |
-| `unsaved` | file paths mapped to editor text not saved yet, for this run                       |
+| Option    | What                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| `imports` | also lint every file the check reads, except Base and hub packages. Default: the config's `imports` |
+| `config`  | the config. Without it, the nearest one is read                                                     |
+| `signal`  | aborts the run                                                                                      |
+| `unsaved` | file paths mapped to editor text not saved yet, for this run                                        |
 
 - The result has `diags`, `suppressed`, `sources`, `root` (the named file),
   `linted`, `facts` and `unstable`.

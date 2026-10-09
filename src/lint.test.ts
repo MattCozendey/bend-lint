@@ -2238,6 +2238,41 @@ describe("cli", () => {
     expect(fs.readFileSync(main, "utf8").startsWith("#i!mport")).toBe(true);
   });
 
+  test("--imports never lints a hub package, nor writes to it", () => {
+    const lib = path.join(DIR, "hublib").replaceAll("\\", "/");
+    const hub = "0x" + "a".repeat(32);
+    fs.mkdirSync(lib + "/" + hub, { recursive: true });
+    const pkg = lib + "/" + hub + "/dep.bend";
+    fs.writeFileSync(pkg, "def one() -> Type:\n  Type\n");
+    const dep = fixture("hub_dep.bend", "def two() -> Type:\n  Type\n");
+    const main = fixture(
+      "hub_main.bend",
+      "import " +
+        hub +
+        "/dep.bend as H\nimport ./hub_dep.bend as D\n\ndef main() -> Type:\n  H.one()\n",
+    );
+    const marks = module(
+      "hub_marks.js",
+      `[{ id: "test/marks", run: (cx) => {
+      const span = { file: cx.root, beg: 0, end: 0 };
+      return [cx.diag({ message: "x", span, fixes: [{ title: "x", applicability: "safe", edits: [{ span, text: "#" }] }] })];
+    } }]`,
+    );
+    const out = spawnSync(
+      process.execPath,
+      [CLI, main, "--imports", "--rules", marks, "--fix", "--json"],
+      { encoding: "utf8", env: { ...process.env, BEND_LIB: lib } },
+    );
+    expect(out.status).toBe(0);
+    expect(
+      JSON.parse(out.stdout)
+        .findings.map((f: { path: string }) => path.basename(f.path))
+        .sort(),
+    ).toEqual(["hub_dep.bend", "hub_main.bend"]);
+    expect(fs.readFileSync(pkg, "utf8")).toBe("def one() -> Type:\n  Type\n");
+    expect(fs.readFileSync(dep, "utf8").startsWith("#")).toBe(true);
+  });
+
   test("--fix applies fixes even when a finding is an error", () => {
     const target = fixture("fix_error.bend", "#abc\n");
     const strict = module(

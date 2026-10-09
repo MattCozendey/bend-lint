@@ -18,6 +18,7 @@ import {
   DRIFT,
   check,
   compile,
+  foreign,
   fs,
   layout,
   line,
@@ -593,7 +594,7 @@ const lintWith = async (
   if (root === undefined) {
     return { diags: failed, suppressed: [], sources, linted: [], facts, unstable: internals };
   }
-  const linted = imports ? sources.filter((s) => !s.base) : [root];
+  const linted = imports ? sources.filter((s) => !foreign(s)) : [root];
   const memo = new Map<string, Operations>();
   const opsOf = (c: Checked, on: Source, program: boolean): Operations => {
     const at = checks.indexOf(c) + "\0" + on.path + "\0" + program;

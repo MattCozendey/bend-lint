@@ -56,7 +56,7 @@ Findings appear only in the **linted files**:
 
 - Without `--imports`: each file you name.
 - With `--imports`: the one file you name, and every file it imports, except
-  Base. `--imports` takes one file, and ignores `entries`.
+  Base and hub packages. `--imports` takes one file, and ignores `entries`.
 - `"imports": true` in the config turns `--imports` on. `--no-imports` turns
   it off.
 

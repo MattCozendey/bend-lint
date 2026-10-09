@@ -277,6 +277,10 @@ const STARTS = new WeakMap<object, number[]>();
 const FILES = new WeakMap<Source, File>();
 const SOURCES = new WeakMap<object, Source>();
 
+// A source that is not the user's: Base, or a hub package (its namespace
+// starts with the hash bend names it by).
+export const foreign = (s: Source): boolean => s.base || /^0x[0-9a-f]+\//.test(FILES.get(s)!.ns);
+
 // Each source's stamp, from when it was read or last found unchanged.
 const STAMPS = new WeakMap<Source, Stamp>();
 
@@ -861,7 +865,7 @@ const checked = async (
     const { book } = read;
     const insts = new Set(Object.values(book.tmps).flatMap((t) => [...t.values()]));
     const own = new Set<unknown>(
-      sources.filter((s) => (beyond ? !s.base : s === root)).map((s) => FILES.get(s)),
+      sources.filter((s) => (beyond ? !foreign(s) : s === root)).map((s) => FILES.get(s)),
     );
     const facts = found.flatMap((f): Array<[LTerm, Fact]> => {
       const spn = map(f.spn);
@@ -1375,7 +1379,7 @@ const declarationsOf = (
   program: boolean,
 ): Declaration[] => {
   if (run.failure !== undefined) return [];
-  const files = program ? run.sources.filter((s) => !s.base) : [file];
+  const files = program ? run.sources.filter((s) => !foreign(s)) : [file];
   const syntax = files.map((f) => {
     shared.syntax ??= new Map();
     const known = shared.syntax.get(f) ?? syntaxOf(m, run, shared, f);
