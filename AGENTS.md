@@ -415,6 +415,10 @@ throw:
   `internal`.
 - `unwrap` gives the value, or throws the message.
 
+An `OK` lint result can hold error findings. Check `diags` for severity
+`error`. A failed Bend check, a missing file or a rule crash is a finding,
+not an `ERROR` result.
+
 `createLinter({ bend })`:
 
 - loads the Bend that `bend`, `$BEND_DIR` or the search in Internals picks;
@@ -436,7 +440,8 @@ throw:
 - Runs at the same time wait for each other's check. Rules still run side
   by side.
 - `lint` also runs the rules of the config's `load` files, after the given
-  ones.
+  ones. The config can turn off a given rule or change its options and
+  severity. Pass `config: {}` to skip config discovery.
 - `position(span)` gives an LSP range.
 
 Config:
@@ -450,7 +455,8 @@ Config:
   included), and can import relative files.
 
 `linter.loadRules(files)` loads rule files: a module's `rules`, or a Bend
-rule.
+rule. Loaded rules belong to the linter that loaded them. Use them only
+with that linter. The same holds for `linter.bendRule(file)`.
 
 ## JSON output
 
