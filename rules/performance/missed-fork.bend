@@ -29,10 +29,6 @@ type Call is Data:
 type Group is Data:
   Group{root: Lint.Node, spans: List<&2, Lint.Span>}
 
-# A call's head and its arguments, without annotations.
-type Spine is Data:
-  Spine{head: Lint.Node, args: List<&2, Lint.Node>}
-
 # What one node of the walk gives: the nodes to visit next, the calls it
 # makes, and itself if it is a let with one value.
 type Step is Data:
@@ -49,13 +45,6 @@ type Link is Data:
 
 type Next is Data:
   Next{link: Link, body: Lint.Node}
-
-# Constants
-# =========
-
-# The fuel to read a call's head and arguments: two steps per argument.
-def spine_fuel() -> Nat:
-  128n
 
 # Helpers
 # =======
@@ -210,32 +199,6 @@ def any_known(xs: List<&2, String>, +used: List<&2, String>) -> Bool:
 
 # Walk
 # ====
-
-# A call's head and arguments.
-def spine(
-  fuel: Nat,
-  got: Maybe<&2, Lint.Shape>,
-  +n: Lint.Node,
-  args: List<&2, Lint.Node>
-) -> IO(Spine):
-  match fuel got:
-    case 0n _:
-      IO.pure(Spine, Spine{n, args})
-    case 1n+k None{}:
-      do IO<Spine>:
-        +bare: Lint.Node <- Lint.strip(n)
-        s: Lint.Shape <- Lint.shape(bare)
-        spine(k, Some{s}, bare, args)
-    case 1n+k Some{Lint.Shape{"App", name, span, Con{f, Con{a, Nil{}}}}}:
-      spine(k, None{}, f, Con{a, args})
-    case 1n+k Some{s}:
-      IO.pure(Spine, Spine{n, args})
-
-def head_shape(sp: Spine) -> IO(Lint.Shape):
-  match sp:
-    case Spine{head, args}:
-      Lint.shape(head)
-
 def frames(ns: List<&2, Lint.Node>, +ctx: Ctx) -> List<&2, Frame>:
   match ns:
     case Nil{}:
@@ -267,11 +230,17 @@ def calls_self(+self: String, s: Lint.Shape) -> Bool:
 # A call's step: a call of the def to itself is recorded, and its
 # arguments start expressions of their own; another call's head and
 # arguments are inside the expression this call is in, or starts.
-def app_step(own: Bool, sp: Spine, +ctx: Ctx, +bare: Lint.Node, span: Maybe<&2, Lint.Span>) -> Step:
+def app_step(
+  own: Bool,
+  sp: Shared.Spine,
+  +ctx: Ctx,
+  +bare: Lint.Node,
+  span: Maybe<&2, Lint.Span>
+) -> Step:
   match own sp:
-    case True{} Spine{head, args}:
+    case True{} Shared.Spine{head, args}:
       Step{frames(args, Free{}), call_in(ctx, span), []}
-    case False{} Spine{head, args}:
+    case False{} Shared.Spine{head, args}:
       Step{frames(Con{head, args}, In{root_of(ctx, bare)}), [], []}
 
 def one_value(kids: List<&2, Lint.Node>, n: Lint.Node) -> List<&2, Lint.Node>:
@@ -285,8 +254,8 @@ def dispatch(+self: String, +ctx: Ctx, +bare: Lint.Node, s: Lint.Shape) -> IO(St
   match s:
     case Lint.Shape{"App", name, span, kids}:
       do IO<Step>:
-        +sp: Spine <- spine(spine_fuel(), None{}, bare, [])
-        h: Lint.Shape <- head_shape(sp)
+        +sp: Shared.Spine <- Shared.call_of(bare)
+        h: Lint.Shape <- Shared.head_shape(sp)
         return app_step(calls_self(self, h), sp, ctx, bare, span)
     case Lint.Shape{"Ctr", name, span, kids}:
       IO.pure(Step, Step{frames(kids, In{root_of(ctx, bare)}), [], []})
@@ -514,8 +483,8 @@ def link_let(
   do IO<Maybe<&2, Next>>:
     +vb: Lint.Node <- Lint.strip(v)
     vs: Lint.Shape <- Lint.shape(vb)
-    sp: Spine <- spine(spine_fuel(), None{}, vb, [])
-    h: Lint.Shape <- head_shape(sp)
+    sp: Shared.Spine <- Shared.call_of(vb)
+    h: Lint.Shape <- Shared.head_shape(sp)
     inner: List<&2, Lint.Node> <- Lint.nodes(vb)
     vars: List<&2, String> <- var_names(inner)
     bt: String <- Lint.text(span)

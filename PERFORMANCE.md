@@ -76,21 +76,50 @@ Agent result:
 - Its change is exactly the merge the finding asked for. It touched no other
   file.
 - 3 tool calls, 13 s.
-- This case had a fix. It does not show how an agent does with a finding
-  that has none.
+
+### `performance/list-index-loop`
+
+A def passes a list parameter unchanged to its own call, and gives it to
+`List.get`, `List.drop`, `List.take`, `List.last` or `List.length`. Each of
+those walks the list from its head, so the loop is O(n²). The finding says
+what to do instead: walk the list, or, for `List.length`, compute it once
+before the loop.
+
+There is no fix: the rewrite changes the loop's parameters.
+
+The rule sees only calls in the loop itself. A lookup inside a helper that
+the loop calls (`at(xs, i)`) is not found.
+
+Sample `samples/list-index-loop/`: the dot product of two lists of 16000
+values, by index.
+
+| File          | 1 thread     | 16 threads   |
+| ------------- | ------------ | ------------ |
+| `before.bend` | 3.07 s       | 3.13 s       |
+| `after.bend`  | under 0.01 s | under 0.01 s |
+
+Agent result:
+
+- 2 findings (`xs` and `ys`), without a fix. The agent rewrote the loop by
+  hand, with a comment after each changed line.
+- It changed only the loop step the findings point at, and touched no other
+  file. The result is the same.
+- It left `i` and `or_zero` unused, rather than clean up what no finding
+  asked for, and said so.
+- 4 tool calls, 28 s.
+- Its comment lines break `layout/format`. It ran only the performance rules.
 
 ## Candidates
 
 Measured on an x86 CPU with 20 threads, Bend 2.0.36.
 
-| Pattern                                                          | Detect | Fix                      | Gain measured                     |
-| ---------------------------------------------------------------- | ------ | ------------------------ | --------------------------------- |
-| list indexed in a loop (`List.get(xs, i)` with a counter)        | easy   | walk the list; dangerous | 2.38 s to under 0.01 s, n = 20000 |
-| append in a loop (`acc ++ [x]`)                                  | easy   | cons, then reverse       | not measured                      |
-| `Nat` arithmetic (`pow2`) in a fork's arguments                  | easy   | use `U32.shln(1, p)`     | 10x gain cut to 1.9x              |
-| index-split fork: the whole collection shared, split by an index | medium | split the data           | 1.4x (`samples/matrix-vector/`)   |
-| a `+` value that every leaf reads                                | easy   | none in general          | about 2x, also on one thread      |
-| loops that are not tail calls                                    | easy   | accumulator              | almost none in native code        |
+| Pattern                                                          | Detect | Fix                  | Gain measured                   |
+| ---------------------------------------------------------------- | ------ | -------------------- | ------------------------------- |
+| append in a loop (`acc ++ [x]`)                                  | easy   | cons, then reverse   | not measured                    |
+| `Nat` arithmetic (`pow2`) in a fork's arguments                  | easy   | use `U32.shln(1, p)` | 10x gain cut to 1.9x            |
+| index-split fork: the whole collection shared, split by an index | medium | split the data       | 1.4x (`samples/matrix-vector/`) |
+| a `+` value that every leaf reads                                | easy   | none in general      | about 2x, also on one thread    |
+| loops that are not tail calls                                    | easy   | accumulator          | almost none in native code      |
 
 On the GPU, not measured:
 
