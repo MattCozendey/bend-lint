@@ -3,7 +3,7 @@
 A linter and formatter for Bend 2.
 
 ```sh
-bun src/lint.ts main.bend --rules rules/layout-format.bend --fix
+bun src/lint.ts main.bend --rules rules/layout/format.bend --fix
 ```
 
 ## What it does
@@ -39,9 +39,9 @@ bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <file>]... [--conf
 
 | To lint         | Command                                                                |
 | --------------- | ---------------------------------------------------------------------- |
-| One file        | `bun src/lint.ts main.bend --rules rules/layout-format.bend`           |
-| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/layout-format.bend`     |
-| A whole program | `bun src/lint.ts main.bend --imports --rules rules/layout-format.bend` |
+| One file        | `bun src/lint.ts main.bend --rules rules/layout/format.bend`           |
+| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/layout/format.bend`     |
+| A whole program | `bun src/lint.ts main.bend --imports --rules rules/layout/format.bend` |
 
 ### Inputs
 
@@ -122,7 +122,7 @@ bend-lint reads one config file:
 
 ```json
 {
-  "load": ["./rules/layout-format.bend"],
+  "load": ["./rules/layout/format.bend"],
   "rules": {
     "layout/format": { "tabWidth": 2, "wrapAtWidth": 100, "severity": "warning" }
   }
@@ -147,7 +147,7 @@ export const config = { rules: { "layout/format": { tabWidth: 4 } } };
 
 ## Bundled rules
 
-### `layout/format` (`rules/layout-format.bend`)
+### `layout/format` (`rules/layout/format.bend`)
 
 The formatter. It fixes indentation, spacing, comments, blank lines between
 declarations, line wrapping and the final newline. Its fix is `safe`.
@@ -166,6 +166,23 @@ declarations, line wrapping and the final newline. Its fix is `safe`.
   comment is a space after a `#` that has none.
 - It parses its own output and compares it with the original. If they
   differ, you get a warning and no fix.
+
+### `layout/canon-import-path` (`rules/layout/canon-import-path.bend`)
+
+Each import path must be the shortest path from the importing file to the
+file it names, and start with `./` or `../`. Its fix is `safe`.
+
+| Import, in `src/main.bend`   | Fix             |
+| ---------------------------- | --------------- |
+| `util.bend`                  | `./util.bend`   |
+| `../src/util.bend`           | `./util.bend`   |
+| `./../lib/x.bend`            | `../lib/x.bend` |
+| `/home/me/app/src/util.bend` | `./util.bend`   |
+
+- `import Base` and hub imports are skipped.
+- Paths are compared as text, as Bend reads them, from the importing file's
+  real folder. A symlink inside the import path is not resolved.
+- A file that fails Bend's check gets no findings from this rule.
 
 ## Suppress findings
 

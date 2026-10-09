@@ -42,8 +42,8 @@ lint and type check.
 
 ### Tests
 
-- A new rule gets behavior tests, without asking, in
-  `rules/<rule file name>.test.ts`.
+- A new rule gets behavior tests, without asking, in its test file. See
+  [Names](#names).
 - Any other test, `src/lint.test.ts` included, needs my approval first.
 - Never test implementation details. Do not even suggest such tests.
 
@@ -111,7 +111,9 @@ git diff --check
 | `src/bend/lint.bend`   | what a Bend rule imports                                        |
 | `src/bend/effects.js`  | the effects a Bend rule calls                                   |
 | `src/bend/sample.bend` | the program the startup self-check reads                        |
-| `rules/`               | bundled rules, one per file, each with its tests                |
+| `rules/`               | bundled rules, one folder per namespace, each with its tests    |
+| `rules/shared.ts`      | logic that more than one TypeScript rule uses                   |
+| `rules/shared.bend`    | logic that more than one Bend rule uses                         |
 
 ## How a run works
 
@@ -202,21 +204,31 @@ If you change any of these, change the tests and these docs with it:
 
 ### Names
 
-| What      | Form                                    | Example                 |
-| --------- | --------------------------------------- | ----------------------- |
-| rule file | `namespace-snake_case_name.ts`, `.bend` | `layout-format.bend`    |
-| rule ID   | `namespace/snake_case_name`             | `layout/format`         |
-| test file | `namespace-snake_case_name.test.ts`     | `layout-format.test.ts` |
+A rule ID is parts separated by `/`. Each part is kebab-case. The last part
+is the rule's name. The parts before it are namespaces, and namespaces can
+nest. The folders under `rules/` mirror the ID.
+
+| What      | Form                                 | Example                       |
+| --------- | ------------------------------------ | ----------------------------- |
+| rule ID   | `namespace/…/name`                   | `layout/canon-import-path`    |
+| rule file | `rules/namespace/…/name.ts`, `.bend` | `rules/layout/format.bend`    |
+| test file | `rules/namespace/…/name.test.ts`     | `rules/layout/format.test.ts` |
 
 - The rule ID is the `code` of its findings.
 - Make rules idempotent.
 
+### Shared logic
+
+- Logic that more than one rule uses goes in `rules/shared.ts` or
+  `rules/shared.bend`. Rules import it from there, and keep no copy.
+- These two files are not rules. Do not load them as rules.
+
 ### TypeScript
 
-A module exports `rules: LintRule[]`. Saved under `rules/`:
+A module exports `rules: LintRule[]`. Saved as `rules/demo/var-types.ts`:
 
 ```ts
-import type { LintRule } from "../src/lint.ts";
+import type { LintRule } from "../../src/lint.ts";
 
 export const rules: LintRule[] = [
   {
@@ -391,11 +403,11 @@ facts: {
 #### Options
 
 Each option is a JSON Schema with a `default`. Use `defineRule` to get the
-types of `cx.options` from the schemas:
+types of `cx.options` from the schemas. Saved as `rules/demo/width.ts`:
 
 ```ts
-import { defineRule } from "../src/lint.ts";
-import type { LintRule } from "../src/lint.ts";
+import { defineRule } from "../../src/lint.ts";
+import type { LintRule } from "../../src/lint.ts";
 
 export const rules: LintRule[] = [
   defineRule({
@@ -428,11 +440,11 @@ export const rules: LintRule[] = [
 ### Bend
 
 A `.bend` rule imports [src/bend/lint.bend](src/bend/lint.bend). This one,
-saved under `rules/`, reports nothing:
+saved as `rules/demo/nothing.bend`, reports nothing:
 
 ```python
 import Base
-import ../src/bend/lint.bend as Lint
+import ../../src/bend/lint.bend as Lint
 
 def id() -> String:
   "demo/nothing"
@@ -523,13 +535,13 @@ Read them with `Lint.option_number`, `Lint.option_flag` and
 - A branch that uses a string or character its match took apart gets it
   rebuilt: a string as a rope of the whole rest, which the next read copies.
   Take the value twice and match one copy (`keep` in
-  [rules/layout-format.bend](rules/layout-format.bend)).
+  [rules/layout/format.bend](rules/layout/format.bend)).
 - `Bool.pick` evaluates both branches. Match on a `Bool` parameter when a
   branch is costly.
 
 #### Examples
 
-- The formatter: [rules/layout-format.bend](rules/layout-format.bend)
+- The formatter: [rules/layout/format.bend](rules/layout/format.bend)
 - In [src/lint.test.ts](src/lint.test.ts): `COMMA_BEND` (fixes),
   `TYPES_BEND` (facts), `COUNT_BEND` (earlier findings) and `PARITY_BEND`
   (the guard and union options).
@@ -545,7 +557,7 @@ import { ERROR, ERROR_METADATA } from "./src/result.ts";
 const made = await createLinter();
 if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
 const linter = made.OK;
-const rules = await linter.loadRules(["rules/layout-format.bend"]);
+const rules = await linter.loadRules(["rules/layout/format.bend"]);
 if (ERROR in rules) throw new Error(rules[ERROR][ERROR_METADATA].message);
 const res = await linter.lint("src/bend/sample.bend", rules.OK);
 if (ERROR in res) {

@@ -4,9 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { applyFixes, createLinter } from "../src/lint.ts";
-import type { LintOptions, LintResult, LintRule, Options } from "../src/lint.ts";
-import { unwrap } from "../src/result.ts";
+import { applyFixes, createLinter } from "../../src/lint.ts";
+import type { LintOptions, LintResult, LintRule, Options } from "../../src/lint.ts";
+import { unwrap } from "../../src/result.ts";
 
 type FormatOptions = {
   tabWidth: number;
@@ -48,7 +48,7 @@ const fixture = (text: string, name = "main.bend") => {
   fs.writeFileSync(file, text);
   return file;
 };
-const rule = fileURLToPath(new URL("./layout-format.bend", import.meta.url));
+const rule = fileURLToPath(new URL("./format.bend", import.meta.url));
 const rules = unwrap(await linter.loadRules([rule]));
 
 describe("layout/format", () => {
@@ -369,7 +369,7 @@ def main() -> String:
       JSON.stringify({ rules: { "layout/format": { tabWidth: 4, wrapAtWidth: "never" } } }),
       "config.json",
     );
-    const cli = fileURLToPath(new URL("../src/lint.ts", import.meta.url));
+    const cli = fileURLToPath(new URL("../../src/lint.ts", import.meta.url));
     const args = [cli, file, "--rules", rule, "--config", config, "--fix", "--json"];
     const result = spawnSync(process.execPath, args, { encoding: "utf8" });
     expect(result.status).toBe(0);

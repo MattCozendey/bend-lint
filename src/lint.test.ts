@@ -51,7 +51,7 @@ type Seen = { kind: string; def: string; name: string; path: string };
 
 const linter = unwrap(await createLinter());
 const { BEND2, render } = linter;
-const formatRule = fileURLToPath(new URL("../rules/layout-format.bend", import.meta.url));
+const formatRule = fileURLToPath(new URL("../rules/layout/format.bend", import.meta.url));
 const formatRules = unwrap(await linter.loadRules([formatRule]));
 
 // bend2's modules as bend-lint patched them, for what the tests inspect.

@@ -1,6 +1,6 @@
 # layout/format: one formatter owns indentation, spacing, declaration gaps
 # and wrapping.
-# Run: bun src/lint.ts file.bend --rules rules/layout-format.bend --fix
+# Run: bun src/lint.ts file.bend --rules rules/layout/format.bend --fix
 # Config: { "rules": { "layout/format": { "tabWidth": 2, "wrapAtWidth": 100 } } }
 # "never" disables optional wrapping. endOfLine "preserve" keeps the first
 # ending, or LF if there is none.
@@ -13,7 +13,7 @@
 # state, so every loop recurses on a smaller part of its input. The lexer
 # and the printer recurse on fuel instead: more steps than they can need.
 import Base
-import ../src/bend/lint.bend as Lint
+import ../../src/bend/lint.bend as Lint
 
 # Types
 # =====
