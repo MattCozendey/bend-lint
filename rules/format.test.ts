@@ -332,6 +332,29 @@ def main() -> String:
     expect(await formatted(source)).toBe(source);
   });
 
+  test("long files and long tokens format", async () => {
+    const cases = Array.from({ length: 1000 }, (_, i) => `    case ${i}n: ${i}\n`).join("");
+    const long = "import Base\n\ndef pick(n: Nat) -> U32:\n  match n:\n" + cases;
+    expect(await formatted(long)).toBe(long);
+    const text = "a".repeat(30000);
+    const literal = `def main() -> String:\n  "${text}\n${text}"\n`;
+    expect(await formatted(literal)).toBe(literal);
+    expect(await formatted("#" + text + "\n")).toBe("# " + text + "\n");
+  });
+
+  test("deep nesting formats in time", async () => {
+    const depth = 300;
+    const source = "def main() -> U32:\n  " + "(".repeat(depth) + "1" + ")".repeat(depth) + "\n";
+    const levels = Array.from({ length: depth }, (_, i) => "  ".repeat(i + 1));
+    const expected = [
+      "def main() -> U32:",
+      ...levels.map((indent) => indent + "("),
+      "  ".repeat(depth + 1) + "1",
+      ...levels.reverse().map((indent) => indent + ")"),
+    ];
+    expect(await formatted(source)).toBe(expected.join("\n") + "\n");
+  });
+
   test("empty files, comments and indivisible tokens have a canonical ending", async () => {
     expect(await formatted("")).toBe("\n");
     expect(await formatted("\n\n# comment\n\n")).toBe("# comment\n");
