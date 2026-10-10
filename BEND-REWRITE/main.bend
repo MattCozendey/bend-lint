@@ -12,6 +12,13 @@ type FixLevel is Data:
   AutoFix{}
   DangerousFix{}
 
+# What one fix is: Safe keeps what the program does; Dangerous may not.
+# FixLevel is what a caller asks for: AutoFix applies Safe fixes, and
+# DangerousFix applies both.
+type FixApplicability is Data:
+  Safe{}
+  Dangerous{}
+
 # A file: its path and its text. A path is ALWAYS a normalized POSIX path.
 type Source is Data:
   Source{path: String, text: String}
@@ -21,6 +28,21 @@ type Source is Data:
 type Span is Data:
   Span{path: String, beg: U32, end: U32}
 
+# One change to the files. Paths are as in Source. Replace with an empty
+# span inserts text.
+type Edit is Data:
+  Replace{span: Span, text: String}
+  Create{path: String, text: String}
+  Rename{from: String, to: String}
+  Delete{path: String}
+
+# A fix's edits apply in order: each sees the files as the edits before it
+# left them, paths and offsets included. A rule's spans come from the text
+# as read, so a later edit must shift its offsets by the edits before it,
+# and use the path of any Rename before it. A law will state this later.
+type Fix is Data:
+  Fix{title: String, applicability: FixApplicability, edits: List<&2, Edit>}
+
 type Severity is Data:
   Error{}
   Warning{}
@@ -28,7 +50,7 @@ type Severity is Data:
   Hint{}
 
 type Diag is Data:
-  Diag{severity: Severity, message: String, span: Span}
+  Diag{severity: Severity, message: String, span: Span, fixes: List<&2, Fix>}
 
 # id: namespace/name, the code of its findings.
 type Rule is Type:
