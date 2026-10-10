@@ -12,7 +12,7 @@ def asking(n: Nat, +t: Lint.TypeRef) -> Lint.Ask(List<&2, Lint.Finding>):
 
 def first(facts: List<&2, Lint.Fact>) -> Lint.Ask(List<&2, Lint.Finding>):
   match facts:
-    case Con{Lint.Fact{n, q, t}, rest}:
+    case Con{Lint.Fact{n, r, q, t}, rest}:
       asking(100n, t)
     case Nil{}:
       Lint.done([])

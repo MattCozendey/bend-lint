@@ -98,16 +98,20 @@ type Record is Data:
 def Record.names() -> List<&2, Shared.Named<Record>>:
   [Shared.Named{"node", NodeRecord{}}, Shared.Named{"fact", FactRecord{}}, Shared.Named{"file", SourceRecord{}}]
 
-# A fact from the fields of its record: its node, the check and handle of its type, and its quantity.
+def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
+  [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
+
+# A fact from the fields of its record: its node, its role, the check and handle of its type, and its quantity.
 def Fact.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
   match fields:
-    case Con{node, Con{check, Con{id, Con{quantity, Nil{}}}}}:
+    case Con{node, Con{role, Con{check, Con{id, Con{quantity, Nil{}}}}}}:
       do Maybe<&2, Lint.Fact>:
         n : U32 <- U32.read(node)
+        r : Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
         c : U32 <- U32.read(check)
         i : U32 <- U32.read(id)
         q : Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
-        return Lint.Fact{n, q, Lint.TypeRef{c, i}}
+        return Lint.Fact{n, r, q, Lint.TypeRef{c, i}}
     case _:
       None{}
 

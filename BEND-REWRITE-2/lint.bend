@@ -87,15 +87,24 @@ type Node is Data:
     target: String
   }
 
-# A type the checker holds: a handle, good in the check it came from. Rules ask about it (show, same, normal).
+# A type the checker holds: a handle, good in the check it came from. Rules ask about it (show, same, normal). Two
+# types are the same only over the binders their scopes share: `A` of one def is not `A` of another.
 type TypeRef is Data:
   TypeRef{check: U32, id: U32}
 
-# What the checker found for a term of the source: the term's node (by id), how often the term is demanded, and the
-# type it was checked as. A term has one fact per distinct judgment: pattern compilation can check one term in
-# several branches, under different refinements. Only for a rule that needs facts.
+# What a fact says of its node: the type its term has, or the type its binder declares (a parameter, field, pattern
+# variable, lambda, forall or let binding).
+type Role is Data:
+  OfTerm{}
+  OfBinder{}
+
+# What the checker found for a node of the source: the node (by id), what the fact says of it, the quantity (how
+# often the term is demanded, or the binder's), and the type. A fact is never wrong, but a node can have none: a term
+# the checker rewrote into another (a scrutinee used again, a call a template took) is not typed as itself. A node
+# has one fact per distinct type: pattern compilation can check one term in several branches, under different
+# refinements. Only for a rule that needs facts.
 type Fact is Data:
-  Fact{node: U32, quantity: Quantity, checked: TypeRef}
+  Fact{node: U32, role: Role, quantity: Quantity, checked: TypeRef}
 
 # A file the check parsed: its path, its namespace in the check, its text, its nodes (parents first), and the
 # checker's facts on its terms, if a rule needs them.

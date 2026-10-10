@@ -18,8 +18,10 @@ def vars(facts: List<&2, Lint.Fact>, +here: Lint.Here, acc: Vars) -> Vars:
   match facts acc:
     case Nil{} Vars{spans, types}:
       Vars{List.reverse(&2, Lint.Span, spans), List.reverse(&2, Lint.TypeRef, types)}
-    case Con{Lint.Fact{n, q, t}, rest} _:
+    case Con{Lint.Fact{n, Lint.OfTerm{}, q, t}, rest} _:
       vars(rest, here, keep(Lint.Here.node(here, n), t, acc))
+    case Con{f, rest} _:
+      vars(rest, here, acc)
 
 def zip(spans: List<&2, Lint.Span>, shown: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match spans shown:
