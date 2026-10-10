@@ -1,5 +1,7 @@
 # This file's goal is to become a bend version of the bend-lint tool.
 # This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects), even if it contains laws and/or proofs.
+# An expected consequence of self-contained: `bend main.bend --check-only` always reports the defs that rely on our
+# effects ("N defs rely on unsafe or foreign code"). Only other errors are real proof failures.
 # Every comment on this file stays here.
 # Bend doesn't run natively on windows, with one exception: there's a sibling folder where a branch exists called feature/cuda-and-windows. This one works natively. If not that, you must use WSL. Effect code must be written with windows in mind anyway(or as agnostic as possible). We also have WSL iff not in the windows version.
 # Drifts are intentional: Ergonomics win over 1:1 parity. Every drift is documented in the table below,
