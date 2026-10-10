@@ -444,10 +444,18 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
         quantity: t.q === undefined ? "" : QUANTITIES[t.q.$],
         ...(spelled(t.s) === t.k ? range(t.s) : {}),
       }),
-    // A call whose head shares its span is one the parser made.
+    // A call whose head shares its span is sugar: written (`A & B`,
+    // `return x`) if it spans its written parts and no other part shares its
+    // span; else the parser's (a do-block's bind).
     App: (t) => {
       const [head, args] = calls(t);
-      return tree("Application", [term(head), ...args.map(term)], head.s === t.s ? {} : range(t.s));
+      const kids = args.map(term);
+      const at = place(t.s);
+      const spans = (k: Tree): boolean =>
+        k.origin !== t.s &&
+        (k.range === undefined || (at !== undefined && k.range[0] >= at[0] && k.range[1] <= at[1]));
+      const written = head.s !== t.s || kids.every(spans);
+      return tree("Application", [term(head), ...kids], written ? { range: at } : {});
     },
     ADT: (t) => tree("TypeApplication", t.x.map(term), used(t.k, t.s)),
     Ctr: (t) => tree("Construction", t.x.map(term), used(t.k, t.s)),

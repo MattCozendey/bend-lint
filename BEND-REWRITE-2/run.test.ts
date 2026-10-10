@@ -1,0 +1,89 @@
+// Imports
+// =======
+
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+
+import { build, lint } from "./testing.ts";
+
+// Constants
+// =========
+
+// Built once, before the tests; nothing to build when Bend is not given.
+const given = process.env.BEND_DIR !== undefined;
+const PARENTS = given ? build("tests/parents.bend") : "";
+const WRITTEN = given ? build("tests/written.bend") : "";
+const SOME = given ? build("tests/some.bend") : "";
+const EVERY = given ? build("tests/every.bend") : "";
+
+// A file with sugar the parser expands: a do-block, `A & B`, an operator.
+const SUGARED =
+  "import Base\n\ndef say(m: IO(Unit)) -> IO(U32):\n  do IO<U32>:\n    m\n    n : U32 <- IO.pure(U32, 3)\n    return n\n\ndef both(-A: Type, -B: Type) -> Type:\n  A & B\n\ndef twice(+k: U32) -> U32:\n  (k * k : U32)\n";
+
+// Two entries that import util.bend, one of them through a third file.
+const ENTRIES = {
+  "util.bend": "import Base\n\ndef u() -> U32:\n  1\n",
+  "a.bend": "import Base\nimport ./util.bend as U\n\ndef a() -> U32:\n  U.u()\n",
+  "b.bend":
+    "import Base\nimport ./util.bend as U\nimport ./c.bend as C\n\ndef b() -> U32:\n  (U.u() + C.c() : U32)\n",
+  "c.bend": "import Base\n\ndef c() -> U32:\n  2\n",
+  "bend-lint.json": JSON.stringify({ entries: ["a.bend", "b.bend"] }),
+};
+
+// Functions
+// =========
+
+const found = (program: string, files: Record<string, string>, named: string): string[] =>
+  lint(program, files, named).map(({ at, message }) => at + " " + message);
+
+// Side effects
+// ============
+
+setDefaultTimeout(120_000);
+
+(given ? describe : describe.skip)("run", () => {
+  test("a rule finds any node of its file by id", () => {
+    expect(found(PARENTS, { "main.bend": SUGARED }, "main.bend")).toEqual([
+      "1:1 every parent is found",
+    ]);
+  });
+
+  test("a node has a range only where the file writes it", () => {
+    const written = [
+      "3:12 call",
+      "3:12 reference IO",
+      "3:15 reference Unit",
+      "3:25 call",
+      "3:25 reference IO",
+      "3:28 reference U32",
+      "4:9 reference U32",
+      "6:5 lambda n",
+      "6:9 reference U32",
+      "6:16 call",
+      "6:16 reference IO.pure",
+      "6:24 reference U32",
+      "7:5 call",
+      "10:3 call",
+      "12:15 reference U32",
+      "12:23 reference U32",
+      "13:4 call",
+      "13:6 reference *",
+    ];
+    // The do-block's `IO` is written too, but its parser keeps no term of it.
+    const allowed = [...written, "4:6 reference IO"];
+    const got = found(WRITTEN, { "main.bend": SUGARED }, "main.bend");
+    expect(got).toEqual(expect.arrayContaining(written));
+    expect(got.filter((x) => !allowed.includes(x))).toEqual([]);
+  });
+
+  test("a some-entry program rule keeps what any check finds", () => {
+    expect(found(SOME, ENTRIES, "util.bend")).toEqual([
+      "1:1 at 0",
+      "1:3 at the count",
+      "1:4 at the count",
+    ]);
+  });
+
+  test("an every-entry program rule keeps what every check finds", () => {
+    expect(found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
+  });
+});
