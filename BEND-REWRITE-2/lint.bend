@@ -769,6 +769,24 @@ def Rule.run_each(rules: List<&1, Rule>, +here: Here, out: List<&2, Found>) -> L
     case Con{Rule{id, run}, rest}:
       Rule.run_each(rest, here, Found.tag(id, run(here), out))
 
+# Rules dealt into two halves of about the same size, one at a time.
+def Rule.deal(rules: List<&1, Rule>, a: List<&1, Rule>, b: List<&1, Rule>) -> List<&1, Rule> & List<&1, Rule>:
+  match rules:
+    case Nil{}:
+      (a, b)
+    case Con{r, rest}:
+      Rule.deal(rest, b, r <> a)
+
+# What the rules of both halves find on `here`, in order: each half in parallel, dealt again until `depth` runs out.
+# A half's findings come in its rules' order; the halves interleave the rules, so the order is the halves'.
+def Rule.run_all(+depth: Nat, halves: List<&1, Rule> & List<&1, Rule>, +here: Here) -> List<&2, Found>:
+  match depth halves:
+    case 0n Tuple{a, b}:
+      List.reverse(&2, Found, Rule.run_each(b, here, Rule.run_each(a, here, [])))
+    case 1n+d Tuple{a, b}:
+      x y = Rule.run_all(d, Rule.deal(a, [], []), here) Rule.run_all(d, Rule.deal(b, [], []), here)
+      List.append(&2, Found, x, y)
+
 # The file the check was for: the last it parsed, as its imports come first.
 def Program.root(sources: List<&2, Source>, last: Maybe<&2, Source>) -> Maybe<&2, Source>:
   match sources:
@@ -823,7 +841,7 @@ def Found.show(+text: String, found: Found) -> String:
 def Found.lines(+text: String, founds: List<&2, Found>, out: List<&2, String>) -> List<&2, String>:
   match founds:
     case Nil{}:
-      out
+      List.reverse(&2, String, out)
     case Con{f, rest}:
       Found.lines(text, rest, Found.show(text, f) <> out)
 
@@ -861,7 +879,7 @@ def cli.end(failed: Bool, n: Nat) -> IO(Unit):
     case False{}:
       IO.print("bend-lint: " ++ Nat.show(n) ++ " finding(s)")
 
-# Prints the findings, last first, of the file whose text is `text`; fails if one is an error.
+# Prints the findings of the file whose text is `text`; fails if one is an error.
 def cli.print(+text: String, +founds: List<&2, Found>) -> IO(Unit):
   do IO<Unit>:
     cli.say(Found.lines(text, founds, []))
@@ -870,7 +888,7 @@ def cli.print(+text: String, +founds: List<&2, Found>) -> IO(Unit):
 def cli.lint(~rules: List<&1, Rule>, +program: Program, root: Maybe<&2, Source>) -> IO(Unit):
   match root:
     case Some{Source{+path, namespace, +text, nodes}}:
-      cli.print(text, Rule.run_each(rules, Here.of(program, Source{path, namespace, text, nodes}), []))
+      cli.print(text, Rule.run_all(4n, Rule.deal(rules, [], []), Here.of(program, Source{path, namespace, text, nodes})))
     case None{}:
       IO.die(Unit, 2, "bend-lint: the check parsed no file")
 
