@@ -769,6 +769,7 @@ def get_order_problems(+heads: List<&2, RuleHead>) -> List<&2, String>:
     heads
   )
 
+# The findings of the rules, level by level; `found` holds the findings so far, last first.
 def get_lint_findings(
   ~rules: Unit -> List<&1, Rule>,
   fuel: Nat,
@@ -784,9 +785,9 @@ def get_lint_findings(
 ) -> List<&2, RuleFinding>:
   match fuel ready:
     case 0n _:
-      found
+      List.reverse(&2, RuleFinding, found)
     case 1n+k Nil{}:
-      found
+      List.reverse(&2, RuleFinding, found)
     case 1n+k Con{+h, +t}:
       +now = List.append(&2, String, done, h <> t)
       get_lint_findings(
@@ -798,17 +799,21 @@ def get_lint_findings(
         List.append(
           &2,
           RuleFinding,
-          found,
-          get_places_findings(
-            ~rules,
-            places,
-            h <> t,
-            found,
-            root,
-            sources,
-            linted_paths,
-            declarations
-          )
+          List.reverse(
+            &2,
+            RuleFinding,
+            get_places_findings(
+              ~rules,
+              places,
+              h <> t,
+              found,
+              root,
+              sources,
+              linted_paths,
+              declarations
+            )
+          ),
+          found
         ),
         places,
         root,
@@ -950,9 +955,11 @@ def get_linter_term(term: BendTerm) -> BendTerm:
     case ReferenceTerm{name, span}:
       ReferenceTerm{name, get_linter_term_span(span)}
     case CallTerm{head, arguments, span}:
-      CallTerm{get_linter_term(head), get_linter_term(arguments), get_linter_term_span(span)}
+      h a = get_linter_term(head) get_linter_term(arguments)
+      CallTerm{h, a, get_linter_term_span(span)}
     case LetTerm{names, values, body, span}:
-      LetTerm{names, get_linter_term(values), get_linter_term(body), get_linter_term_span(span)}
+      v b = get_linter_term(values) get_linter_term(body)
+      LetTerm{names, v, b, get_linter_term_span(span)}
     case LambdaTerm{name, body, span}:
       LambdaTerm{name, get_linter_term(body), get_linter_term_span(span)}
     case ConstructorTerm{name, fields, span}:
@@ -960,15 +967,11 @@ def get_linter_term(term: BendTerm) -> BendTerm:
     case LiteralTerm{shown, span}:
       LiteralTerm{shown, get_linter_term_span(span)}
     case AnnotatedTerm{value, annotation, span}:
-      AnnotatedTerm{get_linter_term(value), get_linter_term(annotation), get_linter_term_span(span)}
+      v a = get_linter_term(value) get_linter_term(annotation)
+      AnnotatedTerm{v, a, get_linter_term_span(span)}
     case ForallTerm{name, quantity, domain, body, span}:
-      ForallTerm{
-        name,
-        quantity,
-        get_linter_term(domain),
-        get_linter_term(body),
-        get_linter_term_span(span)
-      }
+      d b = get_linter_term(domain) get_linter_term(body)
+      ForallTerm{name, quantity, d, b, get_linter_term_span(span)}
     case SortTerm{level, span}:
       SortTerm{get_linter_term(level), get_linter_term_span(span)}
     case DatatypeTerm{name, arguments, span}:
@@ -978,7 +981,8 @@ def get_linter_term(term: BendTerm) -> BendTerm:
     case CheckedTerm{term, fact}:
       CheckedTerm{get_linter_term(term), fact}
     case SomeTerms{first, rest}:
-      SomeTerms{get_linter_term(first), get_linter_term(rest)}
+      f r = get_linter_term(first) get_linter_term(rest)
+      SomeTerms{f, r}
     case NoTerms{}:
       NoTerms{}
 

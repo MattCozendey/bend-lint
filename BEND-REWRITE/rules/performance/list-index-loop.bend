@@ -33,7 +33,8 @@ def passes(cs: List<&2, Shared.Call>, +self: String, +arity: Nat, +k: Nat, +v: S
   match cs:
     case Nil{}:
       False{}
-    case Con{Shared.Call{head, +args, span}, rest}:
+    case Con{Shared.Call{head, arguments, span}, rest}:
+      +args = Shared.get_arg_names(arguments)
       (
         String.eq(
           head,
@@ -125,7 +126,8 @@ def helpers_of_calls(
   match cs:
     case Nil{}:
       []
-    case Con{Shared.Call{+head, +args, span}, rest}:
+    case Con{Shared.Call{+head, arguments, span}, rest}:
+      +args = Shared.get_arg_names(arguments)
       List.append(
         &2,
         Site,
@@ -150,14 +152,6 @@ def sites(+direct: List<&2, Site>, bs: List<&2, Shared.Body>) -> List<&2, Site>:
 # How the call of `head` walks the list: itself, or through a list function.
 def through(+head: String, +name: String) -> String:
   Bool.pick(String, String.eq(head, name), "", " (through " ++ name ++ ")")
-
-# Where a finding about a call goes: the call, or the start of the file when the call has no span.
-def at_call(+path: String, span: Maybe<&2, Lint.BendSourceSpan>) -> Lint.BendSourceSpan:
-  match span:
-    case Some{s}:
-      s
-    case None{}:
-      Lint.BendSourceSpan{path, 0, 0}
 
 def finding(
   hit: Bool,
@@ -225,7 +219,8 @@ def findings(
   match cs:
     case Nil{}:
       []
-    case Con{Shared.Call{+head, +args, span}, rest}:
+    case Con{Shared.Call{+head, arguments, span}, rest}:
+      +args = Shared.get_arg_names(arguments)
       List.append(
         &2,
         Lint.Finding,
@@ -240,7 +235,7 @@ def findings(
             arity,
             head,
             args,
-            at_call(path, span),
+            Shared.get_span_or_start(path, span),
             matching(ss, head, List.length(&2, String, args))
           )
         ),
