@@ -348,14 +348,41 @@ const tree = (kind: string, kids: Tree[], more: Partial<Tree> = {}): Tree => ({
   ...more,
 });
 
-// The trees of a term, a body and a pattern, as the parser read them.
+// The trees of a term, a body and a pattern, as the parser read them. A
+// node has a range only where the source spells it: the parser makes terms
+// of its own from other syntax (a do-block's binds, `A & B`), at the span of
+// what it made them from, and copies some (a do-block's type into each
+// statement). Those keep their kind and target, but no range or name.
 const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
   const range = (s: Span | undefined): Partial<Tree> => ({ range: place(s) });
-  // A use's name as written: the name its span starts with, if any.
-  const used = (k: string, s: Span | undefined): Partial<Tree> => {
+  // The name a span starts with, if any.
+  const spelled = (s: Span | undefined): string | undefined => {
     const name = /[A-Za-z_][\w.]*/y;
     name.lastIndex = s?.beg ?? 0;
-    return { target: k, name: (s && name.exec(s.file.str)?.[0]) ?? "", ...range(s) };
+    return s === undefined ? undefined : (name.exec(s.file.str)?.[0] ?? undefined);
+  };
+  // A use's name as written: the name its span starts with, if any.
+  const used = (k: string, s: Span | undefined): Partial<Tree> => ({
+    target: k,
+    name: spelled(s) ?? "",
+    ...range(s),
+  });
+  const last = (k: string): string => k.slice(Math.max(k.lastIndexOf("."), k.lastIndexOf(":")) + 1);
+  // The spans a written reference owns: a copy of one is the parser's.
+  const owned = new Set<Span>();
+  // A reference to `k`, written at `s` if `s` spells it (a name of `k`, or an
+  // operator) and no reference owns `s` yet.
+  const reference = (k: string, s: Span | undefined): Tree => {
+    const name = spelled(s);
+    if (s === undefined || owned.has(s) || (name !== undefined && last(name) !== last(k))) {
+      return tree("Reference", [], { target: k });
+    }
+    owned.add(s);
+    return tree("Reference", [], {
+      target: k,
+      name: name ?? s.file.str.slice(s.beg, s.end),
+      ...range(s),
+    });
   };
   const term = (t: LTerm): Tree => {
     const of = (TERMS as Record<string, ((t: LTerm) => Tree) | undefined>)[t.$];
@@ -379,8 +406,8 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
     Var: (t) =>
       t.v === undefined
         ? tree("Variable", [], { name: t.k, binder: String(t.i), ...range(t.s) })
-        : tree("Reference", [], { name: t.k, target: t.v.$ === "Ref" ? t.v.k : "", ...range(t.s) }),
-    Ref: (t) => tree("Reference", [], used(t.k, t.s)),
+        : reference(t.v.$ === "Ref" ? t.v.k : "", t.s),
+    Ref: (t) => reference(t.k, t.s),
     Sub: (t) =>
       tree("Substitution", [patt(t.v), term(t.f)], { binder: String(t.i), ...range(t.s) }),
     Let: (t) =>
@@ -415,11 +442,12 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
         name: t.k,
         binder: String(t.i),
         quantity: t.q === undefined ? "" : QUANTITIES[t.q.$],
-        ...range(t.s),
+        ...(spelled(t.s) === t.k ? range(t.s) : {}),
       }),
+    // A call whose head shares its span is one the parser made.
     App: (t) => {
       const [head, args] = calls(t);
-      return tree("Application", [term(head), ...args.map(term)], range(t.s));
+      return tree("Application", [term(head), ...args.map(term)], head.s === t.s ? {} : range(t.s));
     },
     ADT: (t) => tree("TypeApplication", t.x.map(term), used(t.k, t.s)),
     Ctr: (t) => tree("Construction", t.x.map(term), used(t.k, t.s)),
