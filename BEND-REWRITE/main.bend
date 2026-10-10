@@ -52,10 +52,6 @@ type Severity is Data:
 type Diag is Data:
   Diag{severity: Severity, message: String, span: Span, fixes: List<&2, Fix>}
 
-# id: namespace/name, the code of its findings.
-type Rule is Type:
-  Rule{id: String, run: Source -> List<&2, Diag>}
-
 # An option's value: a whole number, a boolean, or text.
 type Value is Data:
   Num{value: U32}
@@ -64,6 +60,32 @@ type Value is Data:
 
 type Option is Data:
   Option{key: String, value: Value}
+
+# A finding with the id of the rule that made it.
+type Found is Data:
+  Found{code: String, diag: Diag}
+
+# What a rule reads. root: the file this run is for. sources: every file the
+# check read, root included. options: the rule's, defaults filled in. prior:
+# what earlier rules found.
+type Input is Data:
+  Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>, prior: List<&2, Found>}
+
+# How findings from several checks merge, for a program rule. Some: keep a
+# finding one check makes. Every: keep a finding all checks make.
+type Entries is Data:
+  SomeEntry{}
+  EveryEntry{}
+
+# What a rule sees. File: its own file, and it reports only there. Program:
+# every file the check read, and its fixes may touch any of them.
+type Scope is Data:
+  File{}
+  Program{entries: Entries}
+
+# id: namespace/name, the code of its findings.
+type Rule is Type:
+  Rule{id: String, scope: Scope, run: Input -> IO(List<&2, Diag>)}
 
 # How the config sets one rule. severity: None{} keeps the rule's own.
 type Setting is Data:
@@ -77,7 +99,7 @@ type Config is Data:
 
 # What a run found, and the files it linted, as they were read.
 type Report is Data:
-  Report{findings: List<&2, Diag>, linted: List<&2, Source>}
+  Report{findings: List<&2, Found>, linted: List<&2, Source>}
 
 # The findings of rules in file, set up by config. Does nothing yet.
 def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(Report):
