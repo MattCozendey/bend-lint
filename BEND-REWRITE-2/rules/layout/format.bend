@@ -1,5 +1,7 @@
-# layout/format: one formatter owns indentation, spacing, declaration gaps and wrapping: tabs of 2, lines wrapped at
-# 100, LF line ends. A file that differs from its formatted text is reported where it first differs.
+# layout/format: one formatter owns indentation, spacing, declaration gaps and wrapping. A file that differs from its
+# formatted text is reported where it first differs.
+# Options: tabWidth (2); wrapAtWidth (100, or "never": no optional wrapping); endOfLine ("lf", "crlf", or "preserve":
+# the file's first, or LF if it has none).
 #
 # A String is a JS string at run time: ++ is native, and a match on SCon reads one character and slices off the rest.
 # So the lexer reads the text once, tokens carry what the layout asks of them, and docs carry widths.
@@ -2368,10 +2370,48 @@ def judge(formatted: Maybe<&2, String>, +text: String, +path: String) -> List<&2
     case Some{+out}:
       judged(same(out, text), out, text, path)
 
+def first_newline(s: String) -> String:
+  match s:
+    case SNil{}:
+      "\n"
+    case SCon{'\r', SCon{'\n', rest}}:
+      "\r\n"
+    case SCon{'\n', rest}:
+      "\n"
+    case SCon{c, rest}:
+      first_newline(rest)
+
+def newline_of(+eol: String, source: String) -> String:
+  Bool.pick(
+    String,
+    String.eq(eol, "crlf"),
+    "\r\n",
+    Bool.pick(String, String.eq(eol, "preserve"), first_newline(source), "\n")
+  )
+
+def width_of(value: Maybe<&2, Lint.Value>) -> Maybe<&2, U32>:
+  match value:
+    case Some{Lint.Num{n}}:
+      Some{n}
+    case _:
+      None{}
+
+def settings(+here: Lint.Here) -> Settings:
+  Settings{
+    Lint.Value.number(Lint.Here.option(here, "tabWidth")),
+    width_of(Lint.Here.option(here, "wrapAtWidth")),
+    newline_of(Lint.Value.text(Lint.Here.option(here, "endOfLine")), Lint.Here.text(here))
+  }
+
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  match here:
-    case Lint.Here{program, Lint.Source{+path, namespace, +text, nodes, facts}, declarations, index}:
-      Lint.done(judge(format(text, Settings{2, Some{100}, "\n"}), text, path))
+  Lint.done(judge(format(Lint.Here.text(here), settings(here)), Lint.Here.text(here), Lint.Here.path(here)))
+
+def options() -> List<&2, Lint.Declared>:
+  [
+    Lint.Declared{"tabWidth", Lint.Num{2}, Lint.NumberOption{1, 4294967295}},
+    Lint.Declared{"wrapAtWidth", Lint.Num{100}, Lint.AnyOption{[Lint.NumberOption{1, 4294967295}, Lint.TextOption{["never"]}]}},
+    Lint.Declared{"endOfLine", Lint.Text{"lf"}, Lint.TextOption{["lf", "crlf", "preserve"]}}
+  ]
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/format", Lint.Needs{False{}}, run}
+  Lint.FileRule{"layout/format", Lint.Needs{False{}}, options(), run}

@@ -240,22 +240,31 @@ def Json.read(text: String) -> Maybe<&2, Json>:
 # Config
 # ======
 
-# What the config says of a rule: turn it off, or give its findings this severity.
+# What the config says of a rule: turn it off, or run it, with a severity for its findings if it gives one, and option
+# values. Before a run, the runner checks the values against what the rule declares, and adds the defaults.
 type Setting is Data:
   RuleOff{}
-  RuleSeverity{severity: Lint.Severity}
+  RuleOn{severity: Maybe<&2, Lint.Severity>, options: List<&2, Shared.Named<Lint.Value>>}
 
 # What a project's config says: the entries (paths), whether to lint imports (unless the command line says), and each rule's setting.
 type Project is Data:
   Project{entries: List<&2, String>, imports: Maybe<&2, Bool>, rules: List<&2, Shared.Named<Setting>>}
 
+def Severity.names() -> List<&2, Shared.Named<Lint.Severity>>:
+  [
+    Shared.Named{"error", Lint.Error{}},
+    Shared.Named{"warning", Lint.Warning{}},
+    Shared.Named{"information", Lint.Information{}},
+    Shared.Named{"hint", Lint.Hint{}}
+  ]
+
 def Setting.names() -> List<&2, Shared.Named<Setting>>:
   [
     Shared.Named{"off", RuleOff{}},
-    Shared.Named{"error", RuleSeverity{Lint.Error{}}},
-    Shared.Named{"warning", RuleSeverity{Lint.Warning{}}},
-    Shared.Named{"information", RuleSeverity{Lint.Information{}}},
-    Shared.Named{"hint", RuleSeverity{Lint.Hint{}}}
+    Shared.Named{"error", RuleOn{Some{Lint.Error{}}, []}},
+    Shared.Named{"warning", RuleOn{Some{Lint.Warning{}}, []}},
+    Shared.Named{"information", RuleOn{Some{Lint.Information{}}, []}},
+    Shared.Named{"hint", RuleOn{Some{Lint.Hint{}}, []}}
   ]
 
 # What is wrong with a config, if anything, or the config.
@@ -279,10 +288,68 @@ def Parsed.entries(+folder: String, items: List<&2, Json>, out: List<&2, String>
         e : String <- Parsed.entry(folder, i)
         Parsed.entries(folder, rest, e <> out)
 
+# An option's value: a whole number, a flag or text.
+def Parsed.value(value: Json) -> Maybe<&2, Lint.Value>:
+  match value:
+    case JNumber{text}:
+      Maybe.map(&2, U32, Lint.Value, n => Lint.Num{n}, U32.read(text))
+    case JTrue{}:
+      Some{Lint.Flag{True{}}}
+    case JFalse{}:
+      Some{Lint.Flag{False{}}}
+    case JString{text}:
+      Some{Lint.Text{text}}
+    case _:
+      None{}
+
+def Parsed.option(severity: Bool, +key: String, value: Json, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
+  Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
+  match severity:
+    case True{}:
+      out
+    case False{}:
+      do Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
+        values : List<&2, Shared.Named<Lint.Value>> <- out
+        v : Lint.Value <- Parsed.value(value)
+        return Shared.Named{key, v} <> values
+
+# The option values of a rule's object, last first: every field but "severity".
+def Parsed.options(fields: List<&2, JField>, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
+  Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
+  match fields:
+    case Nil{}:
+      out
+    case Con{JField{+key, value}, rest}:
+      Parsed.options(rest, Parsed.option(String.eq(key, "severity"), key, value, out))
+
+def Parsed.severity.of(here: Bool, value: Json, found: Maybe<&2, Maybe<&2, Lint.Severity>>) ->
+  Maybe<&2, Maybe<&2, Lint.Severity>>:
+  match here value:
+    case True{} JString{+s}:
+      Maybe.map(&2, Lint.Severity, Maybe<&2, Lint.Severity>, sev => Some{sev}, Shared.lookup(Lint.Severity, s, Severity.names()))
+    case True{} _:
+      None{}
+    case False{} _:
+      found
+
+# The severity a rule's object gives in "severity": none if it gives none (Some{None{}}), or None{} if it is not one.
+def Parsed.severity(fields: List<&2, JField>, found: Maybe<&2, Maybe<&2, Lint.Severity>>) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
+  match fields:
+    case Nil{}:
+      found
+    case Con{JField{+key, value}, rest}:
+      Parsed.severity(rest, Parsed.severity.of(String.eq(key, "severity"), value, found))
+
+# A rule's setting: "off", a severity, or an object of a severity (if any) and option values.
 def Parsed.rule(field: JField) -> Maybe<&2, Shared.Named<Setting>>:
   match field:
-    case JField{id, JString{+s}}:
+    case JField{+id, JString{+s}}:
       Maybe.map(&2, Setting, Shared.Named<Setting>, setting => Shared.Named{id, setting}, Shared.lookup(Setting, s, Setting.names()))
+    case JField{+id, JObject{+fields}}:
+      do Maybe<&2, Shared.Named<Setting>>:
+        severity : Maybe<&2, Lint.Severity> <- Parsed.severity(fields, Some{None{}})
+        options : List<&2, Shared.Named<Lint.Value>> <- Parsed.options(fields, Some{[]})
+        return Shared.Named{id, RuleOn{severity, List.reverse(&2, Shared.Named<Lint.Value>, options)}}
     case _:
       None{}
 
@@ -320,13 +387,13 @@ def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json,
     case Some{Imports{}} JFalse{} Project{entries, imports, rules}:
       Parsed{Project{entries, Some{False{}}, rules}}
     case Some{Rules{}} JObject{fields} Project{entries, imports, rules}:
-      Maybe.default(&2, Parsed, Maybe.map(&2, List<&2, Shared.Named<Setting>>, Parsed, rs => Parsed{Project{entries, imports, rs}}, Parsed.rules(fields, [])), Invalid{"a rule's setting is \"off\" or a severity"})
+      Maybe.default(&2, Parsed, Maybe.map(&2, List<&2, Shared.Named<Setting>>, Parsed, rs => Parsed{Project{entries, imports, rs}}, Parsed.rules(fields, [])), Invalid{"a rule's setting is \"off\", a severity, or an object of a severity and option values"})
     case Some{Entries{}} _ _:
       Invalid{"entries must be a list of paths"}
     case Some{Imports{}} _ _:
       Invalid{"imports must be true or false"}
     case Some{Rules{}} _ _:
-      Invalid{"rules must map rule ids to \"off\" or a severity"}
+      Invalid{"rules must map rule ids to settings"}
     case _ _ _:
       Invalid{"unknown key " ++ key}
 

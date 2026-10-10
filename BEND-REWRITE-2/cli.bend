@@ -12,10 +12,10 @@ import ./wire.bend as Wire
 
 def Rule.id(rule: Lint.Rule) -> Lint.Rule & String:
   match rule:
-    case Lint.FileRule{+id, needs, run}:
-      (Lint.FileRule{id, needs, run}, id)
-    case Lint.ProgramRule{+id, entries, needs, run}:
-      (Lint.ProgramRule{id, entries, needs, run}, id)
+    case Lint.FileRule{+id, needs, options, run}:
+      (Lint.FileRule{id, needs, options, run}, id)
+    case Lint.ProgramRule{+id, entries, needs, options, run}:
+      (Lint.ProgramRule{id, entries, needs, options, run}, id)
 
 # Whether the config leaves a rule on.
 def Setting.on(setting: Maybe<&2, Config.Setting>) -> Bool:
@@ -28,10 +28,18 @@ def Setting.on(setting: Maybe<&2, Config.Setting>) -> Bool:
 # The severity the config gives a rule's findings, if it gives one.
 def Setting.severity(setting: Maybe<&2, Config.Setting>) -> Maybe<&2, Lint.Severity>:
   match setting:
-    case Some{Config.RuleSeverity{s}}:
-      Some{s}
+    case Some{Config.RuleOn{severity, options}}:
+      severity
     case _:
       None{}
+
+# A rule's option values, once settled: each declared one, given or its default.
+def Setting.options(setting: Maybe<&2, Config.Setting>) -> List<&2, Shared.Named<Lint.Value>>:
+  match setting:
+    case Some{Config.RuleOn{severity, options}}:
+      options
+    case _:
+      []
 
 def Rule.keep.off(off: Bool, +id: String, out: List<&2, Shared.Named<Config.Setting>>) ->
   List<&2, Shared.Named<Config.Setting>>:
@@ -78,9 +86,9 @@ def Rule.ids(rules: List<&1, Lint.Rule>, out: List<&2, String>) -> List<&2, Stri
 
 def Rule.facts(rule: Lint.Rule) -> Bool:
   match rule:
-    case Lint.FileRule{id, Lint.Needs{facts}, run}:
+    case Lint.FileRule{id, Lint.Needs{facts}, options, run}:
       facts
-    case Lint.ProgramRule{id, entries, Lint.Needs{facts}, run}:
+    case Lint.ProgramRule{id, entries, Lint.Needs{facts}, options, run}:
       facts
 
 # Whether a rule needs the checker's facts.
@@ -108,10 +116,10 @@ def Rule.unchecked(broken: Bool, rules: List<&1, Lint.Rule>, settings: List<&2, 
 
 def Rule.mode(rule: Lint.Rule) -> Lint.Rule & Shared.Named<Lint.Entries>:
   match rule:
-    case Lint.ProgramRule{+id, +entries, needs, run}:
-      (Lint.ProgramRule{id, entries, needs, run}, Shared.Named{id, entries})
-    case Lint.FileRule{+id, needs, run}:
-      (Lint.FileRule{id, needs, run}, Shared.Named{id, Lint.SomeEntry{}})
+    case Lint.ProgramRule{+id, +entries, needs, options, run}:
+      (Lint.ProgramRule{id, entries, needs, options, run}, Shared.Named{id, entries})
+    case Lint.FileRule{+id, needs, options, run}:
+      (Lint.FileRule{id, needs, options, run}, Shared.Named{id, Lint.SomeEntry{}})
 
 def Rule.modes.add(named: Lint.Rule & Shared.Named<Lint.Entries>, out: List<&2, Shared.Named<Lint.Entries>>) ->
   List<&2, Shared.Named<Lint.Entries>>:
@@ -127,6 +135,132 @@ def Rule.modes(rules: List<&1, Lint.Rule>, out: List<&2, Shared.Named<Lint.Entri
     case Con{r, rest}:
       Rule.modes(rest, Rule.modes.add(Rule.mode(r), out))
 
+# Options
+# =======
+
+def Spec.one(spec: Lint.Spec, value: Lint.Value) -> Bool:
+  match spec value:
+    case Lint.NumberOption{min, max} Lint.Num{+n}:
+      U32.is_le(min, n) && U32.is_le(n, max)
+    case Lint.FlagOption{} Lint.Flag{on}:
+      True{}
+    case Lint.TextOption{Nil{}} Lint.Text{text}:
+      True{}
+    case Lint.TextOption{choices} Lint.Text{+text}:
+      List.contains(~String, ~String.eq, choices, text)
+    case _ _:
+      False{}
+
+# Whether one of `specs` accepts `value`; `fuel` bounds AnyOptions inside AnyOptions.
+def Spec.fits(fuel: Nat, specs: List<&2, Lint.Spec>, +value: Lint.Value) -> Bool:
+  match fuel specs:
+    case 0n _:
+      False{}
+    case _ Nil{}:
+      False{}
+    case 1n+f Con{Lint.AnyOption{inner}, rest}:
+      Spec.fits(f, Shared.append(&2, Lint.Spec, inner, rest), value)
+    case 1n+f Con{spec, rest}:
+      Spec.one(spec, value) || Spec.fits(f, rest, value)
+
+# What the option `name` of `declared` accepts, if a rule declares it.
+def Declared.spec(declared: List<&2, Lint.Declared>, +name: String) -> Maybe<&2, Lint.Spec>:
+  match declared:
+    case Nil{}:
+      None{}
+    case Con{Lint.Declared{+n, default, spec}, rest}:
+      Bool.pick(Maybe<&2, Lint.Spec>, String.eq(n, name), Some{spec}, Declared.spec(rest, name))
+
+def Option.problem(spec: Maybe<&2, Lint.Spec>, +key: String, value: Lint.Value) -> Maybe<&2, String>:
+  match spec:
+    case None{}:
+      Some{"it has no option " ++ key}
+    case Some{s}:
+      Bool.pick(Maybe<&2, String>, Spec.fits(8n, [s], value), None{}, Some{key ++ " does not take that value"})
+
+# The first problem with the given option values: a name not declared, or a value its spec does not accept.
+def Option.given(given: List<&2, Shared.Named<Lint.Value>>, +declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
+  match given:
+    case Nil{}:
+      None{}
+    case Con{Shared.Named{+key, value}, rest}:
+      Maybe.or(&2, String, Option.problem(Declared.spec(declared, key), key, value), Option.given(rest, declared))
+
+# The first default its own spec does not accept: a bug in the rule.
+def Option.defaults(declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
+  match declared:
+    case Nil{}:
+      None{}
+    case Con{Lint.Declared{+name, default, spec}, rest}:
+      Maybe.or(
+        &2,
+        String,
+        Bool.pick(Maybe<&2, String>, Spec.fits(8n, [spec], default), None{}, Some{"the default of " ++ name ++ " is not a value it takes"}),
+        Option.defaults(rest)
+      )
+
+# Each declared option, with its given value, or its default.
+def Option.values(declared: List<&2, Lint.Declared>, +given: List<&2, Shared.Named<Lint.Value>>, out: List<&2, Shared.Named<Lint.Value>>) ->
+  List<&2, Shared.Named<Lint.Value>>:
+  match declared:
+    case Nil{}:
+      List.reverse(&2, Shared.Named<Lint.Value>, out)
+    case Con{Lint.Declared{+name, default, spec}, rest}:
+      Option.values(rest, given, Shared.Named{name, Maybe.default(&2, Lint.Value, Shared.lookup(Lint.Value, name, given), default)} <> out)
+
+# A rule's id and the options it declares.
+def Rule.declared(rule: Lint.Rule) -> String & List<&2, Lint.Declared>:
+  match rule:
+    case Lint.FileRule{id, needs, options, run}:
+      (id, options)
+    case Lint.ProgramRule{id, entries, needs, options, run}:
+      (id, options)
+
+def Rule.problem.of(declared: String & List<&2, Lint.Declared>, +settings: List<&2, Shared.Named<Config.Setting>>) ->
+  Maybe<&2, String>:
+  match declared:
+    case Tuple{+id, +options}:
+      Maybe.map(
+        &2,
+        String,
+        String,
+        why => id ++ ": " ++ why,
+        Maybe.or(&2, String, Option.defaults(options), Option.given(Setting.options(Shared.lookup(Config.Setting, id, settings)), options))
+      )
+
+# The first problem with the rules' options: what the config gives, or a rule's own defaults.
+def Rule.problem(rules: List<&1, Lint.Rule>, +settings: List<&2, Shared.Named<Config.Setting>>) -> Maybe<&2, String>:
+  match rules:
+    case Nil{}:
+      None{}
+    case Con{r, rest}:
+      Maybe.or(&2, String, Rule.problem.of(Rule.declared(r), settings), Rule.problem(rest, settings))
+
+def Rule.settle.of(declared: String & List<&2, Lint.Declared>, setting: Maybe<&2, Config.Setting>) ->
+  Shared.Named<Config.Setting>:
+  match declared setting:
+    case Tuple{id, options} Some{Config.RuleOff{}}:
+      Shared.Named{id, Config.RuleOff{}}
+    case Tuple{id, options} Some{Config.RuleOn{severity, given}}:
+      Shared.Named{id, Config.RuleOn{severity, Option.values(options, given, [])}}
+    case Tuple{id, options} None{}:
+      Shared.Named{id, Config.RuleOn{None{}, Option.values(options, [], [])}}
+
+# Each rule's setting, its option values settled: off, or on with its severity, if any, and every option it declares.
+def Rule.settle.at(declared: String & List<&2, Lint.Declared>, +settings: List<&2, Shared.Named<Config.Setting>>) ->
+  Shared.Named<Config.Setting>:
+  match declared:
+    case Tuple{+id, options}:
+      Rule.settle.of((id, options), Shared.lookup(Config.Setting, id, settings))
+
+def Rule.settle(rules: List<&1, Lint.Rule>, +settings: List<&2, Shared.Named<Config.Setting>>, out: List<&2, Shared.Named<Config.Setting>>) ->
+  List<&2, Shared.Named<Config.Setting>>:
+  match rules:
+    case Nil{}:
+      List.reverse(&2, Shared.Named<Config.Setting>, out)
+    case Con{r, rest}:
+      Rule.settle(rest, settings, Rule.settle.at(Rule.declared(r), settings) <> out)
+
 # Jobs
 # ====
 
@@ -141,10 +275,16 @@ type Place is Data:
 type Job is Type:
   Job{rule: String, severity: Maybe<&2, Lint.Severity>, path: String, group: U32, step: Lint.Step<List<&2, Lint.Finding>>}
 
-def Here.path(here: Lint.Here) -> String:
+# What a rule sees, with its options.
+def Here.with(here: Lint.Here, options: List<&2, Shared.Named<Lint.Value>>) -> Lint.Here:
   match here:
-    case Lint.Here{program, Lint.Source{path, namespace, text, nodes, facts}, declarations, index}:
-      path
+    case Lint.Here{program, source, declarations, index, none}:
+      Lint.Here{program, source, declarations, index, options}
+
+def Whole.with(whole: Lint.Whole, options: List<&2, Shared.Named<Lint.Value>>) -> Lint.Whole:
+  match whole:
+    case Lint.Whole{program, declarations, none}:
+      Lint.Whole{program, declarations, options}
 
 def Job.start(
   +id: String,
@@ -166,10 +306,16 @@ def Job.start(
 # A rule's job at `place`: none where it does not run.
 def Rule.at(rule: Lint.Rule, +settings: List<&2, Shared.Named<Config.Setting>>, +place: Place) -> List<&1, Job>:
   match rule place:
-    case Lint.FileRule{id, needs, run} AtFile{+here}:
-      Job.start(id, settings, Here.path(here), 0, run(here))
-    case Lint.ProgramRule{id, entries, needs, run} AtProgram{whole, path, check}:
-      Job.start(id, settings, path, check, run(whole))
+    case Lint.FileRule{+id, needs, declared, run} AtFile{+here}:
+      Job.start(
+        id,
+        settings,
+        Lint.Here.path(here),
+        0,
+        run(Here.with(here, Setting.options(Shared.lookup(Config.Setting, id, settings))))
+      )
+    case Lint.ProgramRule{+id, entries, needs, declared, run} AtProgram{whole, path, check}:
+      Job.start(id, settings, path, check, run(Whole.with(whole, Setting.options(Shared.lookup(Config.Setting, id, settings)))))
     case _ _:
       []
 
@@ -835,14 +981,30 @@ def Check.of(imports: Bool, entries: List<&2, String>, +file: String, +path: Str
     case _ _:
       IO.bind(Program.Check, Checks, Program.Check.run(file, facts), c => own(file, False{}, c))
 
+# Stops the run if the config's options do not fit what the rules declare.
+def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
+  match problem:
+    case Some{why}:
+      IO.die(Unit, 2, "bend-lint config: " ++ why)
+    case None{}:
+      IO.pure(Unit, Unit{})
+
+def settled(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +flag: Maybe<&2, Bool>, +entries: List<&2, String>, +from: Maybe<&2, Bool>, +settings: List<&2, Shared.Named<Config.Setting>>) -> IO(Unit):
+  IO.bind(
+    Checks,
+    Unit,
+    Check.of(imports(flag, from), entries, file, path, Rule.need_facts(Rule.on(rules, settings, []))),
+    checks => checked(~rules, path, imports(flag, from), settings, checks)
+  )
+
 def configured(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +flag: Maybe<&2, Bool>, project: Config.Project) -> IO(Unit):
   match project:
-    case Config.Project{entries, +from, +settings}:
+    case Config.Project{entries, from, +settings}:
       IO.bind(
-        Checks,
         Unit,
-        Check.of(imports(flag, from), entries, file, path, Rule.need_facts(Rule.on(rules, settings, []))),
-        checks => checked(~rules, path, imports(flag, from), settings, checks)
+        Unit,
+        Options.checked(Rule.problem(rules, settings)),
+        none => settled(~rules, file, path, flag, entries, from, Rule.settle(rules, settings, []))
       )
 
 # What the command line asks: the file to lint, and whether to lint the files it imports too, if it says.

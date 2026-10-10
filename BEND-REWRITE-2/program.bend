@@ -469,6 +469,7 @@ def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
   }
 
 # The program from one of its files, built once for every file rule that runs on that file: references from it alone.
+# The runner gives each rule its options.
 def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
   match program source:
     case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes, +facts}:
@@ -476,7 +477,8 @@ def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
         Lint.Program{sources},
         Lint.Source{path, namespace, text, nodes, facts},
         Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>))),
-        Index.of(nodes)
+        Index.of(nodes),
+        []
       }
 
 # Whether a file is the program's own: not of a hub package.
@@ -513,7 +515,8 @@ def Whole.declarations(
 def Whole.from(+sources: List<&2, Lint.Source>) -> Lint.Whole:
   Lint.Whole{
     Lint.Program{sources},
-    Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), [])
+    Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), []),
+    []
   }
 
 # The whole program, built once for every program rule: references from all its own files.

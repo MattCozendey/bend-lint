@@ -306,11 +306,14 @@ def judge(
       judge(sorts, namespace, rest, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  match here:
-    case Lint.Here{program, Lint.Source{path, namespace, text, nodes, facts}, declarations, index}:
-      Lint.done(
-        judge(Sorts.of(List.reverse(&2, Lint.Node, nodes), Map.new(&2, Maybe<&2, Bool>)), namespace, declarations, [])
-      )
+  Lint.done(
+    judge(
+      Sorts.of(List.reverse(&2, Lint.Node, Lint.Here.nodes(here)), Map.new(&2, Maybe<&2, Bool>)),
+      Lint.Here.namespace(here),
+      Lint.Here.declarations(here),
+      []
+    )
+  )
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/case", Lint.Needs{False{}}, run}
+  Lint.FileRule{"layout/case", Lint.Needs{False{}}, [], run}

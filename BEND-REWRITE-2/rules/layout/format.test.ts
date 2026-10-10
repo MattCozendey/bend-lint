@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "../../testing.ts";
+import { build, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
@@ -16,8 +16,34 @@ const MESSAGE = "Apply canonical formatting.";
 // Functions
 // =========
 
-const found = (text: string): string[] =>
-  lint(PROGRAM, { "main.bend": text }, "main.bend").map(({ at, message }) => at + " " + message);
+const found = (text: string, options?: Record<string, unknown>): string[] =>
+  lint(
+    PROGRAM,
+    {
+      "main.bend": text,
+      ...(options === undefined
+        ? {}
+        : { "bend-lint.json": JSON.stringify({ rules: { "layout/format": options } }) }),
+    },
+    "main.bend",
+  ).map(
+    ({ at, severity, message }) =>
+      at + " " + (severity === "warning" ? "" : severity + " ") + message,
+  );
+
+// The config error a run with `options` stops with.
+const refused = (options: Record<string, unknown>): string => {
+  const ran = run(
+    PROGRAM,
+    {
+      "main.bend": "import Base\n",
+      "bend-lint.json": JSON.stringify({ rules: { "layout/format": options } }),
+    },
+    "main.bend",
+  );
+  expect(ran.code).toBe(2);
+  return ran.err.trim();
+};
 
 // Side effects
 // ============
@@ -60,6 +86,48 @@ setDefaultTimeout(120_000);
   test("a file with a type error is formatted too, but not one that does not parse", () => {
     expect(found('import Base\n\ndef main() -> U32:\n    "text"\n')).toEqual(["4:3 " + MESSAGE]);
     expect(found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual([]);
+  });
+
+  test("tabWidth sets the indentation", () => {
+    expect(found("import Base\n\ndef main() -> U32:\n    1\n", { tabWidth: 4 })).toEqual([]);
+  });
+
+  test('wrapAtWidth sets where lines wrap; "never" wraps none that may stay', () => {
+    const long =
+      "import Base\n\ndef choose(first: U32, second: U32, third: U32) -> U32:\n  first\n";
+    expect(found(long)).toEqual([]);
+    expect(found(long, { wrapAtWidth: 28 })).toEqual(["3:12 " + MESSAGE]);
+    expect(found(long, { wrapAtWidth: 28, tabWidth: 2, endOfLine: "lf" })).toEqual([
+      "3:12 " + MESSAGE,
+    ]);
+    expect(found(long, { wrapAtWidth: "never" })).toEqual([]);
+  });
+
+  test('endOfLine sets line ends: "crlf", or "preserve" the first', () => {
+    expect(found("import Base\n\ndef main() -> U32:\n  1\n", { endOfLine: "crlf" })).toEqual([
+      "1:12 " + MESSAGE,
+    ]);
+    const crlf = "import Base\r\n\r\ndef main() -> U32:\r\n  1\r\n";
+    expect(found(crlf, { endOfLine: "crlf" })).toEqual([]);
+    expect(found(crlf, { endOfLine: "preserve" })).toEqual([]);
+  });
+
+  test("the config can set the severity beside the options", () => {
+    expect(found("import Base\n\ndef main() -> U32:\n    1\n", { severity: "error" })).toEqual([
+      "4:3 error " + MESSAGE,
+    ]);
+  });
+
+  test("an option it does not declare, or a value it does not take, stops the run", () => {
+    expect(refused({ tabwidth: 4 })).toBe(
+      "bend-lint config: layout/format: it has no option tabwidth",
+    );
+    expect(refused({ tabWidth: 0 })).toBe(
+      "bend-lint config: layout/format: tabWidth does not take that value",
+    );
+    expect(refused({ wrapAtWidth: "always" })).toBe(
+      "bend-lint config: layout/format: wrapAtWidth does not take that value",
+    );
   });
 
   test("an empty file ends with a newline; a file of a comment is the comment", () => {

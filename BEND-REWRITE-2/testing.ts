@@ -16,6 +16,9 @@ import { fileURLToPath } from "node:url";
 // (line:column), its severity, its rule and its message.
 export type Found = { file: string; at: string; severity: string; code: string; message: string };
 
+// How a run ended: its exit code, and what it printed.
+export type Ran = { code: number; out: string; err: string };
+
 // Constants
 // =========
 
@@ -53,22 +56,26 @@ export const build = (rule: string): string => {
   return out;
 };
 
-// What `program` finds in `named`, after it writes `files` (names to text)
+// How `program` ends on `named`, after it writes `files` (names to text)
 // into a fresh folder.
-export const lint = (program: string, files: Record<string, string>, named: string): Found[] => {
+export const run = (program: string, files: Record<string, string>, named: string): Ran => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
   Object.entries(files).forEach(([name, text]) => {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), text);
   });
-  const run = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named)]);
-  return run.stdout
-    .toString()
-    .split("\n")
+  const ran = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named)]);
+  return { code: ran.exitCode, out: ran.stdout.toString(), err: ran.stderr.toString() };
+};
+
+// What `program` finds in `named`, after it writes `files` (names to text)
+// into a fresh folder.
+export const lint = (program: string, files: Record<string, string>, named: string): Found[] =>
+  run(program, files, named)
+    .out.split("\n")
     .flatMap((line) => {
       const m = LINE.exec(line);
       return m === null
         ? []
         : [{ file: path.basename(m[1]), at: m[2], severity: m[3], code: m[4], message: m[5] }];
     });
-};

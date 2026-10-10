@@ -101,9 +101,7 @@ def paths(nodes: List<&2, Lint.Node>, +here: Lint.Here, +file: String, out: List
       List.reverse(&2, Lint.Finding, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  match here:
-    case Lint.Here{program, Lint.Source{path, namespace, text, nodes, facts}, declarations, index}:
-      Lint.done(paths(nodes, here, path, []))
+  Lint.done(paths(Lint.Here.nodes(here), here, Lint.Here.path(here), []))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/canon-import-path", Lint.Needs{False{}}, run}
+  Lint.FileRule{"layout/canon-import-path", Lint.Needs{False{}}, [], run}

@@ -21,4 +21,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   first(Lint.Here.facts(here))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/budget", Lint.Needs{True{}}, run}
+  Lint.FileRule{"tests/budget", Lint.Needs{True{}}, [], run}

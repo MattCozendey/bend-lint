@@ -182,15 +182,43 @@ def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
 type Index is Data:
   Index{first: U32, nodes: Shared.Indexed<Node>}
 
-# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; and its
-# nodes by id.
-type Here is Data:
-  Here{program: Program, source: Source, declarations: List<&2, Declaration>, index: Index}
+# Options
+# =======
 
-# What a program rule sees: the program (its files, hub packages aside), and every declaration of its files, with their
-# uses in all of them.
+# An option's value: a whole number, a flag, or text.
+type Value is Data:
+  Num{n: U32}
+  Flag{on: Bool}
+  Text{text: String}
+
+# What an option accepts: a whole number in a range, a flag, text (one of `choices`, unless there are none), or what
+# one of `specs` accepts.
+type Spec is Data:
+  NumberOption{min: U32, max: U32}
+  FlagOption{}
+  TextOption{choices: List<&2, String>}
+  AnyOption{specs: List<&2, Spec>}
+
+# An option a rule declares: its name, its value when the config gives none, and what it accepts. The config gives
+# values as `"rule/id": {"name": value}`; a name the rule does not declare, or a value it does not accept, is an error.
+type Declared is Data:
+  Declared{name: String, default: Value, spec: Spec}
+
+# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; its
+# nodes by id; and the rule's options, each declared one with its value.
+type Here is Data:
+  Here{
+    program: Program,
+    source: Source,
+    declarations: List<&2, Declaration>,
+    index: Index,
+    options: List<&2, Shared.Named<Value>>
+  }
+
+# What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
+# uses in all of them; and the rule's options.
 type Whole is Data:
-  Whole{program: Program, declarations: List<&2, Declaration>}
+  Whole{program: Program, declarations: List<&2, Declaration>, options: List<&2, Shared.Named<Value>>}
 
 # Asking the checker
 # ==================
@@ -310,41 +338,99 @@ type Entries is Data:
 # in it. A program rule runs once per check, and may report in any file; what it finds in a file that is not linted
 # is dropped.
 type Rule is Type:
-  FileRule{id: String, needs: Needs, run: @+here: Here -> Ask(List<&2, Finding>)}
-  ProgramRule{id: String, entries: Entries, needs: Needs, run: @+whole: Whole -> Ask(List<&2, Finding>)}
+  FileRule{id: String, needs: Needs, options: List<&2, Declared>, run: @+here: Here -> Ask(List<&2, Finding>)}
+  ProgramRule{
+    id: String,
+    entries: Entries,
+    needs: Needs,
+    options: List<&2, Declared>,
+    run: @+whole: Whole -> Ask(List<&2, Finding>)
+  }
+
+# The path of the file a rule runs on.
+def Here.path(here: Here) -> String:
+  match here:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
+      path
+
+# The namespace of the file a rule runs on, in its check: "" for the checked file.
+def Here.namespace(here: Here) -> String:
+  match here:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
+      namespace
+
+# The text of the file a rule runs on, as on disk.
+def Here.text(here: Here) -> String:
+  match here:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
+      text
 
 # The nodes of the file a rule runs on, parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:
   match here:
-    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index}:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       nodes
 
 # The checker's facts on the terms of the file a rule runs on, if the rule needs them.
 def Here.facts(here: Here) -> List<&2, Fact>:
   match here:
-    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index}:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       facts
 
 def Here.declarations(here: Here) -> List<&2, Declaration>:
   match here:
-    case Here{program, source, declarations, index}:
+    case Here{program, source, declarations, index, options}:
       declarations
 
 # The node with id `id`, of the file a rule runs on: a node's parent, say.
 def Here.node(here: Here, +id: U32) -> Maybe<&2, Node>:
   match here:
-    case Here{program, source, declarations, Index{+first, nodes}}:
+    case Here{program, source, declarations, Index{+first, nodes}, options}:
       Shared.Indexed.get(Node, nodes, (id - first : U32))
+
+# The value of the rule's option `name`: the config's, or its default.
+def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:
+  match here:
+    case Here{program, source, declarations, index, options}:
+      Shared.lookup(Value, name, options)
 
 def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
   match whole:
-    case Whole{program, declarations}:
+    case Whole{program, declarations, options}:
       declarations
 
 def Whole.sources(whole: Whole) -> List<&2, Source>:
   match whole:
-    case Whole{Program{sources}, declarations}:
+    case Whole{Program{sources}, declarations, options}:
       sources
+
+# The value of the rule's option `name`: the config's, or its default.
+def Whole.option(whole: Whole, +name: String) -> Maybe<&2, Value>:
+  match whole:
+    case Whole{program, declarations, options}:
+      Shared.lookup(Value, name, options)
+
+# An option's value as a number, a flag or text; a value of another kind, or none, gives 0, False, "".
+def Value.number(value: Maybe<&2, Value>) -> U32:
+  match value:
+    case Some{Num{n}}:
+      n
+    case _:
+      0
+
+def Value.flag(value: Maybe<&2, Value>) -> Bool:
+  match value:
+    case Some{Flag{on}}:
+      on
+    case _:
+      False{}
+
+def Value.text(value: Maybe<&2, Value>) -> String:
+  match value:
+    case Some{Text{text}}:
+      text
+    case _:
+      ""
 
 def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List<&2, Finding>) -> List<&2, Finding>:
   match xs:
