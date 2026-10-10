@@ -89,35 +89,64 @@ def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Node>:
     case _:
       None{}
 
-# The sources read so far, last first, each with its nodes last first. A node record adds to the latest source; a
-# source record starts one.
-def Program.add(is_node: Bool, fields: List<&2, String>, sources: List<&2, Lint.Source>) -> Maybe<&2, List<&2, Lint.Source>>:
-  match is_node fields sources:
-    case True{} _ Con{Lint.Source{+path, namespace, text, nodes}, rest}:
+# What a record of the answer is: a source, a node of the latest source, or a fact on a term of it.
+type Record is Data:
+  SourceRecord{}
+  NodeRecord{}
+  FactRecord{}
+
+def Record.names() -> List<&2, Shared.Named<Record>>:
+  [Shared.Named{"node", NodeRecord{}}, Shared.Named{"fact", FactRecord{}}, Shared.Named{"file", SourceRecord{}}]
+
+# A fact from the fields of its record: its node, the check and handle of its type, and its quantity.
+def Fact.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
+  match fields:
+    case Con{node, Con{check, Con{id, Con{quantity, Nil{}}}}}:
+      do Maybe<&2, Lint.Fact>:
+        n : U32 <- U32.read(node)
+        c : U32 <- U32.read(check)
+        i : U32 <- U32.read(id)
+        q : Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
+        return Lint.Fact{n, q, Lint.TypeRef{c, i}}
+    case _:
+      None{}
+
+# The sources read so far, last first, each with its nodes and facts last first.
+def Program.add(kind: Maybe<&2, Record>, fields: List<&2, String>, sources: List<&2, Lint.Source>) ->
+  Maybe<&2, List<&2, Lint.Source>>:
+  match kind fields sources:
+    case Some{NodeRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
         n : Lint.Node <- Node.read(path, fields)
-        return Lint.Source{path, namespace, text, n <> nodes} <> rest
-    case False{} Con{path, Con{namespace, Con{text, Nil{}}}} _:
-      Some{Lint.Source{path, namespace, text, []} <> sources}
+        return Lint.Source{path, namespace, text, n <> nodes, facts} <> rest
+    case Some{FactRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+      do Maybe<&2, List<&2, Lint.Source>>:
+        f : Lint.Fact <- Fact.read(path, fields)
+        return Lint.Source{path, namespace, text, nodes, f <> facts} <> rest
+    case Some{SourceRecord{}} Con{path, Con{namespace, Con{text, Nil{}}}} _:
+      Some{Lint.Source{path, namespace, text, [], []} <> sources}
     case _ _ _:
       None{}
 
-# The sources in order, each with its nodes in order.
+# The sources in order, each with its nodes and facts in order.
 def Program.in_order(sources: List<&2, Lint.Source>, done: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
   match sources:
     case Nil{}:
       done
-    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
-      Program.in_order(rest, Lint.Source{path, namespace, text, List.reverse(&2, Lint.Node, nodes)} <> done)
+    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
+      Program.in_order(
+        rest,
+        Lint.Source{path, namespace, text, List.reverse(&2, Lint.Node, nodes), List.reverse(&2, Lint.Fact, facts)} <> done
+      )
 
-# The program of an answer's records: a source record, then its nodes, for each source.
+# The program of an answer's records: a source record, then its nodes and facts, for each source.
 def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Lint.Source>) -> Maybe<&2, Lint.Program>:
   match records:
     case Nil{}:
       Some{Lint.Program{Program.in_order(sources, [])}}
-    case Con{Con{+tag, fields}, rest}:
+    case Con{Con{tag, fields}, rest}:
       do Maybe<&2, Lint.Program>:
-        added : List<&2, Lint.Source> <- Program.add(String.eq(tag, "node"), fields, sources)
+        added : List<&2, Lint.Source> <- Program.add(Shared.lookup(Record, tag, Record.names()), fields, sources)
         Program.read(rest, added)
     case Con{Nil{}, rest}:
       None{}
@@ -161,9 +190,14 @@ def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, St
 def Check.of(+records: List<&2, List<&2, String>>) -> IO(Check):
   Check.ended(List.last(&2, List<&2, String>, records), records)
 
-# Checks the file at `path`.
-def Check.run(path: String) -> IO(Check):
-  IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), records => Check.of(records))
+# Checks the file at `path`, with the checker's facts if `facts`.
+def Check.run(path: String, facts: Bool) -> IO(Check):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Check,
+    Wire.ask(["check", path, Bool.pick(String, facts, "facts", "syntax")]),
+    records => Check.of(records)
+  )
 
 # Declarations
 # ============
@@ -269,7 +303,7 @@ def Imports.namespace(sources: List<&2, Lint.Source>, +path: String) -> String:
   match sources:
     case Nil{}:
       ""
-    case Con{Lint.Source{+p, namespace, text, nodes}, rest}:
+    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest}:
       Bool.pick(String, String.eq(p, path), namespace, Imports.namespace(rest, path))
 
 # The global names a file's own top-level declarations declare, as a set.
@@ -383,20 +417,37 @@ def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>
   List<&2, Lint.Declaration>:
   Declarations.of.go(nodes, sources, nodes, uses, [])
 
+# A file's nodes by id, onto `out`.
+def Index.go(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Lint.Node>>) -> Map<&2, Maybe<&2, Lint.Node>>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{+id, p, o, s, n, b, q, sp, t}, rest}:
+      Index.go(rest, Map.set(&2, Maybe<&2, Lint.Node>, out, U32.show(id), Some{Lint.Node{id, p, o, s, n, b, q, sp, t}}))
+
+# A file's nodes by id, if it has facts: only a rule that needs facts looks nodes up.
+def Index.of(facts: List<&2, Lint.Fact>, nodes: List<&2, Lint.Node>) -> Map<&2, Maybe<&2, Lint.Node>>:
+  match facts:
+    case Nil{}:
+      Map.new(&2, Maybe<&2, Lint.Node>)
+    case _:
+      Index.go(nodes, Map.new(&2, Maybe<&2, Lint.Node>))
+
 # The program from one of its files, built once for every file rule that runs on that file: references from it alone.
 def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
   match program source:
-    case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes}:
+    case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes, +facts}:
       Lint.Here{
         Lint.Program{sources},
-        Lint.Source{path, namespace, text, nodes},
-        Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>)))
+        Lint.Source{path, namespace, text, nodes, facts},
+        Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>))),
+        Index.of(facts, nodes)
       }
 
 # Whether a file is the program's own: not of a hub package.
 def Source.own(source: Lint.Source) -> Bool:
   match source:
-    case Lint.Source{path, namespace, text, nodes}:
+    case Lint.Source{path, namespace, text, nodes, facts}:
       Bool.not(String.starts_with(namespace, "0x"))
 
 # The program's own files, hub packages aside.
@@ -408,7 +459,7 @@ def Program.nodes(sources: List<&2, Lint.Source>, out: List<&2, List<&2, Lint.No
   match sources:
     case Nil{}:
       List.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
-    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Program.nodes(rest, nodes <> out)
 
 # The declarations of every file, in order, with their uses that `uses` indexes; `files` are those left to read.
@@ -421,7 +472,7 @@ def Whole.declarations(
   match files:
     case Nil{}:
       List.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
-    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Whole.declarations(rest, sources, uses, Declarations.of(sources, nodes, uses) <> out)
 
 def Whole.from(+sources: List<&2, Lint.Source>) -> Lint.Whole:

@@ -702,23 +702,24 @@ def Applied.add(hits: List<&2, U32>, found: Lint.Found, a: Applied) -> Applied:
     case Nil{} Applied{kept, suppressed, used}:
       Applied{found <> kept, suppressed, used}
     case Con{h, t} Applied{kept, suppressed, used}:
-      Applied{kept, found <> suppressed, Shared.onto(U32, Con{h, t}, used)}
+      Applied{kept, found <> suppressed, Shared.onto(&2, U32, Con{h, t}, used)}
 
-def Applied.go(founds: List<&2, Lint.Found>, +coverings: List<&2, Covering>, +text: String, a: Applied) -> Applied:
-  match founds:
-    case Nil{}:
-      a
-    case Con{Lint.Found{+rule, Lint.Finding{+severity, Lint.Span{path, +beg, end}, message}}, rest}:
+# The findings, each with where it starts (`at`, in order), sorted by the directives that cover their lines.
+def Applied.go(founds: List<&2, Lint.Found>, at: List<&2, Shared.Position>, +coverings: List<&2, Covering>, a: Applied) -> Applied:
+  match founds at:
+    case Con{Lint.Found{+rule, Lint.Finding{+severity, span, message}}, rest} Con{Shared.Position{line, column}, more}:
       Applied.go(
         rest,
+        more,
         coverings,
-        text,
         Applied.add(
-          Covering.hits(coverings, rule, severity, Shared.line(text, beg), []),
-          Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message}},
+          Covering.hits(coverings, rule, severity, (line - 1 : U32), []),
+          Lint.Found{rule, Lint.Finding{severity, span, message}},
           a
         )
       )
+    case _ _:
+      a
 
 def Unmet.add(
   used: Bool,
@@ -892,9 +893,15 @@ def covered(
   unpaired: List<&2, Said>,
   +saids: List<&2, Said>,
   +linted: Linted,
-  founds: List<&2, Lint.Found>
+  +founds: List<&2, Lint.Found>
 ) -> Suppressed:
-  done(Applied.go(founds, coverings, Linted.text(linted), Applied{[], [], []}), coverings, unpaired, saids, linted)
+  done(
+    Applied.go(founds, Shared.positions(Linted.text(linted), Lint.Found.offsets(founds, [])), coverings, Applied{[], [], []}),
+    coverings,
+    unpaired,
+    saids,
+    linted
+  )
 
 def paired(p: Pairing, +saids: List<&2, Said>, +lines: List<&2, Bool>, +linted: Linted, founds: List<&2, Lint.Found>) ->
   Suppressed:

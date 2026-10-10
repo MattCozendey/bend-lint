@@ -25,7 +25,7 @@ import * as nodePath from "node:path";
 import * as readline from "node:readline";
 import * as url from "node:url";
 
-import type { Body, Book, Err, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
+import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
 // Types
@@ -52,6 +52,19 @@ type Seen =
 type SeenFile = Extract<Seen, { $: "file" }>;
 type SeenImport = Extract<Seen, { $: "import" }>;
 
+// What the checker reports of a term it checked: the term (as it checked
+// it), the type it checked it as, the book, depth and quantity it checked it
+// in, and the def it was checking.
+type Checked = { tm: LTerm; ty: HTerm; bok: Book; dep: number; qt: Quant; def: string };
+
+// A syntax node a checked term can come from: its id, its kind, and, for a
+// call, how many arguments it applies.
+type Origin = { id: number; kind: string; arity: number };
+
+// A type a rule holds a handle to: the type, the book and depth of its
+// scope, and the file whose spelling shows it.
+type Typed = { ty: HTerm; bok: Book; dep: number; file: Span["file"] };
+
 // A file the check parsed, with what its parser read, in order.
 type Parsed = { file: SeenFile; seen: Seen[] };
 
@@ -67,6 +80,10 @@ type Tree = {
   range?: Range;
   target: string;
   kids: Tree[];
+  // The span object the parser gave the term: what ties a checked term to
+  // its node. And, for a call, how many arguments it applies.
+  origin?: Span;
+  arity?: number;
 };
 
 // Constants
@@ -113,6 +130,8 @@ const EDITS: Edit[] = [
   ],
   ["T: term_higher(T), v: null, x: tc,", "T: term_higher(seeTerm(T)), v: null, x: tc,"],
   ["export function parse_tele(", "function unseen_parse_tele("],
+  ["export function term_infer(", "function unseen_term_infer("],
+  ["export function term_check(", "function unseen_term_check("],
 ];
 
 // What EDITS call, appended to bend.ts. Each reports to the probe the
@@ -139,6 +158,20 @@ function seeBody(b: Body): Body {
   BEND_LINT_SEE({ $: "body", b });
   return b;
 }
+const BEND_LINT_CHECKED = (checked: unknown): void => {
+  (globalThis as { BEND_LINT_CHECKED?: (checked: unknown) => void }).BEND_LINT_CHECKED?.(checked);
+};
+export const UNSEEN = { term_infer: unseen_term_infer, term_check: unseen_term_check };
+export const term_infer = (...args: Parameters<typeof unseen_term_infer>): Infer => {
+  const r = unseen_term_infer(...args);
+  BEND_LINT_CHECKED({ tm: r.tm, ty: r.ty, bok: args[0], dep: args[5], qt: args[3], def: args[1].def });
+  return r;
+};
+export const term_check = (...args: Parameters<typeof unseen_term_check>): Check => {
+  const r = unseen_term_check(...args);
+  BEND_LINT_CHECKED({ tm: r.tm, ty: args[4], bok: args[0], dep: args[6], qt: args[3], def: args[1].def });
+  return r;
+};
 export const parse_tele = (p: Parse, close: string, tk: Name[] = []): Array<[Quant, Name, number, LTerm, Span]> => {
   const tele = unseen_parse_tele(p, close, tk);
   BEND_LINT_SEE({ $: "tele", close, tele, tk });
@@ -147,6 +180,34 @@ export const parse_tele = (p: Parse, close: string, tk: Name[] = []): Array<[Qua
 `;
 
 const QUANTITIES: Record<Quant["$"], string> = { None: "Erased", Lone: "Once", Many: "Many" };
+
+// The syntax of a checked term, by its kind.
+const SYNTAX: Record<LTerm["$"], string> = {
+  Var: "Variable",
+  Ref: "Reference",
+  Sub: "Substitution",
+  Let: "Let",
+  Typ: "Sort",
+  Qnt: "QuantityType",
+  Qua: "QuantityLiteral",
+  Min: "QuantityMinimum",
+  All: "Forall",
+  Lam: "Lambda",
+  App: "Application",
+  ADT: "TypeApplication",
+  Ctr: "Construction",
+  Lit: "Literal",
+  Mat: "Elimination",
+  Efq: "Absurd",
+  Eql: "Equality",
+  Rfl: "Reflexivity",
+  Rwt: "Rewrite",
+  Hol: "Hole",
+  Ann: "Annotation",
+};
+
+// The types rules hold handles to, by check (from 1), then by handle.
+const TYPES: Typed[][] = [];
 
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
@@ -234,6 +295,16 @@ const copied = (dir: string): string => {
 
 const load = async (): Promise<Checker> => {
   const Bend = (await import(url.pathToFileURL(copied(bendDir())).href)) as Bend;
+  const unseen = (Bend as unknown as { UNSEEN: Record<string, (...args: never[]) => unknown> })
+    .UNSEEN;
+  [
+    ["term_infer", 6],
+    ["term_check", 7],
+  ].forEach(([name, n]) => {
+    if (unseen[name].length !== n) {
+      throw drift(`${name} takes ${unseen[name].length} parameters, not ${n}`);
+    }
+  });
   const base = Bend.book_nil();
   await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
   Bend.book_valid(base, 0);
@@ -301,7 +372,14 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
     if (of === undefined) {
       throw drift(`unknown term kind ${t.$}`);
     }
-    return of(t);
+    return { ...of(t), origin: t.s };
+  };
+  // A call's head and arguments: the applications that share its span
+  // object are one call (`f(a, b)`, `a + b`).
+  const calls = (t: Extract<LTerm, { $: "App" }>): [LTerm, LTerm[]] => {
+    const go = (u: LTerm, args: LTerm[]): [LTerm, LTerm[]] =>
+      u.$ === "App" && u.s === t.s ? go(u.f, [u.x, ...args]) : [u, args];
+    return t.s === undefined ? [t.f, [t.x]] : go(t, []);
   };
   const leaf =
     (kind: string) =>
@@ -348,7 +426,13 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
         quantity: t.q === undefined ? "" : QUANTITIES[t.q.$],
         ...range(t.s),
       }),
-    App: (t) => tree("Application", [term(t.f), term(t.x)], range(t.s)),
+    App: (t) => {
+      const [head, args] = calls(t);
+      return tree("Application", [term(head), ...args.map(term)], {
+        arity: args.length,
+        ...range(t.s),
+      });
+    },
     ADT: (t) => tree("TypeApplication", t.x.map(term), used(t.k, t.s)),
     Ctr: (t) => tree("Construction", t.x.map(term), used(t.k, t.s)),
     Lit: (t) => tree("Literal", [], { name: String(t.v), target: t.k, ...range(t.s) }),
@@ -447,12 +531,19 @@ const importsOf = (
 };
 
 // The records of the nodes of `trees`, parents first, numbered from `first`,
-// each with its parent's id and its top-level node's (its owner).
+// each with its parent's id and its top-level node's (its owner). Each node
+// with a term's span object is registered in `origins`.
 // One pass, so it is linear in the nodes: `out` is local to it.
-const nodeRecords = (trees: Tree[], first: number): string[] => {
+const nodeRecords = (trees: Tree[], first: number, origins: Map<Span, Origin[]>): string[] => {
   const out: string[] = [];
   const visit = (t: Tree, parent: number, owner: number): void => {
     const id = first + out.length;
+    if (t.origin !== undefined) {
+      origins.set(t.origin, [
+        ...(origins.get(t.origin) ?? []),
+        { id, kind: t.kind, arity: t.arity ?? 0 },
+      ]);
+    }
     out.push(
       record([
         "node",
@@ -483,18 +574,130 @@ const parsedOf = (seen: Seen[]): Parsed[] => {
   }));
 };
 
-// The answer to `check <path>`: each file the check parsed (path, namespace,
-// text), then its syntax nodes; or, if the check failed, the files it read,
-// then why. The probe is global, so checks must not overlap.
-const check = async ({ Bend, base }: Checker, path: string): Promise<string> => {
+// A checked term without the annotations the checker wraps it in: those
+// have no span. An annotation the source writes has one.
+const source = (t: LTerm): LTerm => (t.$ === "Ann" && t.s === undefined ? source(t.x) : t);
+
+// How many arguments a checked call applies: the applications that share
+// its span object.
+const arity = (t: LTerm, s: Span): number =>
+  t.$ === "App" && t.s === s ? 1 + arity(source(t.f), s) : 0;
+
+// Whether a checked term is the node `o`'s: the same syntax (a literal
+// unfolds to constructors; a variable can check as a reference), and, for a
+// call, the whole call.
+const fits = (o: Origin, t: LTerm): boolean =>
+  (o.kind === SYNTAX[t.$] ||
+    (o.kind === "Literal" && t.$ === "Ctr") ||
+    (o.kind === "Variable" && t.$ === "Ref")) &&
+  (t.$ !== "App" || t.s === undefined || arity(t, t.s) === o.arity);
+
+// The checker's judgments on each node, by node id: a report goes to the
+// node its term's span object came from, if it fits it. Template instances
+// are left out.
+const attach =
+  (origins: Map<Span, Origin[]>, judged: Map<number, Checked[]>) =>
+  (c: Checked): void => {
+    const tm = source(c.tm);
+    const os = c.def.includes("~") || tm.s === undefined ? undefined : origins.get(tm.s);
+    os?.filter((o) => fits(o, tm)).forEach((o) => {
+      const list = judged.get(o.id) ?? [];
+      list.push({ ...c, tm });
+      judged.set(o.id, list);
+    });
+  };
+
+// A node's judgments, those the checker counts the same (same quantity, and
+// types its equality says are equal) once each: copies of one term, as
+// pattern compilation makes them.
+const distinct = (Bend: Bend, cs: Checked[]): Checked[] =>
+  cs.reduce<Checked[]>((out, c) => {
+    const same = (u: Checked): boolean => {
+      try {
+        return u.qt.$ === c.qt.$ && Bend.term_compare("EQ", c.bok, u.ty, c.ty, c.dep);
+      } catch {
+        return false;
+      }
+    };
+    if (!out.some(same)) {
+      out.push(c);
+    }
+    return out;
+  }, []);
+
+// The fact records of the nodes numbered from `first` to `last`: each of a
+// node's distinct judgments, with a new handle to its type in check `id`.
+const factRecords = (
+  Bend: Bend,
+  judged: Map<number, Checked[]>,
+  first: number,
+  last: number,
+  id: number,
+): string[] =>
+  Array.from({ length: last - first }, (_, j) => first + j).flatMap((node) =>
+    distinct(Bend, judged.get(node) ?? []).map((c) => {
+      const types = TYPES[id - 1];
+      types.push({ ty: c.ty, bok: c.bok, dep: c.dep, file: c.tm.s!.file });
+      return record([
+        "fact",
+        String(node),
+        String(id),
+        String(types.length - 1),
+        QUANTITIES[c.qt.$],
+      ]);
+    }),
+  );
+
+// The answer to `check <path> <facts|syntax>`: each file the check parsed
+// (path, namespace, text), then its syntax nodes, then, with facts, the
+// checker's judgments on them; or, if the check failed, the files it read,
+// then why. The syntax is read before the check, so a judgment can find
+// its node. The probes are global, so checks must not overlap.
+const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const reported: Seen[] = [];
-  const hook = globalThis as { BEND_LINT_SEE?: (seen: Seen) => void };
+  const origins = new Map<Span, Origin[]>();
+  const judged = new Map<number, Checked[]>();
+  const hook = globalThis as {
+    BEND_LINT_SEE?: (seen: Seen) => void;
+    BEND_LINT_CHECKED?: (checked: Checked) => void;
+  };
   hook.BEND_LINT_SEE = (s) => reported.push(s);
   try {
     await Bend.book_load(book, nodePath.resolve(path).replaceAll("\\", "/"), "", seen);
+    hook.BEND_LINT_SEE = undefined;
+    const real = (ns: string): string =>
+      [...seen].find(([at, n]) => at !== Bend.BASE_BEND && n === ns)?.[0] ?? "";
+    const imports = reported.filter((x): x is SeenImport => x.$ === "import");
+    const files = parsedOf(reported);
+    const sections = files.reduce<Array<{ file: SeenFile; nodes: string[]; first: number }>>(
+      (done, parsed) => {
+        const first = 1 + done.reduce((n, d) => n + d.nodes.length, 0);
+        const trees = [
+          ...importsOf(
+            parsed.file,
+            imports.filter((i) => i.real === parsed.file.real),
+            real,
+            Bend.BASE_BEND,
+          ),
+          ...declarationsOf(parsed),
+        ];
+        return [...done, { file: parsed.file, nodes: nodeRecords(trees, first, origins), first }];
+      },
+      [],
+    );
+    hook.BEND_LINT_CHECKED = facts ? attach(origins, judged) : undefined;
     Bend.book_valid(book, base.order.length);
+    TYPES.push([]);
+    const id = TYPES.length;
+    return sections
+      .flatMap(({ file, nodes, first }) => [
+        record(["file", file.real, file.ns, file.text]),
+        ...nodes,
+        ...factRecords(Bend, judged, first, first + nodes.length, id),
+      ])
+      .join("");
   } catch (e) {
     return [
       ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
@@ -502,34 +705,46 @@ const check = async ({ Bend, base }: Checker, path: string): Promise<string> => 
     ].join("");
   } finally {
     hook.BEND_LINT_SEE = undefined;
+    hook.BEND_LINT_CHECKED = undefined;
   }
-  const real = (ns: string): string =>
-    [...seen].find(([at, n]) => at !== Bend.BASE_BEND && n === ns)?.[0] ?? "";
-  const imports = reported.filter((s): s is SeenImport => s.$ === "import");
-  const files = parsedOf(reported);
-  const trees = files.map((parsed) => [
-    ...importsOf(
-      parsed.file,
-      imports.filter((i) => i.real === parsed.file.real),
-      real,
-      Bend.BASE_BEND,
-    ),
-    ...declarationsOf(parsed),
-  ]);
-  return trees
-    .reduce<{ sections: string[][]; next: number }>(
-      ({ sections, next }, ts, j) => {
-        const nodes = nodeRecords(ts, next);
-        const { real, ns, text } = files[j].file;
-        return {
-          sections: [...sections, [record(["file", real, ns, text]), ...nodes]],
-          next: next + nodes.length,
-        };
-      },
-      { sections: [], next: 1 },
-    )
-    .sections.flat()
-    .join("");
+};
+
+// The answer to one question about types: `show:<check>:<id>`,
+// `same:<check>:<id>:<check>:<id>` or `normal:<check>:<id>`.
+const question = ({ Bend }: Checker, q: string): string => {
+  const [op, ...ns] = q.split(":");
+  const at = (c: number, i: number): Typed => {
+    const t = TYPES[c - 1]?.[i];
+    if (t === undefined) {
+      throw new Error("no type " + c + ":" + i);
+    }
+    return t;
+  };
+  const [c, i, d, j] = ns.map(Number);
+  if (op === "show") {
+    const t = at(c, i);
+    return record(["shown", Bend.term_show(Bend.term_lower(t.ty, t.dep), -1, [], t.file)]);
+  }
+  if (op === "same") {
+    const a = at(c, i);
+    const b = at(d, j);
+    return record(["same", String(c === d && Bend.term_compare("EQ", a.bok, a.ty, b.ty, a.dep))]);
+  }
+  if (op === "normal") {
+    const t = at(c, i);
+    TYPES[c - 1].push({ ...t, ty: Bend.term_snf(t.bok, t.ty) });
+    return record(["normal", String(c), String(TYPES[c - 1].length - 1)]);
+  }
+  throw new Error("unknown question " + q);
+};
+
+// The answer to `ask <question>...`: one record per question, in order.
+const ask = (checker: Checker, questions: string[]): string => {
+  try {
+    return questions.map((q) => question(checker, q)).join("");
+  } catch (e) {
+    return record(["fail", message(e)]);
+  }
 };
 
 // The answer to `real <path>`: the path, absolute, with links resolved if it
@@ -547,12 +762,12 @@ const realPath = (path: string): string => {
 
 const answer = (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
-  return args.length !== 1
-    ? Promise.resolve(record(["fail", "unknown request: " + line]))
-    : op === "check"
-      ? check(checker, args[0])
-      : op === "real"
-        ? Promise.resolve(realPath(args[0]))
+  return op === "check" && args.length === 2
+    ? check(checker, args[0], args[1] === "facts")
+    : op === "real" && args.length === 1
+      ? Promise.resolve(realPath(args[0]))
+      : op === "ask"
+        ? Promise.resolve(ask(checker, args))
         : Promise.resolve(record(["fail", "unknown request: " + line]));
 };
 

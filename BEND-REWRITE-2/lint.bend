@@ -6,10 +6,11 @@
 # - The rules program is an ordinary Bend program: `bend main.bend -o lint` builds it once. No restart, no rule cache.
 # - Bend's checker is TS for now. server.ts runs the program and answers its questions about Bend files over local
 #   TCP (wire.bend). When the checker is Bend, the server goes, and these questions become calls.
-# - Rules are pure, so they run in parallel. Questions to the checker will go through an Ask monad, answered in
-#   batches.
+# - Rules are pure, so they run in parallel. A rule asks the checker about types through Ask (`do Lint.Ask<A>:`);
+#   the runner answers every rule's questions of a round in one batch.
 # - A rule reads the program once per check, shared by every rule: a flat list of syntax nodes per file, parents
-#   first, and the file's declarations with their uses, built once.
+#   first; the file's declarations with their uses, built once; and, if it needs them, the checker's facts on the
+#   source's terms, each tied to its node.
 # - Findings come first. A fix will be a list of typed operations that the rule requests; the linter plans them and
 #   decides their safety. Until Bend's checker is Bend, every fix is Dangerous.
 #
@@ -86,9 +87,20 @@ type Node is Data:
     target: String
   }
 
-# A file the check parsed: its path, its namespace in the check, its text, and its nodes, parents first.
+# A type the checker holds: a handle, good in the check it came from. Rules ask about it (show, same, normal).
+type TypeRef is Data:
+  TypeRef{check: U32, id: U32}
+
+# What the checker found for a term of the source: the term's node (by id), how often the term is demanded, and the
+# type it was checked as. A term has one fact per distinct judgment: pattern compilation can check one term in
+# several branches, under different refinements. Only for a rule that needs facts.
+type Fact is Data:
+  Fact{node: U32, quantity: Quantity, checked: TypeRef}
+
+# A file the check parsed: its path, its namespace in the check, its text, its nodes (parents first), and the
+# checker's facts on its terms, if a rule needs them.
 type Source is Data:
-  Source{path: String, namespace: String, text: String, nodes: List<&2, Node>}
+  Source{path: String, namespace: String, text: String, nodes: List<&2, Node>, facts: List<&2, Fact>}
 
 type Program is Data:
   Program{sources: List<&2, Source>}
@@ -147,14 +159,131 @@ type Finding is Data:
 type Found is Data:
   Found{rule: String, finding: Finding}
 
-# What a file rule sees: the program, from one of its files, and that file's declarations, with their uses in it.
+# Where each finding starts, in order.
+def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
+  match founds:
+    case Nil{}:
+      List.reverse(&2, U32, out)
+    case Con{Found{rule, Finding{severity, Span{path, beg, end}, message}}, rest}:
+      Found.offsets(rest, beg <> out)
+
+# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; and,
+# if a rule needs facts, its nodes by id.
 type Here is Data:
-  Here{program: Program, source: Source, declarations: List<&2, Declaration>}
+  Here{program: Program, source: Source, declarations: List<&2, Declaration>, index: Map<&2, Maybe<&2, Node>>}
 
 # What a program rule sees: the program (its files, hub packages aside), and every declaration of its files, with their
 # uses in all of them.
 type Whole is Data:
   Whole{program: Program, declarations: List<&2, Declaration>}
+
+# Asking the checker
+# ==================
+
+# A question to the checker about types: how a type is shown (as the file it came from spells it), whether two types
+# are the same (as the checker compares them), and a type's normal form.
+type Question is Data:
+  Show{of: TypeRef}
+  Same{a: TypeRef, b: TypeRef}
+  Normal{of: TypeRef}
+
+type Answer is Data:
+  Shown{text: String}
+  Equal{same: Bool}
+  Normalized{to: TypeRef}
+
+# A run so far: finished, or waiting for the answers to its questions, in order.
+type Step<-R: Type> is Type:
+  Finished{value: R}
+  Pending{questions: List<&2, Question>, then: List<&2, Answer> -> Step<R>}
+
+# A computation that may ask the checker: `do Lint.Ask<A>:` blocks build it. It is given what to do with its value,
+# and gives a Step, so binding it needs no recursion; the runner answers the questions in rounds.
+def Ask(-A: Type) -> Type:
+  @-R: Type -> @k: (A -> Step<R>) -> Step<R>
+
+def Ask.pure(-A: Type, x: A) -> Ask(A):
+  R => k => k(x)
+
+def Ask.bind(-A: Type, -B: Type, m: Ask(A), f: A -> Ask(B)) -> Ask(B):
+  R => k => m(R, x => f(x, R, k))
+
+def ask.step(-R: Type, questions: List<&2, Question>, k: List<&2, Answer> -> Step<R>) -> Step<R>:
+  match questions:
+    case Nil{}:
+      k([])
+    case Con{q, rest}:
+      Pending{Con{q, rest}, k}
+
+# The answers to `questions`, in order, asked in one round; none asked, no round.
+def ask(questions: List<&2, Question>) -> Ask(List<&2, Answer>):
+  R => k => ask.step(R, questions, k)
+
+# Findings, with nothing to ask.
+def done(findings: List<&2, Finding>) -> Ask(List<&2, Finding>):
+  Ask.pure(List<&2, Finding>, findings)
+
+def Answer.text(answers: List<&2, Answer>) -> String:
+  match answers:
+    case Con{Shown{text}, rest}:
+      text
+    case _:
+      ""
+
+def Answer.same(answers: List<&2, Answer>) -> Bool:
+  match answers:
+    case Con{Equal{same}, rest}:
+      same
+    case _:
+      False{}
+
+def Answer.type(+fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
+  match answers:
+    case Con{Normalized{to}, rest}:
+      to
+    case _:
+      fallback
+
+# How a type is shown, as the file it came from spells it.
+def show(t: TypeRef) -> Ask(String):
+  Ask.bind(List<&2, Answer>, String, ask([Show{t}]), answers => Ask.pure(String, Answer.text(answers)))
+
+# Whether two types are the same, as the checker compares them.
+def same(a: TypeRef, b: TypeRef) -> Ask(Bool):
+  Ask.bind(List<&2, Answer>, Bool, ask([Same{a, b}]), answers => Ask.pure(Bool, Answer.same(answers)))
+
+# A type's normal form.
+def normal(+t: TypeRef) -> Ask(TypeRef):
+  Ask.bind(List<&2, Answer>, TypeRef, ask([Normal{t}]), answers => Ask.pure(TypeRef, Answer.type(t, answers)))
+
+def Question.shows(types: List<&2, TypeRef>, out: List<&2, Question>) -> List<&2, Question>:
+  match types:
+    case Nil{}:
+      List.reverse(&2, Question, out)
+    case Con{t, rest}:
+      Question.shows(rest, Show{t} <> out)
+
+def Answer.texts(answers: List<&2, Answer>, out: List<&2, String>) -> List<&2, String>:
+  match answers:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{Shown{text}, rest}:
+      Answer.texts(rest, text <> out)
+    case Con{a, rest}:
+      Answer.texts(rest, "" <> out)
+
+# How each type of `types` is shown, in order, asked in one round.
+def show_all(types: List<&2, TypeRef>) -> Ask(List<&2, String>):
+  Ask.bind(
+    List<&2, Answer>,
+    List<&2, String>,
+    ask(Question.shows(types, [])),
+    answers => Ask.pure(List<&2, String>, Answer.texts(answers, []))
+  )
+
+# What a rule needs collected for it: the checker's facts, which cost time and memory.
+type Needs is Data:
+  Needs{facts: Bool}
 
 # Which of a program rule's findings stay when several entries check the named file: those some check finds, or those
 # every check finds. If an entry that reads the named file fails its check, an every rule does not run.
@@ -166,19 +295,36 @@ type Entries is Data:
 # in it. A program rule runs once per check, and may report in any file; what it finds in a file that is not linted
 # is dropped.
 type Rule is Type:
-  FileRule{id: String, run: @+here: Here -> List<&2, Finding>}
-  ProgramRule{id: String, entries: Entries, run: @+whole: Whole -> List<&2, Finding>}
+  FileRule{id: String, needs: Needs, run: @+here: Here -> Ask(List<&2, Finding>)}
+  ProgramRule{id: String, entries: Entries, needs: Needs, run: @+whole: Whole -> Ask(List<&2, Finding>)}
 
 # The nodes of the file a rule runs on, parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:
   match here:
-    case Here{program, Source{path, namespace, text, nodes}, declarations}:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index}:
       nodes
+
+# The checker's facts on the terms of the file a rule runs on, if the rule needs them.
+def Here.facts(here: Here) -> List<&2, Fact>:
+  match here:
+    case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index}:
+      facts
 
 def Here.declarations(here: Here) -> List<&2, Declaration>:
   match here:
-    case Here{program, source, declarations}:
+    case Here{program, source, declarations, index}:
       declarations
+
+def Here.found(got: Map<&2, Maybe<&2, Node>> & Maybe<&2, Node>) -> Maybe<&2, Node>:
+  match got:
+    case Tuple{m, node}:
+      node
+
+# The node with id `id`, of the file a rule runs on: a fact's node. Indexed only if a rule needs facts.
+def Here.node(here: Here, id: U32) -> Maybe<&2, Node>:
+  match here:
+    case Here{program, source, declarations, index}:
+      Here.found(Map.get(Maybe<&2, Node>, None{}, index, U32.show(id)))
 
 def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
   match whole:
@@ -195,7 +341,7 @@ def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List
     case Nil{}:
       List.reverse(&2, Finding, out)
     case Con{x, rest}:
-      findings.go(~A, ~f, rest, Shared.onto(Finding, f(x), out))
+      findings.go(~A, ~f, rest, Shared.onto(&2, Finding, f(x), out))
 
 # The findings `f(x)` gives for each `x` of `xs`, in order.
 def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:

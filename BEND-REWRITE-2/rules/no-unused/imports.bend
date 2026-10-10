@@ -10,8 +10,8 @@ def unused(d: Lint.Declaration) -> List<&2, Lint.Finding>:
     case _:
       []
 
-def run(+here: Lint.Here) -> List<&2, Lint.Finding>:
-  Lint.findings(~Lint.Declaration, ~unused, Lint.Here.declarations(here))
+def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
+  Lint.done(Lint.findings(~Lint.Declaration, ~unused, Lint.Here.declarations(here)))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"no-unused/imports", run}
+  Lint.FileRule{"no-unused/imports", Lint.Needs{False{}}, run}
