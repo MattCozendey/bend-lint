@@ -3,7 +3,41 @@
 # Every comment on this file stays here.
 # Drifts are intentional: Ergonomics win over 1:1 parity. Every drift is documented in the table below,
 # with a stated reason.
-# add table here.
+#
+# | Drift from the TS version                                  | Reason                                                       |
+# | ---------------------------------------------------------- | ------------------------------------------------------------ |
+# | No "suggested" fixes: only Safe and Dangerous.             | Reporting matters more than autofixing, for agents.          |
+# | AutoFix applies Safe fixes; DangerousFix applies both.     | With no "suggested", two levels of fixing are enough.        |
+# | A fix can also create, write, rename and delete files.     | Real fixes move code between files, not only inside one.     |
+# | A fix's edits apply in order, each on the result before.   | One edit can build on another, such as a rename then a text  |
+# |                                                            | change in the renamed file.                                  |
+# | So a later edit shifts its offsets by the edits before it, | A rule's spans come from the text as read. A law will state  |
+# | and uses the path of any RenameFile before it.             | this later.                                                  |
+# | apply_fixes returns no ReplaceText: only whole files.      | The caller only writes, renames and deletes files. A law     |
+# |                                                            | will state this later.                                       |
+# | A program rule's fix may touch many files.                 | Only a program rule sees who imports what. TS skips such a   |
+# |                                                            | fix.                                                         |
+# | apply_fixes never writes: it returns the edits to make.    | One shape for the CLI and the library. An editor or agent    |
+# |                                                            | can show the edits, or make them itself.                     |
+# | Skipped fixes come back as a list of findings.             | The caller can tell which fixes to run again. TS gives only  |
+# |                                                            | counts.                                                      |
+# | A finding always has a span.                               | Every finding has a natural place, and readers never unwrap  |
+# |                                                            | a Maybe.                                                     |
+# | A rule returns plain findings; the runner adds its id.     | A rule cannot give its findings a wrong code.                |
+# | Only a program rule has entries (some or every).           | A file rule cannot set a value that would be ignored.        |
+# | The config lint takes is resolved: no missing fields.      | lint never guesses. The caller decides defaults and flags    |
+# |                                                            | first, so lint takes no separate imports.                    |
+# | Per-rule config is a list of settings, not a map.          | Base has no map. RuleOff cannot carry a severity or options. |
+# | lint returns findings, suppressed findings and the linted  | Callers need little else. Other failures stop the program    |
+# | files; errors use IO.die, not a Result.                    | with a message.                                              |
+# | Paths are always normalized POSIX paths.                   | One spelling per file, on every system.                      |
+# | Offsets count code points, not UTF-16 units.               | That is how Bend counts String characters.                   |
+# | A rule is a value with a run function, not a module.       | Rules are plain Bend data. A Rule cannot be copied, so build |
+# |                                                            | the list again where it is needed.                           |
+# | No abort signal and no unsaved text yet.                   | Bend cannot hold an abort signal; it will be an effect.      |
+# |                                                            | Unsaved text is for editors and can wait.                    |
+# | Names carry their family as a prefix (FixEdit, RuleScope). | Long names that say what they are read better than short     |
+# |                                                            | ones.                                                        |
 import Base
 
 type FixLevel is Data:
@@ -11,133 +45,106 @@ type FixLevel is Data:
   AutoFix{}
   DangerousFix{}
 
-# What one fix is: Safe keeps what the program does; Dangerous may not.
-# FixLevel is what a caller asks for: AutoFix applies Safe fixes, and
-# DangerousFix applies both.
 type FixApplicability is Data:
   Safe{}
   Dangerous{}
 
-# A file: its path and its text. A path is ALWAYS a normalized POSIX path.
-type Source is Data:
-  Source{path: String, text: String}
+type BendSource is Data:
+  BendSource{path: String, text: String}
 
-# path: as in Source. Offsets count characters (code points) from the
-# start of the file.
-type Span is Data:
-  Span{path: String, beg: U32, end: U32}
+type BendSourceSpan is Data:
+  BendSourceSpan{path: String, beg: U32, end: U32}
 
-# One change to the files. Paths are as in Source. Replace with an empty
-# span inserts text.
-type Edit is Data:
-  Replace{span: Span, text: String}
-  Create{path: String, text: String}
-  Rename{from: String, to: String}
-  Delete{path: String}
+type FixEdit is Data:
+  ReplaceText{span: BendSourceSpan, text: String}
+  CreateOrWriteFile{path: String, text: String}
+  RenameFile{from: String, to: String}
+  DeleteFile{path: String}
 
-# A fix's edits apply in order: each sees the files as the edits before it
-# left them, paths and offsets included. A rule's spans come from the text
-# as read, so a later edit must shift its offsets by the edits before it,
-# and use the path of any Rename before it. A law will state this later.
 type Fix is Data:
-  Fix{title: String, applicability: FixApplicability, edits: List<&2, Edit>}
+  Fix{title: String, applicability: FixApplicability, edits: List<&2, FixEdit>}
 
-type Severity is Data:
+type FindingSeverity is Data:
   Error{}
   Warning{}
   Information{}
   Hint{}
 
-type Diag is Data:
-  Diag{severity: Severity, message: String, span: Span, fixes: List<&2, Fix>}
+type Finding is Data:
+  Finding{severity: FindingSeverity, message: String, span: BendSourceSpan, fixes: List<&2, Fix>}
 
-# An option's value: a whole number, a boolean, or text.
-type Value is Data:
-  Num{value: U32}
-  Flag{value: Bool}
-  Text{value: String}
+type OptionValue is Data:
+  NumberValue{value: U32}
+  FlagValue{value: Bool}
+  TextValue{value: String}
 
-type Option is Data:
-  Option{key: String, value: Value}
+type OptionGiven is Data:
+  OptionGiven{key: String, value: OptionValue}
 
-# What values an option accepts. Number: a whole number from minimum to
-# maximum. Text: one of choices, or any text when choices is empty. Any:
-# what one of specs accepts.
 type OptionSpec is Data:
-  NumberOption{minimum: U32, maximum: U32}
-  FlagOption{}
-  TextOption{choices: List<&2, String>}
-  AnyOption{specs: List<&2, OptionSpec>}
+  NumberSpec{minimum: U32, maximum: U32}
+  FlagSpec{}
+  TextSpec{choices: List<&2, String>}
+  AnySpec{specs: List<&2, OptionSpec>}
 
-# An option a rule takes: its key, its value when the config gives none, and
-# what it accepts.
-type DeclaredOption is Data:
-  DeclaredOption{key: String, default: Value, spec: OptionSpec}
+type OptionDeclared is Data:
+  OptionDeclared{key: String, default: OptionValue, spec: OptionSpec}
 
-# A finding with the id of the rule that made it.
-type Found is Data:
-  Found{code: String, diag: Diag}
+type RuleFinding is Data:
+  RuleFinding{code: String, finding: Finding}
 
-# What a rule reads. root: the file this run is for. sources: every file the
-# check read, root included. options: the rule's, defaults filled in. prior:
-# what earlier rules found.
-type Input is Data:
-  Input{root: Source, sources: List<&2, Source>, options: List<&2, Option>, prior: List<&2, Found>}
+type RuleInput is Data:
+  RuleInput{
+    root: BendSource,
+    sources: List<&2, BendSource>,
+    options: List<&2, OptionGiven>,
+    prior: List<&2, RuleFinding>
+  }
 
-# How findings from several checks merge, for a program rule. Some: keep a
-# finding one check makes. Every: keep a finding all checks make.
-type Entries is Data:
+type RuleEntries is Data:
   SomeEntry{}
   EveryEntry{}
 
-# What a rule sees. File: its own file, and it reports only there. Program:
-# every file the check read, and its fixes may touch any of them.
-type Scope is Data:
-  File{}
-  Program{entries: Entries}
+type RuleScope is Data:
+  FileScope{}
+  ProgramScope{entries: RuleEntries}
 
-# id: namespace/name, the code of its findings. options: the ones it takes;
-# a config that sets any other is an error.
 type Rule is Type:
   Rule{
     id: String,
-    scope: Scope,
-    options: List<&2, DeclaredOption>,
-    run: Input -> IO(List<&2, Diag>)
+    scope: RuleScope,
+    options: List<&2, OptionDeclared>,
+    run: RuleInput -> IO(List<&2, Finding>)
   }
 
-# How the config sets one rule. severity: None{} keeps the rule's own.
-type Setting is Data:
-  Off{id: String}
-  On{id: String, severity: Maybe<&2, Severity>, options: List<&2, Option>}
+type RuleSetting is Data:
+  RuleOff{id: String}
+  RuleOn{id: String, severity: Maybe<&2, FindingSeverity>, options: List<&2, OptionGiven>}
 
-# load: rule files to run after the given ones. entries: files whose checks
-# lint the files they import. imports: also lint every file the check reads.
-type Config is Data:
-  Config{load: List<&2, String>, entries: List<&2, String>, imports: Bool, rules: List<&2, Setting>}
+type LintConfig is Data:
+  LintConfig{
+    load: List<&2, String>,
+    entries: List<&2, String>,
+    imports: Bool,
+    rules: List<&2, RuleSetting>
+  }
 
-# What a run found, and the files it linted, as they were read. suppressed:
-# the findings a directive covers.
-type Report is Data:
-  Report{findings: List<&2, Found>, suppressed: List<&2, Found>, linted: List<&2, Source>}
+type LintReport is Data:
+  LintReport{
+    findings: List<&2, RuleFinding>,
+    suppressed: List<&2, RuleFinding>,
+    linted: List<&2, BendSource>
+  }
 
-# One change to the disk, as apply works it out. WriteFile creates the file or
-# replaces its text.
-type Change is Data:
-  WriteFile{path: String, text: String}
-  MoveFile{from: String, to: String}
-  RemoveFile{path: String}
+type FixOutcome is Data:
+  FixOutcome{edits: List<&2, FixEdit>, skipped: List<&2, RuleFinding>}
 
-# What apply works out: the changes, in the order to make them, and how many
-# fixes it skipped because they clash with fixes before them.
-type Applied is Data:
-  Applied{changes: List<&2, Change>, skipped: U32}
+def lint(file: BendSource, rules: List<&1, Rule>, config: LintConfig) -> IO(LintReport):
+  IO.pure(LintReport, LintReport{[], [], [file]})
 
-# The findings of rules in file, set up by config. Does nothing yet.
-def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(Report):
-  IO.pure(Report, Report{[], [], [file]})
-
-# The changes that the fixes of findings, at level, make to linted. Does
-# nothing yet.
-def apply(linted: List<&2, Source>, findings: List<&2, Found>, level: FixLevel) -> Applied:
-  Applied{[], 0}
+def apply_fixes(
+  linted: List<&2, BendSource>,
+  findings: List<&2, RuleFinding>,
+  level: FixLevel
+) -> FixOutcome:
+  FixOutcome{[], []}
