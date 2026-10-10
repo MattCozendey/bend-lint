@@ -1,5 +1,6 @@
 # This file's goal is to become a bend version of the bend-lint tool.
 # This file must remain self-contained for the time-being, even if it contains laws and/or proofs.
+# Every comment on this file stays here.
 # Drifts are intentional: Ergonomics win over 1:1 parity. Every drift is documented in the table below,
 # with a stated reason.
 # add table here.
