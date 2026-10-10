@@ -143,3 +143,32 @@ def get_word(s: String) -> String:
 
 def get_after_import(line: String) -> String:
   get_drop_blank(String.drop(get_drop_blank(line), 6n))
+
+def get_text_line_before(s: String, n: Nat, line: String) -> String:
+  match s n:
+    case _ 0n:
+      String.reverse(line)
+    case SNil{} _:
+      String.reverse(line)
+    case SCon{'\n', rest} 1n+k:
+      get_text_line_before(rest, k, "")
+    case SCon{c, rest} 1n+k:
+      get_text_line_before(rest, k, SCon{c, line})
+
+def get_line_rest(s: String, n: U32) -> U32:
+  match s:
+    case SNil{}:
+      n
+    case SCon{'\n', rest}:
+      U32.inc(n)
+    case SCon{c, rest}:
+      get_line_rest(rest, U32.inc(n))
+
+def get_line_of(+text: String, span: Lint.BendSourceSpan) -> Lint.BendSourceSpan:
+  match span:
+    case Lint.BendSourceSpan{path, +beg, +end}:
+      Lint.BendSourceSpan{
+        path,
+        U32.sub(beg, U32.from_nat(String.length(get_text_line_before(text, U32.to_nat(beg), "")))),
+        get_line_rest(String.drop(text, U32.to_nat(end)), end)
+      }
