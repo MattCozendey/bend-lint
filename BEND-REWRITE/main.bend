@@ -1,10 +1,8 @@
-# ALL LOGIC OF THE REWRITE WILL EXIST ONLY HERE FOR NOW INCLUDING LAWS AND PROOFS IF ANY.
-# THIS FILE MUST RUN THROUGH BEND-LINT (THE TS VERSION) - ALL RULES.
-# I DECIDED WE WILL DROP "SUGGESTED". REPORTING IS MORE IMPORTANT THAN AUTOFXING FOR AGENTS.
-# WE WILL PROVIDE FIXES WHEN WE HAVE THEM.
-# ANOTHER DRIFT: EDITS ARE NOT ONLY AN ARRAY OF CHANGES TO A FILE OR FILES, BUT ALSO
-# FILE RENAMES, OR FILE DELETIONS, OR FILE CREATIONS.
-# THIS FILE MUST BE SELF CONTAINED.
+# This file's goal is to become a bend version of the bend-lint tool.
+# This file must remain self-contained for the time-being, even if it contains laws and/or proofs.
+# Drifts are intentional: Ergonomics win over 1:1 parity. Every drift is documented in the table below,
+# with a stated reason.
+# add table here.
 import Base
 
 type FixLevel is Data:
@@ -61,6 +59,20 @@ type Value is Data:
 type Option is Data:
   Option{key: String, value: Value}
 
+# What values an option accepts. Number: a whole number from minimum to
+# maximum. Text: one of choices, or any text when choices is empty. Any:
+# what one of specs accepts.
+type OptionSpec is Data:
+  NumberOption{minimum: U32, maximum: U32}
+  FlagOption{}
+  TextOption{choices: List<&2, String>}
+  AnyOption{specs: List<&2, OptionSpec>}
+
+# An option a rule takes: its key, its value when the config gives none, and
+# what it accepts.
+type DeclaredOption is Data:
+  DeclaredOption{key: String, default: Value, spec: OptionSpec}
+
 # A finding with the id of the rule that made it.
 type Found is Data:
   Found{code: String, diag: Diag}
@@ -83,9 +95,15 @@ type Scope is Data:
   File{}
   Program{entries: Entries}
 
-# id: namespace/name, the code of its findings.
+# id: namespace/name, the code of its findings. options: the ones it takes;
+# a config that sets any other is an error.
 type Rule is Type:
-  Rule{id: String, scope: Scope, run: Input -> IO(List<&2, Diag>)}
+  Rule{
+    id: String,
+    scope: Scope,
+    options: List<&2, DeclaredOption>,
+    run: Input -> IO(List<&2, Diag>)
+  }
 
 # How the config sets one rule. severity: None{} keeps the rule's own.
 type Setting is Data:
@@ -97,10 +115,28 @@ type Setting is Data:
 type Config is Data:
   Config{load: List<&2, String>, entries: List<&2, String>, imports: Bool, rules: List<&2, Setting>}
 
-# What a run found, and the files it linted, as they were read.
+# What a run found, and the files it linted, as they were read. suppressed:
+# the findings a directive covers.
 type Report is Data:
-  Report{findings: List<&2, Found>, linted: List<&2, Source>}
+  Report{findings: List<&2, Found>, suppressed: List<&2, Found>, linted: List<&2, Source>}
+
+# One change to the disk, as apply works it out. WriteFile creates the file or
+# replaces its text.
+type Change is Data:
+  WriteFile{path: String, text: String}
+  MoveFile{from: String, to: String}
+  RemoveFile{path: String}
+
+# What apply works out: the changes, in the order to make them, and how many
+# fixes it skipped because they clash with fixes before them.
+type Applied is Data:
+  Applied{changes: List<&2, Change>, skipped: U32}
 
 # The findings of rules in file, set up by config. Does nothing yet.
 def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(Report):
-  IO.pure(Report, Report{[], [file]})
+  IO.pure(Report, Report{[], [], [file]})
+
+# The changes that the fixes of findings, at level, make to linted. Does
+# nothing yet.
+def apply(linted: List<&2, Source>, findings: List<&2, Found>, level: FixLevel) -> Applied:
+  Applied{[], 0}
