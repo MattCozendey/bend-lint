@@ -103,3 +103,43 @@ def get_option_text.of(m: Maybe<&2, Lint.OptionValue>) -> String:
 
 def get_option_text(options: List<&2, Lint.OptionGiven>, +key: String) -> String:
   get_option_text.of(get_option(options, key))
+
+def get_line_before.go(lines: List<&2, String>, inside: Bool, +beg: U32, +at: U32) -> String:
+  match lines inside:
+    case Nil{} _:
+      ""
+    case Con{h, t} True{}:
+      String.take(h, U32.to_nat(U32.sub(beg, at)))
+    case Con{h, +t} False{}:
+      +next = U32.add(U32.add(at, U32.from_nat(String.length(h))), 1)
+      get_line_before.go(t, U32.is_lt(beg, U32.add(U32.add(next, get_head_size(t)), 1)), beg, next)
+
+def get_line_before(+lines: List<&2, String>, +beg: U32) -> String:
+  get_line_before.go(lines, U32.is_lt(beg, U32.add(get_head_size(lines), 1)), beg, 0)
+
+def get_drop_blank(+s: String) -> String:
+  match s:
+    case SCon{' ', rest}:
+      get_drop_blank(rest)
+    case SCon{'\t', rest}:
+      get_drop_blank(rest)
+    case _:
+      s
+
+def get_word(s: String) -> String:
+  match s:
+    case SCon{' ', rest}:
+      ""
+    case SCon{'\t', rest}:
+      ""
+    case SCon{'\r', rest}:
+      ""
+    case SCon{'\n', rest}:
+      ""
+    case SCon{c, rest}:
+      SCon{c, get_word(rest)}
+    case SNil{}:
+      ""
+
+def get_after_import(line: String) -> String:
+  get_drop_blank(String.drop(get_drop_blank(line), 6n))
