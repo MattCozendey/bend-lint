@@ -166,16 +166,246 @@ def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
     got : List<&2, String> <- Wire.sent(sent)
     return Wire.records(List.reverse(&2, String, got), Reading{False{}, "", [], []})
 
+# Program
+# =======
+
+# What a syntax node is: a declaration, a part of one, a term, or a pattern, as Bend's parser reads it.
+type Syntax is Data:
+  Import{}
+  Definition{}
+  Datatype{}
+  Constructor{}
+  Law{}
+  Parameter{}
+  Field{}
+  Returns{}
+  Body{}
+  Variable{}
+  Reference{}
+  Substitution{}
+  Let{}
+  Binding{}
+  Sort{}
+  QuantityType{}
+  QuantityLiteral{}
+  QuantityMinimum{}
+  Forall{}
+  Lambda{}
+  Application{}
+  TypeApplication{}
+  Construction{}
+  Literal{}
+  Elimination{}
+  Absurd{}
+  Equality{}
+  Reflexivity{}
+  Rewrite{}
+  Hole{}
+  Annotation{}
+  Match{}
+  Case{}
+  Destructure{}
+  PatternVariable{}
+  PatternConstructor{}
+
+type Quantity is Data:
+  Erased{}
+  Once{}
+  Many{}
+  Template{}
+
+# Where a node is: its file, and offsets in code points.
+type Span is Data:
+  Span{path: String, beg: U32, end: U32}
+
+# A syntax node: its id and its parent's (0 for none), what it is, its name as written, the binder it declares or
+# uses (numbered per declaration), its quantity, where it is, and the global name it declares or uses, as the check
+# names it.
+type Node is Data:
+  Node{
+    id: U32,
+    parent: U32,
+    syntax: Syntax,
+    name: String,
+    binder: Maybe<&2, U32>,
+    quantity: Maybe<&2, Quantity>,
+    span: Maybe<&2, Span>,
+    target: String
+  }
+
+# A file the check parsed: its path, its namespace in the check, its text, and its nodes, parents first.
+type Source is Data:
+  Source{path: String, namespace: String, text: String, nodes: List<&2, Node>}
+
+type Program is Data:
+  Program{sources: List<&2, Source>}
+
+# What checking a file gives: its program, or why the check failed.
+type Check is Data:
+  Passed{program: Program}
+  Failed{message: String}
+
+# A value with the name the wire gives it.
+type Named<-A: Data> is Data:
+  Named{name: String, value: A}
+
+# The value `key` names in `table`.
+def Program.lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
+  match table:
+    case Nil{}:
+      None{}
+    case Con{Named{+k, +v}, rest}:
+      Bool.pick(Maybe<&2, A>, String.eq(k, key), Some{v}, Program.lookup(A, key, rest))
+
+def Syntax.names() -> List<&2, Named<Syntax>>:
+  [
+    Named{"Variable", Variable{}},
+    Named{"Reference", Reference{}},
+    Named{"Application", Application{}},
+    Named{"Lambda", Lambda{}},
+    Named{"Literal", Literal{}},
+    Named{"Construction", Construction{}},
+    Named{"PatternVariable", PatternVariable{}},
+    Named{"PatternConstructor", PatternConstructor{}},
+    Named{"Forall", Forall{}},
+    Named{"Annotation", Annotation{}},
+    Named{"Match", Match{}},
+    Named{"Case", Case{}},
+    Named{"Destructure", Destructure{}},
+    Named{"Let", Let{}},
+    Named{"Binding", Binding{}},
+    Named{"Parameter", Parameter{}},
+    Named{"Field", Field{}},
+    Named{"Returns", Returns{}},
+    Named{"Body", Body{}},
+    Named{"Definition", Definition{}},
+    Named{"Datatype", Datatype{}},
+    Named{"Constructor", Constructor{}},
+    Named{"Law", Law{}},
+    Named{"Import", Import{}},
+    Named{"Substitution", Substitution{}},
+    Named{"Sort", Sort{}},
+    Named{"QuantityType", QuantityType{}},
+    Named{"QuantityLiteral", QuantityLiteral{}},
+    Named{"QuantityMinimum", QuantityMinimum{}},
+    Named{"TypeApplication", TypeApplication{}},
+    Named{"Elimination", Elimination{}},
+    Named{"Absurd", Absurd{}},
+    Named{"Equality", Equality{}},
+    Named{"Reflexivity", Reflexivity{}},
+    Named{"Rewrite", Rewrite{}},
+    Named{"Hole", Hole{}}
+  ]
+
+def Quantity.names() -> List<&2, Named<Quantity>>:
+  [Named{"Once", Once{}}, Named{"Many", Many{}}, Named{"Erased", Erased{}}, Named{"Template", Template{}}]
+
+def Span.read(path: String, beg: String, end: String) -> Maybe<&2, Span>:
+  do Maybe<&2, Span>:
+    b : U32 <- U32.read(beg)
+    e : U32 <- U32.read(end)
+    return Span{path, b, e}
+
+# A node from the fields of its record, in a file at `path`.
+def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Node>:
+  match fields:
+    case Con{id, Con{parent, Con{syntax, Con{name, Con{binder, Con{quantity, Con{beg, Con{end, Con{target, Nil{}}}}}}}}}}:
+      do Maybe<&2, Node>:
+        i : U32 <- U32.read(id)
+        p : U32 <- U32.read(parent)
+        s : Syntax <- Program.lookup(Syntax, syntax, Syntax.names())
+        return Node{
+          i,
+          p,
+          s,
+          name,
+          U32.read(binder),
+          Program.lookup(Quantity, quantity, Quantity.names()),
+          Span.read(path, beg, end),
+          target
+        }
+    case _:
+      None{}
+
+# The sources read so far, last first, each with its nodes last first; with a node record, its source is the head.
+def Program.add_node(fields: List<&2, String>, sources: List<&2, Source>) -> Maybe<&2, List<&2, Source>>:
+  match sources:
+    case Con{Source{+path, namespace, text, nodes}, rest}:
+      do Maybe<&2, List<&2, Source>>:
+        n : Node <- Node.read(path, fields)
+        return Source{path, namespace, text, n <> nodes} <> rest
+    case Nil{}:
+      None{}
+
+def Program.add_source(fields: List<&2, String>, sources: List<&2, Source>) -> Maybe<&2, List<&2, Source>>:
+  match fields:
+    case Con{path, Con{namespace, Con{text, Nil{}}}}:
+      Some{Source{path, namespace, text, []} <> sources}
+    case _:
+      None{}
+
+def Program.add(is_node: Bool, fields: List<&2, String>, sources: List<&2, Source>) -> Maybe<&2, List<&2, Source>>:
+  match is_node:
+    case True{}:
+      Program.add_node(fields, sources)
+    case False{}:
+      Program.add_source(fields, sources)
+
+# The sources in order, each with its nodes in order.
+def Program.sources_in_order(sources: List<&2, Source>, done: List<&2, Source>) -> List<&2, Source>:
+  match sources:
+    case Nil{}:
+      done
+    case Con{Source{path, namespace, text, nodes}, rest}:
+      Program.sources_in_order(rest, Source{path, namespace, text, List.reverse(&2, Node, nodes)} <> done)
+
+# The program of an answer's records: a source record, then its nodes, for each source.
+def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Source>) -> Maybe<&2, Program>:
+  match records:
+    case Nil{}:
+      Some{Program{Program.sources_in_order(sources, [])}}
+    case Con{Con{+tag, fields}, rest}:
+      do Maybe<&2, Program>:
+        added : List<&2, Source> <- Program.add(String.eq(tag, "node"), fields, sources)
+        Program.read(rest, added)
+    case Con{Nil{}, rest}:
+      None{}
+
+def Check.read(program: Maybe<&2, Program>) -> IO(Check):
+  match program:
+    case Some{p}:
+      IO.pure(Check, Passed{p})
+    case None{}:
+      IO.die(Check, 1, "bend-lint: the checker's answer is malformed")
+
+# What the check of the file at `path` gives.
+def Check.of(records: List<&2, List<&2, String>>) -> IO(Check):
+  match records:
+    case Con{Con{+tag, Con{message, Nil{}}}, rest}:
+      IO.pure(Check, Bool.pick(Check, String.eq(tag, "fail"), Failed{message}, Failed{"bend-lint: the checker's answer is malformed"}))
+    case _:
+      Check.read(Program.read(records, []))
+
+def Check.run(path: String) -> IO(Check):
+  IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), Check.of)
+
 # CLI
 # ===
 
-# The records as lines, onto `out`, which is last first.
-def cli.lines(records: List<&2, List<&2, String>>, out: List<&2, String>) -> String:
-  match records:
+# A source as a summary line, onto `out`.
+def cli.summary(sources: List<&2, Source>, out: List<&2, String>) -> String:
+  match sources:
     case Nil{}:
       String.join(List.reverse(&2, String, out), "\n")
-    case Con{h, t}:
-      cli.lines(t, String.join(h, " ") <> out)
+    case Con{Source{path, namespace, text, nodes}, rest}:
+      cli.summary(rest, (path ++ ": " ++ Nat.show(List.length(&2, Node, nodes)) ++ " nodes") <> out)
+
+def cli.shown(check: Check) -> String:
+  match check:
+    case Passed{Program{sources}}:
+      cli.summary(sources, [])
+    case Failed{message}:
+      message
 
 def cli.file(args: List<String>) -> IO(String):
   match args:
@@ -188,5 +418,5 @@ def cli() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     file : String <- cli.file(args)
-    records : List<&2, List<&2, String>> <- Wire.ask(["check", file])
-    IO.print(cli.lines(records, []))
+    check : Check <- Check.run(file)
+    IO.print(cli.shown(check))
