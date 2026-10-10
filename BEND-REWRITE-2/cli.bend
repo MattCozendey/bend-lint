@@ -387,19 +387,23 @@ def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
 # Merging
 # =======
 
-def Found.same(+a: Lint.Found, b: Lint.Found) -> Bool:
-  match a b:
-    case Lint.Found{r, Lint.Finding{s, Lint.Span{p, beg, end}, m}} Lint.Found{r2, Lint.Finding{s2, Lint.Span{p2, beg2, end2}, m2}}:
-      String.eq(r, r2) && String.eq(Lint.Severity.show(s), Lint.Severity.show(s2)) && String.eq(p, p2)
-        && U32.is_eq(beg, beg2) && U32.is_eq(end, end2)
+# What makes a finding the same across checks: its rule, severity and span.
+def Found.key(found: Lint.Found) -> String:
+  match found:
+    case Lint.Found{r, Lint.Finding{s, Lint.Span{p, beg, end}, m}}:
+      r ++ "\t" ++ Lint.Severity.show(s) ++ "\t" ++ p ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
 
-# Whether `found` is among `founds`: the same rule, severity and span.
-def Found.among(+found: Lint.Found, founds: List<&2, Lint.Found>) -> Bool:
+# The keys of `founds`, onto `keys`.
+def Found.keys(founds: List<&2, Lint.Found>, keys: Map<&2, Unit>) -> Map<&2, Unit>:
   match founds:
     case Nil{}:
-      False{}
+      keys
     case Con{f, rest}:
-      Found.same(found, f) || Found.among(found, rest)
+      Found.keys(rest, Map.set(&2, Unit, keys, Found.key(f), Unit{}))
+
+# Whether `found`'s key is among `keys`.
+def Found.among(+keys: Map<&2, Unit>, found: Lint.Found) -> Bool:
+  Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, keys, Found.key(found)))
 
 def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match hit:
@@ -416,20 +420,29 @@ def Tagged.of(tagged: List<&2, Tagged>, +group: U32, out: List<&2, Lint.Found>) 
     case Con{Tagged{+g, f}, rest}:
       Tagged.of(rest, group, Found.keep(U32.is_eq(g, group), f, out))
 
-# `founds`, with each finding of `more` that is not among them after them.
-def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>, +out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
+# The findings of `more` whose keys are not among `keys`, nor before them in `more`, onto `out`.
+def Merge.new(more: List<&2, Lint.Found>, +keys: Map<&2, Unit>, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match more:
     case Nil{}:
-      Shared.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, out))
+      List.reverse(&2, Lint.Found, out)
     case Con{+f, rest}:
-      Merge.union(founds, rest, Found.keep(Bool.not(Found.among(f, founds) || Found.among(f, out)), f, out))
+      Merge.new(rest, Map.set(&2, Unit, keys, Found.key(f), Unit{}), Found.keep(Bool.not(Found.among(keys, f)), f, out))
 
-def Merge.every(founds: List<&2, Lint.Found>, +more: List<&2, Lint.Found>, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
+# `founds`, then each finding of `more` that is not among them.
+def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
+  Shared.append(&2, Lint.Found, founds, Merge.new(more, Found.keys(founds, Map.new(&2, Unit)), []))
+
+# The findings of `founds` whose keys are among `keys`, onto `out`.
+def Merge.common(founds: List<&2, Lint.Found>, +keys: Map<&2, Unit>, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match founds:
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
     case Con{+f, rest}:
-      Merge.every(rest, more, Found.keep(Found.among(f, more), f, out))
+      Merge.common(rest, keys, Found.keep(Found.among(keys, f), f, out))
+
+# The findings of `founds` that `more` finds too.
+def Merge.every(founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
+  Merge.common(founds, Found.keys(more, Map.new(&2, Unit)), [])
 
 # The findings of every check, `first` with those of the checks numbered from `check` up to `last`: all of them (some),
 # or those all of them find (every).
@@ -448,8 +461,8 @@ def Merge.checks(
         k,
         tagged,
         (check + 1 : U32),
-        Merge.union(some, Tagged.of(tagged, check, []), []),
-        Merge.every(every, Tagged.of(tagged, check, []), [])
+        Merge.union(some, Tagged.of(tagged, check, [])),
+        Merge.every(every, Tagged.of(tagged, check, []))
       )
 
 # Whether a finding of a rule stays: a some rule's, if some check found it; an every rule's, if every check found it,
@@ -465,7 +478,7 @@ def Merge.stays(mode: Maybe<&2, Lint.Entries>, partial: Bool, every: Bool) -> Bo
 
 def Merge.pick(
   some: List<&2, Lint.Found>,
-  +every: List<&2, Lint.Found>,
+  +every: Map<&2, Unit>,
   +modes: List<&2, Shared.Named<Lint.Entries>>,
   +partial: Bool,
   out: List<&2, Lint.Found>
@@ -480,7 +493,7 @@ def Merge.pick(
         modes,
         partial,
         Found.keep(
-          Merge.stays(Shared.lookup(Lint.Entries, r, modes), partial, Found.among(Lint.Found{r, f}, every)),
+          Merge.stays(Shared.lookup(Lint.Entries, r, modes), partial, Found.among(every, Lint.Found{r, f})),
           Lint.Found{r, f},
           out
         )
@@ -493,7 +506,7 @@ def Merge.done(
 ) -> List<&2, Lint.Found>:
   match merged:
     case Tuple{some, every}:
-      Merge.pick(some, every, modes, partial, [])
+      Merge.pick(some, Found.keys(every, Map.new(&2, Unit)), modes, partial, [])
 
 # What the program rules find over `checks` checks, merged as each rule's entries say.
 def Merge.program(
