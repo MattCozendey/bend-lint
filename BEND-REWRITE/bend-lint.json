@@ -1,6 +1,0 @@
-{
-  "rules": {
-    "performance/missed-fork": "off",
-    "performance/append-in-loop": "off"
-  }
-}
