@@ -86,6 +86,11 @@
 # | questions about types (same, shown, term, normal form) and | pure: the runner answers between its steps.                  |
 # | what to do with the answers. TS gives cx.same, cx.show and | TS's calls are IO; a Bend rule cannot make them.             |
 # | cx.normal as calls.                                        |                                                              |
+# | Template instances come as TemplateInstance bodies, in     | An instance is a body of its own; its facts are in it, as a  |
+# | RuleInput.instances, only to a program rule that needs     | def's are. Instances depend on who uses a template, so a     |
+# | InstancesNeed; a file rule that needs it does not load. TS | file rule cannot have them, as in TS.                        |
+# | marks such facts inst, and names the instance as its       |                                                              |
+# | template.                                                  |                                                              |
 # | The text output is a line per finding,                      | Short to read and to search; --json holds the rest.          |
 # | path:line:column: severity code: message, then a line per   |                                                              |
 # | fix with its title and applicability.                       |                                                              |
@@ -106,7 +111,6 @@
 # - The Safe-fix check covers ReplaceText edits of the linted file only; any other Safe fix is offered as Dangerous.
 #   Check each file a fix changes, and the files together, so such a fix can stay Safe.
 # - The text output shows each fix's title and applicability; the TS output also shows its diff.
-# - Template instances' facts (TS's facts.instances).
 import Base
 import ./path.bend as Path
 
@@ -206,6 +210,11 @@ type Declaration is Data:
 type SourceDeclarations is Data:
   SourceDeclarations{path: String, declarations: List<&2, Declaration>}
 
+# An instance of a template of the file at `path`: the template's name as that file spells it, and the instance's
+# checked body, with its facts if they are wanted. Its spans are in the template's file.
+type TemplateInstance is Data:
+  TemplateInstance{path: String, template: String, body: BendTerm}
+
 type FixEdit is Data:
   ReplaceText{span: BendSourceSpan, text: String}
   CreateOrWriteFile{path: String, text: String}
@@ -250,13 +259,15 @@ type RuleInput is Data:
     sources: List<&2, BendSource>,
     options: List<&2, OptionGiven>,
     prior: List<&2, RuleFinding>,
-    declarations: List<&2, SourceDeclarations>
+    declarations: List<&2, SourceDeclarations>,
+    instances: List<&2, TemplateInstance>
   }
 
 type RuleNeed is Data:
   DeclarationsNeed{}
   BodiesNeed{}
   FactsNeed{}
+  InstancesNeed{}
 
 type RuleScope is Data:
   FileScope{}
@@ -326,7 +337,8 @@ type BendCheck is Data:
     sources: List<&2, BendSource>,
     failure: Maybe<&2, RuleFinding>,
     declarations: List<&2, SourceDeclarations>,
-    program_paths: List<&2, String>
+    program_paths: List<&2, String>,
+    instances: List<&2, TemplateInstance>
   }
 
 type RunPlace is Data:
@@ -491,12 +503,12 @@ type SuppressState is Data:
 
 # What the rules need from a check: declarations, bodies, facts.
 type CheckNeeds is Data:
-  CheckNeeds{declarations: Bool, bodies: Bool, facts: Bool}
+  CheckNeeds{declarations: Bool, bodies: Bool, facts: Bool, instances: Bool}
 
 def get_type_answers(questions: List<&2, TypeQuestion>) -> IO(List<&2, TypeAnswer>):
   import "./effs/host.js"
 
-def get_check(path: String, declarations: Bool, bodies: Bool, facts: Bool) -> IO(BendCheck):
+def get_check(path: String, declarations: Bool, bodies: Bool, facts: Bool, instances: Bool) -> IO(BendCheck):
   import "./effs/host.js"
 
 def restart_with_rules(files: List<&2, String>) -> IO(Unit):
@@ -578,6 +590,8 @@ def get_is_need(a: RuleNeed, b: RuleNeed) -> Bool:
     case BodiesNeed{} BodiesNeed{}:
       True{}
     case FactsNeed{} FactsNeed{}:
+      True{}
+    case InstancesNeed{} InstancesNeed{}:
       True{}
     case _ _:
       False{}
@@ -713,13 +727,13 @@ def get_place_paths(place: RunPlace, linted_paths: List<&2, String>) -> List<&2,
     case ProgramRun{c}:
       linted_paths
 
-# What a run sees: for a file run, its file and that file's declarations, from the first check; for a program run,
-# its own check.
+# What a run sees: for a file run, its file and that file's declarations, from the first check, and no template
+# instances, which depend on who uses a template; for a program run, its own check.
 def get_place_check(place: RunPlace, first: BendCheck) -> BendCheck:
   match place first:
-    case FileRun{+on} BendCheck{root, sources, failure, declarations, program_paths}:
+    case FileRun{+on} BendCheck{root, sources, failure, declarations, program_paths, instances}:
       +path = get_source_path(on)
-      BendCheck{on, sources, failure, get_declarations_in(declarations, [path]), program_paths}
+      BendCheck{on, sources, failure, get_declarations_in(declarations, [path]), program_paths, []}
     case ProgramRun{c} _:
       c
 
@@ -858,7 +872,7 @@ def get_rule_input(
   +needs: List<&2, RuleNeed>
 ) -> RuleInput:
   match c:
-    case BendCheck{root, sources, failure, declarations, program_paths}:
+    case BendCheck{root, sources, failure, declarations, program_paths, instances}:
       RuleInput{
         root,
         sources,
@@ -872,7 +886,8 @@ def get_rule_input(
             || get_needs(needs, BodiesNeed{})
             || get_needs(needs, FactsNeed{}),
           declarations
-        )
+        ),
+        Bool.pick(List<&2, TemplateInstance>, get_needs(needs, InstancesNeed{}), instances, [])
       }
 
 def get_level_finding(
@@ -1059,6 +1074,21 @@ def get_order_problems(+heads: List<&2, RuleHead>) -> List<&2, String>:
     get_done_ids((1n + List.length(&2, RuleHead, heads): Nat), get_ready_ids(heads, []), heads, []),
     heads
   )
+
+# A line for each file rule that needs template instances, which depend on who uses a template.
+def get_scope_problems(rules: List<&1, Rule>) -> List<&2, String>:
+  match rules:
+    case Nil{}:
+      []
+    case Con{Rule{+id, FileScope{}, options, after, needs, run}, t}:
+      get_kept(
+        String,
+        get_needs(needs, InstancesNeed{}),
+        id ++ " needs InstancesNeed, which only a program rule gets: instances depend on who uses a template",
+        get_scope_problems(t)
+      )
+    case Con{r, t}:
+      get_scope_problems(t)
 
 def get_severity_rank(s: FindingSeverity) -> U32:
   match s:
@@ -2526,7 +2556,7 @@ def get_check_failures(checks: List<&2, BendCheck>) -> List<&2, RuleFinding>:
   match checks:
     case Nil{}:
       []
-    case Con{BendCheck{root, sources, failure, declarations, program_paths}, t}:
+    case Con{BendCheck{root, sources, failure, declarations, program_paths, instances}, t}:
       List.append(&2, RuleFinding, get_failure_list(failure), get_check_failures(t))
 
 def get_rules_off(partial: Bool, +every: List<&2, String>) -> List<&2, String>:
@@ -2561,10 +2591,10 @@ def get_lint_report(
 ) -> IO(LintReport):
   match checks config:
     case Con{
-      BendCheck{+root, +sources, +failure, +declarations, +program_paths},
+      BendCheck{+root, +sources, +failure, +declarations, +program_paths, +instances},
       rest
     } LintConfig{load, entries, imports, +settings}:
-      +first: BendCheck = BendCheck{root, sources, failure, declarations, program_paths}
+      +first: BendCheck = BendCheck{root, sources, failure, declarations, program_paths, instances}
       +own = Maybe.default(&2, BendSource, get_source_at(sources, named), root)
       +linted = get_linted(imports, own, sources, program_paths)
       +linted_paths = get_source_paths(linted)
@@ -3050,15 +3080,23 @@ def get_posix_paths(paths: List<&2, String>) -> List<&2, String>:
     case Con{p, t}:
       Path.get_posix_path(p) <> get_posix_paths(t)
 
+def get_linter_instances(all: List<&2, TemplateInstance>) -> List<&2, TemplateInstance>:
+  match all:
+    case Nil{}:
+      []
+    case Con{TemplateInstance{path, template, body}, t}:
+      TemplateInstance{Path.get_posix_path(path), template, get_linter_term(body)} <> get_linter_instances(t)
+
 def get_linter_check(check: BendCheck) -> BendCheck:
   match check:
-    case BendCheck{root, sources, failure, declarations, program_paths}:
+    case BendCheck{root, sources, failure, declarations, program_paths, instances}:
       BendCheck{
         get_linter_source(root),
         get_linter_sources(sources),
         get_linter_failure(failure),
         get_linter_source_declarations(declarations),
-        get_posix_paths(program_paths)
+        get_posix_paths(program_paths),
+        get_linter_instances(instances)
       }
 
 def get_json_blank(+s: String) -> String:
@@ -4575,11 +4613,11 @@ def get_checks_reading(checks: List<&2, BendCheck>, +path: String) -> List<&2, B
   match checks:
     case Nil{}:
       []
-    case Con{BendCheck{root, +sources, failure, declarations, program_paths}, t}:
+    case Con{BendCheck{root, +sources, failure, declarations, program_paths, instances}, t}:
       get_kept(
         BendCheck,
         get_has_text(get_source_paths(sources), path),
-        BendCheck{root, sources, failure, declarations, program_paths},
+        BendCheck{root, sources, failure, declarations, program_paths, instances},
         get_checks_reading(t, path)
       )
 
@@ -4587,15 +4625,15 @@ def get_checks_passed(checks: List<&2, BendCheck>) -> List<&2, BendCheck>:
   match checks:
     case Nil{}:
       []
-    case Con{BendCheck{root, sources, None{}, declarations, program_paths}, t}:
-      BendCheck{root, sources, None{}, declarations, program_paths} <> get_checks_passed(t)
+    case Con{BendCheck{root, sources, None{}, declarations, program_paths, instances}, t}:
+      BendCheck{root, sources, None{}, declarations, program_paths, instances} <> get_checks_passed(t)
     case Con{c, t}:
       get_checks_passed(t)
 
 def get_needed_check(path: String, needs: CheckNeeds) -> IO(BendCheck):
   match needs:
-    case CheckNeeds{declarations, bodies, facts}:
-      get_check(path, declarations, bodies, facts)
+    case CheckNeeds{declarations, bodies, facts, instances}:
+      get_check(path, declarations, bodies, facts, instances)
 
 # The checks of each entry, in order, after `done`, last first.
 def get_entry_checks(
@@ -4983,7 +5021,8 @@ def serve.jobs(~rules: Unit -> List<&1, Rule>, +jobs: List<&2, LintJob>, run: Cl
       CheckNeeds{
         get_heads_need(heads, DeclarationsNeed{}),
         get_heads_need(heads, BodiesNeed{}),
-        get_heads_need(heads, FactsNeed{})
+        get_heads_need(heads, FactsNeed{}),
+        get_heads_need(heads, InstancesNeed{})
       },
       run,
       LintTally{[], [], []}
@@ -5007,7 +5046,7 @@ def serve.compiled(
         &2,
         String,
         get_order_lines(get_order_problems(get_rule_heads(rules(Unit{})))),
-        get_configs_problems(~rules, configs)
+        List.append(&2, String, get_scope_problems(rules(Unit{})), get_configs_problems(~rules, configs))
       )
     ),
     u => IO.bind(

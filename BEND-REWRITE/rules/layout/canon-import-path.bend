@@ -128,7 +128,7 @@ def findings(ds: List<&2, Lint.Declaration>, +lines: List<&2, String>) -> List<&
 
 def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, declarations}:
+    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           findings(Shared.get_declarations_of(declarations, path), lines)

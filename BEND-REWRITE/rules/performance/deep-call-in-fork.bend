@@ -217,7 +217,7 @@ def findings(+all: List<&2, Walked>, ws: List<&2, Walked>, +path: String) -> Lis
 
 def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, declarations}:
+    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:
       match root:
         case Lint.BendSource{+path, text, lines}:
           +ws = walked(Shared.get_defs(Shared.get_declarations_of(declarations, path)))

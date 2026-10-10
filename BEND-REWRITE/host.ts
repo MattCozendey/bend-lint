@@ -75,7 +75,7 @@ type Program = { module: string; ctors: Record<string, Ctor> };
 type Kept = Program & { compiler: string; files: Array<[string, string]> };
 
 // What a check is asked to give, past its sources and failure.
-type Want = { declarations: boolean; bodies: boolean; facts: boolean };
+type Want = { declarations: boolean; bodies: boolean; facts: boolean; instances: boolean };
 
 // What an effect asks the main thread.
 type Ask =
@@ -1391,6 +1391,31 @@ const programFiles = (m: Loaded, seen: Map<string, string | null>): string[] =>
     .map(([file]) => file);
 
 // The declarations of every file of the program, with what `want` asks.
+// The instances of the templates of the program's files: each with its
+// template's file, the template's name as that file spells it, and its
+// checked body, with facts if they are wanted.
+const instancesOf = (m: Loaded, c: Checked, want: Want): Plain[] =>
+  programFiles(m, c.seen).flatMap((file) => {
+    const sp = spellingOf(m, c, file, fs.readFileSync(file, "utf8"));
+    return headingsIn(c, file, sp)
+      .filter((h) => h.kind === "def")
+      .flatMap((h) =>
+        [...(c.book.tmps[h.name]?.values() ?? [])].flatMap((name): Plain[] => {
+          const tld = c.book.tlds[name];
+          return tld?.$ === "Def" && tld.e !== undefined
+            ? [
+                {
+                  $: "TemplateInstance",
+                  path: file,
+                  template: sp.spell(h.name),
+                  body: termOf(m, c, sp, tld.e, want.facts),
+                },
+              ]
+            : [];
+        }),
+      );
+  });
+
 const declarationsOf = (m: Loaded, c: Checked, want: Want): Plain[] =>
   programFiles(m, c.seen).map((file) => ({
     $: "SourceDeclarations",
@@ -1476,6 +1501,7 @@ const check = async (m: Loaded, file: string, want: Want): Promise<Plain> => {
         ? declarationsOf(m, CHECKS.get(real)!, want)
         : [],
     program_paths: programFiles(m, seen),
+    instances: "book" in read && want.instances ? instancesOf(m, CHECKS.get(real)!, want) : [],
     failure:
       failed === undefined
         ? { $: "None" }
@@ -1566,6 +1592,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     declarations: true,
     bodies: true,
     facts: true,
+    instances: false,
   })) as unknown as Sampled;
   const found = run.declarations.find((s) => s.path === at)?.declarations ?? [];
   const named = (name: string, kind: string) =>

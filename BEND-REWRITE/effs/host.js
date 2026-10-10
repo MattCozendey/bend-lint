@@ -4,8 +4,8 @@
 // thread and waits; the answer comes as a main.bend value. There is no C
 // twin: the host is JS.
 
-function bendlint_get_check(path, declarations, bodies, facts) {
-  return globalThis.BEND_HOST.ask({ op: "check", path, declarations, bodies, facts });
+function bendlint_get_check(path, declarations, bodies, facts, instances) {
+  return globalThis.BEND_HOST.ask({ op: "check", path, declarations, bodies, facts, instances });
 }
 
 function bendlint_restart_with_rules(files) {

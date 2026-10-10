@@ -457,7 +457,7 @@ def written_types(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.TypeQuestion>
 
 def run(input: Lint.RuleInput) -> Lint.RuleStep:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, declarations}:
+    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           +ds = Shared.get_declarations_of(declarations, path)

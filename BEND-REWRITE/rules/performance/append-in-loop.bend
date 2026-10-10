@@ -197,7 +197,7 @@ def judge(
 
 def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, declarations}:
+    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           judge(Shared.get_bodies(Shared.get_declarations_of(declarations, path)), lines, path)

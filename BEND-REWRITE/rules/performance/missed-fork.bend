@@ -801,7 +801,7 @@ def run.split(
 
 def run(input: Lint.RuleInput) -> Lint.RuleStep:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, declarations}:
+    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:
       match root:
         case Lint.BendSource{+path, +text, +lines}:
           run.split(split(Shared.get_declarations_of(declarations, path), [], []), text, lines)

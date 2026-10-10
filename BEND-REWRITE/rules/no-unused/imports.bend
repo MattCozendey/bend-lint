@@ -153,7 +153,7 @@ def get_unused_imports(
 
 def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
-    case Lint.RuleInput{root, sources, options, prior, +all}:
+    case Lint.RuleInput{root, sources, options, prior, +all, instances}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           get_unused_imports(

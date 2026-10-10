@@ -55,7 +55,7 @@ const rule = (id: string, scope: string, body: string): string =>
     "",
     "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
     "  match input:",
-    "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, +declarations}:",
+    "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, +declarations, instances}:",
     "      +n = Nat.show(List.length(&2, Lint.SourceDeclarations, declarations))",
     "      +c = U32.from_nat(List.length(&2, Lint.SourceDeclarations, declarations))",
     `      ${body}`,
@@ -83,7 +83,7 @@ const WIDTH = [
   "",
   "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
   "  match input:",
-  "    case Lint.RuleInput{Lint.BendSource{path, text, lines}, sources, options, prior, declarations}:",
+  "    case Lint.RuleInput{Lint.BendSource{path, text, lines}, sources, options, prior, declarations, instances}:",
   "      [Lint.Finding{Lint.Hint{}, width(options), Lint.BendSourceSpan{path, 0, 0}, []}]",
   "",
   "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
@@ -156,7 +156,7 @@ const varsRule = (id: string, need: string, helpers: string[], run: string): str
     ...helpers,
     "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
     "  match input:",
-    "    case Lint.RuleInput{root, sources, options, prior, declarations}:",
+    "    case Lint.RuleInput{root, sources, options, prior, declarations, instances}:",
     "      +seen = all(declarations)",
     `      ${run}`,
     "",
@@ -189,6 +189,64 @@ const typesRule = (need: string): string =>
     ],
     "Lint.RuleAsk{asked(seen), answers => Lint.RuleDone{shown(seen, answers)}}",
   );
+
+// A rule of `scope` that needs instances and facts, and reports, for each
+// template instance, its template and each variable in it with its type.
+const instancesRule = (id: string, scope: string): string =>
+  [
+    "import Base",
+    `import ${LINT} as Lint`,
+    "",
+    "def vars(t: Lint.BendTerm, done: List<&2, Lint.BendType>) -> List<&2, Lint.BendType>:",
+    "  match t:",
+    "    case Lint.CheckedTerm{Lint.VariableTerm{name, span}, Lint.TermFact{checked, q, uses, binder}}:",
+    "      checked <> done",
+    "    case Lint.CheckedTerm{term, fact}:",
+    "      vars(term, done)",
+    "    case Lint.LambdaTerm{name, body, span}:",
+    "      vars(body, done)",
+    "    case Lint.AnnotatedTerm{value, annotation, span}:",
+    "      vars(value, done)",
+    "    case _:",
+    "      done",
+    "",
+    "def show_all(ts: List<&2, Lint.BendType>) -> List<&2, Lint.TypeQuestion>:",
+    "  match ts:",
+    "    case Nil{}:",
+    "      []",
+    "    case Con{h, t}:",
+    "      Lint.ShowType{h} <> show_all(t)",
+    "",
+    "def asked(xs: List<&2, Lint.TemplateInstance>) -> List<&2, Lint.TypeQuestion>:",
+    "  match xs:",
+    "    case Nil{}:",
+    "      []",
+    "    case Con{Lint.TemplateInstance{path, template, body}, t}:",
+    "      List.append(&2, Lint.TypeQuestion, show_all(vars(body, [])), asked(t))",
+    "",
+    "def shown(answers: List<&2, Lint.TypeAnswer>) -> String:",
+    "  match answers:",
+    "    case Con{Lint.ShownAnswer{text}, t}:",
+    '      " " ++ text ++ shown(t)',
+    "    case _:",
+    '      ""',
+    "",
+    "def found(xs: List<&2, Lint.TemplateInstance>, +answers: List<&2, Lint.TypeAnswer>) -> List<&2, Lint.Finding>:",
+    "  match xs:",
+    "    case Nil{}:",
+    "      []",
+    "    case Con{Lint.TemplateInstance{+path, template, body}, t}:",
+    '      [Lint.Finding{Lint.Hint{}, template ++ ":" ++ shown(answers), Lint.BendSourceSpan{path, 0, 0}, []}]',
+    "",
+    "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
+    "  match input:",
+    "    case Lint.RuleInput{root, sources, options, prior, declarations, +instances}:",
+    "      Lint.RuleAsk{asked(instances), answers => Lint.RuleDone{found(instances, answers)}}",
+    "",
+    "def rules() -> List<&1, Lint.Rule>:",
+    `  [Lint.Rule{"${id}", Lint.${scope}{}, [], [], [Lint.FactsNeed{}, Lint.InstancesNeed{}], run}]`,
+    "",
+  ].join("\n");
 
 // A rule that reports, at the first variable the checker checked, whether
 // its type is the same as its binder's, then its type, its binder's and the
@@ -250,6 +308,8 @@ const RULES = {
   "types.bend": typesRule("FactsNeed"),
   "untyped.bend": typesRule("BodiesNeed"),
   "same.bend": SAME,
+  "instances.bend": instancesRule("test/instances", "ProgramSomeScope"),
+  "file-instances.bend": instancesRule("test/file-instances", "FileScope"),
   // A program rule that reports in each file it saw, at as many characters as
   // it saw files: checks of different programs disagree on where.
   "some.bend": rule("test/some", "ProgramSomeScope", "each_at(declarations, c)"),
@@ -274,7 +334,7 @@ const RULES = {
     "",
     "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
     "  match input:",
-    "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, declarations}:",
+    "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, declarations, instances}:",
     "      marked(lines, 0, path)",
     "",
     "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
@@ -396,6 +456,27 @@ describe("facts", () => {
       path.join(dir, "same.bend"),
     ]).map(({ text, message }) => ({ text, message }));
     expect(found).toEqual([{ text: "x", message: "same: N, M, N" }]);
+  });
+
+  const generic = {
+    "generic.bend":
+      "import Base\n\ntype N is Data:\n  Z{}\n\ndef generic(~T: Type, x: T) -> T:\n  x\n\ndef main() -> N:\n  generic(~N, Z{})\n",
+  };
+
+  test("a program rule that needs instances gets each template instance, with its facts", () => {
+    const found = lintIn(dir, { ...RULES, ...generic }, "generic.bend", [
+      "--rules",
+      path.join(dir, "instances.bend"),
+    ]).map(({ message }) => message);
+    expect(found).toEqual(["generic: N"]);
+  });
+
+  test("a file rule cannot need instances: they depend on who uses a template", () => {
+    const { stderr } = lintText(dir, { ...RULES, ...generic }, "generic.bend", [
+      "--rules",
+      path.join(dir, "file-instances.bend"),
+    ]);
+    expect(stderr).toContain("test/file-instances needs InstancesNeed");
   });
 });
 
