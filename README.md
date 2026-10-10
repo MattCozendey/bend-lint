@@ -17,7 +17,7 @@ No rule runs by default. Load rules with `--rules` or with the config.
 
 ## Setup
 
-1. Install Bun 1.4.2.
+1. Install Bun 1.4.3.
 2. On Windows, run Bend itself only through WSL, not natively (as of
    2026-10-09). See
    [Bend's platform limitations](https://github.com/bendlang/bend#limitations).
