@@ -2,6 +2,7 @@
 # says whether the first two are the same type, in a second.
 import Base
 import ../lint.bend as Lint
+import ../shared.bend as Shared
 
 # The spans and types of the variable uses that have facts, last first.
 type Vars is Data:
@@ -42,7 +43,7 @@ def compared(+spans: List<&2, Lint.Span>, types: List<&2, Lint.TypeRef>, +shown:
     case Con{s, ss} Con{a, Con{b, rest}}:
       do Lint.Ask<List<&2, Lint.Finding>>:
         same : Bool <- Lint.same(a, b)
-        return List.append(&2, Lint.Finding, zip(spans, shown, []), same_note(same, s))
+        return Shared.append(&2, Lint.Finding, zip(spans, shown, []), same_note(same, s))
     case _ _:
       Lint.done(zip(spans, shown, []))
 

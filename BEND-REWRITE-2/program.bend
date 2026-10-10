@@ -462,7 +462,7 @@ def Program.own(sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
 def Program.nodes(sources: List<&2, Lint.Source>, out: List<&2, List<&2, Lint.Node>>) -> List<&2, Lint.Node>:
   match sources:
     case Nil{}:
-      List.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
+      Shared.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Program.nodes(rest, nodes <> out)
 
@@ -475,7 +475,7 @@ def Whole.declarations(
 ) -> List<&2, Lint.Declaration>:
   match files:
     case Nil{}:
-      List.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
+      Shared.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Whole.declarations(rest, sources, uses, Declarations.of(sources, nodes, uses) <> out)
 

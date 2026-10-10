@@ -874,7 +874,7 @@ def done(a: Applied, +coverings: List<&2, Covering>, unpaired: List<&2, Said>, +
   match a:
     case Applied{kept, suppressed, used}:
       Suppressed{
-        List.concat(
+        Shared.concat(
           &2,
           Lint.Found,
           [
@@ -908,7 +908,7 @@ def paired(p: Pairing, +saids: List<&2, Said>, +lines: List<&2, Bool>, +linted: 
   match p:
     case Pairing{open, closed, wrong}:
       covered(
-        Covering.all(saids, lines, closed, (U32.from_nat(List.length(&2, Bool, lines)) - 1 : U32), []),
+        Covering.all(saids, lines, closed, (U32.from_nat(Shared.length(&2, Bool, lines)) - 1 : U32), []),
         Pairing.unclosed(open, wrong),
         saids,
         linted,
@@ -930,6 +930,18 @@ def when(has: Bool, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed
     case False{}:
       Suppressed{founds, []}
 
+# Whether `text` has a directive's mark, "bend-lint:". Only a 'b' starts a comparison, so it is one pass.
+def marked(text: String, found: Bool) -> Bool:
+  match text found:
+    case _ True{}:
+      True{}
+    case SNil{} False{}:
+      False{}
+    case SCon{'b', +rest} False{}:
+      marked(rest, String.starts_with(rest, "end-lint:"))
+    case SCon{c, rest} False{}:
+      marked(rest, False{})
+
 # A linted file's findings, after the directives of its text.
 def apply(+linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
-  when(String.contains(Linted.text(linted), "bend-lint:"), linted, founds)
+  when(marked(Linted.text(linted), False{}), linted, founds)

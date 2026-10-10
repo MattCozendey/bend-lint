@@ -1,17 +1,30 @@
-# What more than one file of bend-lint uses.
+# What more than one file of bend-lint uses. The list functions here recurse only in tail position, so a long list
+# is fine on the JS lane, whose stack is small; Base's append, concat, length, any and sort recurse on the stack.
 import Base
 
 # A value, with the name it is written as.
 type Named<-A: Data> is Data:
   Named{name: String, value: A}
 
-# The value `key` names in `table`.
-def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
-  match table:
-    case Nil{}:
+def lookup.hit(-A: Data, hit: Bool, v: A) -> Maybe<&2, A>:
+  match hit:
+    case True{}:
+      Some{v}
+    case False{}:
       None{}
-    case Con{Named{+k, +v}, rest}:
-      Bool.pick(Maybe<&2, A>, String.eq(k, key), Some{v}, lookup(A, key, rest))
+
+def lookup.go(-A: Data, +key: String, table: List<&2, Named<A>>, found: Maybe<&2, A>) -> Maybe<&2, A>:
+  match table found:
+    case _ Some{v}:
+      Some{v}
+    case Nil{} None{}:
+      None{}
+    case Con{Named{k, v}, rest} None{}:
+      lookup.go(A, key, rest, lookup.hit(A, String.eq(k, key), v))
+
+# The value `key` names in `table`: the first, read no further.
+def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
+  lookup.go(A, key, table, None{})
 
 # `xs`, last first, onto `out`.
 def onto(a, -A: Kind(a), xs: List<a, A>, out: List<a, A>) -> List<a, A>:
@@ -20,6 +33,44 @@ def onto(a, -A: Kind(a), xs: List<a, A>, out: List<a, A>) -> List<a, A>:
       out
     case Con{h, t}:
       onto(a, A, t, h <> out)
+
+# `xs`, then `ys`.
+def append(a, -A: Kind(a), xs: List<a, A>, ys: List<a, A>) -> List<a, A>:
+  onto(a, A, List.reverse(a, A, xs), ys)
+
+def concat.go(a, -A: Kind(a), xss: List<a, List<a, A>>, out: List<a, A>) -> List<a, A>:
+  match xss:
+    case Nil{}:
+      List.reverse(a, A, out)
+    case Con{xs, rest}:
+      concat.go(a, A, rest, onto(a, A, xs, out))
+
+# The lists of `xss`, one after another.
+def concat(a, -A: Kind(a), xss: List<a, List<a, A>>) -> List<a, A>:
+  concat.go(a, A, xss, [])
+
+def length.go(a, -A: Kind(a), xs: List<a, A>, n: Nat) -> Nat:
+  match xs:
+    case Nil{}:
+      n
+    case Con{h, t}:
+      length.go(a, A, t, 1n+n)
+
+def length(a, -A: Kind(a), xs: List<a, A>) -> Nat:
+  length.go(a, A, xs, 0n)
+
+def any.go(~A: Data, ~f: A -> Bool, xs: List<&2, A>, found: Bool) -> Bool:
+  match xs found:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{h, t} False{}:
+      any.go(~A, ~f, t, f(h))
+
+# Whether `f` holds for some `x` of `xs`; it stops at the first.
+def any(~A: Data, ~f: A -> Bool, xs: List<&2, A>) -> Bool:
+  any.go(~A, ~f, xs, False{})
 
 # `x`, if there is one, onto `out`.
 def push(-A: Data, x: Maybe<&2, A>, out: List<&2, A>) -> List<&2, A>:
@@ -39,6 +90,47 @@ def before.of(parts: List<&2, String>) -> String:
 # What comes before the first `sep` of `s`, or "" if there is none.
 def before(s: String, sep: Char) -> String:
   before.of(String.split(s, sep))
+
+def sort.runs(-A: Data, xs: List<&2, A>, out: List<&2, List<&2, A>>) -> List<&2, List<&2, A>>:
+  match xs:
+    case Nil{}:
+      List.reverse(&2, List<&2, A>, out)
+    case Con{h, t}:
+      sort.runs(A, t, [h] <> out)
+
+# One pass: each two runs merged, in order.
+def sort.pass(
+  ~A: Data,
+  ~le: A -> A -> Bool,
+  +n: Nat,
+  runs: List<&2, List<&2, A>>,
+  out: List<&2, List<&2, A>>
+) -> List<&2, List<&2, A>>:
+  match runs:
+    case Nil{}:
+      List.reverse(&2, List<&2, A>, out)
+    case Con{r, Nil{}}:
+      List.reverse(&2, List<&2, A>, r <> out)
+    case Con{r1, Con{r2, rest}}:
+      sort.pass(~A, ~le, n, rest, List.merge.go(~A, ~le, n, (Nil{}, r1, r2)) <> out)
+
+# Passes until one run is left; each pass halves the runs, so `fuel` (the length) is more than enough.
+def sort.go(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +n: Nat, runs: List<&2, List<&2, A>>) -> List<&2, A>:
+  match fuel runs:
+    case _ Nil{}:
+      []
+    case _ Con{r, Nil{}}:
+      r
+    case 0n _:
+      concat(&2, A, runs)
+    case 1n+f _:
+      sort.go(~A, ~le, f, n, sort.pass(~A, ~le, n, runs, []))
+
+# `xs` in `le` order, stable: a bottom-up merge sort.
+def sort(~A: Data, ~le: A -> A -> Bool, xs: List<&2, A>) -> List<&2, A>:
+  +ys = {xs : List<&2, A>}
+  +n = length(&2, A, ys)
+  sort.go(~A, ~le, n, n, sort.runs(A, ys, []))
 
 # A place in a text: its line and column, from 1.
 type Position is Data:
@@ -125,13 +217,13 @@ def Walk.positions(located: List<&2, Located>, out: List<&2, Position>) -> List<
 
 def positions.of(+sorted: List<&2, Placed>, text: String) -> List<&2, Position>:
   Walk.positions(
-    List.sort(~Located, ~Located.le, Walk.go(text, 0, 1, 1, Walk.emit(sorted, Walk.due(sorted, 0), 0, 1, 1, []))),
+    sort(~Located, ~Located.le, Walk.go(text, 0, 1, 1, Walk.emit(sorted, Walk.due(sorted, 0), 0, 1, 1, []))),
     []
   )
 
 # Where each offset of `offsets` is in `text`, in order: one pass over the text, whatever the number of offsets.
 def positions(text: String, offsets: List<&2, U32>) -> List<&2, Position>:
-  positions.of(List.sort(~Placed, ~Placed.le, Placed.of(offsets, 0, [])), text)
+  positions.of(sort(~Placed, ~Placed.le, Placed.of(offsets, 0, [])), text)
 
 def deal.go(a, -A: Kind(a), xs: List<a, A>, even: Bool, l: List<a, A>, r: List<a, A>) -> List<a, A> & List<a, A>:
   match xs even:

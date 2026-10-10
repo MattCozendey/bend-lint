@@ -168,10 +168,10 @@ def Rule.all(
 ) -> List<&1, Job>:
   match depth halves:
     case 0n Tuple{a, b}:
-      List.append(&1, Job, Rule.each(a, settings, place, []), Rule.each(b, settings, place, []))
+      Shared.append(&1, Job, Rule.each(a, settings, place, []), Rule.each(b, settings, place, []))
     case 1n+d Tuple{a, b}:
       x y = Rule.all(d, Shared.deal(&1, Lint.Rule, a), settings, place) Rule.all(d, Shared.deal(&1, Lint.Rule, b), settings, place)
-      List.append(&1, Job, x, y)
+      Shared.append(&1, Job, x, y)
 
 # The jobs of the rules the config leaves on at `place`.
 def Rule.jobs(~rules: List<&1, Lint.Rule>, +settings: List<&2, Shared.Named<Config.Setting>>, +place: Place) -> List<&1, Job>:
@@ -200,10 +200,10 @@ def File.all(
 ) -> List<&1, Job>:
   match depth halves:
     case 0n Tuple{a, b}:
-      List.append(&1, Job, File.each(~rules, a, settings, program, []), File.each(~rules, b, settings, program, []))
+      Shared.append(&1, Job, File.each(~rules, a, settings, program, []), File.each(~rules, b, settings, program, []))
     case 1n+d Tuple{a, b}:
       x y = File.all(~rules, d, Shared.deal(&2, Lint.Source, a), settings, program) File.all(~rules, d, Shared.deal(&2, Lint.Source, b), settings, program)
-      List.append(&1, Job, x, y)
+      Shared.append(&1, Job, x, y)
 
 # The jobs of the program rules on the whole program of each check, numbered from `check`.
 def Check.jobs(
@@ -251,7 +251,7 @@ def Round.hold(jobs: List<&1, Job>, held: List<&1, Held>, questions: List<&2, Li
     case Con{Job{r, s, p, g, Lint.Finished{fs}}, rest}:
       Round.hold(rest, Settled{r, s, p, g, fs} <> held, questions)
     case Con{Job{r, s, p, g, Lint.Pending{+qs, k}}, rest}:
-      Round.hold(rest, Held{r, s, p, g, List.length(&2, Lint.Question, qs), k} <> held, Shared.onto(&2, Lint.Question, qs, questions))
+      Round.hold(rest, Held{r, s, p, g, Shared.length(&2, Lint.Question, qs), k} <> held, Shared.onto(&2, Lint.Question, qs, questions))
 
 # The held jobs, each given its answers (the next of `answers`, as many as it waits for), as jobs again.
 def Round.resume(held: List<&1, Held>, +answers: List<&2, Lint.Answer>, out: List<&1, Job>) -> List<&1, Job>:
@@ -420,7 +420,7 @@ def Tagged.of(tagged: List<&2, Tagged>, +group: U32, out: List<&2, Lint.Found>) 
 def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>, +out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match more:
     case Nil{}:
-      List.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, out))
+      Shared.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, out))
     case Con{+f, rest}:
       Merge.union(founds, rest, Found.keep(Bool.not(Found.among(f, founds) || Found.among(f, out)), f, out))
 
@@ -582,8 +582,8 @@ def print(report: Report) -> IO(Unit):
       do IO<Unit>:
         say(List.reverse(&2, String, lines))
         end(
-          List.any(~&2, ~Lint.Found, ~Found.is_error, kept),
-          summary(List.length(&2, Lint.Found, kept), List.length(&2, Lint.Found, suppressed))
+          Shared.any(~Lint.Found, ~Found.is_error, kept),
+          summary(Shared.length(&2, Lint.Found, kept), Shared.length(&2, Lint.Found, suppressed))
         )
 
 # Each linted file's findings: those of the file rules, then those of the program rules, after its directives.
@@ -607,7 +607,7 @@ def report(
           text,
           Directives.apply(
             Directives.Linted{path, text, known, ran},
-            List.append(&2, Lint.Found, Found.in(files, path, []), Found.in(program, path, []))
+            Shared.append(&2, Lint.Found, Found.in(files, path, []), Found.in(program, path, []))
           ),
           out
         )
@@ -651,7 +651,7 @@ def lint(
     Rounds.go(
       budget(),
       Round.hold(
-        List.append(
+        Shared.append(
           &1,
           Job,
           File.all(
@@ -671,7 +671,7 @@ def lint(
       finish(
         linted,
         tagged,
-        List.length(&2, Lint.Program, programs),
+        Shared.length(&2, Lint.Program, programs),
         Rule.modes(rules, []),
         partial,
         Rule.ids(rules, []),
