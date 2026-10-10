@@ -1,5 +1,5 @@
 # This file's goal is to become a bend version of the bend-lint tool.
-# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects, the host, path.bend, and the rules folder), even if it contains laws and/or proofs.
+# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects, the host, path.bend, testing.ts and the rules folder), even if it contains laws and/or proofs.
 # The host (host.ts) is the one TS file of the rewrite, and its entry point: `bun host.ts <args>`. It finds Bend, loads
 # its checker and compiler into its own process and patches the checker (the seam), compiles this file with the
 # --rules files, runs it, and answers its effects. It holds no linting logic: only what only TS can do.
