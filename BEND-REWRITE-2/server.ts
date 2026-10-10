@@ -1,9 +1,12 @@
 // The checker server: see the header of lint.bend. It runs a rules program
 // (a build of a file that imports lint.bend), and answers its questions
 // about Bend files over local TCP, until the program exits. It is the one TS
-// file of this folder, and it goes when Bend's checker is Bend.
+// file of this folder, and it goes when Bend's checker is Bend, so any
+// optimization is fair here, local mutation included (AGENTS.md).
 //
-// Usage: bun server.ts <program> <args...> (or node, 24 or later)
+// Usage: bun server.ts <program> <args...>
+// Node 24 or later works too, but Bend's checker can need more than its
+// default heap: pass --max-old-space-size=8192 for a large program.
 //
 // It loads a copy of bend.ts with EDITS made: probes that report what Bend's
 // parser reads, while the check parses it. A file's syntax goes out as Bend's
@@ -39,7 +42,7 @@ type Edit = [string, string];
 
 // What the probes report, in the order the parser reads it.
 type Seen =
-  | { $: "file"; real: string; text: string; body: string; ns: string; al: Record<string, string> }
+  | { $: "file"; real: string; text: string; ns: string; al: Record<string, string> }
   | { $: "import"; real: string; at: number; line: string; path: string; alias?: string }
   | { $: "declared"; p: Parse; kind: string; k: string; nm?: string; end: number }
   | { $: "tele"; close: string; tele: Cell[]; tk: string[] }
@@ -86,7 +89,7 @@ const CACHE = nodePath.join(
 const EDITS: Edit[] = [
   [
     'parse_book(book, dir, body.join("\\n"), ns, al);',
-    'seeFile(real, text, body.join("\\n"), ns, al);\n  parse_book(book, dir, body.join("\\n"), ns, al);',
+    'seeFile(real, text, ns, al);\n  parse_book(book, dir, body.join("\\n"), ns, al);',
   ],
   ['body[i] = "";', 'seeImport(real, at, lines[i], m);\n    body[i] = "";'],
   [
@@ -118,8 +121,8 @@ const PROBES = `
 const BEND_LINT_SEE = (seen: unknown): void => {
   (globalThis as { BEND_LINT_SEE?: (seen: unknown) => void }).BEND_LINT_SEE?.(seen);
 };
-function seeFile(real: string, text: string, body: string, ns: string, al: Record<Name, Name>): void {
-  BEND_LINT_SEE({ $: "file", real, text, body, ns, al });
+function seeFile(real: string, text: string, ns: string, al: Record<Name, Name>): void {
+  BEND_LINT_SEE({ $: "file", real, text, ns, al });
 }
 function seeImport(real: string, at: number, line: string, m: RegExpExecArray): void {
   BEND_LINT_SEE({ $: "import", real, at, line, path: m[1], alias: m[2] });
@@ -258,17 +261,20 @@ const pointsOf = (text: string): ((off: number) => number) =>
     ? (off) => text.slice(0, off).match(/./gsu)?.length ?? 0
     : (off) => off;
 
-// A span of what the parser read of `file` as a Range on disk. The parser
+// A span of what the parser `read` of `file` as a Range on disk. The parser
 // reads the file with its import lines blanked, so a span moves by line.
-const placerOf = (file: SeenFile): ((s: Span | undefined) => Range | undefined) => {
+const placerOf = (
+  file: SeenFile,
+  read: Parse | undefined,
+): ((s: Span | undefined) => Range | undefined) => {
   const disk = starts(file.text);
-  const read = starts(file.body);
+  const lines = starts(read?.str ?? file.text);
   const points = pointsOf(file.text);
   const at = (off: number): number => {
-    const line = lastAtMost(read, off);
-    return points(disk[line] + off - read[line]);
+    const line = lastAtMost(lines, off);
+    return points(disk[line] + off - lines[line]);
   };
-  return (s) => (s === undefined || s.file.str !== file.body ? undefined : [at(s.beg), at(s.end)]);
+  return (s) => (s === undefined || s.file !== read ? undefined : [at(s.beg), at(s.end)]);
 };
 
 const tree = (kind: string, kids: Tree[], more: Partial<Tree> = {}): Tree => ({
@@ -375,7 +381,8 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
 // The trees of what a file declares: each declaration with its binders,
 // signature and body; a constructor under its type.
 const declarationsOf = (parsed: Parsed): Tree[] => {
-  const place = placerOf(parsed.file);
+  const heads = parsed.seen.flatMap((seen, at) => (seen.$ === "declared" ? [{ seen, at }] : []));
+  const place = placerOf(parsed.file, heads[0]?.seen.p);
   const { term, body } = syntaxOf(place);
   const under = (seen: Seen): Tree[] =>
     seen.$ === "tele"
@@ -396,20 +403,20 @@ const declarationsOf = (parsed: Parsed): Tree[] => {
     parsed.file.ns !== "" && k.startsWith(parsed.file.ns + ":")
       ? k.slice(parsed.file.ns.length + 1)
       : k;
-  const heads = parsed.seen.flatMap((seen, at) => (seen.$ === "declared" ? [{ seen, at }] : []));
-  return heads.reduce<Tree[]>((done, { seen, at }, j) => {
+  const declared = heads.map(({ seen, at }, j) => {
     const name = seen.nm ?? own(seen.k);
     const next = heads[j + 1]?.at ?? parsed.seen.length;
-    const declared = tree(seen.kind, parsed.seen.slice(at + 1, next).flatMap(under), {
+    return tree(seen.kind, parsed.seen.slice(at + 1, next).flatMap(under), {
       name,
       target: seen.k,
       range: place({ file: seen.p, beg: seen.end - name.length, end: seen.end }),
     });
-    const last = done.at(-1);
-    return seen.kind === "Constructor" && last !== undefined
-      ? [...done.slice(0, -1), { ...last, kids: [...last.kids, declared] }]
-      : [...done, declared];
-  }, []);
+  });
+  const tops = declared.flatMap((d, i) => (d.kind === "Constructor" ? [] : [i]));
+  return tops.map((i, j) => ({
+    ...declared[i],
+    kids: [...declared[i].kids, ...declared.slice(i + 1, tops[j + 1] ?? declared.length)],
+  }));
 };
 
 // The trees of a file's imports: each alias (or Base) and the file it loads.
@@ -460,16 +467,13 @@ const nodeRecords = (trees: Tree[], first: number): string[] => {
 };
 
 // The files the check parsed, each with what its parser read.
-const parsedOf = (seen: Seen[]): Parsed[] =>
-  seen.reduce<Parsed[]>((done, s) => {
-    if (s.$ === "file") {
-      return [...done, { file: s, seen: [] }];
-    }
-    const last = done.at(-1);
-    return s.$ === "import" || last === undefined
-      ? done
-      : [...done.slice(0, -1), { ...last, seen: [...last.seen, s] }];
-  }, []);
+const parsedOf = (seen: Seen[]): Parsed[] => {
+  const at = seen.flatMap((s, i) => (s.$ === "file" ? [i] : []));
+  return at.map((i, j) => ({
+    file: seen[i] as SeenFile,
+    seen: seen.slice(i + 1, at[j + 1] ?? seen.length).filter((s) => s.$ !== "import"),
+  }));
+};
 
 // The answer to `check <path>`: each file the check parsed (path, namespace,
 // text), then its syntax nodes; or why the check failed. The probe is

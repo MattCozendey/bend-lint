@@ -49,7 +49,9 @@ lint and type check.
 
 ### Style
 
-- Write functional code without mutation.
+- Write functional code without mutation. Exception: `BEND-REWRITE-2/server.ts`
+  goes when Bend's checker is Bend, so any optimization is fair there,
+  mutation included.
 - Lay out each file in this order, with a comment before each section:
   imports, types, constants, functions, side effects.
 - Write functions as `const` arrow functions.
