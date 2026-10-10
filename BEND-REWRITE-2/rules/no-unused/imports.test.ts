@@ -1,0 +1,62 @@
+// Imports
+// =======
+
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+
+import { build, lint } from "../../testing.ts";
+import type { Found } from "../../testing.ts";
+
+// Constants
+// =========
+
+// Built once, before the tests; nothing to build when Bend is not given.
+const PROGRAM = process.env.BEND_DIR === undefined ? "" : build("rules/no-unused/imports.bend");
+
+const UTIL = "import Base\n\ndef two() -> U32:\n  2\n\nlaw two_is_two:\n  {two() == 2 : U32}\n";
+
+// Functions
+// =========
+
+const found = (main: string): Found[] =>
+  lint(PROGRAM, { "main.bend": main, "util.bend": UTIL }, "main.bend");
+
+// Side effects
+// ============
+
+setDefaultTimeout(120_000);
+
+(process.env.BEND_DIR === undefined ? describe.skip : describe)("no-unused/imports", () => {
+  test("an alias that names nothing is reported, at the alias", () => {
+    expect(
+      found(
+        "import Base\nimport ./util.bend as U\nimport ./util.bend as V\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
+      ),
+    ).toEqual([
+      {
+        file: "main.bend",
+        at: "3:23",
+        severity: "warning",
+        code: "no-unused/imports",
+        message: "Remove the import V: nothing uses it.",
+      },
+    ]);
+  });
+
+  test("an alias a name is written through is used", () => {
+    expect(
+      found("import Base\nimport ./util.bend as U\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n"),
+    ).toEqual([]);
+  });
+
+  test("a fill of an imported law uses its alias; Base, used by no name, is reported", () => {
+    expect(found("import Base\nimport ./util.bend as U\n\ndef U.two_is_two():\n  {==}\n")).toEqual([
+      {
+        file: "main.bend",
+        at: "1:8",
+        severity: "warning",
+        code: "no-unused/imports",
+        message: "Remove the import Base: nothing uses it.",
+      },
+    ]);
+  });
+});

@@ -389,23 +389,223 @@ def Check.of(records: List<&2, List<&2, String>>) -> IO(Check):
 def Check.run(path: String) -> IO(Check):
   IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), Check.of)
 
-# CLI
-# ===
 
-# A source as a summary line, onto `out`.
-def cli.summary(sources: List<&2, Source>, out: List<&2, String>) -> String:
+# Rules
+# =====
+
+type Severity is Data:
+  Error{}
+  Warning{}
+  Information{}
+  Hint{}
+
+# What a rule finds: how severe, where, and what to do about it.
+type Finding is Data:
+  Finding{severity: Severity, span: Span, message: String}
+
+# A finding, with the id of the rule that found it.
+type Found is Data:
+  Found{rule: String, finding: Finding}
+
+# What a file rule sees: the program, from one of its files.
+type Here is Data:
+  Here{program: Program, source: Source}
+
+type Rule is Type:
+  Rule{id: String, run: @+here: Here -> List<&2, Finding>}
+
+# The nodes of the file a rule runs on.
+def Here.nodes(here: Here) -> List<&2, Node>:
+  match here:
+    case Here{program, Source{path, namespace, text, nodes}}:
+      nodes
+
+# The namespace of the file at `path`, as the check names it: "" for Base, or a file the check did not parse.
+def Here.namespace_of.go(sources: List<&2, Source>, +path: String) -> String:
   match sources:
     case Nil{}:
-      String.join(List.reverse(&2, String, out), "\n")
-    case Con{Source{path, namespace, text, nodes}, rest}:
-      cli.summary(rest, (path ++ ": " ++ Nat.show(List.length(&2, Node, nodes)) ++ " nodes") <> out)
+      ""
+    case Con{Source{+p, namespace, text, nodes}, rest}:
+      Bool.pick(String, String.eq(p, path), namespace, Here.namespace_of.go(rest, path))
 
-def cli.shown(check: Check) -> String:
-  match check:
-    case Passed{Program{sources}}:
-      cli.summary(sources, [])
-    case Failed{message}:
-      message
+def Here.namespace_of(here: Here, path: String) -> String:
+  match here:
+    case Here{Program{sources}, source}:
+      Here.namespace_of.go(sources, path)
+
+# The global names the declarations of a file declare, onto `out`.
+def Here.declared.go(nodes: List<&2, Node>, out: List<&2, String>) -> List<&2, String>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Node{id, 0, syntax, name, binder, quantity, span, target}, rest}:
+      Here.declared.go(rest, target <> out)
+    case Con{n, rest}:
+      Here.declared.go(rest, out)
+
+def Here.declared(here: Here) -> List<&2, String>:
+  Here.declared.go(Here.nodes(here), [])
+
+# The global name a node uses, if it uses one.
+def Node.used(node: Node) -> Maybe<&2, String>:
+  match node:
+    case Node{id, parent, Reference{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, Construction{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, TypeApplication{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, PatternConstructor{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, Elimination{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, Literal{}, name, binder, quantity, span, target}:
+      Some{target}
+    case _:
+      None{}
+
+# `c` onto `out`, unless it is the ":" that ends a namespace.
+def Name.keep(colon: Bool, c: Char, out: String) -> String:
+  match colon:
+    case True{}:
+      out
+    case False{}:
+      SCon{c, out}
+
+# The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
+# `colon` is whether the last character read was that ":"; `out` is what came before it, last first.
+def Name.namespace.go(s: String, colon: Bool, out: String) -> String:
+  match s colon:
+    case _ True{}:
+      String.reverse(out)
+    case SNil{} False{}:
+      ""
+    case SCon{+c, t} False{}:
+      Name.namespace.go(t, Char.is_eq(c, ':'), Name.keep(Char.is_eq(c, ':'), c, out))
+
+def Name.namespace(name: String) -> String:
+  Name.namespace.go(name, False{}, "")
+
+# Whether `f(c, node)` holds for a node of `nodes`; `hit` is whether it held for one before.
+def any.go(~C: Data, ~f: @+c: C -> Node -> Bool, nodes: List<&2, Node>, hit: Bool, +c: C) -> Bool:
+  match nodes hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{n, rest} False{}:
+      any.go(~C, ~f, rest, f(c, n), c)
+
+def any(~C: Data, ~f: @+c: C -> Node -> Bool, +c: C, nodes: List<&2, Node>) -> Bool:
+  any.go(~C, ~f, nodes, False{}, c)
+
+# `xs` onto `out`, which is last first.
+def onto(xs: List<&2, Finding>, out: List<&2, Finding>) -> List<&2, Finding>:
+  match xs:
+    case Nil{}:
+      out
+    case Con{h, t}:
+      onto(t, h <> out)
+
+# The findings `f(c, node)` gives for the nodes of `nodes`, in order; `out` holds those so far, last first.
+def each.go(~C: Data, ~f: @+c: C -> Node -> List<&2, Finding>, nodes: List<&2, Node>, +c: C, out: List<&2, Finding>) -> List<&2, Finding>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, Finding, out)
+    case Con{n, rest}:
+      each.go(~C, ~f, rest, c, onto(f(c, n), out))
+
+def each(~C: Data, ~f: @+c: C -> Node -> List<&2, Finding>, +c: C, nodes: List<&2, Node>) -> List<&2, Finding>:
+  each.go(~C, ~f, nodes, c, [])
+
+# Running
+# =======
+
+# Each finding of `findings`, tagged with `rule`, onto `out` (last first).
+def Found.tag(+rule: String, findings: List<&2, Finding>, out: List<&2, Found>) -> List<&2, Found>:
+  match findings:
+    case Nil{}:
+      out
+    case Con{f, rest}:
+      Found.tag(rule, rest, Found{rule, f} <> out)
+
+# What each rule finds on `here`, tagged with its id, onto `out` (last first).
+def Rule.run_each(rules: List<&1, Rule>, +here: Here, out: List<&2, Found>) -> List<&2, Found>:
+  match rules:
+    case Nil{}:
+      out
+    case Con{Rule{id, run}, rest}:
+      Rule.run_each(rest, here, Found.tag(id, run(here), out))
+
+# The file the check was for: the last it parsed, as its imports come first.
+def Program.root(sources: List<&2, Source>, last: Maybe<&2, Source>) -> Maybe<&2, Source>:
+  match sources:
+    case Nil{}:
+      last
+    case Con{s, rest}:
+      Program.root(rest, Some{s})
+
+# Output
+# ======
+
+def Severity.show(s: Severity) -> String:
+  match s:
+    case Error{}:
+      "error"
+    case Warning{}:
+      "warning"
+    case Information{}:
+      "information"
+    case Hint{}:
+      "hint"
+
+def Severity.is_error(s: Severity) -> Bool:
+  match s:
+    case Error{}:
+      True{}
+    case _:
+      False{}
+
+# The line and column (from 1) after reading `s`, from `line` and `column`.
+def Text.position.go(s: String, +line: U32, +column: U32) -> String:
+  match s:
+    case SNil{}:
+      U32.show(line) ++ ":" ++ U32.show(column)
+    case SCon{+c, t}:
+      Text.position.go(
+        t,
+        Bool.pick(U32, Char.is_eq(c, '\n'), (line + 1 : U32), line),
+        Bool.pick(U32, Char.is_eq(c, '\n'), 1, (column + 1 : U32))
+      )
+
+# Where offset `at` of `text` is, as line:column (from 1).
+def Text.position(text: String, at: U32) -> String:
+  Text.position.go(String.take(text, U32.to_nat(at)), 1, 1)
+
+# A finding as a line: path:line:column: severity rule: message.
+def Found.show(+text: String, found: Found) -> String:
+  match found:
+    case Found{rule, Finding{+severity, Span{path, beg, end}, message}}:
+      path ++ ":" ++ Text.position(text, beg) ++ ": " ++ Severity.show(severity) ++ " " ++ rule ++ ": " ++ message
+
+def Found.lines(+text: String, founds: List<&2, Found>, out: List<&2, String>) -> List<&2, String>:
+  match founds:
+    case Nil{}:
+      out
+    case Con{f, rest}:
+      Found.lines(text, rest, Found.show(text, f) <> out)
+
+def Found.any_error(founds: List<&2, Found>, hit: Bool) -> Bool:
+  match founds hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{Found{rule, Finding{severity, span, message}}, rest} False{}:
+      Found.any_error(rest, Severity.is_error(severity))
+
+# CLI
+# ===
 
 def cli.file(args: List<String>) -> IO(String):
   match args:
@@ -414,9 +614,49 @@ def cli.file(args: List<String>) -> IO(String):
     case _:
       IO.die(String, 2, "usage: bun server.ts <program> <file>")
 
-def cli() -> IO(Unit):
+# Prints `lines`, if there are any.
+def cli.say(lines: List<&2, String>) -> IO(Unit):
+  match lines:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case Con{h, t}:
+      IO.print(String.join(h <> t, "\n"))
+
+def cli.end(failed: Bool, n: Nat) -> IO(Unit):
+  match failed:
+    case True{}:
+      IO.die(Unit, 1, "bend-lint: FAIL")
+    case False{}:
+      IO.print("bend-lint: " ++ Nat.show(n) ++ " finding(s)")
+
+# Prints the findings, last first, of the file whose text is `text`; fails if one is an error.
+def cli.print(+text: String, +founds: List<&2, Found>) -> IO(Unit):
+  do IO<Unit>:
+    cli.say(Found.lines(text, founds, []))
+    cli.end(Found.any_error(founds, False{}), List.length(&2, Found, founds))
+
+def cli.lint(~rules: List<&1, Rule>, +program: Program, root: Maybe<&2, Source>) -> IO(Unit):
+  match root:
+    case Some{Source{+path, namespace, +text, nodes}}:
+      cli.print(text, Rule.run_each(rules, Here{program, Source{path, namespace, text, nodes}}, []))
+    case None{}:
+      IO.die(Unit, 2, "bend-lint: the check parsed no file")
+
+def cli.checked(~rules: List<&1, Rule>, +file: String, check: Check) -> IO(Unit):
+  match check:
+    case Passed{Program{+sources}}:
+      cli.lint(~rules, Program{sources}, Program.root(sources, None{}))
+    case Failed{message}:
+      do IO<Unit>:
+        IO.print(file ++ ": error bend/check: " ++ message)
+        IO.die(Unit, 1, "bend-lint: FAIL")
+
+def cli.run(~rules: List<&1, Rule>, +file: String) -> IO(Unit):
+  IO.bind(Check, Unit, Check.run(file), check => cli.checked(~rules, file, check))
+
+# The command line: lint the named file with `rules`.
+def cli(~rules: List<&1, Rule>) -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     file : String <- cli.file(args)
-    check : Check <- Check.run(file)
-    IO.print(cli.shown(check))
+    cli.run(~rules, file)

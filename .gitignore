@@ -1,3 +1,4 @@
 node_modules/
 src/.tmp/
 .bend2
+BEND-REWRITE-2/build/

@@ -290,6 +290,12 @@ const tree = (kind: string, kids: Tree[], more: Partial<Tree> = {}): Tree => ({
 // The trees of a term, a body and a pattern, as the parser read them.
 const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
   const range = (s: Span | undefined): Partial<Tree> => ({ range: place(s) });
+  // A use's name as written: the name its span starts with, if any.
+  const used = (k: string, s: Span | undefined): Partial<Tree> => {
+    const name = /[A-Za-z_][\w.]*/y;
+    name.lastIndex = s?.beg ?? 0;
+    return { target: k, name: (s && name.exec(s.file.str)?.[0]) ?? "", ...range(s) };
+  };
   const term = (t: LTerm): Tree => {
     const of = (TERMS as Record<string, ((t: LTerm) => Tree) | undefined>)[t.$];
     if (of === undefined) {
@@ -306,7 +312,7 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
       t.v === undefined
         ? tree("Variable", [], { name: t.k, binder: String(t.i), ...range(t.s) })
         : tree("Reference", [], { name: t.k, target: t.v.$ === "Ref" ? t.v.k : "", ...range(t.s) }),
-    Ref: (t) => tree("Reference", [], { target: t.k, ...range(t.s) }),
+    Ref: (t) => tree("Reference", [], used(t.k, t.s)),
     Sub: (t) =>
       tree("Substitution", [patt(t.v), term(t.f)], { binder: String(t.i), ...range(t.s) }),
     Let: (t) =>
@@ -343,8 +349,8 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
         ...range(t.s),
       }),
     App: (t) => tree("Application", [term(t.f), term(t.x)], range(t.s)),
-    ADT: (t) => tree("TypeApplication", t.x.map(term), { target: t.k, ...range(t.s) }),
-    Ctr: (t) => tree("Construction", t.x.map(term), { target: t.k, ...range(t.s) }),
+    ADT: (t) => tree("TypeApplication", t.x.map(term), used(t.k, t.s)),
+    Ctr: (t) => tree("Construction", t.x.map(term), used(t.k, t.s)),
     Lit: (t) => tree("Literal", [], { name: String(t.v), target: t.k, ...range(t.s) }),
     Mat: (t) => tree("Elimination", [term(t.h), term(t.m)], { target: t.k, ...range(t.s) }),
     Efq: leaf("Absurd"),
@@ -362,7 +368,7 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
           quantity: QUANTITIES[q.q.$],
           ...range(q.s),
         })
-      : tree("PatternConstructor", q.x.map(patt), { target: q.k, ...range(q.s) });
+      : tree("PatternConstructor", q.x.map(patt), used(q.k, q.s));
   const body = (b: Body): Tree =>
     b.$ === "Match"
       ? tree(
