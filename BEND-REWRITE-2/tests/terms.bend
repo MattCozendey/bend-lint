@@ -25,14 +25,14 @@ def kept(k: Maybe<&2, String>, span: Lint.Span, t: Lint.TypeRef, acc: Terms) -> 
     case None{} _:
       acc
 
-def keep(node: Maybe<&2, Lint.Node>, t: Lint.TypeRef, acc: Terms) -> Terms:
+def keep(node: Lint.Node, t: Lint.TypeRef, acc: Terms) -> Terms:
   match node:
-    case Some{Lint.Node{id, p, o, syntax, name, b, q, Some{span}, target}}:
+    case Lint.Node{id, p, o, syntax, name, b, q, Some{span}, target}:
       kept(kind(syntax), span, t, acc)
     case _:
       acc
 
-def terms(facts: List<&2, Lint.Fact>, +here: Lint.Here, acc: Terms) -> Terms:
+def terms(facts: List<&2, Lint.Fact>, acc: Terms) -> Terms:
   match facts acc:
     case Nil{} Terms{spans, kinds, types}:
       Terms{
@@ -41,9 +41,9 @@ def terms(facts: List<&2, Lint.Fact>, +here: Lint.Here, acc: Terms) -> Terms:
         List.reverse(&2, Lint.TypeRef, types)
       }
     case Con{Lint.Fact{n, Lint.OfTerm{}, q, t}, rest} _:
-      terms(rest, here, keep(Lint.Here.node(here, n), t, acc))
+      terms(rest, keep(n, t, acc))
     case Con{f, rest} _:
-      terms(rest, here, acc)
+      terms(rest, acc)
 
 def zip(spans: List<&2, Lint.Span>, kinds: List<&2, String>, shown: List<&2, String>, out: List<&2, Lint.Finding>) ->
   List<&2, Lint.Finding>:
@@ -61,7 +61,7 @@ def described(v: Terms) -> Lint.Ask(List<&2, Lint.Finding>):
         return zip(spans, kinds, shown, [])
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  described(terms(Lint.Here.facts(here), here, Terms{[], [], []}))
+  described(terms(Lint.Here.facts(here), Terms{[], [], []}))
 
 def rule() -> Lint.Rule:
   Lint.FileRule{"tests/terms", Lint.Needs{True{}}, run}

@@ -98,13 +98,13 @@ type Role is Data:
   OfTerm{}
   OfBinder{}
 
-# What the checker found for a node of the source: the node (by id), what the fact says of it, the quantity (how
+# What the checker found for a node of the source: the node, what the fact says of it, the quantity (how
 # often the term is demanded, or the binder's), and the type. A fact is never wrong, but a node can have none: a term
 # the checker rewrote into another (a scrutinee used again, a call a template took) is not typed as itself. A node
 # has one fact per distinct type: pattern compilation can check one term in several branches, under different
 # refinements. Only for a rule that needs facts.
 type Fact is Data:
-  Fact{node: U32, role: Role, quantity: Quantity, checked: TypeRef}
+  Fact{node: Node, role: Role, quantity: Quantity, checked: TypeRef}
 
 # A file the check parsed: its path, its namespace in the check, its text, its nodes (parents first), and the
 # checker's facts on its terms, if a rule needs them.
@@ -176,10 +176,14 @@ def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
     case Con{Found{rule, Finding{severity, Span{path, beg, end}, message}}, rest}:
       Found.offsets(rest, beg <> out)
 
-# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; and,
-# if a rule needs facts, its nodes by id.
+# A file's nodes by id: `first` is its first node's.
+type Index is Data:
+  Index{first: U32, nodes: Shared.Indexed<Node>}
+
+# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; and its
+# nodes by id.
 type Here is Data:
-  Here{program: Program, source: Source, declarations: List<&2, Declaration>, index: Map<&2, Maybe<&2, Node>>}
+  Here{program: Program, source: Source, declarations: List<&2, Declaration>, index: Index}
 
 # What a program rule sees: the program (its files, hub packages aside), and every declaration of its files, with their
 # uses in all of them.
@@ -324,16 +328,11 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
     case Here{program, source, declarations, index}:
       declarations
 
-def Here.found(got: Map<&2, Maybe<&2, Node>> & Maybe<&2, Node>) -> Maybe<&2, Node>:
-  match got:
-    case Tuple{m, node}:
-      node
-
-# The node with id `id`, of the file a rule runs on: a fact's node. Indexed only if a rule needs facts.
-def Here.node(here: Here, id: U32) -> Maybe<&2, Node>:
+# The node with id `id`, of the file a rule runs on: a node's parent, say.
+def Here.node(here: Here, +id: U32) -> Maybe<&2, Node>:
   match here:
-    case Here{program, source, declarations, index}:
-      Here.found(Map.get(Maybe<&2, Node>, None{}, index, U32.show(id)))
+    case Here{program, source, declarations, Index{+first, nodes}}:
+      Shared.Indexed.get(Node, nodes, (id - first : U32))
 
 def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
   match whole:

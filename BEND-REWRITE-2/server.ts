@@ -993,38 +993,33 @@ const distinct = (Bend: Bend, js: Judged[]): Judged[] =>
         return out;
       }, []);
 
-// The fact records of the nodes numbered from `first` to `last`: each of a
-// node's distinct judgments, with a new handle to its type in check `id`.
-const factRecords = (
+// The records of the nodes numbered from `first`, each followed by its
+// facts: each of its distinct judgments, with a new handle to its type in
+// check `id`.
+const nodesWithFacts = (
   Bend: Bend,
+  nodes: string[],
   judged: Map<number, Judged[]>,
   first: number,
-  last: number,
   id: number,
 ): string[] => {
   const out: string[] = [];
-  for (let node = first; node < last; node++) {
-    distinct(Bend, judged.get(node) ?? []).forEach(({ role, ty, bok, dep, scope, qt, file }) => {
-      const types = TYPES[id - 1];
-      types.push({ ty, bok, dep, scope, file });
-      out.push(
-        record([
-          "fact",
-          String(node),
-          role,
-          String(id),
-          String(types.length - 1),
-          QUANTITIES[qt.$],
-        ]),
-      );
-    });
-  }
+  const types = TYPES[id - 1];
+  nodes.forEach((node, j) => {
+    out.push(node);
+    distinct(Bend, judged.get(first + j) ?? []).forEach(
+      ({ role, ty, bok, dep, scope, qt, file }) => {
+        types.push({ ty, bok, dep, scope, file });
+        out.push(record(["fact", role, String(id), String(types.length - 1), QUANTITIES[qt.$]]));
+      },
+    );
+  });
   return out;
 };
 
 // The answer to `check <path> <facts|syntax>`: each file the check parsed
-// (path, namespace, text), then its syntax nodes, then, with facts, the
-// checker's facts on them; or, if the check failed, the files it read, then
+// (path, namespace, text), then its syntax nodes, each followed, with facts,
+// by the checker's facts on it; or, if the check failed, the files it read, then
 // why. The probes are global, so checks must not overlap.
 const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
   const book = seeded(Bend, base);
@@ -1073,8 +1068,7 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
     return sections
       .flatMap(({ file, nodes, first }) => [
         record(["file", file.real, file.ns, file.text]),
-        ...nodes,
-        ...factRecords(Bend, judged, first, first + nodes.length, id),
+        ...nodesWithFacts(Bend, nodes, judged, first, id),
       ])
       .join("");
   } catch (e) {

@@ -89,7 +89,7 @@ def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Node>:
     case _:
       None{}
 
-# What a record of the answer is: a source, a node of the latest source, or a fact on a term of it.
+# What a record of the answer is: a source, a node of the latest source, or a fact on the latest node.
 type Record is Data:
   SourceRecord{}
   NodeRecord{}
@@ -101,17 +101,16 @@ def Record.names() -> List<&2, Shared.Named<Record>>:
 def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
   [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
 
-# A fact from the fields of its record: its node, its role, the check and handle of its type, and its quantity.
-def Fact.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
+# A fact on `node` from the fields of its record: its role, the check and handle of its type, and its quantity.
+def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
   match fields:
-    case Con{node, Con{role, Con{check, Con{id, Con{quantity, Nil{}}}}}}:
+    case Con{role, Con{check, Con{id, Con{quantity, Nil{}}}}}:
       do Maybe<&2, Lint.Fact>:
-        n : U32 <- U32.read(node)
         r : Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
         c : U32 <- U32.read(check)
         i : U32 <- U32.read(id)
         q : Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
-        return Lint.Fact{n, r, q, Lint.TypeRef{c, i}}
+        return Lint.Fact{node, r, q, Lint.TypeRef{c, i}}
     case _:
       None{}
 
@@ -123,10 +122,10 @@ def Program.add(kind: Maybe<&2, Record>, fields: List<&2, String>, sources: List
       do Maybe<&2, List<&2, Lint.Source>>:
         n : Lint.Node <- Node.read(path, fields)
         return Lint.Source{path, namespace, text, n <> nodes, facts} <> rest
-    case Some{FactRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+    case Some{FactRecord{}} _ Con{Lint.Source{path, namespace, text, Con{+node, nodes}, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
-        f : Lint.Fact <- Fact.read(path, fields)
-        return Lint.Source{path, namespace, text, nodes, f <> facts} <> rest
+        f : Lint.Fact <- Fact.read(node, fields)
+        return Lint.Source{path, namespace, text, node <> nodes, f <> facts} <> rest
     case Some{SourceRecord{}} Con{path, Con{namespace, Con{text, Nil{}}}} _:
       Some{Lint.Source{path, namespace, text, [], []} <> sources}
     case _ _ _:
@@ -421,21 +420,19 @@ def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>
   List<&2, Lint.Declaration>:
   Declarations.of.go(nodes, sources, nodes, uses, [])
 
-# A file's nodes by id, onto `out`.
-def Index.go(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Lint.Node>>) -> Map<&2, Maybe<&2, Lint.Node>>:
+def Index.first(nodes: List<&2, Lint.Node>) -> U32:
   match nodes:
+    case Con{Lint.Node{id, p, o, s, n, b, q, sp, t}, rest}:
+      id
     case Nil{}:
-      out
-    case Con{Lint.Node{+id, p, o, s, n, b, q, sp, t}, rest}:
-      Index.go(rest, Map.set(&2, Maybe<&2, Lint.Node>, out, U32.show(id), Some{Lint.Node{id, p, o, s, n, b, q, sp, t}}))
+      0
 
-# A file's nodes by id, if it has facts: only a rule that needs facts looks nodes up.
-def Index.of(facts: List<&2, Lint.Fact>, nodes: List<&2, Lint.Node>) -> Map<&2, Maybe<&2, Lint.Node>>:
-  match facts:
-    case Nil{}:
-      Map.new(&2, Maybe<&2, Lint.Node>)
-    case _:
-      Index.go(nodes, Map.new(&2, Maybe<&2, Lint.Node>))
+# A file's nodes by id: their ids are consecutive, so the id less the first is a node's number.
+def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
+  Lint.Index{
+    Index.first(nodes),
+    Shared.Table.of(Lint.Node, U32.from_nat(Shared.length(&2, Lint.Node, nodes)), nodes)
+  }
 
 # The program from one of its files, built once for every file rule that runs on that file: references from it alone.
 def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
@@ -445,7 +442,7 @@ def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
         Lint.Program{sources},
         Lint.Source{path, namespace, text, nodes, facts},
         Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>))),
-        Index.of(facts, nodes)
+        Index.of(nodes)
       }
 
 # Whether a file is the program's own: not of a hub package.

@@ -8,21 +8,21 @@ import ../shared.bend as Shared
 type Vars is Data:
   Vars{spans: List<&2, Lint.Span>, types: List<&2, Lint.TypeRef>}
 
-def keep(node: Maybe<&2, Lint.Node>, t: Lint.TypeRef, acc: Vars) -> Vars:
+def keep(node: Lint.Node, t: Lint.TypeRef, acc: Vars) -> Vars:
   match node acc:
-    case Some{Lint.Node{id, p, o, Lint.Variable{}, name, b, q, Some{span}, target}} Vars{spans, types}:
+    case Lint.Node{id, p, o, Lint.Variable{}, name, b, q, Some{span}, target} Vars{spans, types}:
       Vars{span <> spans, t <> types}
     case _ _:
       acc
 
-def vars(facts: List<&2, Lint.Fact>, +here: Lint.Here, acc: Vars) -> Vars:
+def vars(facts: List<&2, Lint.Fact>, acc: Vars) -> Vars:
   match facts acc:
     case Nil{} Vars{spans, types}:
       Vars{List.reverse(&2, Lint.Span, spans), List.reverse(&2, Lint.TypeRef, types)}
     case Con{Lint.Fact{n, Lint.OfTerm{}, q, t}, rest} _:
-      vars(rest, here, keep(Lint.Here.node(here, n), t, acc))
+      vars(rest, keep(n, t, acc))
     case Con{f, rest} _:
-      vars(rest, here, acc)
+      vars(rest, acc)
 
 def zip(spans: List<&2, Lint.Span>, shown: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match spans shown:
@@ -55,7 +55,7 @@ def described(v: Vars) -> Lint.Ask(List<&2, Lint.Finding>):
         compared(spans, types, shown)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  described(vars(Lint.Here.facts(here), here, Vars{[], []}))
+  described(vars(Lint.Here.facts(here), Vars{[], []}))
 
 def rule() -> Lint.Rule:
   Lint.FileRule{"tests/types", Lint.Needs{True{}}, run}
