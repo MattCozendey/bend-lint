@@ -1,6 +1,6 @@
 import Base
-import ./lint.bend as Lint
+import ./cli.bend as Cli
 import ./rules/no-unused/imports.bend as UnusedImports
 
 def main() -> IO(Unit):
-  Lint.cli(~[UnusedImports.rule()])
+  Cli.run(~[UnusedImports.rule()])

@@ -1,5 +1,5 @@
 # no-unused/imports: an import that nothing in its file uses. What uses an import is the linter's (Imports in
-# lint.bend): a name written through its alias, or, for Base, a name that only Base declares.
+# program.bend): a name written through its alias, or, for Base, a name that only Base declares.
 import Base
 import ../../lint.bend as Lint
 

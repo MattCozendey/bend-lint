@@ -446,17 +446,19 @@ const importsOf = (
   });
 };
 
-// The records of the nodes of `trees`, parents first, numbered from `first`.
+// The records of the nodes of `trees`, parents first, numbered from `first`,
+// each with its parent's id and its top-level node's (its owner).
 // One pass, so it is linear in the nodes: `out` is local to it.
 const nodeRecords = (trees: Tree[], first: number): string[] => {
   const out: string[] = [];
-  const visit = (t: Tree, parent: number): void => {
+  const visit = (t: Tree, parent: number, owner: number): void => {
     const id = first + out.length;
     out.push(
       record([
         "node",
         String(id),
         String(parent),
+        String(owner === 0 ? id : owner),
         t.kind,
         t.name,
         t.binder,
@@ -466,9 +468,9 @@ const nodeRecords = (trees: Tree[], first: number): string[] => {
         t.target,
       ]),
     );
-    t.kids.forEach((kid) => visit(kid, id));
+    t.kids.forEach((kid) => visit(kid, id, owner === 0 ? id : owner));
   };
-  trees.forEach((t) => visit(t, 0));
+  trees.forEach((t) => visit(t, 0, 0));
   return out;
 };
 

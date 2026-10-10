@@ -40,7 +40,7 @@ export const build = (rule: string): string => {
   fs.mkdirSync(BUILD, { recursive: true });
   fs.writeFileSync(
     source,
-    `import Base\nimport ../lint.bend as Lint\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Lint.cli(~[Rule.rule()])\n`,
+    `import Base\nimport ../cli.bend as Cli\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Cli.run(~[Rule.rule()])\n`,
   );
   const out = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-test-")),
