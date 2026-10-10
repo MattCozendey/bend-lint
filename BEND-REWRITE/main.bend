@@ -4,7 +4,8 @@
 # WE WILL PROVIDE FIXES WHEN WE HAVE THEM.
 # ANOTHER DRIFT: EDITS ARE NOT ONLY AN ARRAY OF CHANGES TO A FILE OR FILES, BUT ALSO
 # FILE RENAMES, OR FILE DELETIONS.
-type Fix is Data:
+type FixLevel is Data:
     NoFix{}
     AutoFix{}
     DangerousFix{}
+    
