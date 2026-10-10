@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "../../testing.ts";
+import { build, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
@@ -178,5 +178,28 @@ def main() -> U32:
   Laws.is_Odd(1)
 `),
     ).toEqual([]);
+  });
+
+  test("--fix-dangerously renames a parameter or variable with its uses, and only them", () => {
+    const ran = run(
+      PROGRAM,
+      {
+        "main.bend":
+          "import Base\n\ntype my_box is Data:\n  MyBox{}\n\ndef twice(+inputVal: U32) -> U32:\n  outVal : U32 = (inputVal + inputVal : U32)\n  outVal\n\ndef main() -> U32:\n  twice(1)\n",
+      },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect(ran.files["main.bend"]).toBe(
+      "import Base\n\ntype my_box is Data:\n  MyBox{}\n\ndef twice(+input_val: U32) -> U32:\n  out_val : U32 = (input_val + input_val : U32)\n  out_val\n\ndef main() -> U32:\n  twice(1)\n",
+    );
+  });
+
+  test("no fix renames to a name already in use", () => {
+    const text =
+      "import Base\n\ndef add(fooBar: U32, foo_bar: U32) -> U32:\n  (fooBar + foo_bar : U32)\n\ndef main() -> U32:\n  add(1, 2)\n";
+    expect(
+      run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"]).files["main.bend"],
+    ).toBe(text);
   });
 });

@@ -12,8 +12,8 @@ def marks(sources: List<&2, Lint.Source>, +n: U32, out: List<&2, Lint.Finding>) 
       marks(
         rest,
         n,
-        Lint.Finding{Lint.Hint{}, Lint.Span{path, n, (n + 1 : U32)}, "at the count"}
-          <> Lint.Finding{Lint.Hint{}, Lint.Span{path, 0, 1}, "at 0"}
+        Lint.Finding{Lint.Hint{}, Lint.Span{path, n, (n + 1 : U32)}, "at the count", []}
+          <> Lint.Finding{Lint.Hint{}, Lint.Span{path, 0, 1}, "at 0", []}
           <> out
       )
 

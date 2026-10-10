@@ -42,7 +42,7 @@ def zip(spans: List<&2, Lint.Span>, names: List<&2, String>, shown: List<&2, Str
   List<&2, Lint.Finding>:
   match spans names shown:
     case Con{s, ss} Con{n, ns} Con{t, ts}:
-      zip(ss, ns, ts, Lint.Finding{Lint.Hint{}, s, n ++ ": " ++ t} <> out)
+      zip(ss, ns, ts, Lint.Finding{Lint.Hint{}, s, n ++ ": " ++ t, []} <> out)
     case _ _ _:
       List.reverse(&2, Lint.Finding, out)
 

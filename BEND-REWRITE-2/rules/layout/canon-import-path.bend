@@ -72,12 +72,19 @@ def canon(+parts: List<&2, String>) -> String:
 def hub(+path: String) -> Bool:
   Bool.or(String.contains(path, "@"), String.starts_with(path, "0x"))
 
-def verdict(fine: Bool, +want: String, span: Lint.Span) -> List<&2, Lint.Finding>:
+def verdict(fine: Bool, +want: String, +span: Lint.Span) -> List<&2, Lint.Finding>:
   match fine:
     case True{}:
       []
     case False{}:
-      [Lint.Finding{Lint.Warning{}, span, "Write \"" ++ want ++ "\": the shortest path from this file, starting with ./ or ../."}]
+      [
+        Lint.Finding{
+          Lint.Warning{},
+          span,
+          "Write \"" ++ want ++ "\": the shortest path from this file, starting with ./ or ../.",
+          [Lint.Fix{"Use the shortest path", [Lint.Replace{span, want}]}]
+        }
+      ]
 
 # A written path, against the one from `file` to `target`, the file its import loads.
 def judge(+file: String, +written: String, target: Maybe<&2, Lint.Node>, span: Lint.Span) -> List<&2, Lint.Finding>:

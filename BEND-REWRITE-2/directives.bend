@@ -707,14 +707,14 @@ def Applied.add(hits: List<&2, U32>, found: Lint.Found, a: Applied) -> Applied:
 # The findings, each with where it starts (`at`, in order), sorted by the directives that cover their lines.
 def Applied.go(founds: List<&2, Lint.Found>, at: List<&2, Shared.Position>, +coverings: List<&2, Covering>, a: Applied) -> Applied:
   match founds at:
-    case Con{Lint.Found{+rule, Lint.Finding{+severity, span, message}}, rest} Con{Shared.Position{line, column}, more}:
+    case Con{Lint.Found{+rule, Lint.Finding{+severity, span, message, fixes}}, rest} Con{Shared.Position{line, column}, more}:
       Applied.go(
         rest,
         more,
         coverings,
         Applied.add(
           Covering.hits(coverings, rule, severity, (line - 1 : U32), []),
-          Lint.Found{rule, Lint.Finding{severity, span, message}},
+          Lint.Found{rule, Lint.Finding{severity, span, message, fixes}},
           a
         )
       )
@@ -738,13 +738,13 @@ def Unmet.add(
         Lint.Finding{
           Lint.Error{},
           span,
-          "Expected a " ++ rule ++ "@" ++ Severity.pinned(pinned) ++ " finding on the lines this covers; none."
+          "Expected a " ++ rule ++ "@" ++ Severity.pinned(pinned) ++ " finding on the lines this covers; none.", []
         }
       } <> out
     case False{} Disable{}:
       Lint.Found{
         "bend-lint/unused-disable",
-        Lint.Finding{Lint.Warning{}, span, "This disables " ++ rule ++ ", but nothing on the lines it covers needs it."}
+        Lint.Finding{Lint.Warning{}, span, "This disables " ++ rule ++ ", but nothing on the lines it covers needs it.", []}
       } <> out
 
 # The findings about the directives that nothing used: an expect not met, a disable that covered nothing.
@@ -780,7 +780,7 @@ def Runs.close(open: Maybe<&2, Run>, +path: String, out: List<&2, Lint.Found>) -
         Lint.Finding{
           Lint.Error{},
           Lint.Span{path, beg, end},
-          "Directives that stack must be in order: by rule, then severity, then keyword."
+          "Directives that stack must be in order: by rule, then severity, then keyword.", []
         }
       } <> out
     case _:
@@ -822,7 +822,7 @@ def Wrong.found(saids: List<&2, Said>, +path: String, out: List<&2, Lint.Found>)
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
     case Con{Wrong{Comment{b, e, l, t, body}, why}, rest}:
-      Wrong.found(rest, path, Lint.Found{"bend-lint/directive", Lint.Finding{Lint.Error{}, Lint.Span{path, b, e}, why}} <> out)
+      Wrong.found(rest, path, Lint.Found{"bend-lint/directive", Lint.Finding{Lint.Error{}, Lint.Span{path, b, e}, why, []}} <> out)
     case Con{s, rest}:
       Wrong.found(rest, path, out)
 

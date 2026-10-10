@@ -34,6 +34,49 @@ def onto(a, -A: Kind(a), xs: List<a, A>, out: List<a, A>) -> List<a, A>:
     case Con{h, t}:
       onto(a, A, t, h <> out)
 
+def take.go(n: Nat, s: String, acc: String) -> String:
+  match n s:
+    case 1n+k SCon{c, rest}:
+      take.go(k, rest, SCon{c, acc})
+    case _ _:
+      String.reverse(acc)
+
+# The first `n` characters of `s`. Base's String.take is not tail-recursive, so long text would overflow the stack.
+def take(s: String, n: Nat) -> String:
+  take.go(n, s, "")
+
+def line_start.go(s: String, +i: U32, +at: U32, start: U32, going: Bool) -> U32:
+  match s going:
+    case _ False{}:
+      start
+    case SNil{} True{}:
+      start
+    case SCon{c, rest} True{}:
+      line_start.go(
+        rest,
+        (i + 1 : U32),
+        at,
+        Bool.pick(U32, Char.is_eq(c, '\n'), (i + 1 : U32), start),
+        U32.is_lt((i + 1 : U32), at)
+      )
+
+# Where the line of `text` that holds the offset `at` starts: after the last newline before it.
+def line_start(text: String, +at: U32) -> U32:
+  line_start.go(text, 0, at, 0, U32.is_lt(0, at))
+
+def line_end.go(s: String, +i: U32) -> U32:
+  match s:
+    case SNil{}:
+      i
+    case SCon{'\n', rest}:
+      (i + 1 : U32)
+    case SCon{c, rest}:
+      line_end.go(rest, (i + 1 : U32))
+
+# Where the line of `text` that starts at `beg` ends: after its newline, or at the end of the text.
+def line_end(text: String, +beg: U32) -> U32:
+  line_end.go(String.drop(text, U32.to_nat(beg)), beg)
+
 # `xs`, then `ys`.
 def append(a, -A: Kind(a), xs: List<a, A>, ys: List<a, A>) -> List<a, A>:
   onto(a, A, List.reverse(a, A, xs), ys)

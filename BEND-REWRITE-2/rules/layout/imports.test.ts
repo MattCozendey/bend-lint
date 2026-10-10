@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "../../testing.ts";
+import { build, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
@@ -74,5 +74,29 @@ setDefaultTimeout(120_000);
 
   test("a file without imports passes", () => {
     expect(found("type N is Data:\n  Z{}\n")).toEqual([]);
+  });
+
+  test("--fix-dangerously writes the block in order, unless it would drop an import", () => {
+    const files = { "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF };
+    const ordered = run(
+      PROGRAM,
+      {
+        ...files,
+        "sub/main.bend":
+          "import ./c.bend as C\nimport ../b.bend as B\nimport Base\nimport ../a.bend as A\n" +
+          MAIN,
+      },
+      "sub/main.bend",
+      ["--fix-dangerously"],
+    );
+    expect(ordered.files["sub/main.bend"]).toBe(
+      "import Base\nimport ../a.bend as A\nimport ../b.bend as B\nimport ./c.bend as C\n" + MAIN,
+    );
+    const twice = "import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN;
+    expect(
+      run(PROGRAM, { ...files, "main.bend": twice }, "main.bend", ["--fix-dangerously"]).files[
+        "main.bend"
+      ],
+    ).toBe(twice);
   });
 });

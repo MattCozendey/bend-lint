@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "../../testing.ts";
+import { build, lint, run } from "../../testing.ts";
 import type { Found } from "../../testing.ts";
 
 // Constants
@@ -58,5 +58,21 @@ setDefaultTimeout(120_000);
         message: "Remove the import Base: nothing uses it.",
       },
     ]);
+  });
+
+  test("--fix-dangerously deletes the import's line", () => {
+    const ran = run(
+      PROGRAM,
+      {
+        "main.bend":
+          "import Base\nimport ./util.bend as U\nimport ./util.bend as V\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
+        "util.bend": UTIL,
+      },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect(ran.files["main.bend"]).toBe(
+      "import Base\nimport ./util.bend as U\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
+    );
   });
 });

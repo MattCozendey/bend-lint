@@ -264,24 +264,57 @@ def what(syntax: Lint.Syntax, want: Case) -> String:
     case Either{}:
       "this name is snake_case, or PascalCase if it is a type"
 
-# The finding for a name that does not fit: it says the new name when recasing makes one that fits.
-def misfit(syntax: Lint.Syntax, +want: Case, +name: String, span: Lint.Span) -> List<&2, Lint.Finding>:
+# Whether a name is a binder's: only its own declaration names it, so a rename touches no other file.
+def local(syntax: Lint.Syntax) -> Bool:
+  match syntax:
+    case Lint.Parameter{}:
+      True{}
+    case Lint.PatternVariable{}:
+      True{}
+    case Lint.Lambda{}:
+      True{}
+    case Lint.Binding{}:
+      True{}
+    case Lint.Forall{}:
+      True{}
+    case _:
+      False{}
+
+# The fix that renames a local name to `to`, if recasing made one that fits.
+def renames(ok: Bool, +id: U32, +full: String, +to: String) -> List<&2, Lint.Fix>:
+  match ok:
+    case True{}:
+      [Lint.Fix{"Rename to " ++ full, [Lint.Rename{id, to}]}]
+    case False{}:
+      []
+
+# The finding for a name that does not fit: it says the new name when recasing makes one that fits, and, for a local
+# name, offers the rename.
+def misfit(+syntax: Lint.Syntax, +want: Case, +name: String, span: Lint.Span, +id: U32) -> List<&2, Lint.Finding>:
   +seg = segment(name, "")
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
-  +rename = Bool.pick(String, fits(want, recased(want, seg)), "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
-  [Lint.Finding{Lint.Warning{}, span, rename ++ ": " ++ what(syntax, want) ++ "."}]
+  +ok = fits(want, recased(want, seg))
+  +rename = Bool.pick(String, ok, "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
+  [
+    Lint.Finding{
+      Lint.Warning{},
+      span,
+      rename ++ ": " ++ what(syntax, want) ++ ".",
+      renames(Bool.and(ok, local(syntax)), id, to, recased(want, seg))
+    }
+  ]
 
-def verdict(fit: Bool, syntax: Lint.Syntax, want: Case, name: String, span: Lint.Span) -> List<&2, Lint.Finding>:
+def verdict(fit: Bool, syntax: Lint.Syntax, want: Case, name: String, span: Lint.Span, id: U32) -> List<&2, Lint.Finding>:
   match fit:
     case True{}:
       []
     case False{}:
-      misfit(syntax, want, name, span)
+      misfit(syntax, want, name, span, id)
 
-def judged(want: Maybe<&2, Case>, syntax: Lint.Syntax, +name: String, span: Lint.Span) -> List<&2, Lint.Finding>:
+def judged(want: Maybe<&2, Case>, syntax: Lint.Syntax, +name: String, span: Lint.Span, id: U32) -> List<&2, Lint.Finding>:
   match want:
     case Some{+w}:
-      verdict(fits(w, segment(name, "")), syntax, w, name, span)
+      verdict(fits(w, segment(name, "")), syntax, w, name, span, id)
     case None{}:
       []
 
@@ -295,12 +328,12 @@ def judge(
   match declarations:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Declaration{Lint.Node{id, parent, owner, +syntax, +name, binder, quantity, Some{span}, target}, uses}, rest}:
+    case Con{Lint.Declaration{Lint.Node{+id, parent, owner, +syntax, +name, binder, quantity, Some{span}, target}, uses}, rest}:
       judge(
         sorts,
         namespace,
         rest,
-        Shared.onto(&2, Lint.Finding, judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span), out)
+        Shared.onto(&2, Lint.Finding, judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span, id), out)
       )
     case Con{d, rest}:
       judge(sorts, namespace, rest, out)

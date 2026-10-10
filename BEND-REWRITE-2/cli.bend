@@ -2,6 +2,7 @@
 import Base
 import ./config.bend as Config
 import ./directives.bend as Directives
+import ./fixes.bend as Fixes
 import ./lint.bend as Lint
 import ./program.bend as Program
 import ./shared.bend as Shared
@@ -444,13 +445,13 @@ def Found.tag(
   match findings:
     case Nil{}:
       out
-    case Con{Lint.Finding{s, span, message}, rest}:
+    case Con{Lint.Finding{s, span, message, fixes}, rest}:
       Found.tag(
         rule,
         severity,
         group,
         rest,
-        Tagged{group, Lint.Found{rule, Lint.Finding{Maybe.default(&2, Lint.Severity, severity, s), span, message}}} <> out
+        Tagged{group, Lint.Found{rule, Lint.Finding{Maybe.default(&2, Lint.Severity, severity, s), span, message, fixes}}} <> out
       )
 
 # What the jobs found, in order: a job still waiting when the rounds ran out is a failure of its rule.
@@ -467,7 +468,7 @@ def Round.found(held: List<&1, Held>, out: List<&2, Tagged>) -> List<&2, Tagged>
           g,
           Lint.Found{
             "bend-lint/rule-crash",
-            Lint.Finding{Lint.Error{}, Lint.Span{p, 0, 0}, "The rule " ++ r ++ " asked the checker more rounds than its budget."}
+            Lint.Finding{Lint.Error{}, Lint.Span{p, 0, 0}, "The rule " ++ r ++ " asked the checker more rounds than its budget.", []}
           }
         } <> out
       )
@@ -559,7 +560,7 @@ def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
 # What makes a finding the same across checks: its rule, severity and span.
 def Found.key(found: Lint.Found) -> String:
   match found:
-    case Lint.Found{r, Lint.Finding{s, Lint.Span{p, beg, end}, m}}:
+    case Lint.Found{r, Lint.Finding{s, Lint.Span{p, beg, end}, m, fixes}}:
       r ++ "\t" ++ Lint.Severity.show(s) ++ "\t" ++ p ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
 
 # The keys of `founds`, onto `keys`.
@@ -697,7 +698,7 @@ type Report is Data:
 # A finding as a line: path:line:column: severity rule: message.
 def Found.show(found: Lint.Found, at: Shared.Position) -> String:
   match found at:
-    case Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message}} Shared.Position{line, column}:
+    case Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message, fixes}} Shared.Position{line, column}:
       path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ Lint.Severity.show(severity) ++ " " ++ rule ++ ": "
         ++ message
 
@@ -711,7 +712,7 @@ def Found.lines(founds: List<&2, Lint.Found>, at: List<&2, Shared.Position>, out
 
 def Found.is_error(found: Lint.Found) -> Bool:
   match found:
-    case Lint.Found{rule, Lint.Finding{Lint.Error{}, span, message}}:
+    case Lint.Found{rule, Lint.Finding{Lint.Error{}, span, message, fixes}}:
       True{}
     case _:
       False{}
@@ -721,8 +722,8 @@ def Found.in(founds: List<&2, Lint.Found>, +path: String, out: List<&2, Lint.Fou
   match founds:
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
-    case Con{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+p, beg, end}, message}}, rest}:
-      Found.in(rest, path, Found.keep(String.eq(p, path), Lint.Found{rule, Lint.Finding{severity, Lint.Span{p, beg, end}, message}}, out))
+    case Con{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+p, beg, end}, message, fixes}}, rest}:
+      Found.in(rest, path, Found.keep(String.eq(p, path), Lint.Found{rule, Lint.Finding{severity, Lint.Span{p, beg, end}, message, fixes}}, out))
 
 # A linted file's findings, after its directives, added to the report.
 def Report.add(+text: String, found: Directives.Suppressed, report: Report) -> Report:
@@ -734,13 +735,21 @@ def Report.add(+text: String, found: Directives.Suppressed, report: Report) -> R
         Shared.onto(&2, Lint.Found, suppressed, s)
       }
 
-# The summary line: how many findings stay, and how many directives suppressed.
-def summary(n: Nat, suppressed: Nat) -> String:
+# The summary line: how many findings stay, how many directives suppressed, and, if the run fixes, how many fixes it
+# made.
+def summary.fixed(fixed: Maybe<&2, U32>) -> String:
+  match fixed:
+    case Some{n}:
+      ", " ++ U32.show(n) ++ " fixed"
+    case None{}:
+      ""
+
+def summary(n: Nat, suppressed: Nat, fixed: Maybe<&2, U32>) -> String:
   match suppressed:
     case 0n:
-      "bend-lint: " ++ Nat.show(n) ++ " finding(s)"
+      "bend-lint: " ++ Nat.show(n) ++ " finding(s)" ++ summary.fixed(fixed)
     case _:
-      "bend-lint: " ++ Nat.show(n) ++ " finding(s), " ++ Nat.show(suppressed) ++ " suppressed"
+      "bend-lint: " ++ Nat.show(n) ++ " finding(s), " ++ Nat.show(suppressed) ++ " suppressed" ++ summary.fixed(fixed)
 
 def end(failed: Bool, summary: String) -> IO(Unit):
   match failed:
@@ -757,15 +766,17 @@ def say(lines: List<&2, String>) -> IO(Unit):
     case Con{h, t}:
       IO.print(String.join(h <> t, "\n"))
 
-# Prints the report; fails if a finding that stays is an error, or the check is `broken`.
-def print(report: Report, broken: Bool) -> IO(Unit):
+# Prints the report, then makes the fixes `fixing` allows in `program`'s files; fails if a finding that stays is an
+# error, or the check is `broken`.
+def print(report: Report, broken: Bool, +fixing: Fixes.Fixing, program: Lint.Program) -> IO(Unit):
   match report:
     case Report{lines, +kept, suppressed}:
       do IO<Unit>:
         say(List.reverse(&2, String, lines))
+        fixed : Maybe<&2, U32> <- Fixes.apply(fixing, List.reverse(&2, Lint.Found, kept), program)
         end(
           broken || Shared.any(~Lint.Found, ~Found.is_error, kept),
-          summary(Shared.length(&2, Lint.Found, kept), Shared.length(&2, Lint.Found, suppressed))
+          summary(Shared.length(&2, Lint.Found, kept), Shared.length(&2, Lint.Found, suppressed), fixed)
         )
 
 # Each linted file's findings: those of the file rules, then those of the program rules, after its directives.
@@ -813,9 +824,16 @@ def finish(
   +partial: Bool,
   +known: List<&2, String>,
   +ran: List<&2, String>,
-  broken: Bool
+  broken: Bool,
+  +fixing: Fixes.Fixing,
+  program: Lint.Program
 ) -> IO(Unit):
-  print(report(linted, Tagged.of(tagged, 0, []), Merge.program(tagged, checks, modes, partial), known, ran, Report{[], [], []}), broken)
+  print(
+    report(linted, Tagged.of(tagged, 0, []), Merge.program(tagged, checks, modes, partial), known, ran, Report{[], [], []}),
+    broken,
+    fixing,
+    program
+  )
 
 # Lints `linted`, files of the first of `programs` (the checks of the named file, at `path`), with the rules the
 # config leaves on. Program rules run on each check; `partial` says whether an entry that reads the named file failed
@@ -827,7 +845,8 @@ def lint(
   +programs: List<&2, Lint.Program>,
   +partial: Bool,
   +settings: List<&2, Shared.Named<Config.Setting>>,
-  +broken: Bool
+  +broken: Bool,
+  +fixing: Fixes.Fixing
 ) -> IO(Unit):
   IO.bind(
     List<&2, Tagged>,
@@ -860,7 +879,9 @@ def lint(
         partial,
         Rule.ids(rules, []),
         Rule.ids(Rule.on(rules, settings, []), []),
-        broken
+        broken,
+        fixing,
+        Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]})
       )
   )
 
@@ -894,7 +915,7 @@ def linted(imports: Bool, +path: String, +sources: List<&2, Lint.Source>) -> Lis
     case False{}:
       Maybe.default(&2, List<&2, Lint.Source>, Maybe.map(&2, Lint.Source, List<&2, Lint.Source>, s => [s], Source.at(sources, path)), [])
 
-def checked(~rules: List<&1, Lint.Rule>, +path: String, imports: Bool, +settings: List<&2, Shared.Named<Config.Setting>>, checks: Checks) ->
+def checked(~rules: List<&1, Lint.Rule>, +path: String, imports: Bool, +settings: List<&2, Shared.Named<Config.Setting>>, +fixing: Fixes.Fixing, checks: Checks) ->
   IO(Unit):
   match checks:
     case Checks{Con{Lint.Program{+sources}, rest}, partial, +broken}:
@@ -905,7 +926,8 @@ def checked(~rules: List<&1, Lint.Rule>, +path: String, imports: Bool, +settings
         Lint.Program{sources} <> rest,
         partial,
         Rule.unchecked(broken, rules, settings),
-        broken
+        broken,
+        fixing
       )
     case Checks{Nil{}, partial, broken}:
       IO.die(Unit, 2, "bend-lint: no check")
@@ -989,51 +1011,77 @@ def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
     case None{}:
       IO.pure(Unit, Unit{})
 
-def settled(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +flag: Maybe<&2, Bool>, +entries: List<&2, String>, +from: Maybe<&2, Bool>, +settings: List<&2, Shared.Named<Config.Setting>>) -> IO(Unit):
-  IO.bind(
-    Checks,
-    Unit,
-    Check.of(imports(flag, from), entries, file, path, Rule.need_facts(Rule.on(rules, settings, []))),
-    checks => checked(~rules, path, imports(flag, from), settings, checks)
-  )
+# What the command line asks: the file to lint, and whether to lint the files it imports too, if it says.
+type Options is Data:
+  Options{file: String, imports: Maybe<&2, Bool>, fixing: Fixes.Fixing}
 
-def configured(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +flag: Maybe<&2, Bool>, project: Config.Project) -> IO(Unit):
+def settled(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +options: Options, +entries: List<&2, String>, +from: Maybe<&2, Bool>, +settings: List<&2, Shared.Named<Config.Setting>>) -> IO(Unit):
+  match options:
+    case Options{name, flag, +fixing}:
+      IO.bind(
+        Checks,
+        Unit,
+        Check.of(imports(flag, from), entries, file, path, Rule.need_facts(Rule.on(rules, settings, []))),
+        checks => checked(~rules, path, imports(flag, from), settings, fixing, checks)
+      )
+
+def configured(~rules: List<&1, Lint.Rule>, +file: String, +path: String, +options: Options, project: Config.Project) -> IO(Unit):
   match project:
     case Config.Project{entries, from, +settings}:
       IO.bind(
         Unit,
         Unit,
         Options.checked(Rule.problem(rules, settings)),
-        none => settled(~rules, file, path, flag, entries, from, Rule.settle(rules, settings, []))
+        none => settled(~rules, file, path, options, entries, from, Rule.settle(rules, settings, []))
       )
 
-# What the command line asks: the file to lint, and whether to lint the files it imports too, if it says.
-type Options is Data:
-  Options{file: String, imports: Maybe<&2, Bool>}
+# What a flag sets: whether to lint the files the named file imports, or how to fix.
+type Flag is Data:
+  ImportsFlag{on: Bool}
+  FixFlag{fixing: Fixes.Fixing}
 
-# The flags, by what they set: whether to lint the files the named file imports.
-def flags() -> List<&2, Shared.Named<Bool>>:
-  [Shared.Named{"--imports", True{}}, Shared.Named{"--no-imports", False{}}]
+def flags() -> List<&2, Shared.Named<Flag>>:
+  [
+    Shared.Named{"--imports", ImportsFlag{True{}}},
+    Shared.Named{"--no-imports", ImportsFlag{False{}}},
+    Shared.Named{"--fix", FixFlag{Fixes.SafeFixes{}}},
+    Shared.Named{"--fix-dangerously", FixFlag{Fixes.DangerousFixes{}}}
+  ]
 
-# The options of the command line, past the program's name: `<file> [--imports | --no-imports]`.
+def Options.set(flag: Maybe<&2, Flag>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
+  match flag options:
+    case Some{ImportsFlag{on}} Some{Options{file, imports, fixing}}:
+      Some{Options{file, Some{on}, fixing}}
+    case Some{FixFlag{set}} Some{Options{file, imports, fixing}}:
+      Some{Options{file, imports, set}}
+    case _ _:
+      None{}
+
+def Options.read(args: List<String>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
+  match args:
+    case Nil{}:
+      options
+    case Con{+f, rest}:
+      Options.read(rest, Options.set(Shared.lookup(Flag, f, flags()), options))
+
+# The options of the command line, past the program's name: `<file> [--imports | --no-imports] [--fix |
+# --fix-dangerously]`.
 def options(args: List<String>) -> Maybe<&2, Options>:
   match args:
-    case Con{program, Con{file, Nil{}}}:
-      Some{Options{file, None{}}}
-    case Con{program, Con{file, Con{f, Nil{}}}}:
-      Maybe.map(&2, Bool, Options, i => Options{file, Some{i}}, Shared.lookup(Bool, f, flags()))
+    case Con{program, Con{file, rest}}:
+      Options.read(rest, Some{Options{file, None{}, Fixes.NoFixes{}}})
     case _:
       None{}
 
-def found(~rules: List<&1, Lint.Rule>, +file: String, flag: Maybe<&2, Bool>, +path: String) -> IO(Unit):
-  IO.bind(Config.Project, Unit, Config.find(path), project => configured(~rules, file, path, flag, project))
+def found(~rules: List<&1, Lint.Rule>, +file: String, +options: Options, +path: String) -> IO(Unit):
+  IO.bind(Config.Project, Unit, Config.find(path), project => configured(~rules, file, path, options, project))
 
 def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+file, flag}}:
-      IO.bind(String, Unit, Config.real(file), path => found(~rules, file, flag, path))
+    case Some{Options{+file, flag, fixing}}:
+      IO.bind(String, Unit, Config.real(file), path => found(~rules, file, Options{file, flag, fixing}, path))
     case None{}:
-      IO.die(Unit, 2, "usage: bun server.ts <program> <file> [--imports | --no-imports]")
+      IO.die(Unit, 2, "usage: bun server.ts <program> <file> [--imports | --no-imports] [--fix | --fix-dangerously]")
 
 # The command line: lint the named file with `rules`.
 def run(~rules: List<&1, Lint.Rule>) -> IO(Unit):

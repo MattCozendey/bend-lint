@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "../../testing.ts";
+import { build, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
@@ -52,5 +52,20 @@ setDefaultTimeout(120_000);
       '2:8 Write "../x.bend": the shortest path from this file, starting with ./ or ../.',
       '3:8 Write "./y.bend": the shortest path from this file, starting with ./ or ../.',
     ]);
+  });
+
+  test("--fix-dangerously writes the shortest path", () => {
+    const ran = run(
+      PROGRAM,
+      {
+        "main.bend": "import Base\nimport x.bend as X\n\ndef main() -> U32:\n  X.one()\n",
+        "x.bend": LEAF,
+      },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect(ran.files["main.bend"]).toBe(
+      "import Base\nimport ./x.bend as X\n\ndef main() -> U32:\n  X.one()\n",
+    );
   });
 });

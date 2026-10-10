@@ -11,11 +11,12 @@
 # - A rule reads the program once per check, shared by every rule: a flat list of syntax nodes per file, parents
 #   first; the file's declarations with their uses, built once; and, if it needs them, the checker's facts on the
 #   source's terms, each tied to its node.
-# - Findings come first. A fix will be a list of typed operations that the rule requests; the linter plans them and
-#   decides their safety. Until Bend's checker is Bend, every fix is Dangerous.
+# - Findings come first. A fix is a list of typed operations that the rule requests, in any files; the linter plans
+#   them and decides their safety. Until Bend's checker is Bend, every fix is Dangerous (`--fix-dangerously`).
 #
 # Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (the server), program.bend (the
-# program a check gives, and its declarations), directives.bend (bend-lint: comments), cli.bend (running and output).
+# program a check gives, and its declarations), directives.bend (bend-lint: comments), config.bend (bend-lint.json),
+# fixes.bend (planning and making fixes), cli.bend (running and output).
 import Base
 import ./shared.bend as Shared
 
@@ -162,9 +163,21 @@ def Severity.show(s: Severity) -> String:
     case Hint{}:
       "hint"
 
-# What a rule finds: how severe, where, and what to do about it.
+# An edit a fix asks for: replace a span's text; or rename what a declaration declares (its node, by id), with each of
+# its uses. The linter finds the uses, and drops a rename if one of them is not written as the name, or the new name is
+# taken where the declaration is.
+type Operation is Data:
+  Replace{span: Span, text: String}
+  Rename{node: U32, to: String}
+
+# A way to fix a finding: what it does, and its operations, in any files of the program. The linter decides whether a
+# fix is safe; until Bend's checker is Bend it can prove none, so every fix is dangerous (`--fix-dangerously`).
+type Fix is Data:
+  Fix{title: String, operations: List<&2, Operation>}
+
+# What a rule finds: how severe, where, what to do about it, and the fixes it offers.
 type Finding is Data:
-  Finding{severity: Severity, span: Span, message: String}
+  Finding{severity: Severity, span: Span, message: String, fixes: List<&2, Fix>}
 
 # A finding, with the id of the rule that found it.
 type Found is Data:
@@ -175,7 +188,7 @@ def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
   match founds:
     case Nil{}:
       List.reverse(&2, U32, out)
-    case Con{Found{rule, Finding{severity, Span{path, beg, end}, message}}, rest}:
+    case Con{Found{rule, Finding{severity, Span{path, beg, end}, message, fixes}}, rest}:
       Found.offsets(rest, beg <> out)
 
 # A file's nodes by id: `first` is its first node's.

@@ -54,32 +54,6 @@ def comments(s: String, line: String, acc: String) -> String:
 def ended(+s: String) -> String:
   Bool.pick(String, String.ends_with(s, "\n"), s, s ++ "\n")
 
-# Where the line that holds `at` starts: after the last newline before it. `going`: whether `i` is before `at`.
-def line_start(s: String, +i: U32, +at: U32, start: U32, going: Bool) -> U32:
-  match s going:
-    case _ False{}:
-      start
-    case SNil{} True{}:
-      start
-    case SCon{c, rest} True{}:
-      line_start(
-        rest,
-        (i + 1 : U32),
-        at,
-        Bool.pick(U32, Char.is_eq(c, '\n'), (i + 1 : U32), start),
-        U32.is_lt((i + 1 : U32), at)
-      )
-
-# Where the line that starts `s`, at `i`, ends: after its newline, or at the end of the text.
-def line_end(s: String, +i: U32) -> U32:
-  match s:
-    case SNil{}:
-      i
-    case SCon{'\n', rest}:
-      (i + 1 : U32)
-    case SCon{c, rest}:
-      line_end(rest, (i + 1 : U32))
-
 # Block
 # =====
 
@@ -93,8 +67,8 @@ def add.line(+text: String, +beg: U32, +end: U32, base: Bool, path: String, alia
 
 # The import whose name is at `at`, after the block so far.
 def add(+text: String, +at: U32, base: Bool, path: String, alias: String, loads: String, b: Block) -> Block:
-  +beg = line_start(text, 0, at, 0, U32.is_lt(0, at))
-  add.line(text, beg, line_end(String.drop(text, U32.to_nat(beg)), beg), base, path, alias, loads, b)
+  +beg = Shared.line_start(text, at)
+  add.line(text, beg, Shared.line_end(text, beg), base, path, alias, loads, b)
 
 # The block of the imports among `nodes`. A file's imports come first, so the first node of another kind ends them.
 def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
@@ -150,24 +124,39 @@ def texts(es: List<&2, Entry>, acc: String) -> String:
 # Rule
 # ====
 
-def verdict(same: Bool, span: Lint.Span) -> List<&2, Lint.Finding>:
+# The fix that writes the block in order, if it drops no import: a dropped one's uses would need its alias renamed.
+def reorders(whole: Bool, +span: Lint.Span, +text: String) -> List<&2, Lint.Fix>:
+  match whole:
+    case True{}:
+      [Lint.Fix{"Order the imports", [Lint.Replace{span, text}]}]
+    case False{}:
+      []
+
+def verdict(same: Bool, +span: Lint.Span, fixes: List<&2, Lint.Fix>) -> List<&2, Lint.Finding>:
   match same:
     case True{}:
       []
     case False{}:
-      [Lint.Finding{Lint.Warning{}, span, "Order the imports: import Base first, then by path and alias, each file once."}]
+      [Lint.Finding{Lint.Warning{}, span, "Order the imports: import Base first, then by path and alias, each file once.", fixes}]
+
+def judged(+span: Lint.Span, written: String, entries: Nat, +kept: List<&2, Entry>) -> List<&2, Lint.Finding>:
+  +ordered = texts(Shared.sort(~Entry, ~before, kept), "")
+  verdict(
+    String.eq(ordered, written),
+    span,
+    reorders(Nat.is_eq(entries, Shared.length(&2, Entry, kept)), span, ordered)
+  )
 
 def judge(+path: String, +text: String, b: Block) -> List<&2, Lint.Finding>:
   match b:
     case Block{beg, end, Nil{}}:
       []
-    case Block{+beg, +end, entries}:
-      verdict(
-        String.eq(
-          texts(Shared.sort(~Entry, ~before, List.reverse(&2, Entry, dedupe(List.reverse(&2, Entry, entries), [], []))), ""),
-          slice(text, beg, end)
-        ),
-        Lint.Span{path, beg, end}
+    case Block{+beg, +end, +entries}:
+      judged(
+        Lint.Span{path, beg, end},
+        slice(text, beg, end),
+        Shared.length(&2, Entry, entries),
+        List.reverse(&2, Entry, dedupe(List.reverse(&2, Entry, entries), [], []))
       )
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):

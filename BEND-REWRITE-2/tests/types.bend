@@ -27,16 +27,16 @@ def vars(facts: List<&2, Lint.Fact>, acc: Vars) -> Vars:
 def zip(spans: List<&2, Lint.Span>, shown: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match spans shown:
     case Con{s, ss} Con{t, ts}:
-      zip(ss, ts, Lint.Finding{Lint.Hint{}, s, "type: " ++ t} <> out)
+      zip(ss, ts, Lint.Finding{Lint.Hint{}, s, "type: " ++ t, []} <> out)
     case _ _:
       List.reverse(&2, Lint.Finding, out)
 
 def same_note(same: Bool, span: Lint.Span) -> List<&2, Lint.Finding>:
   match same:
     case True{}:
-      [Lint.Finding{Lint.Hint{}, span, "the first two are the same type"}]
+      [Lint.Finding{Lint.Hint{}, span, "the first two are the same type", []}]
     case False{}:
-      [Lint.Finding{Lint.Hint{}, span, "the first two are different types"}]
+      [Lint.Finding{Lint.Hint{}, span, "the first two are different types", []}]
 
 def compared(+spans: List<&2, Lint.Span>, types: List<&2, Lint.TypeRef>, +shown: List<&2, String>) -> Lint.Ask(List<&2, Lint.Finding>):
   match spans types:

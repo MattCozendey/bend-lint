@@ -10,6 +10,7 @@
 # part of its input. The lexer and the printer recurse on fuel instead: more steps than they can need.
 import Base
 import ../../lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -295,18 +296,7 @@ def pad(n: Nat, out: String) -> String:
     case 1n+k:
       pad(k, SCon{' ', out})
 
-# Base's String.take and String.eq are not tail-recursive, so long text
-# would overflow the stack; take and same are.
-def take.go(n: Nat, s: String, acc: String) -> String:
-  match n s:
-    case 1n+k SCon{c, rest}:
-      take.go(k, rest, SCon{c, acc})
-    case _ _:
-      String.reverse(acc)
-
-def take(s: String, n: Nat) -> String:
-  take.go(n, s, "")
-
+# Base's String.eq is not tail-recursive, so long text would overflow the stack; same is.
 # ok: whether the characters so far were the same.
 def same.go(a: String, b: String, ok: Bool) -> Bool:
   match a b ok:
@@ -1244,7 +1234,7 @@ def str.split(whole: Bool, +s: String, width: U32, tail: Maybe<&2, U32>, +keep: 
     case True{}:
       Str{s, "", width, tail}
     case False{}:
-      Str{take(s, U32.to_nat(keep)), String.drop(s, U32.to_nat(keep)), width, tail}
+      Str{Shared.take(s, U32.to_nat(keep)), String.drop(s, U32.to_nat(keep)), width, tail}
 
 def str.of(+s: String, m: Measure) -> Doc:
   match m:
@@ -2173,7 +2163,7 @@ def import_doc(+head: Token, record: List<&2, Tree>) -> Doc:
   import_doc.of(
     split_hash(
       trim_end(
-        take(Token.from(head), U32.to_nat((record_end(head, record) - Token.beg(head): U32)))
+        Shared.take(Token.from(head), U32.to_nat((record_end(head, record) - Token.beg(head): U32)))
       )
     )
   )
@@ -2349,7 +2339,7 @@ def line_end(s: String, +i: U32) -> U32:
     case SCon{c, rest}:
       line_end(rest, (i + 1 : U32))
 
-def judged(same: Bool, out: String, +text: String, +path: String) -> List<&2, Lint.Finding>:
+def judged(same: Bool, +out: String, +text: String, +path: String) -> List<&2, Lint.Finding>:
   match same:
     case True{}:
       []
@@ -2359,14 +2349,15 @@ def judged(same: Bool, out: String, +text: String, +path: String) -> List<&2, Li
         Lint.Finding{
           Lint.Warning{},
           Lint.Span{path, at, line_end(String.drop(text, U32.to_nat(at)), at)},
-          "Apply canonical formatting."
+          "Apply canonical formatting.",
+          [Lint.Fix{"Format the file", [Lint.Replace{Lint.Span{path, 0, U32.from_nat(String.length(text))}, out}]}]
         }
       ]
 
 def judge(formatted: Maybe<&2, String>, +text: String, +path: String) -> List<&2, Lint.Finding>:
   match formatted:
     case None{}:
-      [Lint.Finding{Lint.Warning{}, Lint.Span{path, 0, 0}, "Cannot format this file: unbalanced delimiters."}]
+      [Lint.Finding{Lint.Warning{}, Lint.Span{path, 0, 0}, "Cannot format this file: unbalanced delimiters.", []}]
     case Some{+out}:
       judged(same(out, text), out, text, path)
 

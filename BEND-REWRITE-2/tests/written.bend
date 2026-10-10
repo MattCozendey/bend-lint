@@ -16,7 +16,7 @@ def shown(syntax: Lint.Syntax, +name: String) -> Maybe<&2, String>:
 def finding(said: Maybe<&2, String>, span: Lint.Span) -> List<&2, Lint.Finding>:
   match said:
     case Some{s}:
-      [Lint.Finding{Lint.Hint{}, span, s}]
+      [Lint.Finding{Lint.Hint{}, span, s, []}]
     case None{}:
       []
 

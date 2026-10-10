@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url";
 // (line:column), its severity, its rule and its message.
 export type Found = { file: string; at: string; severity: string; code: string; message: string };
 
-// How a run ended: its exit code, and what it printed.
-export type Ran = { code: number; out: string; err: string };
+// How a run ended: its exit code, what it printed, and the files after it.
+export type Ran = { code: number; out: string; err: string; files: Record<string, string> };
 
 // Constants
 // =========
@@ -56,16 +56,28 @@ export const build = (rule: string): string => {
   return out;
 };
 
-// How `program` ends on `named`, after it writes `files` (names to text)
-// into a fresh folder.
-export const run = (program: string, files: Record<string, string>, named: string): Ran => {
+// How `program` ends on `named`, with the command line's `flags`, after it
+// writes `files` (names to text) into a fresh folder.
+export const run = (
+  program: string,
+  files: Record<string, string>,
+  named: string,
+  flags: string[] = [],
+): Ran => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
   Object.entries(files).forEach(([name, text]) => {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), text);
   });
-  const ran = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named)]);
-  return { code: ran.exitCode, out: ran.stdout.toString(), err: ran.stderr.toString() };
+  const ran = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named), ...flags]);
+  return {
+    code: ran.exitCode,
+    out: ran.stdout.toString(),
+    err: ran.stderr.toString(),
+    files: Object.fromEntries(
+      Object.keys(files).map((name) => [name, fs.readFileSync(path.join(dir, name), "utf8")]),
+    ),
+  };
 };
 
 // What `program` finds in `named`, after it writes `files` (names to text)

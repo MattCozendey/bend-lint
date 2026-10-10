@@ -20,7 +20,7 @@ def said(missing: U32) -> String:
   Bool.pick(String, U32.is_eq(missing, 0), "every parent is found", "a parent is missing")
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done([Lint.Finding{Lint.Hint{}, Lint.Span{Lint.Here.path(here), 0, 0}, said(missed(Lint.Here.nodes(here), here, 0))}])
+  Lint.done([Lint.Finding{Lint.Hint{}, Lint.Span{Lint.Here.path(here), 0, 0}, said(missed(Lint.Here.nodes(here), here, 0)), []}])
 
 def rule() -> Lint.Rule:
   Lint.FileRule{"tests/parents", Lint.Needs{False{}}, [], run}
