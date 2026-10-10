@@ -268,8 +268,7 @@ def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
         case Lint.BendSource{+path, text, lines}:
-          +ds = Shared.get_declarations_of(declarations, path)
-          +bs = Shared.get_bodies(ds, ds)
+          +bs = Shared.get_bodies(Shared.get_declarations_of(declarations, path))
           all_findings(path, sites(direct(walkers()), bs), bs)
 
 def rules() -> List<&1, Lint.Rule>:

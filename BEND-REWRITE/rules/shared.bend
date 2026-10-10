@@ -181,117 +181,101 @@ def get_line_of(+text: String, span: Lint.BendSourceSpan) -> Lint.BendSourceSpan
         get_line_rest(String.drop(text, U32.to_nat(end)), end)
       }
 
-def get_node_hit(hit: Bool, node: Lint.BodyNode) -> Maybe<&2, Lint.BodyNode>:
-  match hit:
-    case True{}:
-      Some{node}
-    case False{}:
-      None{}
+# The variable a term is, through annotations, or "".
+def get_variable_name(t: Lint.BendTerm) -> String:
+  match t:
+    case Lint.VariableTerm{name, span}:
+      name
+    case Lint.AnnotatedTerm{value, annotation, span}:
+      get_variable_name(value)
+    case _:
+      ""
 
-# The node at `at` in `nodes`; `found` is what the step before found. A node's sub-terms come after it, so the nodes
-# after the one asking hold them.
-def get_node(
-  nodes: List<&2, Lint.BodyNode>,
-  +at: U32,
-  found: Maybe<&2, Lint.BodyNode>
-) -> Maybe<&2, Lint.BodyNode>:
-  match nodes found:
-    case _ Some{n}:
-      Some{n}
-    case Nil{} None{}:
-      None{}
-    case Con{Lint.BodyNode{+index, parent, span, term}, t} None{}:
-      get_node(t, at, get_node_hit(U32.is_eq(index, at), Lint.BodyNode{index, parent, span, term}))
-
-# The node at `at`, without its annotations.
-def get_stripped(
-  fuel: Nat,
-  +after: List<&2, Lint.BodyNode>,
-  at: Maybe<&2, Lint.BodyNode>
-) -> Maybe<&2, Lint.BodyNode>:
-  match fuel at:
-    case 1n+k Some{Lint.BodyNode{index, parent, span, Lint.AnnotatedTerm{value, annotation}}}:
-      get_stripped(k, after, get_node(after, value, None{}))
-    case _ _:
-      at
-
-def get_variable_name(at: Maybe<&2, Lint.BodyNode>) -> String:
-  match at:
-    case Some{Lint.BodyNode{index, parent, span, Lint.VariableTerm{name}}}:
+def get_reference_name(t: Lint.BendTerm) -> String:
+  match t:
+    case Lint.ReferenceTerm{name, span}:
       name
     case _:
       ""
 
-def get_reference_name(at: Maybe<&2, Lint.BodyNode>) -> String:
-  match at:
-    case Some{Lint.BodyNode{index, parent, span, Lint.ReferenceTerm{name}}}:
-      name
-    case _:
-      ""
-
-def get_arg_names(
-  args: List<&2, U32>,
-  +fuel: Nat,
-  +after: List<&2, Lint.BodyNode>
-) -> List<&2, String>:
+def get_arg_names(args: Lint.BendTerm) -> List<&2, String>:
   match args:
-    case Nil{}:
+    case Lint.SomeTerms{first, rest}:
+      get_variable_name(first) <> get_arg_names(rest)
+    case _:
       []
-    case Con{a, t}:
-      get_variable_name(
-        get_stripped(fuel, after, get_node(after, a, None{}))
-      )
-        <> get_arg_names(t, fuel, after)
 
-# Every call in `ns`, parents first, after `done` reversed.
-def get_calls(ns: List<&2, Lint.BodyNode>, +fuel: Nat, done: List<&2, Call>) -> List<&2, Call>:
-  match ns:
-    case Nil{}:
-      List.reverse(&2, Call, done)
-    case Con{Lint.BodyNode{index, parent, span, Lint.CallTerm{head, args}}, +t}:
+# Every call in `t`, parents first, last first, before `done`.
+def get_calls(t: Lint.BendTerm, done: List<&2, Call>) -> List<&2, Call>:
+  match t:
+    case Lint.CallTerm{+head, +arguments, span}:
       get_calls(
-        t,
-        fuel,
-        Call{
-          get_reference_name(get_node(t, head, None{})),
-          get_arg_names(args, fuel, t),
-          span
-        }
-          <> done
+        arguments,
+        get_calls(head, Call{get_reference_name(head), get_arg_names(arguments), span} <> done)
       )
-    case Con{n, t}:
-      get_calls(t, fuel, done)
+    case Lint.LetTerm{names, values, body, span}:
+      get_calls(body, get_calls(values, done))
+    case Lint.LambdaTerm{name, body, span}:
+      get_calls(body, done)
+    case Lint.ConstructorTerm{name, fields, span}:
+      get_calls(fields, done)
+    case Lint.AnnotatedTerm{value, annotation, span}:
+      get_calls(annotation, get_calls(value, done))
+    case Lint.OtherTerm{parts, span}:
+      get_calls(parts, done)
+    case Lint.SomeTerms{first, rest}:
+      get_calls(rest, get_calls(first, done))
+    case _:
+      done
 
-# The parameters of def `o`, in order.
-def get_params(ds: List<&2, Lint.Declaration>, +o: String) -> List<&2, String>:
+def get_with_param(open: Maybe<&2, Body>, +owner: String, name: String) -> Maybe<&2, Body>:
+  match open:
+    case None{}:
+      None{}
+    case Some{Body{+n, params, calls}}:
+      Some{Body{n, Lint.get_kept(String, String.eq(n, owner), name, params), calls}}
+
+def get_closed(open: Maybe<&2, Body>, done: List<&2, Body>) -> List<&2, Body>:
+  match open:
+    case None{}:
+      done
+    case Some{Body{name, params, calls}}:
+      Body{name, List.reverse(&2, String, params), calls} <> done
+
+# Walks `ds`; `open` is the def whose parameters come next, its parameters last first.
+def get_bodies.go(
+  ds: List<&2, Lint.Declaration>,
+  open: Maybe<&2, Body>,
+  done: List<&2, Body>
+) -> List<&2, Body>:
   match ds:
     case Nil{}:
-      []
+      List.reverse(&2, Body, get_closed(open, done))
+    case Con{
+      Lint.Declaration{
+        name,
+        span,
+        references,
+        Lint.DefDeclaration{fills, written_type, Some{body}}
+      },
+      t
+    }:
+      get_bodies.go(
+        t,
+        Some{Body{name, [], List.reverse(&2, Call, get_calls(body, []))}},
+        get_closed(open, done)
+      )
     case Con{
       Lint.Declaration{name, span, references, Lint.ParameterDeclaration{owner, written_type}},
       t
     }:
-      Lint.get_kept(String, String.eq(owner, o), name, get_params(t, o))
+      get_bodies.go(t, get_with_param(open, owner, name), done)
     case Con{d, t}:
-      get_params(t, o)
+      get_bodies.go(t, open, done)
 
-# The name, parameters and calls of each def of `ds`; `all` are the file's declarations.
-def get_bodies(ds: List<&2, Lint.Declaration>, +all: List<&2, Lint.Declaration>) -> List<&2, Body>:
-  match ds:
-    case Nil{}:
-      []
-    case Con{
-      Lint.Declaration{+name, span, references, Lint.DefDeclaration{fills, written_type, +body}},
-      t
-    }:
-      Body{
-        name,
-        get_params(all, name),
-        get_calls(body, List.length(&2, Lint.BodyNode, body), [])
-      }
-        <> get_bodies(t, all)
-    case Con{d, t}:
-      get_bodies(t, all)
+# The name, parameters and calls of each def of `ds`, a file's declarations, in file order.
+def get_bodies(ds: List<&2, Lint.Declaration>) -> List<&2, Body>:
+  get_bodies.go(ds, None{}, [])
 
 def get_nth(xs: List<&2, String>, n: Nat) -> String:
   match xs n:

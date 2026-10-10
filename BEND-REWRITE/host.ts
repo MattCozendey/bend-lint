@@ -85,8 +85,8 @@ type Heading = { kind: "def" | "type" | "constructor"; name: Name; span: BendSpa
 type Imported = { path: string; name: Name; beg: number };
 
 // A term as a rule sees it: its sub-terms (kids), and its BendTerm, given
-// where they sit in the body's list.
-type View = { kids: LTerm[]; term: (at: number[]) => Plain };
+// them as BendTerms, and its span.
+type View = { kids: LTerm[]; term: (kids: Plain[], span: Plain) => Plain };
 
 // Where the probes report, for one check at a time.
 type Hook = {
@@ -826,7 +826,15 @@ const sourceTerm = (t: LTerm): LTerm =>
 const constant = (t: LTerm): boolean =>
   t.$ === "Lit" || (t.$ === "Ctr" && t.x.every((x) => constant(sourceTerm(x))));
 
-const other = (parts: number[]): Plain => ({ $: "OtherTerm", parts });
+// Terms as one BendTerm: SomeTerms{first, rest}, ending in NoTerms{}.
+const terms = (xs: Plain[]): Plain =>
+  xs.reduceRight<Plain>((rest, first) => ({ $: "SomeTerms", first, rest }), { $: "NoTerms" });
+
+const other = (parts: Plain[], span: Plain): Plain => ({
+  $: "OtherTerm",
+  parts: terms(parts),
+  span,
+});
 
 // The bits of a word (WCon{bit, ..}), and its tail unless it is WNil{}.
 const bitsOf = (w: LTerm): LTerm[] =>
@@ -843,24 +851,44 @@ const spineOf = (x: LTerm, args: LTerm[]): LTerm[] =>
 // The views of the kinds a rule tells apart; names as `sp` spells them. A
 // call has all its arguments, and its head without annotations.
 const VIEWS: { [K in LTerm["$"]]?: (t: Extract<LTerm, { $: K }>, sp: Spelling) => View } = {
-  Var: (t, sp) => ({ kids: [], term: () => ({ $: "VariableTerm", name: sp.spell(t.k) }) }),
-  Ref: (t, sp) => ({ kids: [], term: () => ({ $: "ReferenceTerm", name: sp.spell(t.k) }) }),
+  Var: (t, sp) => ({
+    kids: [],
+    term: (_, span) => ({ $: "VariableTerm", name: sp.spell(t.k), span }),
+  }),
+  Ref: (t, sp) => ({
+    kids: [],
+    term: (_, span) => ({ $: "ReferenceTerm", name: sp.spell(t.k), span }),
+  }),
   App: (t) => ({
     kids: spineOf(t, []),
-    term: ([head, ...args]) => ({ $: "CallTerm", head, arguments: args }),
+    term: ([head, ...args], span) => ({ $: "CallTerm", head, arguments: terms(args), span }),
   }),
   Let: (t) => ({
     kids: [...t.v, t.f],
-    term: (at) => ({ $: "LetTerm", names: t.k, values: at.slice(0, -1), body: at[at.length - 1] }),
+    term: (kids, span) => ({
+      $: "LetTerm",
+      names: t.k,
+      values: terms(kids.slice(0, -1)),
+      body: kids[kids.length - 1],
+      span,
+    }),
   }),
-  Lam: (t) => ({ kids: [t.f], term: ([body]) => ({ $: "LambdaTerm", name: t.k, body }) }),
+  Lam: (t) => ({
+    kids: [t.f],
+    term: ([body], span) => ({ $: "LambdaTerm", name: t.k, body, span }),
+  }),
   Ctr: (t, sp) => ({
     kids: t.x,
-    term: (fields) => ({ $: "ConstructorTerm", name: sp.spell(t.k), fields }),
+    term: (fields, span) => ({
+      $: "ConstructorTerm",
+      name: sp.spell(t.k),
+      fields: terms(fields),
+      span,
+    }),
   }),
   Ann: (t) => ({
     kids: [t.x, t.T],
-    term: ([value, annotation]) => ({ $: "AnnotatedTerm", value, annotation }),
+    term: ([value, annotation], span) => ({ $: "AnnotatedTerm", value, annotation, span }),
   }),
 };
 
@@ -871,7 +899,7 @@ const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
   if (t.$ === "Lit" || (t.$ === "Ctr" && LITERAL_ROOTS.has(t.k) && constant(t))) {
     return {
       kids: [],
-      term: () => ({ $: "LiteralTerm", shown: m.Bend.term_show(t, -1, [], sp.shown) }),
+      term: (_, span) => ({ $: "LiteralTerm", shown: m.Bend.term_show(t, -1, [], sp.shown), span }),
     };
   }
   const word = t.$ === "Ctr" && (t.k === "U32" || t.k === "F32") && t.x.length === 1;
@@ -883,39 +911,14 @@ const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
       : { kids: children(t), term: other };
 };
 
-// The nodes of the term `t` at `index`, parents first, each a BodyNode
-// whose index is its place in the body's list; its sub-terms come after it.
-const nodesOf = (
-  m: Loaded,
-  c: Checked,
-  sp: Spelling,
-  t: LTerm,
-  index: number,
-  parent: number | undefined,
-): Plain[] => {
+// The term `t` as a BendTerm, with its span on the file on disk.
+const termOf = (m: Loaded, c: Checked, sp: Spelling, t: LTerm): Plain => {
   const { kids, term } = viewOf(m, sp, t);
-  const placed = kids.reduce<{ next: number; at: number[]; trees: Plain[][] }>(
-    (acc, kid) => {
-      const tree = nodesOf(m, c, sp, sourceTerm(kid), acc.next, index);
-      return {
-        next: acc.next + tree.length,
-        at: [...acc.at, acc.next],
-        trees: [...acc.trees, tree],
-      };
-    },
-    { next: index + 1, at: [], trees: [] },
-  );
   const at = t.s && placedSpan(c.seen, c.placed, t.s);
-  return [
-    {
-      $: "BodyNode",
-      index,
-      parent: some(parent),
-      span: some(at && spanOf(at.path, at.points, at.beg, at.end)),
-      term: term(placed.at),
-    },
-    ...placed.trees.flat(),
-  ];
+  return term(
+    kids.map((kid) => termOf(m, c, sp, sourceTerm(kid))),
+    some(at && spanOf(at.path, at.points, at.beg, at.end)),
+  );
 };
 
 // The headings bend's parser read in `file`, as `file` declares them.
@@ -1087,11 +1090,13 @@ const declarationsIn = (m: Loaded, c: Checked, file: string, bodies: boolean): P
     heads.filter((h) => h.kind === "def").map((h) => h.name),
   );
   const order = orderOf(c);
-  const bodyOf = (k: Name): Plain[] => {
+  const bodyOf = (k: Name): Plain => {
     const tld = c.book.tlds[k];
-    return bodies && tld?.$ === "Def" && tld.e !== undefined
-      ? nodesOf(m, c, sp, sourceTerm(tld.e), 0, undefined)
-      : [];
+    return some(
+      bodies && tld?.$ === "Def" && tld.e !== undefined
+        ? termOf(m, c, sp, sourceTerm(tld.e))
+        : undefined,
+    );
   };
   const base = m.Bend.BASE_BEND;
   const imports = c.imports
@@ -1295,6 +1300,16 @@ const check = async (
   };
 };
 
+// A BendTerm, as the self-check reads it.
+type SampledTerm = {
+  $: string;
+  name?: string;
+  head?: SampledTerm;
+  arguments?: SampledTerm;
+  first?: SampledTerm;
+  rest?: SampledTerm;
+};
+
 // What a check gives, as the self-check reads it.
 type Sampled = {
   failure: { $: string };
@@ -1308,7 +1323,7 @@ type Sampled = {
         $: string;
         owner?: string;
         written_type?: { value?: { shown: string; ends_in_sort: boolean } };
-        body?: Array<{ term: { $: string; name?: string; head?: number; arguments?: number[] } }>;
+        body?: { value?: SampledTerm };
       };
     }>;
   }>;
@@ -1327,8 +1342,8 @@ const selfCheck = async (m: Loaded): Promise<void> => {
   const named = (name: string, kind: string) =>
     found.find((d) => d.name === name && d.kind.$ === kind);
   const x = named("x", "ParameterDeclaration");
-  const main = named("main", "DefDeclaration")?.kind.body;
-  const term = (i: number | undefined) => (i === undefined ? undefined : main?.[i]?.term);
+  const main = named("main", "DefDeclaration")?.kind.body?.value;
+  const arg = main?.arguments?.first;
   const checks: Array<[string, boolean]> = [
     ["check", run.failure.$ === "None"],
     ["def", named("id", "DefDeclaration")?.references.length === 1],
@@ -1345,12 +1360,12 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     ],
     [
       "body",
-      term(0)?.$ === "CallTerm" &&
-        term(term(0)?.head)?.$ === "ReferenceTerm" &&
-        term(term(0)?.head)?.name === "id" &&
-        term(0)?.arguments?.length === 1 &&
-        term(term(0)?.arguments?.[0])?.$ === "ConstructorTerm" &&
-        term(term(0)?.arguments?.[0])?.name === "Z",
+      main?.$ === "CallTerm" &&
+        main.head?.$ === "ReferenceTerm" &&
+        main.head.name === "id" &&
+        arg?.$ === "ConstructorTerm" &&
+        arg.name === "Z" &&
+        main.arguments?.rest?.$ === "NoTerms",
     ],
   ];
   const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));

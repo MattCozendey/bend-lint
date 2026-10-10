@@ -69,11 +69,12 @@
 # |                                                             | Unsaved text is for editors and can wait.                    |
 # | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
 # |                                                             | ones.                                                        |
-# | A def's checked body is a list of BodyNode in its           | Rules never see Bend's own terms, so they stay when Bend's   |
-# | DefDeclaration, given only to a rule that needs BodiesNeed: | checker changes. TS gives Bend's term kinds, bit by bit.     |
-# | a call with all its arguments, a literal as one term, no    |                                                              |
-# | annotation the checker added. A node lists its sub-terms by |                                                              |
-# | index; they come after it.                                  |                                                              |
+# | A def's checked body is a BendTerm in its DefDeclaration,   | Rules never see Bend's own terms, so they stay when Bend's   |
+# | given only to a rule that needs BodiesNeed: a call with all | checker changes. TS gives Bend's term kinds, bit by bit.     |
+# | its arguments, a literal as one term, no annotation the     |                                                              |
+# | checker added.                                              |                                                              |
+# | A term holds its sub-terms, and a list of terms is a term   | Bend has no mutual recursion, so one def walks a whole body. |
+# | too (SomeTerms, NoTerms). No term has a parent.             | A walk passes what it knows down instead.                    |
 #
 # TODO
 # - performance/missed-fork crashes (machine stack overflow) and performance/append-in-loop hangs on this file.
@@ -106,25 +107,29 @@ type BendType is Data:
   BendType{id: U32, shown: String, ends_in_sort: Bool}
 
 type BendTerm is Data:
-  VariableTerm{name: String}
-  ReferenceTerm{name: String}
-  CallTerm{head: U32, arguments: List<&2, U32>}
-  LetTerm{names: List<&2, String>, values: List<&2, U32>, body: U32}
-  LambdaTerm{name: String, body: U32}
-  ConstructorTerm{name: String, fields: List<&2, U32>}
-  LiteralTerm{shown: String}
-  AnnotatedTerm{value: U32, annotation: U32}
-  OtherTerm{parts: List<&2, U32>}
-
-type BodyNode is Data:
-  BodyNode{index: U32, parent: Maybe<&2, U32>, span: Maybe<&2, BendSourceSpan>, term: BendTerm}
+  VariableTerm{name: String, span: Maybe<&2, BendSourceSpan>}
+  ReferenceTerm{name: String, span: Maybe<&2, BendSourceSpan>}
+  CallTerm{head: BendTerm, arguments: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  LetTerm{
+    names: List<&2, String>,
+    values: BendTerm,
+    body: BendTerm,
+    span: Maybe<&2, BendSourceSpan>
+  }
+  LambdaTerm{name: String, body: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  ConstructorTerm{name: String, fields: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  LiteralTerm{shown: String, span: Maybe<&2, BendSourceSpan>}
+  AnnotatedTerm{value: BendTerm, annotation: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  OtherTerm{parts: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  SomeTerms{first: BendTerm, rest: BendTerm}
+  NoTerms{}
 
 type DeclarationReference is Data:
   DeclarationReference{owner: String, span: BendSourceSpan}
 
 type DeclarationKind is Data:
   ImportDeclaration{loads: String}
-  DefDeclaration{fills: Bool, written_type: Maybe<&2, BendType>, body: List<&2, BodyNode>}
+  DefDeclaration{fills: Bool, written_type: Maybe<&2, BendType>, body: Maybe<&2, BendTerm>}
   DatatypeDeclaration{written_type: Maybe<&2, BendType>}
   ConstructorDeclaration{owner: String}
   ParameterDeclaration{owner: String, written_type: Maybe<&2, BendType>}
@@ -661,26 +666,51 @@ def get_linter_references(
         case DeclarationReference{owner, span}:
           DeclarationReference{owner, get_linter_span(span)} <> get_linter_references(t)
 
-def get_linter_node_span(span: Maybe<&2, BendSourceSpan>) -> Maybe<&2, BendSourceSpan>:
+def get_linter_term_span(span: Maybe<&2, BendSourceSpan>) -> Maybe<&2, BendSourceSpan>:
   match span:
     case None{}:
       None{}
     case Some{value}:
       Some{get_linter_span(value)}
 
-def get_linter_nodes(nodes: List<&2, BodyNode>, done: List<&2, BodyNode>) -> List<&2, BodyNode>:
-  match nodes:
-    case Nil{}:
-      List.reverse(&2, BodyNode, done)
-    case Con{BodyNode{index, parent, span, term}, t}:
-      get_linter_nodes(t, BodyNode{index, parent, get_linter_node_span(span), term} <> done)
+def get_linter_term(term: BendTerm) -> BendTerm:
+  match term:
+    case VariableTerm{name, span}:
+      VariableTerm{name, get_linter_term_span(span)}
+    case ReferenceTerm{name, span}:
+      ReferenceTerm{name, get_linter_term_span(span)}
+    case CallTerm{head, arguments, span}:
+      CallTerm{get_linter_term(head), get_linter_term(arguments), get_linter_term_span(span)}
+    case LetTerm{names, values, body, span}:
+      LetTerm{names, get_linter_term(values), get_linter_term(body), get_linter_term_span(span)}
+    case LambdaTerm{name, body, span}:
+      LambdaTerm{name, get_linter_term(body), get_linter_term_span(span)}
+    case ConstructorTerm{name, fields, span}:
+      ConstructorTerm{name, get_linter_term(fields), get_linter_term_span(span)}
+    case LiteralTerm{shown, span}:
+      LiteralTerm{shown, get_linter_term_span(span)}
+    case AnnotatedTerm{value, annotation, span}:
+      AnnotatedTerm{get_linter_term(value), get_linter_term(annotation), get_linter_term_span(span)}
+    case OtherTerm{parts, span}:
+      OtherTerm{get_linter_term(parts), get_linter_term_span(span)}
+    case SomeTerms{first, rest}:
+      SomeTerms{get_linter_term(first), get_linter_term(rest)}
+    case NoTerms{}:
+      NoTerms{}
+
+def get_linter_body(body: Maybe<&2, BendTerm>) -> Maybe<&2, BendTerm>:
+  match body:
+    case None{}:
+      None{}
+    case Some{term}:
+      Some{get_linter_term(term)}
 
 def get_linter_kind(kind: DeclarationKind) -> DeclarationKind:
   match kind:
     case ImportDeclaration{loads}:
       ImportDeclaration{Path.get_posix_path(loads)}
     case DefDeclaration{fills, written_type, body}:
-      DefDeclaration{fills, written_type, get_linter_nodes(body, [])}
+      DefDeclaration{fills, written_type, get_linter_body(body)}
     case _:
       kind
 
