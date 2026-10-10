@@ -53,6 +53,10 @@ type Setting is Data:
 type Config is Data:
   Config{load: List<&2, String>, entries: List<&2, String>, imports: Bool, rules: List<&2, Setting>}
 
+# What a run found, and the files it linted, as they were read.
+type Report is Data:
+  Report{findings: List<&2, Diag>, linted: List<&2, Source>}
+
 # The findings of rules in file, set up by config. Does nothing yet.
-def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(List<&2, Diag>):
-  IO.pure(List<&2, Diag>, [])
+def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(Report):
+  IO.pure(Report, Report{[], [file]})
