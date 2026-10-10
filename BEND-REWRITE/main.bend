@@ -88,6 +88,32 @@ type BendSource is Data:
 type BendSourceSpan is Data:
   BendSourceSpan{path: String, beg: U32, end: U32}
 
+type BendType is Data:
+  BendType{id: U32, shown: String}
+
+type DeclarationReference is Data:
+  DeclarationReference{owner: String, span: BendSourceSpan}
+
+type DeclarationKind is Data:
+  ImportDeclaration{loads: String}
+  DefDeclaration{fills: Bool, written_type: Maybe<&2, BendType>}
+  DatatypeDeclaration{written_type: Maybe<&2, BendType>}
+  ConstructorDeclaration{owner: String}
+  ParameterDeclaration{owner: String, written_type: Maybe<&2, BendType>}
+  VariableDeclaration{owner: String}
+  FieldDeclaration{owner: String, written_type: Maybe<&2, BendType>}
+
+type Declaration is Data:
+  Declaration{
+    name: String,
+    span: BendSourceSpan,
+    references: List<&2, DeclarationReference>,
+    kind: DeclarationKind
+  }
+
+type SourceDeclarations is Data:
+  SourceDeclarations{path: String, declarations: List<&2, Declaration>}
+
 type FixEdit is Data:
   ReplaceText{span: BendSourceSpan, text: String}
   CreateOrWriteFile{path: String, text: String}
@@ -131,8 +157,12 @@ type RuleInput is Data:
     root: BendSource,
     sources: List<&2, BendSource>,
     options: List<&2, OptionGiven>,
-    prior: List<&2, RuleFinding>
+    prior: List<&2, RuleFinding>,
+    declarations: List<&2, SourceDeclarations>
   }
+
+type RuleNeed is Data:
+  DeclarationsNeed{}
 
 type RuleScope is Data:
   FileScope{}
@@ -145,6 +175,7 @@ type Rule is Type:
     scope: RuleScope,
     options: List<&2, OptionDeclared>,
     after: List<&2, String>,
+    needs: List<&2, RuleNeed>,
     run: RuleInput -> List<&2, Finding>
   }
 
@@ -186,15 +217,20 @@ type CliCommand is Data:
   }
 
 type BendCheck is Data:
-  BendCheck{root: BendSource, sources: List<&2, BendSource>, failure: Maybe<&2, RuleFinding>}
+  BendCheck{
+    root: BendSource,
+    sources: List<&2, BendSource>,
+    failure: Maybe<&2, RuleFinding>,
+    declarations: List<&2, SourceDeclarations>
+  }
 
 type RuleHead is Data:
-  RuleHead{id: String, after: List<&2, String>}
+  RuleHead{id: String, after: List<&2, String>, needs: List<&2, RuleNeed>}
 
 type LintTally is Data:
   LintTally{count: Nat, failed: Bool}
 
-def get_check(path: String) -> IO(BendCheck):
+def get_check(path: String, declarations: Bool) -> IO(BendCheck):
   import "./effs/host.js"
 
 def restart_with_rules(files: List<&2, String>) -> IO(Unit):
@@ -236,8 +272,8 @@ def get_rule_heads(rules: List<&1, Rule>) -> List<&2, RuleHead>:
       []
     case Con{r, rest}:
       match r:
-        case Rule{id, scope, options, after, run}:
-          RuleHead{id, after} <> get_rule_heads(rest)
+        case Rule{id, scope, options, after, needs, run}:
+          RuleHead{id, after, needs} <> get_rule_heads(rest)
 
 def get_head_ids(heads: List<&2, RuleHead>) -> List<&2, String>:
   match heads:
@@ -245,7 +281,7 @@ def get_head_ids(heads: List<&2, RuleHead>) -> List<&2, String>:
       []
     case Con{h, t}:
       match h:
-        case RuleHead{id, after}:
+        case RuleHead{id, after, needs}:
           id <> get_head_ids(t)
 
 def get_ready_ids(heads: List<&2, RuleHead>, +done: List<&2, String>) -> List<&2, String>:
@@ -254,13 +290,41 @@ def get_ready_ids(heads: List<&2, RuleHead>, +done: List<&2, String>) -> List<&2
       []
     case Con{h, t}:
       match h:
-        case RuleHead{+id, after}:
+        case RuleHead{+id, after, needs}:
           get_kept(
             String,
             Bool.not(get_has_text(done, id)) && get_has_texts(after, done),
             id,
             get_ready_ids(t, done)
           )
+
+def get_needs_declarations(needs: List<&2, RuleNeed>) -> Bool:
+  match needs:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      match h:
+        case DeclarationsNeed{}:
+          True{}
+
+def get_heads_need_declarations(heads: List<&2, RuleHead>) -> Bool:
+  match heads:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      match h:
+        case RuleHead{id, after, needs}:
+          get_needs_declarations(needs) || get_heads_need_declarations(t)
+
+def get_given_declarations(
+  want: Bool,
+  declarations: List<&2, SourceDeclarations>
+) -> List<&2, SourceDeclarations>:
+  match want:
+    case True{}:
+      declarations
+    case False{}:
+      []
 
 def get_rule_id(found: RuleFinding) -> String:
   match found:
@@ -298,15 +362,22 @@ def get_level_finding(
   +ready: List<&2, String>,
   +found: List<&2, RuleFinding>,
   +root: BendSource,
-  +sources: List<&2, BendSource>
+  +sources: List<&2, BendSource>,
+  +declarations: List<&2, SourceDeclarations>
 ) -> List<&2, RuleFinding>:
   match r:
-    case Rule{+id, scope, options, after, run}:
+    case Rule{+id, scope, options, after, needs, run}:
       get_rule_run(
         get_has_text(ready, id),
         id,
         run,
-        RuleInput{root, sources, [], get_prior(found, after)}
+        RuleInput{
+          root,
+          sources,
+          [],
+          get_prior(found, after),
+          get_given_declarations(get_needs_declarations(needs), declarations)
+        }
       )
 
 def get_level_findings(
@@ -314,7 +385,8 @@ def get_level_findings(
   +ready: List<&2, String>,
   +found: List<&2, RuleFinding>,
   +root: BendSource,
-  +sources: List<&2, BendSource>
+  +sources: List<&2, BendSource>,
+  +declarations: List<&2, SourceDeclarations>
 ) -> List<&2, RuleFinding>:
   match rules:
     case Nil{}:
@@ -325,8 +397,9 @@ def get_level_findings(
         ready,
         found,
         root,
-        sources
-      ) get_level_findings(rest, ready, found, root, sources)
+        sources,
+        declarations
+      ) get_level_findings(rest, ready, found, root, sources, declarations)
       List.append(&2, RuleFinding, a, b)
 
 def get_texts_where(
@@ -384,7 +457,7 @@ def get_order_problems.of(
       []
     case Con{h, t}:
       match h:
-        case RuleHead{+id, +after}:
+        case RuleHead{+id, +after, needs}:
           List.append(
             &2,
             String,
@@ -416,7 +489,8 @@ def get_lint_findings(
   +done: List<&2, String>,
   +found: List<&2, RuleFinding>,
   +root: BendSource,
-  +sources: List<&2, BendSource>
+  +sources: List<&2, BendSource>,
+  +declarations: List<&2, SourceDeclarations>
 ) -> List<&2, RuleFinding>:
   match fuel ready:
     case 0n _:
@@ -435,10 +509,11 @@ def get_lint_findings(
           &2,
           RuleFinding,
           found,
-          get_level_findings(rules(Unit{}), h <> t, found, root, sources)
+          get_level_findings(rules(Unit{}), h <> t, found, root, sources, declarations)
         ),
         root,
-        sources
+        sources,
+        declarations
       )
 
 def get_lint_report(
@@ -447,7 +522,7 @@ def get_lint_report(
   config: LintConfig
 ) -> LintReport:
   match check:
-    case BendCheck{+root, +sources, failure}:
+    case BendCheck{+root, +sources, failure, +declarations}:
       match failure:
         case Some{value}:
           LintReport{[value], [], [root]}
@@ -462,7 +537,8 @@ def get_lint_report(
               [],
               [],
               root,
-              sources
+              sources,
+              declarations
             ),
             [],
             [root]
@@ -483,22 +559,65 @@ def get_linter_sources(sources: List<&2, BendSource>) -> List<&2, BendSource>:
     case Con{s, t}:
       get_linter_source(s) <> get_linter_sources(t)
 
+def get_linter_span(span: BendSourceSpan) -> BendSourceSpan:
+  match span:
+    case BendSourceSpan{path, beg, end}:
+      BendSourceSpan{Path.get_posix_path(path), beg, end}
+
 def get_linter_finding(found: RuleFinding) -> RuleFinding:
   match found:
     case RuleFinding{rule_id, finding}:
       match finding:
         case Finding{severity, message, span, fixes}:
-          match span:
-            case BendSourceSpan{path, beg, end}:
-              RuleFinding{
-                rule_id,
-                Finding{
-                  severity,
-                  message,
-                  BendSourceSpan{Path.get_posix_path(path), beg, end},
-                  fixes
-                }
-              }
+          RuleFinding{rule_id, Finding{severity, message, get_linter_span(span), fixes}}
+
+def get_linter_references(
+  references: List<&2, DeclarationReference>
+) -> List<&2, DeclarationReference>:
+  match references:
+    case Nil{}:
+      []
+    case Con{r, t}:
+      match r:
+        case DeclarationReference{owner, span}:
+          DeclarationReference{owner, get_linter_span(span)} <> get_linter_references(t)
+
+def get_linter_kind(kind: DeclarationKind) -> DeclarationKind:
+  match kind:
+    case ImportDeclaration{loads}:
+      ImportDeclaration{Path.get_posix_path(loads)}
+    case _:
+      kind
+
+def get_linter_declarations(declarations: List<&2, Declaration>) -> List<&2, Declaration>:
+  match declarations:
+    case Nil{}:
+      []
+    case Con{d, t}:
+      match d:
+        case Declaration{name, span, references, kind}:
+          Declaration{
+            name,
+            get_linter_span(span),
+            get_linter_references(references),
+            get_linter_kind(kind)
+          }
+            <> get_linter_declarations(t)
+
+def get_linter_source_declarations(
+  all: List<&2, SourceDeclarations>
+) -> List<&2, SourceDeclarations>:
+  match all:
+    case Nil{}:
+      []
+    case Con{s, t}:
+      match s:
+        case SourceDeclarations{path, declarations}:
+          SourceDeclarations{
+            Path.get_posix_path(path),
+            get_linter_declarations(declarations)
+          }
+            <> get_linter_source_declarations(t)
 
 def get_linter_failure(failure: Maybe<&2, RuleFinding>) -> Maybe<&2, RuleFinding>:
   match failure:
@@ -509,8 +628,13 @@ def get_linter_failure(failure: Maybe<&2, RuleFinding>) -> Maybe<&2, RuleFinding
 
 def get_linter_check(check: BendCheck) -> BendCheck:
   match check:
-    case BendCheck{root, sources, failure}:
-      BendCheck{get_linter_source(root), get_linter_sources(sources), get_linter_failure(failure)}
+    case BendCheck{root, sources, failure, declarations}:
+      BendCheck{
+        get_linter_source(root),
+        get_linter_sources(sources),
+        get_linter_failure(failure),
+        get_linter_source_declarations(declarations)
+      }
 
 def get_usage() -> String:
   "usage: bun BEND-REWRITE/host.ts <file>... [--rules <rule.bend>]..."
@@ -640,7 +764,7 @@ def lint_file.resolved(
       IO.bind(
         BendCheck,
         LintReport,
-        get_check(value),
+        get_check(value, get_heads_need_declarations(get_rule_heads(rules(Unit{})))),
         check => IO.pure(
           LintReport,
           get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], False{}, []})
