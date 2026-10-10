@@ -88,7 +88,24 @@ type Hook = {
   declare?: (kind: Heading["kind"], name: Name, span: BendSpan) => void;
   import?: (path: string, name: Name, beg: number) => void;
   term?: (p: Parse, t: LTerm) => void;
+  binding?: (name: Name, index: number, span: BendSpan | undefined, kind: Binding["kind"]) => void;
 };
+
+// A binding of a file: a parameter (or named type binder), a variable, or a
+// constructor field, with the binder it is and its written type.
+type Binding = {
+  key: string;
+  kind: "parameter" | "variable" | "field";
+  name: Name;
+  owner: Name;
+  beg: number;
+  end: number;
+  type?: Plain;
+};
+
+// A written type, as a type handle holds it: the type, the book and depth of
+// its scope.
+type Scoped = { ty: HTerm; bok: Book; dep: number };
 
 // A file of a check as a span of bend.ts's copy of it moves to: its path and
 // text on disk, and where its lines start in the copy and on disk.
@@ -103,6 +120,7 @@ type Checked = {
   headings: Heading[];
   imports: Imported[];
   placed: WeakMap<object, Placed | null>;
+  types: Scoped[];
   aliases?: Map<string, Record<Name, Name>>;
   order?: Order;
 };
@@ -118,6 +136,7 @@ type Spelling = {
   aliases: Record<Name, Name>;
   qualify: (name: string) => Name;
   spell: (k: Name) => string;
+  shown: BendSpan["file"];
 };
 
 // A use of a global name in a file: the name, and where it is.
@@ -193,6 +212,8 @@ const PATCHES: Record<string, Patch> = {
     edits: [
       ...SHIMMED,
       ["export function parse_term(", "function unseen_parse_term("],
+      ["export function parse_bind(", "function unseen_parse_bind("],
+      ["export function parse_tele(", "function unseen_parse_tele("],
       ["const nm  = parse_name(p);", 'const nm  = seeDeclared(p, parse_name(p), "def");'],
       [
         'if (parse_word(p, "type")) {\n      const k = parse_fresh(p, parse_name(p));',
@@ -209,7 +230,7 @@ const PATCHES: Record<string, Patch> = {
       ['body[i] = "";', 'body[i] = "";\n    seeImported(real, at, lines[i], m);'],
     ],
     needs: [],
-    tail: `import { seeDeclared, seeImported, seeParseTerm } from "${SHIM}";\nexport const parse_term = seeParseTerm(unseen_parse_term);\n`,
+    tail: `import { seeDeclared, seeImported, seeParseBind, seeParseTele, seeParseTerm } from "${SHIM}";\nexport const parse_bind = seeParseBind(unseen_parse_bind);\nexport const parse_tele = seeParseTele(unseen_parse_tele);\nexport const parse_term = seeParseTerm(unseen_parse_term);\n`,
     exports: [],
   },
   "comp.ts": {
@@ -424,7 +445,7 @@ const load = async (): Promise<Loaded> => {
     name: "bend-host",
     setup: (build) => {
       build.module(SHIM, () => ({
-        exports: { fs, path, seeDeclared, seeImported, seeParseTerm },
+        exports: { fs, path, seeDeclared, seeImported, seeParseBind, seeParseTele, seeParseTerm },
         loader: "object",
       }));
       build.onLoad({ filter }, (args) => {
@@ -500,6 +521,28 @@ const seeParseTerm = (f: typeof BendModule.parse_term): typeof BendModule.parse_
     const t = f(...args);
     HOOK.term?.(args[0], t);
     return t;
+  };
+};
+
+// parse_bind and parse_tele as bend.ts calls them: every argument passes
+// through, and each binder they read is also reported to HOOK.binding.
+const seeParseBind = (f: typeof BendModule.parse_bind): typeof BendModule.parse_bind => {
+  arity(f, 2, "parse_bind");
+  return (...args) => {
+    const b = f(...args);
+    HOOK.binding?.(b.k, b.i, b.s, "variable");
+    return b;
+  };
+};
+
+const seeParseTele = (f: typeof BendModule.parse_tele): typeof BendModule.parse_tele => {
+  arity(f, 2, "parse_tele");
+  return (...args) => {
+    const tele = f(...args);
+    tele.forEach(([, k, i, , s]) =>
+      HOOK.binding?.(k, i, s, args[1] === "}" ? "field" : "parameter"),
+    );
+    return tele;
   };
 };
 
@@ -635,6 +678,7 @@ const spellingOf = (m: Loaded, c: Checked, file: string, text: string): Spelling
         : (ns ? ns + ":" : "") + name;
     },
     spell: (k) => m.Bend.name_show(shown, k),
+    shown,
   };
 };
 
@@ -695,7 +739,7 @@ const parseSource = (
   text: string,
   sp: Spelling,
   own: Name[],
-): void => {
+): Book => {
   const fills = fillsIn(c.book, sp.ns, own);
   const gone = new Set(own.filter((k) => !fills.has(k)));
   const order = orderOf(c);
@@ -718,6 +762,7 @@ const parseSource = (
     sp.ns,
     sp.aliases,
   );
+  return parsed;
 };
 
 const spanOf = (
@@ -732,8 +777,16 @@ const spanOf = (
   end: points(end),
 });
 
-// The declarations of `file`, as `file` spells them: its defs, datatypes,
-// constructors and imports, each with the uses of its name.
+// Whether a type, after its arrows, is a sort (Type, Data or Kind(..)).
+const endsInSort = (m: Loaded, ty: HTerm, dep: number): boolean => {
+  const end = (t: HTerm, d: number): HTerm =>
+    t.$ === "All" ? end(t.B(m.Bend.Var(t.k, d)), d + 1) : t.$ === "Ann" ? end(t.x, d) : t;
+  return end(ty, dep).$ === "Typ";
+};
+
+// The declarations of `file`, as `file` spells them: its imports, defs,
+// datatypes and constructors, and its parameters, variables and fields,
+// each with the uses of its name.
 const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
   const text = fs.readFileSync(file, "utf8");
   const sp = spellingOf(m, c, file, text);
@@ -745,7 +798,7 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
       : [];
   });
   const heads = mine.filter((h) => h.kind !== "constructor");
-  const enclosing = (beg: number): Name => {
+  const enclosing = (beg: number): (typeof heads)[number] => {
     const found = heads.reduce<(typeof heads)[number] | undefined>(
       (last, h) => (h.beg <= beg ? h : last),
       undefined,
@@ -753,26 +806,105 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
     if (found === undefined) {
       throw drift(`no declaration encloses ${file}:${beg}`);
     }
-    return found.name;
+    return found;
+  };
+  const locals = new Map<string, string>();
+  const localKey = (index: number, beg: number): string => {
+    const at = [enclosing(beg).beg, index].join("\0");
+    const known = locals.get(at) ?? "\0" + locals.size;
+    locals.set(at, known);
+    return known;
+  };
+  const bindings: Binding[] = [];
+  const binding = (
+    name: Name,
+    index: number,
+    s: BendSpan | undefined,
+    kind: Binding["kind"],
+    type?: Plain,
+  ): void => {
+    const at = s && placedSpan(c.seen, c.placed, s);
+    const token = at && text.slice(at.beg, at.end).match(/^[@&]?\s*[+-]?\s*([A-Za-z_]\w*)/);
+    if (at === undefined || at.path !== file || token?.[1] !== name) {
+      return;
+    }
+    const beg = at.beg + token[0].length - name.length;
+    bindings.push({
+      key: localKey(index, at.beg),
+      kind,
+      name,
+      owner: enclosing(at.beg).name,
+      beg,
+      end: beg + name.length,
+      type,
+    });
   };
   const globals = new Set<LTerm>();
-  HOOK.term = (_, root) =>
-    walk(root).forEach((tm) => {
-      if (["Ref", "ADT", "Ctr", "Mat", "Lit"].includes(tm.$)) globals.add(tm);
-      if (tm.$ === "Var" && tm.v?.$ === "Ref") globals.add(tm.v);
-    });
-  try {
-    parseSource(
-      m,
-      c,
-      file,
-      text,
-      sp,
-      heads.map((h) => h.name),
-    );
-  } finally {
-    HOOK.term = undefined;
-  }
+  const localUses: Array<{ index: number; s?: BendSpan }> = [];
+  const visited = new WeakSet<LTerm>();
+  const visit = (p: Parse, tm: LTerm): void => {
+    if (visited.has(tm)) {
+      return;
+    }
+    visited.add(tm);
+    if (["Ref", "ADT", "Ctr", "Mat", "Lit"].includes(tm.$)) globals.add(tm);
+    if (tm.$ === "Var" && tm.v?.$ === "Ref") globals.add(tm.v);
+    if (tm.$ === "Var" && tm.v?.$ !== "Ref") localUses.push({ index: tm.i, s: tm.s });
+    if (
+      (tm.$ === "All" || tm.$ === "Lam") &&
+      tm.s &&
+      /^[@&]/.test(p.str.slice(tm.s.beg, tm.s.end))
+    ) {
+      binding(tm.k, tm.i, tm.s, "parameter");
+    }
+    children(tm).forEach((kid) => visit(p, kid));
+  };
+  HOOK.term = visit;
+  HOOK.binding = binding;
+  const parsed = (() => {
+    try {
+      return parseSource(
+        m,
+        c,
+        file,
+        text,
+        sp,
+        heads.map((h) => h.name),
+      );
+    } finally {
+      HOOK.term = undefined;
+      HOOK.binding = undefined;
+    }
+  })();
+  const typeOf = (ty: HTerm, dep: number): Plain => ({
+    $: "BendType",
+    id: c.types.push({ ty, bok: parsed, dep }) - 1,
+    shown: m.Bend.term_show(m.Bend.term_lower(ty, dep), -1, [], sp.shown),
+    ends_in_sort: endsInSort(m, ty, dep),
+  });
+  const telescope = (T: HTerm, n: number, from: number, kind: Binding["kind"]): Plain => {
+    const go = (t: HTerm, i: number): Plain => {
+      if (i >= n || t.$ !== "All") {
+        return typeOf(t, i);
+      }
+      if (i >= from) binding(t.k, t.i, t.s, kind, typeOf(t.A, i));
+      return go(t.B(m.Bend.Var(t.k, i)), i + 1);
+    };
+    return go(T, 0);
+  };
+  const written = new Map(
+    heads.flatMap((h): Array<[Name, Plain]> => {
+      const tld = parsed.tlds[h.name] as Book["tlds"][string] | undefined;
+      if (tld === undefined) {
+        return [];
+      }
+      const type = telescope(tld.T, tld.n, 0, "parameter");
+      if (tld.$ === "ADT") tld.c.forEach((ctr) => telescope(ctr.T, tld.n + ctr.n, tld.n, "field"));
+      return [[h.name, type]];
+    }),
+  );
+  const bound = [...new Map(bindings.map((d) => [d.beg, d])).values()];
+  const binders = new Set(bound.map((d) => d.beg));
   const uses = [
     ...heads.flatMap((h): Use[] =>
       sp.aliases[text.slice(h.beg, h.end).split(".")[0]] !== undefined
@@ -782,10 +914,23 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
     ...[...globals].flatMap((tm): Use[] => {
       const at = tm.s && placedSpan(c.seen, c.placed, tm.s);
       return at?.path === file && "k" in tm && typeof tm.k === "string"
-        ? [{ key: tm.k, owner: enclosing(at.beg), beg: at.beg, end: at.end }]
+        ? [{ key: tm.k, owner: enclosing(at.beg).name, beg: at.beg, end: at.end }]
         : [];
     }),
-  ];
+    ...localUses.flatMap(({ index, s }): Use[] => {
+      const at = s && placedSpan(c.seen, c.placed, s);
+      return at?.path === file
+        ? [
+            {
+              key: localKey(index, at.beg),
+              owner: enclosing(at.beg).name,
+              beg: at.beg,
+              end: at.end,
+            },
+          ]
+        : [];
+    }),
+  ].filter((u) => !binders.has(u.beg));
   const unique = [...new Map(uses.map((u) => [[u.key, u.beg].join("\0"), u])).values()];
   const references = (keep: (u: Use) => boolean): Plain[] =>
     unique.filter(keep).map((u) => ({
@@ -800,6 +945,8 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
   );
   const order = orderOf(c);
   const base = m.Bend.BASE_BEND;
+  const some = (x: Plain | undefined): Plain =>
+    x === undefined ? { $: "None" } : { $: "Some", value: x };
   const imports = c.imports
     .filter((i) => i.path === file)
     .map((i): { beg: number; plain: Plain } => {
@@ -810,7 +957,8 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
       if (loads === undefined) {
         throw drift(`the import ${i.name} of ${file} loads no file the check read`);
       }
-      const uses = (u: Use): boolean => {
+      const usedBy = (u: Use): boolean => {
+        if (u.key.startsWith("\0")) return false;
         const explicit = text.slice(u.beg, u.end).match(/^([A-Za-z_]\w*)\./)?.[1];
         if (explicit !== undefined && sp.aliases[explicit] !== undefined)
           return explicit === i.name;
@@ -825,7 +973,7 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
           $: "Declaration",
           name: i.name,
           span: spanOf(file, points, i.beg, i.beg + i.name.length),
-          references: references(uses),
+          references: references(usedBy),
           kind: { $: "ImportDeclaration", loads },
         },
       };
@@ -839,13 +987,34 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
       references: references((u) => u.key === h.name),
       kind:
         h.kind === "def"
-          ? { $: "DefDeclaration", fills: fills.has(h.name), written_type: { $: "None" } }
+          ? {
+              $: "DefDeclaration",
+              fills: fills.has(h.name),
+              written_type: some(written.get(h.name)),
+            }
           : h.kind === "type"
-            ? { $: "DatatypeDeclaration", written_type: { $: "None" } }
-            : { $: "ConstructorDeclaration", owner: sp.spell(enclosing(h.beg)) },
+            ? { $: "DatatypeDeclaration", written_type: some(written.get(h.name)) }
+            : { $: "ConstructorDeclaration", owner: sp.spell(enclosing(h.beg).name) },
     },
   }));
-  return [...imports, ...declared].sort((a, b) => a.beg - b.beg).map((d) => d.plain);
+  const local = bound.map((d): { beg: number; plain: Plain } => ({
+    beg: d.beg,
+    plain: {
+      $: "Declaration",
+      name: d.name,
+      span: spanOf(file, points, d.beg, d.end),
+      references: references((u) => u.key === d.key),
+      kind:
+        d.kind === "variable"
+          ? { $: "VariableDeclaration", owner: sp.spell(d.owner) }
+          : {
+              $: d.kind === "field" ? "FieldDeclaration" : "ParameterDeclaration",
+              owner: sp.spell(d.owner),
+              written_type: some(d.type),
+            },
+    },
+  }));
+  return [...imports, ...declared, ...local].sort((x, y) => x.beg - y.beg).map((d) => d.plain);
 };
 
 // The declarations of every file the check read, Base and hub packages
@@ -899,7 +1068,15 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
     sources: [...seen.keys()].map((f) => sourceOf(f, text(f))),
     declarations:
       "book" in read && wanted
-        ? declarationsOf(m, { book: read.book, root: real, seen, headings, imports, placed })
+        ? declarationsOf(m, {
+            book: read.book,
+            root: real,
+            seen,
+            headings,
+            imports,
+            placed,
+            types: [],
+          })
         : [],
     failure:
       failed === undefined

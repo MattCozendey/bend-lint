@@ -89,7 +89,7 @@ type BendSourceSpan is Data:
   BendSourceSpan{path: String, beg: U32, end: U32}
 
 type BendType is Data:
-  BendType{id: U32, shown: String}
+  BendType{id: U32, shown: String, ends_in_sort: Bool}
 
 type DeclarationReference is Data:
   DeclarationReference{owner: String, span: BendSourceSpan}

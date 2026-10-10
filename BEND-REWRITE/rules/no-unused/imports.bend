@@ -2,39 +2,10 @@
 # loads, or a file that file imports, fills a law of another file. The fix removes the import's line.
 import Base
 import ../../main.bend as Lint
+import ../shared.bend as Shared
 
 type Walk is Data:
   Walk{found: Bool, todo: List<&2, String>, seen: List<&2, String>}
-
-def get_has(xs: List<&2, String>, +x: String) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
-      String.eq(h, x) || get_has(t, x)
-
-def get_declarations_of.pick(
-  hit: Bool,
-  ds: List<&2, Lint.Declaration>,
-  rest: List<&2, Lint.Declaration>
-) -> List<&2, Lint.Declaration>:
-  match hit:
-    case True{}:
-      ds
-    case False{}:
-      rest
-
-def get_declarations_of(
-  all: List<&2, Lint.SourceDeclarations>,
-  +path: String
-) -> List<&2, Lint.Declaration>:
-  match all:
-    case Nil{}:
-      []
-    case Con{s, t}:
-      match s:
-        case Lint.SourceDeclarations{p, ds}:
-          get_declarations_of.pick(String.eq(p, path), ds, get_declarations_of(t, path))
 
 def get_any_fills(ds: List<&2, Lint.Declaration>) -> Bool:
   match ds:
@@ -65,7 +36,11 @@ def get_loaded(
     case Con{d, rest}:
       match d:
         case Lint.Declaration{name, span, references, Lint.ImportDeclaration{+p}}:
-          get_loaded(rest, get_queued(get_has(todo, p) || get_has(seen, p), p, todo), seen)
+          get_loaded(
+            rest,
+            get_queued(Shared.get_has(todo, p) || Shared.get_has(seen, p), p, todo),
+            seen
+          )
         case _:
           get_loaded(rest, todo, seen)
 
@@ -85,7 +60,7 @@ def get_chain(fuel: Nat, w: Walk, +all: List<&2, Lint.SourceDeclarations>) -> Bo
     case 1n+k Walk{False{}, Nil{}, seen}:
       False{}
     case 1n+k Walk{False{}, Con{+p, rest}, seen}:
-      get_chain(k, get_step(get_declarations_of(all, p), rest, p <> seen), all)
+      get_chain(k, get_step(Shared.get_declarations_of(all, p), rest, p <> seen), all)
 
 def get_line_span.pick(
   inside: Bool,
@@ -177,7 +152,7 @@ def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           get_unused_imports(
-            get_declarations_of(all, path),
+            Shared.get_declarations_of(all, path),
             all,
             List.length(&2, Lint.BendSource, sources),
             lines,
