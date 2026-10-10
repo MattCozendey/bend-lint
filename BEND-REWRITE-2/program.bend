@@ -4,10 +4,11 @@ import ./lint.bend as Lint
 import ./shared.bend as Shared
 import ./wire.bend as Wire
 
-# What checking a file gives: its program, or why the check failed and the files it read.
+# What checking a file gives: its program; or why the check failed, the files it read, and, if it parsed them, the
+# program they make, without facts.
 type Check is Data:
   Passed{program: Lint.Program}
-  Failed{message: String, read: List<&2, String>}
+  Failed{message: String, read: List<&2, String>, parsed: Maybe<&2, Lint.Program>}
 
 # Decoding
 # ========
@@ -165,32 +166,64 @@ def Check.read(program: Maybe<&2, Lint.Program>) -> IO(Check):
     case None{}:
       Check.malformed(Check)
 
+def Records.keep(hit: Bool, record: List<&2, String>, out: List<&2, List<&2, String>>) -> List<&2, List<&2, String>>:
+  match hit:
+    case True{}:
+      record <> out
+    case False{}:
+      out
+
+# The records of the parsed files and their nodes, in order.
+def Records.syntax(records: List<&2, List<&2, String>>, out: List<&2, List<&2, String>>) -> List<&2, List<&2, String>> :
+  match records:
+    case Nil{}:
+      List.reverse(&2, List<&2, String>, out)
+    case Con{Con{+tag, fields}, rest}:
+      Records.syntax(rest, Records.keep(String.eq(tag, "file") || String.eq(tag, "node"), Con{tag, fields}, out))
+    case Con{Nil{}, rest}:
+      Records.syntax(rest, out)
+
+def Records.path(hit: Bool, fields: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+  match hit fields:
+    case True{} Con{path, Nil{}}:
+      path <> out
+    case _ _:
+      out
+
 # The files a failed check read: the paths of its `read` records, in order.
 def Check.reads(records: List<&2, List<&2, String>>, out: List<&2, String>) -> List<&2, String>:
   match records:
     case Nil{}:
       List.reverse(&2, String, out)
-    case Con{Con{tag, Con{path, Nil{}}}, rest}:
-      Check.reads(rest, path <> out)
-    case Con{r, rest}:
+    case Con{Con{+tag, fields}, rest}:
+      Check.reads(rest, Records.path(String.eq(tag, "read"), fields, out))
+    case Con{Nil{}, rest}:
       Check.reads(rest, out)
 
-def Check.failed(fail: Bool, message: String, read: List<&2, String>) -> IO(Check):
+# The program of the files a failed check parsed, if it parsed any.
+def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
+  match syntax:
+    case Nil{}:
+      None{}
+    case _:
+      Program.read(syntax, [])
+
+def Check.failed(fail: Bool, message: String, +records: List<&2, List<&2, String>>) -> IO(Check):
   match fail:
     case True{}:
-      IO.pure(Check, Failed{message, read})
+      IO.pure(Check, Failed{message, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
     case False{}:
       Check.malformed(Check)
 
 def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, String>>) -> IO(Check):
   match last:
     case Some{Con{+tag, Con{message, Nil{}}}}:
-      Check.failed(String.eq(tag, "fail"), message, Check.reads(records, []))
+      Check.failed(String.eq(tag, "fail"), message, records)
     case _:
       Check.read(Program.read(records, []))
 
-# What an answer says: the program; or, ending in a `fail` record, the files the check read (its `read` records) and
-# why it failed.
+# What an answer says: the program; or, ending in a `fail` record, why the check failed, the files it read (its `read`
+# records), and what it parsed (its `file` and `node` records).
 def Check.of(+records: List<&2, List<&2, String>>) -> IO(Check):
   Check.ended(List.last(&2, List<&2, String>, records), records)
 

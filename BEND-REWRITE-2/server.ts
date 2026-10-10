@@ -1066,8 +1066,9 @@ const nodesWithFacts = (
 
 // The answer to `check <path> <facts|syntax>`: each file the check parsed
 // (path, namespace, text), then its syntax nodes, each followed, with facts,
-// by the checker's facts on it; or, if the check failed, the files it read, then
-// why. The probes are global, so checks must not overlap.
+// by the checker's facts on it; or, if the check failed, the files it parsed
+// with their nodes (if it got that far), the files it read, then why. The
+// probes are global, so checks must not overlap.
 const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
@@ -1076,6 +1077,7 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
   const binders = new Map<string, number>();
   const hook = globalThis as { BEND_LINT_SEE?: (seen: Seen) => void };
   hook.BEND_LINT_SEE = (s) => reported.push(s);
+  let syntax: string[] = [];
   try {
     await Bend.book_load(book, nodePath.resolve(path).replaceAll("\\", "/"), "", seen);
     hook.BEND_LINT_SEE = undefined;
@@ -1106,6 +1108,10 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
       },
       [],
     );
+    syntax = sections.flatMap(({ file, nodes }) => [
+      record(["file", file.real, file.ns, file.text]),
+      ...nodes,
+    ]);
     Bend.book_valid(book, base.order.length);
     const judged = facts
       ? factsOf(Bend, book, book.order.slice(base.order.length), origins, binders)
@@ -1120,6 +1126,7 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
       .join("");
   } catch (e) {
     return [
+      ...syntax,
       ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
       record(["fail", isErr(e) ? Bend.err_show(e) : message(e)]),
     ].join("");

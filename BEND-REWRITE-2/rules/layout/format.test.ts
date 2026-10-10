@@ -57,6 +57,11 @@ setDefaultTimeout(120_000);
     expect(found(nested.join("\n") + "\n")).toEqual([]);
   });
 
+  test("a file with a type error is formatted too, but not one that does not parse", () => {
+    expect(found('import Base\n\ndef main() -> U32:\n    "text"\n')).toEqual(["4:3 " + MESSAGE]);
+    expect(found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual([]);
+  });
+
   test("an empty file ends with a newline; a file of a comment is the comment", () => {
     expect(found("")).toEqual(["1:1 " + MESSAGE]);
     expect(found("\n\n# comment\n\n")).toEqual(["1:1 " + MESSAGE]);
