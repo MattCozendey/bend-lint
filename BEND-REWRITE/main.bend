@@ -1,5 +1,5 @@
 # This file's goal is to become a bend version of the bend-lint tool.
-# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects, and aside from the host), even if it contains laws and/or proofs.
+# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects, the host, and path.bend), even if it contains laws and/or proofs.
 # The host (host.ts) is the one TS file of the rewrite, and its entry point: `bun host.ts <args>`. It finds Bend, loads
 # its checker and compiler into its own process and patches the checker (the seam), compiles this file with the
 # --rules files, runs it, and answers its effects. It holds no linting logic: only what only TS can do.
@@ -43,9 +43,10 @@
 # | bend-lint.ts.                                               |                                                              |
 # | get_lint_report returns findings, suppressed findings and   | Callers need little else. Other failures stop the program    |
 # | the linted files; errors use IO.die, not a Result.          | with a message.                                              |
-# | EVERY path the linter touches is a normalized POSIX path,   | One spelling per file, on every system.                      |
-# | symlinks included. Base and BendHub paths are exempt.       |                                                              |
-# | On Windows, C:\x\y becomes /c/x/y.                          |                                                              |
+# | EVERY path the linter touches is a normalized POSIX-style   | One spelling per file, on every system.                      |
+# | path, symlinks included. Base and BendHub paths are exempt. |                                                              |
+# | On Windows, C:\x\y becomes c:/x/y.                          | Windows reads it as it is, so no path is converted on its    |
+# |                                                             | way to the OS.                                               |
 # | Offsets count code points, not UTF-16 units.                | That is how Bend counts String characters.                   |
 # | A rule is a value with a run function, not a module.        | Rules are plain Bend data. A Rule cannot be copied, so build |
 # |                                                             | the list again where it is needed.                           |
@@ -58,6 +59,7 @@
 # | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
 # |                                                             | ones.                                                        |
 import Base
+import ./path.bend as Path
 
 type FixApplicability is Data:
   Safe{}
@@ -165,277 +167,66 @@ type CliCommand is Data:
     output: CliOutput
   }
 
-def get_real_path(path: String) -> IO(Result<&1, &1, U32 & String, String>):
-  import "./effs/get_real_path.c"
-  import "./effs/get_real_path.js"
-
-def get_normalized_path.pop.up(up: Bool, h: String, t: List<&2, String>) -> List<&2, String>:
-  match up:
-    case True{}:
-      ".." <> (h <> t)
-    case False{}:
-      t
-
-def get_normalized_path.pop.root(abs: Bool) -> List<&2, String>:
-  match abs:
-    case True{}:
-      Nil{}
-    case False{}:
-      [".."]
-
-def get_normalized_path.pop(stack: List<&2, String>, abs: Bool) -> List<&2, String>:
-  match stack:
-    case Nil{}:
-      get_normalized_path.pop.root(abs)
-    case Con{+h, t}:
-      get_normalized_path.pop.up(String.eq(h, ".."), h, t)
-
-def get_normalized_path.step(
-  skip: Bool,
-  up: Bool,
-  s: String,
-  stack: List<&2, String>,
-  abs: Bool
-) -> List<&2, String>:
-  match skip:
-    case True{}:
-      stack
-    case False{}:
-      match up:
-        case True{}:
-          get_normalized_path.pop(stack, abs)
-        case False{}:
-          s <> stack
-
-def get_normalized_path.go(
-  segs: List<&2, String>,
-  stack: List<&2, String>,
-  +abs: Bool
-) -> List<&2, String>:
-  match segs:
-    case Nil{}:
-      stack
-    case Con{+s, t}:
-      get_normalized_path.go(
-        t,
-        get_normalized_path.step(
-          String.eq(s, "") || String.eq(s, "."),
-          String.eq(s, ".."),
-          s,
-          stack,
-          abs
-        ),
-        abs
-      )
-
-def get_normalized_path.dotted(up: Bool, body: String) -> String:
-  match up:
-    case True{}:
-      body
-    case False{}:
-      "./" ++ body
-
-def get_normalized_path.relative(kept: List<&2, String>) -> String:
-  match kept:
-    case Nil{}:
-      "."
-    case Con{+h, t}:
-      get_normalized_path.dotted(String.eq(h, ".."), String.join(h <> t, "/"))
-
-def get_normalized_path.finish(unc: Bool, abs: Bool, kept: List<&2, String>) -> String:
-  match unc:
-    case True{}:
-      "//" ++ String.join(kept, "/")
-    case False{}:
-      match abs:
-        case True{}:
-          "/" ++ String.join(kept, "/")
-        case False{}:
-          get_normalized_path.relative(kept)
-
-def get_normalized_path(+p: String) -> String:
-  +abs = String.starts_with(p, "/")
-  get_normalized_path.finish(
-    String.starts_with(p, "//") && Bool.not(String.starts_with(p, "///")),
-    abs,
-    List.reverse(&2, String, get_normalized_path.go(String.split(p, '/'), Nil{}, abs))
-  )
-
-def get_posix_path.slash(backslash: Bool, c: Char) -> Char:
-  match backslash:
-    case True{}:
-      '/'
-    case False{}:
-      c
-
-def get_posix_path.slashes(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, t}:
-      SCon{get_posix_path.slash(Char.is_eq(h, '\\'), h), get_posix_path.slashes(t)}
-
-def get_posix_path.shape(drive: Bool, unc: Bool, c: Char, d: Char, t: String) -> String:
-  match drive:
-    case True{}:
-      "/" ++ SCon{Char.to_lower(c), SNil{}} ++ get_posix_path.slashes(t)
-    case False{}:
-      match unc:
-        case True{}:
-          get_posix_path.slashes(SCon{c, SCon{d, t}})
-        case False{}:
-          SCon{c, SCon{d, t}}
-
-def get_posix_path.pair(+c: Char, rest: String) -> String:
-  match rest:
-    case SNil{}:
-      SCon{c, SNil{}}
-    case SCon{+d, t}:
-      get_posix_path.shape(
-        Char.is_alpha(c) && Char.is_eq(d, ':'),
-        Char.is_eq(c, '\\') && Char.is_eq(d, '\\'),
-        c,
-        d,
-        t
-      )
-
-def get_posix_path.shaped(native: String) -> String:
-  match native:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, rest}:
-      get_posix_path.pair(c, rest)
-
-def get_posix_path(native: String) -> String:
-  get_normalized_path(get_posix_path.shaped(native))
-
-def get_is_windows_path.pair(+c: Char, rest: String) -> Bool:
-  match rest:
-    case SNil{}:
-      False{}
-    case SCon{+d, t}:
-      (Char.is_alpha(c) && Char.is_eq(d, ':')) || (Char.is_eq(c, '\\') && Char.is_eq(d, '\\'))
-
-def get_is_windows_path(native: String) -> Bool:
-  match native:
-    case SNil{}:
-      False{}
-    case SCon{+c, rest}:
-      get_is_windows_path.pair(c, rest)
-
-def get_linter_path.separators(windows: Bool, path: String) -> String:
-  match windows:
-    case True{}:
-      get_posix_path.slashes(path)
-    case False{}:
-      path
-
-def get_linter_path.root(empty: Bool, drive: Bool, joined: String) -> String:
-  match empty:
-    case True{}:
-      "/"
-    case False{}:
-      match drive:
-        case True{}:
-          joined ++ "/"
-        case False{}:
-          joined
-
-def get_linter_path.folder(rev: List<&2, String>) -> String:
-  +joined = String.join(List.reverse(&2, String, rev), "/")
-  get_linter_path.root(String.is_empty(joined), String.ends_with(joined, ":"), joined)
-
-def get_linter_path.rest(empty: Bool, name: String, rest: String) -> String:
-  match empty:
-    case True{}:
-      name
-    case False{}:
-      name ++ "/" ++ rest
-
-def get_linter_path.candidates(rev: List<&2, String>, +rest: String) -> List<&1, String & String>:
-  match rev:
-    case Nil{}:
-      [(".", rest)]
-    case Con{+h, +t}:
-      (
-        get_linter_path.folder(h <> t),
-        rest
-      )
-        <> get_linter_path.candidates(t, get_linter_path.rest(String.is_empty(rest), h, rest))
-
-def get_linter_path.found(
-  missing: Bool,
-  retry: IO(Result<&1, &1, U32 & String, String>),
-  code: U32,
-  text: String
-) -> IO(Result<&1, &1, U32 & String, String>):
-  match missing:
-    case True{}:
-      retry
-    case False{}:
-      IO.pure(Result<&1, &1, U32 & String, String>, Fail{(code, text)})
-
-def get_linter_path.tried(
-  r: Result<&1, &1, U32 & String, String>,
-  rest: String,
-  retry: IO(Result<&1, &1, U32 & String, String>)
-) -> IO(Result<&1, &1, U32 & String, String>):
-  match r:
-    case Done{value}:
-      IO.pure(
-        Result<&1, &1, U32 & String, String>,
-        Done{get_normalized_path(get_posix_path(value) ++ "/" ++ rest)}
-      )
-    case Fail{error}:
-      match error:
-        case (+code, text):
-          get_linter_path.found(U32.is_eq(code, 2), retry, code, text)
-
-def get_linter_path.try(
-  cands: List<&1, String & String>
-) -> IO(Result<&1, &1, U32 & String, String>):
-  match cands:
-    case Nil{}:
-      IO.pure(Result<&1, &1, U32 & String, String>, Fail{(2, "No such file or directory")})
-    case Con{head, tail}:
-      match head:
-        case (folder, rest):
-          IO.bind(
-            Result<&1, &1, U32 & String, String>,
-            Result<&1, &1, U32 & String, String>,
-            get_real_path(folder),
-            r => get_linter_path.tried(r, rest, get_linter_path.try(tail))
-          )
-
-def get_linter_path.here(
-  here: Result<&1, &1, U32 & String, String>,
-  path: String
-) -> IO(Result<&1, &1, U32 & String, String>):
-  match here:
-    case Done{value}:
-      get_linter_path.try(
-        get_linter_path.candidates(
-          List.reverse(
-            &2,
-            String,
-            String.split(get_linter_path.separators(get_is_windows_path(value), path), '/')
-          ),
-          ""
-        )
-      )
-    case Fail{error}:
-      IO.pure(Result<&1, &1, U32 & String, String>, Fail{error})
-
-def get_linter_path(path: String) -> IO(Result<&1, &1, U32 & String, String>):
-  IO.bind(
-    Result<&1, &1, U32 & String, String>,
-    Result<&1, &1, U32 & String, String>,
-    get_real_path("."),
-    here => get_linter_path.here(here, path)
-  )
+def get_check_failure(path: String) -> IO(Maybe<&2, RuleFinding>):
+  import "./effs/host.js"
 
 def get_lint_report(file: BendSource, rules: List<&1, Rule>, config: LintConfig) -> IO(LintReport):
   IO.pure(LintReport, LintReport{[], [], [file]})
 
 def get_fix_outcome(report: LintReport, level: Maybe<&2, FixApplicability>) -> FixOutcome:
   FixOutcome{[], []}
+
+def run.print(found: RuleFinding) -> IO(Unit):
+  match found:
+    case RuleFinding{rule_id, finding}:
+      match finding:
+        case Finding{severity, message, span, fixes}:
+          match span:
+            case BendSourceSpan{path, beg, end}:
+              at = Path.get_posix_path(path) ++ ":" ++ U32.show(beg)
+              IO.print(at ++ ": " ++ rule_id ++ ": " ++ message)
+
+def run.reported(found: Maybe<&2, RuleFinding>) -> IO(Bool):
+  match found:
+    case None{}:
+      IO.pure(Bool, False{})
+    case Some{value}:
+      IO.bind(Unit, Bool, run.print(value), u => IO.pure(Bool, True{}))
+
+def run.resolved(r: Result<&1, &1, U32 & String, String>) -> IO(Bool):
+  match r:
+    case Done{value}:
+      IO.bind(Maybe<&2, RuleFinding>, Bool, get_check_failure(value), run.reported)
+    case Fail{error}:
+      match error:
+        case (code, text):
+          IO.bind(Unit, Bool, IO.print("bend-lint: " ++ text), u => IO.pure(Bool, True{}))
+
+def run.each(files: List<String>, failed: Bool) -> IO(Bool):
+  match files:
+    case Nil{}:
+      IO.pure(Bool, failed)
+    case Con{h, t}:
+      IO.bind(
+        Bool,
+        Bool,
+        IO.bind(Result<&1, &1, U32 & String, String>, Bool, Path.get_linter_path(h), run.resolved),
+        one => run.each(t, failed || one)
+      )
+
+def run.finish(failed: Bool) -> IO(Unit):
+  match failed:
+    case True{}:
+      IO.die(Unit, 1, "bend-lint: FAIL")
+    case False{}:
+      IO.print("bend-lint: 0 finding(s)")
+
+def run.args(args: List<String>) -> IO(Unit):
+  match args:
+    case Nil{}:
+      run.finish(False{})
+    case Con{h, t}:
+      IO.bind(Bool, Unit, run.each(t, False{}), run.finish)
+
+def run(rules: List<&1, Rule>) -> IO(Unit):
+  IO.bind(List<String>, Unit, IO.args(), run.args)
