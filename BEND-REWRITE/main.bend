@@ -30,6 +30,9 @@
 # | The runner checks every Safe fix: one not shown to keep     | A Safe fix must keep what the program does. Rules are pure,  |
 # | what the file declares is not offered, and its finding says | so they cannot ask; the runner enforces it for every rule,   |
 # | why.                                                        | and no author has to remember it.                            |
+# | A Safe fix the runner cannot check is offered as Dangerous: | Only text edits in the linted file can be checked today, so  |
+# | one that edits other files, or creates, renames or deletes  | a wider fix is not called Safe on a promise nobody verified. |
+# | a file.                                                     |                                                              |
 # | get_fix_outcome takes the LintReport and never writes: it   | One shape for the CLI and the library. An editor or agent    |
 # | returns the edits to make.                                  | can show the edits, or make them itself.                     |
 # | Skipped fixes come back as a list of findings.              | The caller can tell which fixes to run again. TS gives only  |
@@ -78,8 +81,9 @@
 #   - Compatibility: no rule's fix undoes another's, so the rules reach a common fixed point.
 #   - Linter idempotence: a second --fix run changes nothing. The two above make it hold.
 #   - Confluence, ideally: the order fixes are applied in does not change the result.
-# - The Safe-fix check covers ReplaceText edits of the linted file only. A fix that edits other files, or creates,
-#   renames or deletes one, is offered unchecked; each file it changes must be checked, and the files together.
+# - The Safe-fix check covers ReplaceText edits of the linted file only; any other Safe fix is offered as Dangerous.
+#   Check each file a fix changes, and the files together, so such a fix can stay Safe.
+# - The text output shows each fix's title and applicability; the TS output also shows its diff.
 import Base
 import ./path.bend as Path
 
@@ -776,6 +780,15 @@ def get_tally(tally: LintTally, severity: FindingSeverity) -> LintTally:
     case LintTally{count, failed} _:
       LintTally{(1n + count: Nat), failed}
 
+def get_fix_lines(fixes: List<&2, Fix>) -> String:
+  match fixes:
+    case Nil{}:
+      ""
+    case Con{Fix{title, Safe{}, edits}, t}:
+      "\n  fix: " ++ title ++ " [safe]" ++ get_fix_lines(t)
+    case Con{Fix{title, Dangerous{}, edits}, t}:
+      "\n  fix: " ++ title ++ " [dangerous]" ++ get_fix_lines(t)
+
 def print_findings(findings: List<&2, RuleFinding>, tally: LintTally) -> IO(LintTally):
   match findings:
     case Nil{}:
@@ -790,7 +803,16 @@ def print_findings(findings: List<&2, RuleFinding>, tally: LintTally) -> IO(Lint
                   IO.bind(
                     Unit,
                     LintTally,
-                    IO.print(path ++ ":" ++ U32.show(beg) ++ ": " ++ rule_id ++ ": " ++ message),
+                    IO.print(
+                      path
+                        ++ ":"
+                        ++ U32.show(beg)
+                        ++ ": "
+                        ++ rule_id
+                        ++ ": "
+                        ++ message
+                        ++ get_fix_lines(fixes)
+                    ),
                     u => print_findings(t, get_tally(tally, severity))
                   )
 
@@ -835,6 +857,27 @@ def get_fix_kept(+path: String, text: String, fix: Fix) -> IO(Bool):
       get_fix_kept.check(get_is_checkable(edits, path), path, text, edits)
     case Fix{title, Dangerous{}, edits}:
       IO.pure(Bool, True{})
+
+def get_demoted.pick(checkable: Bool, title: String, edits: List<&2, FixEdit>) -> Fix:
+  match checkable:
+    case True{}:
+      Fix{title, Safe{}, edits}
+    case False{}:
+      Fix{title, Dangerous{}, edits}
+
+def get_demoted(+path: String, fix: Fix) -> Fix:
+  match fix:
+    case Fix{title, Safe{}, +edits}:
+      get_demoted.pick(get_is_checkable(edits, path), title, edits)
+    case Fix{title, Dangerous{}, edits}:
+      Fix{title, Dangerous{}, edits}
+
+def get_demoted_fixes(fixes: List<&2, Fix>, +path: String) -> List<&2, Fix>:
+  match fixes:
+    case Nil{}:
+      []
+    case Con{f, t}:
+      get_demoted(path, f) <> get_demoted_fixes(t, path)
 
 def get_kept_fixes(fixes: List<&2, Fix>, +path: String, +text: String) -> IO(List<&2, Fix>):
   match fixes:
@@ -887,7 +930,7 @@ def get_checked_finding(+path: String, +text: String, found: RuleFinding) -> IO(
       IO.bind(
         List<&2, Fix>,
         RuleFinding,
-        get_kept_fixes(fixes, path, text),
+        get_kept_fixes(get_demoted_fixes(fixes, path), path, text),
         kept => IO.pure(
           RuleFinding,
           get_checked_finding.made(

@@ -162,6 +162,20 @@ const GIVE = "set BEND_DIR to a bend checkout";
 const MARK = "BEND_HOST_PATCH";
 const SHIM = "bend-host:shim";
 
+// The program the load-time self-check reads, never on disk.
+const SAMPLE = "sample.bend";
+const SAMPLE_TEXT = [
+  "type N is Data:",
+  "  Z{}",
+  "",
+  "def id(x: N) -> N:",
+  "  x",
+  "",
+  "def main() -> N:",
+  "  id(Z{})",
+  "",
+].join("\n");
+
 // A comment, a string or char literal (maybe over several lines, maybe
 // unterminated), a newline, or any other character that is not a space.
 const SOURCE_TOKEN = /#[^\r\n]*|"(?:\\[^]|[^"\\])*(?:"|$)|'(?:\\[^]|[^'\\])*(?:'|$)|\n|[^\s#"']+/g;
@@ -475,7 +489,9 @@ const load = async (): Promise<Loaded> => {
       .map(hashed)
       .join("\0"),
   );
-  return { Bend, Comp, Main, base: await Main.book_read(Bend.BASE_BEND), compiler };
+  const loaded = { Bend, Comp, Main, base: await Main.book_read(Bend.BASE_BEND), compiler };
+  await selfCheck(loaded);
+  return loaded;
 };
 
 const isErr = (e: unknown): e is Err =>
@@ -1100,7 +1116,8 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
   const imports: Imported[] = [];
   HOOK.declare = (kind, name, span) => headings.push({ kind, name, span });
   HOOK.import = (at, name, beg) => imports.push({ path: at, name, beg });
-  const read = await m.Main.book_read(file, m.base, seen)
+  const seeded = fs.existsSync(file) && /^import Base$/m.test(fs.readFileSync(file, "utf8"));
+  const read = await m.Main.book_read(file, seeded ? m.base : undefined, seen)
     .then(
       (book) => ({ book }),
       (e: unknown) => ({ e: why(m, e) }),
@@ -1149,6 +1166,61 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
             },
           },
   };
+};
+
+// What a check gives, as the self-check reads it.
+type Sampled = {
+  failure: { $: string };
+  declarations: Array<{
+    path: string;
+    declarations: Array<{
+      name: string;
+      span: { beg: number; end: number };
+      references: unknown[];
+      kind: {
+        $: string;
+        owner?: string;
+        written_type?: { value?: { shown: string; ends_in_sort: boolean } };
+      };
+    }>;
+  }>;
+};
+
+// Checks a small program as a rule sees it: `x` in `def id(x: N) -> N: x`
+// must be a parameter of id, written as N, used once, at its own span; `id`
+// and the constructor `Z` are used once, in main. A bend2 that gives
+// anything else has changed in a way the host does not follow.
+const selfCheck = async (m: Loaded): Promise<void> => {
+  const at = slash(nodePath.join(nodeFs.realpathSync(HERE), SAMPLE));
+  PROGRAMS.set(at, SAMPLE_TEXT);
+  const run = (await check(m, at, true)) as unknown as Sampled;
+  const found = run.declarations.find((s) => s.path === at)?.declarations ?? [];
+  const named = (name: string, kind: string) =>
+    found.find((d) => d.name === name && d.kind.$ === kind);
+  const x = named("x", "ParameterDeclaration");
+  const checks: Array<[string, boolean]> = [
+    ["check", run.failure.$ === "None"],
+    ["def", named("id", "DefDeclaration")?.references.length === 1],
+    ["parameter", x?.kind.owner === "id" && x.references.length === 1],
+    ["span", x !== undefined && SAMPLE_TEXT.slice(x.span.beg, x.span.end) === "x"],
+    [
+      "written type",
+      x?.kind.written_type?.value?.shown === "N" && !x.kind.written_type.value.ends_in_sort,
+    ],
+    [
+      "constructor",
+      named("Z", "ConstructorDeclaration")?.kind.owner === "N" &&
+        named("Z", "ConstructorDeclaration")?.references.length === 1,
+    ],
+  ];
+  const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
+  PROGRAMS.delete(at);
+  CHECKS.delete(at);
+  if (wrong.length > 0) {
+    throw drift(
+      `self-check failed: the patched bend2 gave the wrong ${wrong.join(", ")} for the sample program; update BEND-REWRITE/host.ts`,
+    );
+  }
 };
 
 // A constructor's fields: the names its type binds, after its parameters.
