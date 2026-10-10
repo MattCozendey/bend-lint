@@ -10,6 +10,8 @@
 # | Drift from the TS version                                   | Reason                                                       |
 # | ----------------------------------------------------------- | ------------------------------------------------------------ |
 # | No "suggested" fixes: only Safe and Dangerous.              | Reporting matters more than autofixing, for agents.          |
+# | No --fix-suggested flag: it is an unknown flag like any     | There are no suggested fixes to apply.                       |
+# | other.                                                      |                                                              |
 # | The fix level is a Maybe<&2, FixApplicability>: None        | One type fewer, and each applicability is a level too.       |
 # | fixes nothing, Some{Safe} applies Safe fixes, and           |                                                              |
 # | Some{Dangerous} applies both.                               |                                                              |
@@ -144,6 +146,21 @@ type LintReport is Data:
 
 type FixOutcome is Data:
   FixOutcome{edits: List<&2, FixEdit>, skipped: List<&2, RuleFinding>}
+
+type CliOutput is Data:
+  CliTextOutput{show_suppressed: Bool}
+  CliJsonOutput{}
+
+type CliCommand is Data:
+  CliHelp{}
+  CliLint{
+    files: List<&2, String>,
+    rules: List<&2, String>,
+    config: Maybe<&2, String>,
+    imports: Maybe<&2, Bool>,
+    fix: Maybe<&2, FixApplicability>,
+    output: CliOutput
+  }
 
 def get_real_path(path: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./effs/get_real_path.c"
