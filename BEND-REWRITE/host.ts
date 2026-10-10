@@ -649,9 +649,6 @@ const children = (t: LTerm): LTerm[] => {
   return of(t);
 };
 
-// Every sub-term, parents first.
-const walk = (tm: LTerm): LTerm[] => [tm, ...children(tm).flatMap(walk)];
-
 // A text's offsets (UTF-16 units) as code points, as Bend counts them.
 const pointsOf = (text: string): ((off: number) => number) =>
   /[\uD800-\uDFFF]/.test(text) ? (off) => points(text.slice(0, off)) : (off) => off;
@@ -715,15 +712,22 @@ const unimported = (text: string): string => {
   );
 };
 
-// The aliases of each parsed text, from the spans of the book's terms.
+// The first span of a term, parents first, if it has one.
+const firstSpan = (t: LTerm): BendSpan | undefined =>
+  t.s ??
+  children(t).reduce<BendSpan | undefined>((found, kid) => found ?? firstSpan(kid), undefined);
+
+// The aliases of each parsed text, from the first span of each of the book's
+// declarations: every term of a declaration comes from its file.
 const aliasesOf = (m: Loaded, c: Checked): Map<string, Record<Name, Name>> => {
   c.aliases ??= new Map(
     Object.values(c.book.tlds)
-      .flatMap((tld) => [tld.T, ...(tld.$ === "Def" && tld.v ? [tld.v] : [])])
-      .flatMap((term) => walk(m.Bend.term_lower(term)))
-      .flatMap((tm): Array<[string, Record<Name, Name>]> =>
-        tm.s === undefined ? [] : [[tm.s.file.str, tm.s.file.al]],
-      )
+      .flatMap((tld): Array<[string, Record<Name, Name>]> => {
+        const s =
+          firstSpan(m.Bend.term_lower(tld.T)) ??
+          (tld.$ === "Def" && tld.v ? firstSpan(m.Bend.term_lower(tld.v)) : undefined);
+        return s === undefined ? [] : [[s.file.str, s.file.al]];
+      })
       .reverse(),
   );
   return c.aliases;
