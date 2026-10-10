@@ -218,13 +218,14 @@ type Quantity is Data:
 type Span is Data:
   Span{path: String, beg: U32, end: U32}
 
-# A syntax node: its id and its parent's (0 for none), what it is, its name as written, the binder it declares or
-# uses (numbered per declaration), its quantity, where it is, and the global name it declares or uses, as the check
-# names it.
+# A syntax node: its id, its parent's (0 for none) and its top-level declaration's (its own, at the top), what it is,
+# its name as written, the binder it declares or uses (numbered per top-level declaration), its quantity, where it is,
+# and the global name it declares or uses, as the check names it (an import's is the path of the file it loads).
 type Node is Data:
   Node{
     id: U32,
     parent: U32,
+    owner: U32,
     syntax: Syntax,
     name: String,
     binder: Maybe<&2, U32>,
@@ -317,6 +318,7 @@ def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Node>:
         return Node{
           i,
           p,
+          0,
           s,
           name,
           U32.read(binder),
@@ -327,13 +329,21 @@ def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Node>:
     case _:
       None{}
 
+# `node` with its owner: itself at the top, else the owner of the node read before it.
+def Node.owned(previous: List<&2, Node>, node: Node) -> Node:
+  match previous node:
+    case Con{Node{i, p, owner, s, n, b, q, sp, t}, rest} Node{+id, +parent, o, syntax, name, binder, quantity, span, target}:
+      Node{id, parent, Bool.pick(U32, U32.is_eq(parent, 0), id, owner), syntax, name, binder, quantity, span, target}
+    case Nil{} Node{+id, parent, o, syntax, name, binder, quantity, span, target}:
+      Node{id, parent, id, syntax, name, binder, quantity, span, target}
+
 # The sources read so far, last first, each with its nodes last first; with a node record, its source is the head.
 def Program.add_node(fields: List<&2, String>, sources: List<&2, Source>) -> Maybe<&2, List<&2, Source>>:
   match sources:
-    case Con{Source{+path, namespace, text, nodes}, rest}:
+    case Con{Source{+path, namespace, text, +nodes}, rest}:
       do Maybe<&2, List<&2, Source>>:
         n : Node <- Node.read(path, fields)
-        return Source{path, namespace, text, n <> nodes} <> rest
+        return Source{path, namespace, text, Node.owned(nodes, n) <> nodes} <> rest
     case Nil{}:
       None{}
 
@@ -390,6 +400,271 @@ def Check.run(path: String) -> IO(Check):
   IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), Check.of)
 
 
+# Declarations
+# ============
+
+# A name a node declares, and the nodes that use it, in order.
+type Declaration is Data:
+  Declaration{node: Node, references: List<&2, Node>}
+
+# What a syntax declares: a global name, a binder of its top-level declaration, or nothing (an import declares an
+# alias, which Imports below handles).
+type Declares is Data:
+  DeclaresGlobal{}
+  DeclaresBinder{}
+  DeclaresNothing{}
+
+def Syntax.declares(syntax: Syntax) -> Declares:
+  match syntax:
+    case Definition{}:
+      DeclaresGlobal{}
+    case Datatype{}:
+      DeclaresGlobal{}
+    case Constructor{}:
+      DeclaresGlobal{}
+    case Law{}:
+      DeclaresGlobal{}
+    case Parameter{}:
+      DeclaresBinder{}
+    case Field{}:
+      DeclaresBinder{}
+    case Binding{}:
+      DeclaresBinder{}
+    case Lambda{}:
+      DeclaresBinder{}
+    case Forall{}:
+      DeclaresBinder{}
+    case PatternVariable{}:
+      DeclaresBinder{}
+    case _:
+      DeclaresNothing{}
+
+# The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
+# `colon` is whether the last character read was that ":"; `out` is what came before it, last first.
+def Name.keep(colon: Bool, c: Char, out: String) -> String:
+  match colon:
+    case True{}:
+      out
+    case False{}:
+      SCon{c, out}
+
+def Name.namespace.go(s: String, colon: Bool, out: String) -> String:
+  match s colon:
+    case _ True{}:
+      String.reverse(out)
+    case SNil{} False{}:
+      ""
+    case SCon{+c, t} False{}:
+      Name.namespace.go(t, Char.is_eq(c, ':'), Name.keep(Char.is_eq(c, ':'), c, out))
+
+def Name.namespace(name: String) -> String:
+  Name.namespace.go(name, False{}, "")
+
+# The key that ties a use to what it uses: "g" and a global name, or "l", a top-level declaration's id and a binder.
+def Key.global(name: String) -> String:
+  "g" ++ name
+
+def Key.binder(owner: U32, binder: U32) -> String:
+  "l" ++ U32.show(owner) ++ ":" ++ U32.show(binder)
+
+def Key.declared.of(declares: Declares, owner: U32, binder: Maybe<&2, U32>, anonymous: Bool, target: String) ->
+  Maybe<&2, String>:
+  match declares binder anonymous:
+    case DeclaresGlobal{} _ _:
+      Some{Key.global(target)}
+    case DeclaresBinder{} Some{b} False{}:
+      Some{Key.binder(owner, b)}
+    case _ _ _:
+      None{}
+
+# The key of what a node declares, if it declares a global or a named binder.
+def Key.declared(node: Node) -> Maybe<&2, String>:
+  match node:
+    case Node{id, parent, owner, syntax, +name, binder, quantity, span, target}:
+      Key.declared.of(Syntax.declares(syntax), owner, binder, String.eq(name, "_"), target)
+
+# The global name a node uses, if it uses one.
+def Node.used(node: Node) -> Maybe<&2, String>:
+  match node:
+    case Node{id, parent, owner, Reference{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, owner, Construction{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, owner, TypeApplication{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, owner, PatternConstructor{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, owner, Elimination{}, name, binder, quantity, span, target}:
+      Some{target}
+    case Node{id, parent, owner, Literal{}, name, binder, quantity, span, target}:
+      Some{target}
+    case _:
+      None{}
+
+# The key of what a node uses, if it uses a global or a binder.
+def Key.used(node: Node) -> Maybe<&2, String>:
+  match node:
+    case Node{id, parent, owner, Variable{}, name, Some{binder}, quantity, span, target}:
+      Some{Key.binder(owner, binder)}
+    case _:
+      Maybe.map(&2, String, String, Key.global, Node.used(node))
+
+# The uses of each key, last first.
+def Uses.push(got: Map<&2, List<&2, Node>> & List<&2, Node>, key: String, node: Node) -> Map<&2, List<&2, Node>>:
+  match got:
+    case Tuple{m, old}:
+      Map.set(&2, List<&2, Node>, m, key, node <> old)
+
+def Uses.add(m: Map<&2, List<&2, Node>>, key: Maybe<&2, String>, node: Node) -> Map<&2, List<&2, Node>>:
+  match key:
+    case None{}:
+      m
+    case Some{+k}:
+      Uses.push(Map.get(List<&2, Node>, [], m, k), k, node)
+
+def Uses.of(nodes: List<&2, Node>, m: Map<&2, List<&2, Node>>) -> Map<&2, List<&2, Node>>:
+  match nodes:
+    case Nil{}:
+      m
+    case Con{+n, rest}:
+      Uses.of(rest, Uses.add(m, Key.used(n), n))
+
+def Uses.found(got: Map<&2, List<&2, Node>> & List<&2, Node>) -> List<&2, Node>:
+  match got:
+    case Tuple{m, found}:
+      List.reverse(&2, Node, found)
+
+# The uses of `key`, in order.
+def Uses.get(+uses: Map<&2, List<&2, Node>>, key: String) -> List<&2, Node>:
+  Uses.found(Map.get(List<&2, Node>, [], uses, key))
+
+# Imports
+# =======
+
+# The namespace of the file at `path`, as the check names it: "" for Base, or a file the check did not parse.
+def Imports.namespace(sources: List<&2, Source>, +path: String) -> String:
+  match sources:
+    case Nil{}:
+      ""
+    case Con{Source{+p, namespace, text, nodes}, rest}:
+      Bool.pick(String, String.eq(p, path), namespace, Imports.namespace(rest, path))
+
+# The global names a file's own top-level declarations declare, as a set.
+def Imports.own(nodes: List<&2, Node>, out: Map<&2, Unit>) -> Map<&2, Unit>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Node{id, 0, owner, syntax, name, binder, quantity, span, target}, rest}:
+      Imports.own(rest, Map.set(&2, Unit, out, target, Unit{}))
+    case Con{n, rest}:
+      Imports.own(rest, out)
+
+# What uses an import: a name written with its alias's prefix (`U.two`, a fill `def U.law(x):`), or, for Base, a
+# global name with no namespace that the file does not declare.
+type Importer is Data:
+  ByAlias{prefix: String}
+  ByBase{own: Map<&2, Unit>}
+
+def Imports.not_own(got: Map<&2, Unit> & Bool) -> Bool:
+  match got:
+    case Tuple{m, has}:
+      Bool.not(has)
+
+def Imports.base_name(bare: Bool, +own: Map<&2, Unit>, name: String) -> Bool:
+  match bare:
+    case True{}:
+      Imports.not_own(Map.has(&2, Unit, own, name))
+    case False{}:
+      False{}
+
+def Imports.base_uses(+own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
+  match used:
+    case Some{+name}:
+      Imports.base_name(String.is_empty(Name.namespace(name)), own, name)
+    case None{}:
+      False{}
+
+def Imports.uses(+importer: Importer, +node: Node) -> Bool:
+  match importer node:
+    case ByAlias{+prefix} Node{id, parent, owner, syntax, name, binder, quantity, span, target}:
+      String.starts_with(name, prefix)
+    case ByBase{+own} _:
+      Imports.base_uses(own, Node.used(node))
+
+def Imports.keep(hit: Bool, n: Node, out: List<&2, Node>) -> List<&2, Node>:
+  match hit:
+    case True{}:
+      n <> out
+    case False{}:
+      out
+
+# The nodes of `nodes` that use an import, in order; `out` holds those so far, last first.
+def Imports.references(nodes: List<&2, Node>, +importer: Importer, out: List<&2, Node>) -> List<&2, Node>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, Node, out)
+    case Con{+n, rest}:
+      Imports.references(rest, importer, Imports.keep(Imports.uses(importer, n), n, out))
+
+def Imports.importer(base: Bool, alias: String, +nodes: List<&2, Node>) -> Importer:
+  match base:
+    case True{}:
+      ByBase{Imports.own(nodes, Map.new(&2, Unit))}
+    case False{}:
+      ByAlias{alias ++ "."}
+
+# The declarations of a file's nodes, in order, with their uses in that file: `uses` indexes them, `sources` says
+# which import loads Base.
+def Declarations.of.node(
+  +sources: List<&2, Source>,
+  +nodes: List<&2, Node>,
+  +uses: Map<&2, List<&2, Node>>,
+  node: Node
+) -> Maybe<&2, Declaration>:
+  match node:
+    case Node{id, parent, owner, Import{}, +name, binder, quantity, span, +target}:
+      Some{
+        Declaration{
+          Node{id, parent, owner, Import{}, name, binder, quantity, span, target},
+          Imports.references(
+            nodes,
+            Imports.importer(String.is_empty(Imports.namespace(sources, target)), name, nodes),
+            []
+          )
+        }
+      }
+    case +n:
+      Maybe.map(&2, String, Declaration, k => Declaration{n, Uses.get(uses, k)}, Key.declared(n))
+
+def Declarations.push(found: Maybe<&2, Declaration>, out: List<&2, Declaration>) -> List<&2, Declaration>:
+  match found:
+    case Some{d}:
+      d <> out
+    case None{}:
+      out
+
+def Declarations.of.go(
+  rest: List<&2, Node>,
+  +sources: List<&2, Source>,
+  +nodes: List<&2, Node>,
+  +uses: Map<&2, List<&2, Node>>,
+  out: List<&2, Declaration>
+) -> List<&2, Declaration>:
+  match rest:
+    case Nil{}:
+      List.reverse(&2, Declaration, out)
+    case Con{n, more}:
+      Declarations.of.go(
+        more,
+        sources,
+        nodes,
+        uses,
+        Declarations.push(Declarations.of.node(sources, nodes, uses, n), out)
+      )
+
+def Declarations.of(+sources: List<&2, Source>, +nodes: List<&2, Node>) -> List<&2, Declaration>:
+  Declarations.of.go(nodes, sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Node>)), [])
+
 # Rules
 # =====
 
@@ -407,97 +682,42 @@ type Finding is Data:
 type Found is Data:
   Found{rule: String, finding: Finding}
 
-# What a file rule sees: the program, from one of its files.
+# What a file rule sees: the program, from one of its files, and that file's declarations, with their uses in it.
 type Here is Data:
-  Here{program: Program, source: Source}
+  Here{program: Program, source: Source, declarations: List<&2, Declaration>}
 
 type Rule is Type:
   Rule{id: String, run: @+here: Here -> List<&2, Finding>}
 
-# The nodes of the file a rule runs on.
+# The program from one of its files, built once for every rule that runs on that file.
+def Here.of(program: Program, source: Source) -> Here:
+  match program source:
+    case Program{+sources} Source{path, namespace, text, +nodes}:
+      Here{Program{sources}, Source{path, namespace, text, nodes}, Declarations.of(sources, nodes)}
+
+# The nodes of the file a rule runs on, parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:
   match here:
-    case Here{program, Source{path, namespace, text, nodes}}:
+    case Here{program, Source{path, namespace, text, nodes}, declarations}:
       nodes
 
-# The namespace of the file at `path`, as the check names it: "" for Base, or a file the check did not parse.
-def Here.namespace_of.go(sources: List<&2, Source>, +path: String) -> String:
-  match sources:
-    case Nil{}:
-      ""
-    case Con{Source{+p, namespace, text, nodes}, rest}:
-      Bool.pick(String, String.eq(p, path), namespace, Here.namespace_of.go(rest, path))
-
-def Here.namespace_of(here: Here, path: String) -> String:
+def Here.declarations(here: Here) -> List<&2, Declaration>:
   match here:
-    case Here{Program{sources}, source}:
-      Here.namespace_of.go(sources, path)
+    case Here{program, source, declarations}:
+      declarations
 
-# The global names the declarations of a file declare, onto `out`.
-def Here.declared.go(nodes: List<&2, Node>, out: List<&2, String>) -> List<&2, String>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Node{id, 0, syntax, name, binder, quantity, span, target}, rest}:
-      Here.declared.go(rest, target <> out)
-    case Con{n, rest}:
-      Here.declared.go(rest, out)
-
-def Here.declared(here: Here) -> List<&2, String>:
-  Here.declared.go(Here.nodes(here), [])
-
-# The global name a node uses, if it uses one.
-def Node.used(node: Node) -> Maybe<&2, String>:
-  match node:
-    case Node{id, parent, Reference{}, name, binder, quantity, span, target}:
-      Some{target}
-    case Node{id, parent, Construction{}, name, binder, quantity, span, target}:
-      Some{target}
-    case Node{id, parent, TypeApplication{}, name, binder, quantity, span, target}:
-      Some{target}
-    case Node{id, parent, PatternConstructor{}, name, binder, quantity, span, target}:
-      Some{target}
-    case Node{id, parent, Elimination{}, name, binder, quantity, span, target}:
-      Some{target}
-    case Node{id, parent, Literal{}, name, binder, quantity, span, target}:
-      Some{target}
-    case _:
-      None{}
-
-# `c` onto `out`, unless it is the ":" that ends a namespace.
-def Name.keep(colon: Bool, c: Char, out: String) -> String:
-  match colon:
-    case True{}:
-      out
-    case False{}:
-      SCon{c, out}
-
-# The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
-# `colon` is whether the last character read was that ":"; `out` is what came before it, last first.
-def Name.namespace.go(s: String, colon: Bool, out: String) -> String:
-  match s colon:
-    case _ True{}:
-      String.reverse(out)
-    case SNil{} False{}:
-      ""
-    case SCon{+c, t} False{}:
-      Name.namespace.go(t, Char.is_eq(c, ':'), Name.keep(Char.is_eq(c, ':'), c, out))
-
-def Name.namespace(name: String) -> String:
-  Name.namespace.go(name, False{}, "")
-
-# Whether `f(c, node)` holds for a node of `nodes`; `hit` is whether it held for one before.
-def any.go(~C: Data, ~f: @+c: C -> Node -> Bool, nodes: List<&2, Node>, hit: Bool, +c: C) -> Bool:
-  match nodes hit:
+# Whether `f(c, x)` holds for an `x` of `xs`; `hit` is whether it held for one before.
+def any.go(~C: Data, ~A: Data, ~f: @+c: C -> A -> Bool, xs: List<&2, A>, hit: Bool, +c: C) -> Bool:
+  match xs hit:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
-    case Con{n, rest} False{}:
-      any.go(~C, ~f, rest, f(c, n), c)
+    case Con{x, rest} False{}:
+      any.go(~C, ~A, ~f, rest, f(c, x), c)
 
-def any(~C: Data, ~f: @+c: C -> Node -> Bool, +c: C, nodes: List<&2, Node>) -> Bool:
-  any.go(~C, ~f, nodes, False{}, c)
+def any(~C: Data, ~A: Data, ~f: @+c: C -> A -> Bool, +c: C, xs: List<&2, A>) -> Bool:
+  any.go(~C, ~A, ~f, xs, False{}, c)
 
 # `xs` onto `out`, which is last first.
 def onto(xs: List<&2, Finding>, out: List<&2, Finding>) -> List<&2, Finding>:
@@ -507,16 +727,28 @@ def onto(xs: List<&2, Finding>, out: List<&2, Finding>) -> List<&2, Finding>:
     case Con{h, t}:
       onto(t, h <> out)
 
-# The findings `f(c, node)` gives for the nodes of `nodes`, in order; `out` holds those so far, last first.
-def each.go(~C: Data, ~f: @+c: C -> Node -> List<&2, Finding>, nodes: List<&2, Node>, +c: C, out: List<&2, Finding>) -> List<&2, Finding>:
-  match nodes:
+# The findings `f(c, x)` gives for each `x` of `xs`, in order; `out` holds those so far, last first.
+def each.go(~C: Data, ~A: Data, ~f: @+c: C -> A -> List<&2, Finding>, xs: List<&2, A>, +c: C, out: List<&2, Finding>) ->
+  List<&2, Finding>:
+  match xs:
     case Nil{}:
       List.reverse(&2, Finding, out)
-    case Con{n, rest}:
-      each.go(~C, ~f, rest, c, onto(f(c, n), out))
+    case Con{x, rest}:
+      each.go(~C, ~A, ~f, rest, c, onto(f(c, x), out))
 
-def each(~C: Data, ~f: @+c: C -> Node -> List<&2, Finding>, +c: C, nodes: List<&2, Node>) -> List<&2, Finding>:
-  each.go(~C, ~f, nodes, c, [])
+def each(~C: Data, ~A: Data, ~f: @+c: C -> A -> List<&2, Finding>, +c: C, xs: List<&2, A>) -> List<&2, Finding>:
+  each.go(~C, ~A, ~f, xs, c, [])
+
+# The findings `f(x)` gives for each `x` of `xs`, in order; `out` holds those so far, last first.
+def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List<&2, Finding>) -> List<&2, Finding>:
+  match xs:
+    case Nil{}:
+      List.reverse(&2, Finding, out)
+    case Con{x, rest}:
+      findings.go(~A, ~f, rest, onto(f(x), out))
+
+def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:
+  findings.go(~A, ~f, xs, [])
 
 # Running
 # =======
@@ -638,7 +870,7 @@ def cli.print(+text: String, +founds: List<&2, Found>) -> IO(Unit):
 def cli.lint(~rules: List<&1, Rule>, +program: Program, root: Maybe<&2, Source>) -> IO(Unit):
   match root:
     case Some{Source{+path, namespace, +text, nodes}}:
-      cli.print(text, Rule.run_each(rules, Here{program, Source{path, namespace, text, nodes}}, []))
+      cli.print(text, Rule.run_each(rules, Here.of(program, Source{path, namespace, text, nodes}), []))
     case None{}:
       IO.die(Unit, 2, "bend-lint: the check parsed no file")
 
