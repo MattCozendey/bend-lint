@@ -77,7 +77,8 @@ type Kept = Program & { compiler: string; files: Array<[string, string]> };
 // What an effect asks the main thread.
 type Ask =
   | { op: "check"; path: string; declarations: boolean }
-  | { op: "restart"; files: string[] };
+  | { op: "restart"; files: string[] }
+  | { op: "same"; path: string; text: string };
 
 // A declaration's or import's name, as bend's parser read it.
 type Heading = { kind: "def" | "type" | "constructor"; name: Name; span: BendSpan };
@@ -121,6 +122,7 @@ type Checked = {
   imports: Imported[];
   placed: WeakMap<object, Placed | null>;
   types: Scoped[];
+  declared?: string;
   aliases?: Map<string, Record<Name, Name>>;
   order?: Order;
 };
@@ -251,6 +253,9 @@ const PATCHED = Object.keys(PATCHES);
 
 // The programs bend2 checks, by path: never on disk; fs below serves them.
 const PROGRAMS = new Map<string, string>();
+
+// The last check of each file that passed, by real path.
+const CHECKS = new Map<string, Checked>();
 
 // fs and path for bend.ts and main.ts: real paths with "/", so imports
 // resolve on Windows, and the programs served from memory.
@@ -784,6 +789,19 @@ const endsInSort = (m: Loaded, ty: HTerm, dep: number): boolean => {
   return end(ty, dep).$ === "Typ";
 };
 
+// The headings bend's parser read in `file`, as `file` declares them.
+const headingsIn = (
+  c: Checked,
+  file: string,
+  sp: Spelling,
+): Array<{ kind: Heading["kind"]; name: Name; beg: number; end: number }> =>
+  c.headings.flatMap((h) => {
+    const at = placedSpan(c.seen, c.placed, h.span);
+    return at?.path === file
+      ? [{ kind: h.kind, name: sp.qualify(h.name), beg: at.beg, end: at.end }]
+      : [];
+  });
+
 // The declarations of `file`, as `file` spells them: its imports, defs,
 // datatypes and constructors, and its parameters, variables and fields,
 // each with the uses of its name.
@@ -791,12 +809,7 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
   const text = fs.readFileSync(file, "utf8");
   const sp = spellingOf(m, c, file, text);
   const points = pointsOf(text);
-  const mine = c.headings.flatMap((h) => {
-    const at = placedSpan(c.seen, c.placed, h.span);
-    return at?.path === file
-      ? [{ kind: h.kind, name: sp.qualify(h.name), beg: at.beg, end: at.end }]
-      : [];
-  });
+  const mine = headingsIn(c, file, sp);
   const heads = mine.filter((h) => h.kind !== "constructor");
   const enclosing = (beg: number): (typeof heads)[number] => {
     const found = heads.reduce<(typeof heads)[number] | undefined>(
@@ -1017,6 +1030,49 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
   return [...imports, ...declared, ...local].sort((x, y) => x.beg - y.beg).map((d) => d.plain);
 };
 
+// What `file` declares when it holds `text`, parsed in its original scope:
+// a key two parses share when they declare the same, or undefined if
+// `text` does not parse.
+const declaredBy = (m: Loaded, c: Checked, file: string, text: string): string | undefined => {
+  const sp = spellingOf(m, c, file, fs.readFileSync(file, "utf8"));
+  const lower = (x: HTerm | null): LTerm | null => (x === null ? null : m.Bend.term_lower(x));
+  try {
+    const parsed = parseSource(
+      m,
+      c,
+      file,
+      text,
+      sp,
+      headingsIn(c, file, sp)
+        .filter((h) => h.kind !== "constructor")
+        .map((h) => h.name),
+    );
+    return JSON.stringify(
+      parsed.order.map((k) => {
+        const tld = parsed.tlds[k];
+        return tld.$ === "ADT"
+          ? [k, tld.n, tld.g, lower(tld.T), tld.c.map((ctr) => [ctr.k, ctr.n, lower(ctr.T)])]
+          : [k, tld.n, tld.x, tld.u ?? false, tld.i, lower(tld.T), lower(tld.v)];
+      }),
+      (key: string, v: unknown) => (key === "s" ? undefined : v),
+    );
+  } catch {
+    return undefined;
+  }
+};
+
+// Whether `text` declares what `file` declares, by the last check of `file`
+// that passed; false when there is none.
+const keepsDeclarations = (m: Loaded, file: string, text: string): boolean => {
+  const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  const c = CHECKS.get(real);
+  if (c === undefined) {
+    return false;
+  }
+  c.declared ??= declaredBy(m, c, real, fs.readFileSync(real, "utf8"));
+  return c.declared !== undefined && declaredBy(m, c, real, text) === c.declared;
+};
+
 // The declarations of every file the check read, Base and hub packages
 // aside.
 const declarationsOf = (m: Loaded, c: Checked): Plain[] =>
@@ -1056,6 +1112,9 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
   const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
   const text = (f: string): string => fs.readFileSync(f, "utf8");
   const placed = new WeakMap<object, Placed | null>();
+  if ("book" in read) {
+    CHECKS.set(real, { book: read.book, root: real, seen, headings, imports, placed, types: [] });
+  }
   const failed = "e" in read ? read : undefined;
   const span =
     failed !== undefined && isErr(failed.e) && failed.e.spn !== undefined
@@ -1066,18 +1125,7 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
     $: "BendCheck",
     root: seen.has(real) ? sourceOf(real, text(real)) : sourceOf(file, ""),
     sources: [...seen.keys()].map((f) => sourceOf(f, text(f))),
-    declarations:
-      "book" in read && wanted
-        ? declarationsOf(m, {
-            book: read.book,
-            root: real,
-            seen,
-            headings,
-            imports,
-            placed,
-            types: [],
-          })
-        : [],
+    declarations: "book" in read && wanted ? declarationsOf(m, CHECKS.get(real)!) : [],
     failure:
       failed === undefined
         ? { $: "None" }
@@ -1255,6 +1303,8 @@ const run = async (m: Loaded, files: string[], args: string[], again: boolean): 
       if ("exit" in msg) {
         port1.close();
         done(msg);
+      } else if (msg.op === "same") {
+        reply(keepsDeclarations(m, msg.path, msg.text));
       } else if (msg.op === "restart") {
         reply({ $: "Unit" });
         port1.close();

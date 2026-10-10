@@ -27,6 +27,9 @@
 # |                                                             | will state this later.                                       |
 # | A program rule's fix may touch many files.                  | Only a program rule sees who imports what. TS skips such a   |
 # |                                                             | fix.                                                         |
+# | The runner checks every Safe fix: one whose text declares   | A Safe fix must keep what the program does. Rules are pure,  |
+# | something else is not offered, and its finding says why.    | so they cannot ask; the runner enforces it for every rule,   |
+# |                                                             | and no author has to remember it.                            |
 # | get_fix_outcome takes the LintReport and never writes: it   | One shape for the CLI and the library. An editor or agent    |
 # | returns the edits to make.                                  | can show the edits, or make them itself.                     |
 # | Skipped fixes come back as a list of findings.              | The caller can tell which fixes to run again. TS gives only  |
@@ -75,6 +78,8 @@
 #   - Compatibility: no rule's fix undoes another's, so the rules reach a common fixed point.
 #   - Linter idempotence: a second --fix run changes nothing. The two above make it hold.
 #   - Confluence, ideally: the order fixes are applied in does not change the result.
+# - The Safe-fix check covers ReplaceText edits of the linted file only. A fix that edits other files, or creates,
+#   renames or deletes one, is offered unchecked; each file it changes must be checked, and the files together.
 import Base
 import ./path.bend as Path
 
@@ -235,6 +240,13 @@ def get_check(path: String, declarations: Bool) -> IO(BendCheck):
 
 def restart_with_rules(files: List<&2, String>) -> IO(Unit):
   import "./effs/host.js"
+
+def get_keeps_declarations(path: String, text: String) -> IO(Bool):
+  import "./effs/host.js"
+
+def get_spliced_text(text: String, beg: U32, end: U32, put: String) -> IO(String):
+  import "./effs/get_spliced_text.c"
+  import "./effs/get_spliced_text.js"
 
 def get_kept(-A: Data, keep: Bool, x: A, xs: List<&2, A>) -> List<&2, A>:
   match keep:
@@ -754,6 +766,144 @@ def get_report_findings(report: LintReport) -> List<&2, RuleFinding>:
     case LintReport{findings, suppressed, linted}:
       findings
 
+def get_is_checkable(edits: List<&2, FixEdit>, +path: String) -> Bool:
+  match edits:
+    case Nil{}:
+      True{}
+    case Con{ReplaceText{BendSourceSpan{p, b, e}, put}, t}:
+      String.eq(p, path) && get_is_checkable(t, path)
+    case Con{x, t}:
+      False{}
+
+def get_fix_text(edits: List<&2, FixEdit>, text: String) -> IO(String):
+  match edits:
+    case Nil{}:
+      IO.pure(String, text)
+    case Con{ReplaceText{BendSourceSpan{p, b, e}, put}, t}:
+      IO.bind(String, String, get_spliced_text(text, b, e, put), next => get_fix_text(t, next))
+    case Con{x, t}:
+      get_fix_text(t, text)
+
+def get_fix_kept.check(
+  checkable: Bool,
+  +path: String,
+  text: String,
+  edits: List<&2, FixEdit>
+) -> IO(Bool):
+  match checkable:
+    case True{}:
+      IO.bind(String, Bool, get_fix_text(edits, text), fixed => get_keeps_declarations(path, fixed))
+    case False{}:
+      IO.pure(Bool, True{})
+
+def get_fix_kept(+path: String, text: String, fix: Fix) -> IO(Bool):
+  match fix:
+    case Fix{title, Safe{}, +edits}:
+      get_fix_kept.check(get_is_checkable(edits, path), path, text, edits)
+    case Fix{title, Dangerous{}, edits}:
+      IO.pure(Bool, True{})
+
+def get_kept_fixes(fixes: List<&2, Fix>, +path: String, +text: String) -> IO(List<&2, Fix>):
+  match fixes:
+    case Nil{}:
+      IO.pure(List<&2, Fix>, [])
+    case Con{+f, t}:
+      IO.bind(
+        Bool,
+        List<&2, Fix>,
+        get_fix_kept(path, text, f),
+        ok => IO.bind(
+          List<&2, Fix>,
+          List<&2, Fix>,
+          get_kept_fixes(t, path, text),
+          rest => IO.pure(List<&2, Fix>, get_kept(Fix, ok, f, rest))
+        )
+      )
+
+def get_fix_note(all_kept: Bool, message: String) -> String:
+  match all_kept:
+    case True{}:
+      message
+    case False{}:
+      message ++ " The fix was not offered: it would change what the file declares."
+
+def get_checked_finding.made(
+  rule_id: String,
+  severity: FindingSeverity,
+  message: String,
+  span: BendSourceSpan,
+  +kept: List<&2, Fix>,
+  offered: Nat
+) -> RuleFinding:
+  RuleFinding{
+    rule_id,
+    Finding{
+      severity,
+      get_fix_note(
+        U32.is_eq(U32.from_nat(List.length(&2, Fix, kept)), U32.from_nat(offered)),
+        message
+      ),
+      span,
+      kept
+    }
+  }
+
+def get_checked_finding(+path: String, +text: String, found: RuleFinding) -> IO(RuleFinding):
+  match found:
+    case RuleFinding{rule_id, Finding{severity, message, span, +fixes}}:
+      IO.bind(
+        List<&2, Fix>,
+        RuleFinding,
+        get_kept_fixes(fixes, path, text),
+        kept => IO.pure(
+          RuleFinding,
+          get_checked_finding.made(
+            rule_id,
+            severity,
+            message,
+            span,
+            kept,
+            List.length(&2, Fix, fixes)
+          )
+        )
+      )
+
+def get_checked_findings(
+  findings: List<&2, RuleFinding>,
+  +path: String,
+  +text: String
+) -> IO(List<&2, RuleFinding>):
+  match findings:
+    case Nil{}:
+      IO.pure(List<&2, RuleFinding>, [])
+    case Con{f, t}:
+      IO.bind(
+        RuleFinding,
+        List<&2, RuleFinding>,
+        get_checked_finding(path, text, f),
+        one => IO.bind(
+          List<&2, RuleFinding>,
+          List<&2, RuleFinding>,
+          get_checked_findings(t, path, text),
+          rest => IO.pure(List<&2, RuleFinding>, one <> rest)
+        )
+      )
+
+def get_checked_report(report: LintReport) -> IO(LintReport):
+  match report:
+    case LintReport{findings, suppressed, Con{BendSource{+path, +text, lines}, rest}}:
+      IO.bind(
+        List<&2, RuleFinding>,
+        LintReport,
+        get_checked_findings(findings, path, text),
+        checked => IO.pure(
+          LintReport,
+          LintReport{checked, suppressed, BendSource{path, text, lines} <> rest}
+        )
+      )
+    case _:
+      IO.pure(LintReport, report)
+
 def lint_file.resolved(
   ~rules: Unit -> List<&1, Rule>,
   r: Result<&1, &1, U32 & String, String>,
@@ -765,8 +915,7 @@ def lint_file.resolved(
         BendCheck,
         LintReport,
         get_check(value, get_heads_need_declarations(get_rule_heads(rules(Unit{})))),
-        check => IO.pure(
-          LintReport,
+        check => get_checked_report(
           get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], False{}, []})
         )
       )
