@@ -294,13 +294,62 @@ type BendCheck is Data:
 
 type RunPlace is Data:
   FileRun{on: BendSource}
-  ProgramRun{}
+  ProgramRun{check: BendCheck}
 
 type RuleHead is Data:
   RuleHead{id: String, after: List<&2, String>, needs: List<&2, RuleNeed>}
 
 type LintTally is Data:
   LintTally{count: Nat, failed: Bool}
+
+type JsonValue is Data:
+  JsonNull{}
+  JsonBool{value: Bool}
+  JsonNumber{text: String}
+  JsonText{value: String}
+  JsonList{items: List<&2, JsonValue>}
+  JsonObject{fields: List<&2, JsonField>}
+
+type JsonField is Data:
+  JsonField{key: String, value: JsonValue}
+
+type JsonFrame is Data:
+  JsonListFrame{items: List<&2, JsonValue>}
+  JsonObjectFrame{fields: List<&2, JsonField>, key: String}
+
+type JsonPart is Data:
+  JsonPartDone{value: JsonValue, rest: String}
+  JsonPartFail{error: String}
+
+type JsonStep is Data:
+  JsonWantValue{}
+  JsonWantItem{}
+  JsonWantKey{first: Bool}
+  JsonWantColon{key: String}
+  JsonParsed{part: JsonPart}
+  JsonParsedKey{part: JsonPart}
+  JsonGot{value: JsonValue}
+
+type ConfigFile is Data:
+  ConfigFile{
+    load: List<&2, String>,
+    entries: List<&2, String>,
+    imports: Maybe<&2, Bool>,
+    rules: List<&2, RuleSetting>
+  }
+
+type RuleFile is Data:
+  RuleFile{path: String, ids: List<&2, String>}
+
+type LintTarget is Data:
+  LintTarget{given: String, path: String, found: Bool, why: String}
+
+type LintJob is Data:
+  LintJob{target: LintTarget, config: LintConfig}
+
+# What the rules need from a check: declarations, bodies, facts.
+type CheckNeeds is Data:
+  CheckNeeds{declarations: Bool, bodies: Bool, facts: Bool}
 
 def get_check(path: String, declarations: Bool, bodies: Bool, facts: Bool) -> IO(BendCheck):
   import "./effs/host.js"
@@ -414,13 +463,6 @@ def get_given_declarations(
     case False{}:
       []
 
-def get_option_defaults(declared: List<&2, OptionDeclared>) -> List<&2, OptionGiven>:
-  match declared:
-    case Nil{}:
-      []
-    case Con{OptionDeclared{key, default, spec}, t}:
-      OptionGiven{key, default} <> get_option_defaults(t)
-
 def get_needless_heads(heads: List<&2, RuleHead>) -> List<&2, RuleHead>:
   match heads:
     case Nil{}:
@@ -442,12 +484,24 @@ def get_prior(found: List<&2, RuleFinding>, +after: List<&2, String>) -> List<&2
     case Con{+f, t}:
       get_kept(RuleFinding, get_has_text(after, get_rule_id(f)), f, get_prior(t, after))
 
-def get_tagged(+id: String, findings: List<&2, Finding>) -> List<&2, RuleFinding>:
+def get_severe(severity: Maybe<&2, FindingSeverity>, f: Finding) -> Finding:
+  match severity f:
+    case Some{s} Finding{old, message, span, fixes}:
+      Finding{s, message, span, fixes}
+    case None{} _:
+      f
+
+# The findings of rule `id`, with the severity its settings give, if any.
+def get_tagged(
+  +id: String,
+  +severity: Maybe<&2, FindingSeverity>,
+  findings: List<&2, Finding>
+) -> List<&2, RuleFinding>:
   match findings:
     case Nil{}:
       []
     case Con{f, t}:
-      RuleFinding{id, f} <> get_tagged(id, t)
+      RuleFinding{id, get_severe(severity, f)} <> get_tagged(id, severity, t)
 
 def get_source_path(source: BendSource) -> String:
   match source:
@@ -499,38 +553,30 @@ def get_is_place(scope: RuleScope, place: RunPlace) -> Bool:
   match scope place:
     case FileScope{} FileRun{on}:
       True{}
-    case FileScope{} ProgramRun{}:
+    case FileScope{} ProgramRun{c}:
       False{}
     case _ FileRun{on}:
       False{}
-    case _ ProgramRun{}:
+    case _ ProgramRun{c}:
       True{}
-
-def get_place_root(place: RunPlace, root: BendSource) -> BendSource:
-  match place:
-    case FileRun{on}:
-      on
-    case ProgramRun{}:
-      root
 
 # The files where a run's findings can show: its file, or every linted file.
 def get_place_paths(place: RunPlace, linted_paths: List<&2, String>) -> List<&2, String>:
   match place:
     case FileRun{on}:
       [get_source_path(on)]
-    case ProgramRun{}:
+    case ProgramRun{c}:
       linted_paths
 
-# What a run sees: its file's declarations, or every file's.
-def get_place_declarations(
-  place: RunPlace,
-  declarations: List<&2, SourceDeclarations>
-) -> List<&2, SourceDeclarations>:
-  match place:
-    case FileRun{on}:
-      get_declarations_in(declarations, [get_source_path(on)])
-    case ProgramRun{}:
-      declarations
+# What a run sees: for a file run, its file and that file's declarations, from the first check; for a program run,
+# its own check.
+def get_place_check(place: RunPlace, first: BendCheck) -> BendCheck:
+  match place first:
+    case FileRun{+on} BendCheck{root, sources, failure, declarations, program_paths}:
+      +path = get_source_path(on)
+      BendCheck{on, sources, failure, get_declarations_in(declarations, [path]), program_paths}
+    case ProgramRun{c} _:
+      c
 
 # The path of the first finding outside `path`, if any.
 def get_astray(findings: List<&2, Finding>, +path: String) -> Maybe<&2, String>:
@@ -542,13 +588,14 @@ def get_astray(findings: List<&2, Finding>, +path: String) -> Maybe<&2, String>:
 
 def get_file_findings(
   +id: String,
+  severity: Maybe<&2, FindingSeverity>,
   +path: String,
   astray: Maybe<&2, String>,
   findings: List<&2, Finding>
 ) -> List<&2, RuleFinding>:
   match astray:
     case None{}:
-      get_tagged(id, findings)
+      get_tagged(id, severity, findings)
     case Some{p}:
       [
         RuleFinding{
@@ -571,19 +618,21 @@ def get_file_findings(
 # a linted file.
 def get_placed(
   +id: String,
+  severity: Maybe<&2, FindingSeverity>,
   place: RunPlace,
   linted_paths: List<&2, String>,
   +findings: List<&2, Finding>
 ) -> List<&2, RuleFinding>:
   match place:
     case FileRun{BendSource{+path, text, lines}}:
-      get_file_findings(id, path, get_astray(findings, path), findings)
-    case ProgramRun{}:
-      get_found_in(get_tagged(id, findings), linted_paths)
+      get_file_findings(id, severity, path, get_astray(findings, path), findings)
+    case ProgramRun{c}:
+      get_found_in(get_tagged(id, severity, findings), linted_paths)
 
 def get_rule_run(
   hit: Bool,
   id: String,
+  severity: Maybe<&2, FindingSeverity>,
   run: RuleInput -> List<&2, Finding>,
   place: RunPlace,
   linted_paths: List<&2, String>,
@@ -591,43 +640,121 @@ def get_rule_run(
 ) -> List<&2, RuleFinding>:
   match hit:
     case True{}:
-      get_placed(id, place, linted_paths, run(input))
+      get_placed(id, severity, place, linted_paths, run(input))
     case False{}:
       []
+
+# The severity the settings give rule `id`, if any.
+def get_set_severity(settings: List<&2, RuleSetting>, +id: String) -> Maybe<&2, FindingSeverity>:
+  match settings:
+    case Nil{}:
+      None{}
+    case Con{RuleOn{+i, severity, options}, t}:
+      Bool.pick(Maybe<&2, FindingSeverity>, String.eq(i, id), severity, get_set_severity(t, id))
+    case Con{RuleOff{i}, t}:
+      get_set_severity(t, id)
+
+# The options the settings give rule `id`.
+def get_set_options(settings: List<&2, RuleSetting>, +id: String) -> List<&2, OptionGiven>:
+  match settings:
+    case Nil{}:
+      []
+    case Con{RuleOn{+i, severity, options}, t}:
+      Bool.pick(List<&2, OptionGiven>, String.eq(i, id), options, get_set_options(t, id))
+    case Con{RuleOff{i}, t}:
+      get_set_options(t, id)
+
+# The ids the settings turn off.
+def get_off_ids(settings: List<&2, RuleSetting>) -> List<&2, String>:
+  match settings:
+    case Nil{}:
+      []
+    case Con{RuleOff{id}, t}:
+      id <> get_off_ids(t)
+    case Con{RuleOn{id, severity, options}, t}:
+      get_off_ids(t)
+
+def get_given_value(
+  given: List<&2, OptionGiven>,
+  +key: String,
+  default: OptionValue
+) -> OptionValue:
+  match given:
+    case Nil{}:
+      default
+    case Con{OptionGiven{+k, +v}, t}:
+      Bool.pick(OptionValue, String.eq(k, key), v, get_given_value(t, key, default))
+
+# Each declared option, with its given value or its default.
+def get_options(
+  declared: List<&2, OptionDeclared>,
+  +given: List<&2, OptionGiven>
+) -> List<&2, OptionGiven>:
+  match declared:
+    case Nil{}:
+      []
+    case Con{OptionDeclared{+key, default, spec}, t}:
+      OptionGiven{key, get_given_value(given, key, default)} <> get_options(t, given)
+
+# The ids of the rules whose findings stand only when every check finds them.
+def get_every_ids(rules: List<&1, Rule>) -> List<&2, String>:
+  match rules:
+    case Nil{}:
+      []
+    case Con{Rule{id, ProgramEveryScope{}, options, after, needs, run}, t}:
+      id <> get_every_ids(t)
+    case Con{r, t}:
+      get_every_ids(t)
+
+# The input of a run of a rule that declares `options` and `needs`, on the check `c`.
+def get_rule_input(
+  c: BendCheck,
+  options: List<&2, OptionGiven>,
+  prior: List<&2, RuleFinding>,
+  +needs: List<&2, RuleNeed>
+) -> RuleInput:
+  match c:
+    case BendCheck{root, sources, failure, declarations, program_paths}:
+      RuleInput{
+        root,
+        sources,
+        options,
+        prior,
+        get_given_declarations(
+          get_needs(
+            needs,
+            DeclarationsNeed{}
+          )
+            || get_needs(needs, BodiesNeed{})
+            || get_needs(needs, FactsNeed{}),
+          declarations
+        )
+      }
 
 def get_level_finding(
   r: Rule,
   +ready: List<&2, String>,
   +found: List<&2, RuleFinding>,
   +place: RunPlace,
-  +root: BendSource,
-  +sources: List<&2, BendSource>,
+  +first: BendCheck,
   +linted_paths: List<&2, String>,
-  +declarations: List<&2, SourceDeclarations>
+  +settings: List<&2, RuleSetting>
 ) -> List<&2, RuleFinding>:
   match r:
-    case Rule{+id, scope, options, after, +needs, run}:
+    case Rule{+id, scope, options, after, needs, run}:
       get_rule_run(
         get_has_text(ready, id) && get_is_place(scope, place),
         id,
+        get_set_severity(settings, id),
         run,
         place,
         linted_paths,
-        RuleInput{
-          get_place_root(place, root),
-          sources,
-          get_option_defaults(options),
+        get_rule_input(
+          get_place_check(place, first),
+          get_options(options, get_set_options(settings, id)),
           get_found_in(get_prior(found, after), get_place_paths(place, linted_paths)),
-          get_given_declarations(
-            get_needs(
-              needs,
-              DeclarationsNeed{}
-            )
-              || get_needs(needs, BodiesNeed{})
-              || get_needs(needs, FactsNeed{}),
-            get_place_declarations(place, declarations)
-          )
-        }
+          needs
+        )
       )
 
 def get_level_findings(
@@ -635,10 +762,9 @@ def get_level_findings(
   +ready: List<&2, String>,
   +found: List<&2, RuleFinding>,
   +place: RunPlace,
-  +root: BendSource,
-  +sources: List<&2, BendSource>,
+  +first: BendCheck,
   +linted_paths: List<&2, String>,
-  +declarations: List<&2, SourceDeclarations>
+  +settings: List<&2, RuleSetting>
 ) -> List<&2, RuleFinding>:
   match rules:
     case Nil{}:
@@ -649,23 +775,21 @@ def get_level_findings(
         ready,
         found,
         place,
-        root,
-        sources,
+        first,
         linted_paths,
-        declarations
-      ) get_level_findings(rest, ready, found, place, root, sources, linted_paths, declarations)
+        settings
+      ) get_level_findings(rest, ready, found, place, first, linted_paths, settings)
       List.append(&2, RuleFinding, a, b)
 
-# What the ready rules find in each place: a file rule on each linted file, a program rule once.
+# What the ready rules find in each place: a file rule on each linted file.
 def get_places_findings(
   ~rules: Unit -> List<&1, Rule>,
   places: List<&2, RunPlace>,
   +ready: List<&2, String>,
   +found: List<&2, RuleFinding>,
-  +root: BendSource,
-  +sources: List<&2, BendSource>,
+  +first: BendCheck,
   +linted_paths: List<&2, String>,
-  +declarations: List<&2, SourceDeclarations>
+  +settings: List<&2, RuleSetting>
 ) -> List<&2, RuleFinding>:
   match places:
     case Nil{}:
@@ -676,12 +800,36 @@ def get_places_findings(
         ready,
         found,
         p,
-        root,
-        sources,
+        first,
         linted_paths,
-        declarations
-      ) get_places_findings(~rules, t, ready, found, root, sources, linted_paths, declarations)
+        settings
+      ) get_places_findings(~rules, t, ready, found, first, linted_paths, settings)
       List.append(&2, RuleFinding, a, b)
+
+# What the ready program rules find in each check, a list per check.
+def get_program_runs(
+  ~rules: Unit -> List<&1, Rule>,
+  checks: List<&2, BendCheck>,
+  +ready: List<&2, String>,
+  +found: List<&2, RuleFinding>,
+  +first: BendCheck,
+  +linted_paths: List<&2, String>,
+  +settings: List<&2, RuleSetting>
+) -> List<&2, List<&2, RuleFinding>>:
+  match checks:
+    case Nil{}:
+      []
+    case Con{c, t}:
+      a b = get_level_findings(
+        rules(Unit{}),
+        ready,
+        found,
+        ProgramRun{c},
+        first,
+        linted_paths,
+        settings
+      ) get_program_runs(~rules, t, ready, found, first, linted_paths, settings)
+      a <> b
 
 def get_file_places(linted: List<&2, BendSource>) -> List<&2, RunPlace>:
   match linted:
@@ -769,7 +917,109 @@ def get_order_problems(+heads: List<&2, RuleHead>) -> List<&2, String>:
     heads
   )
 
-# The findings of the rules, level by level; `found` holds the findings so far, last first.
+def get_severity_rank(s: FindingSeverity) -> U32:
+  match s:
+    case Error{}:
+      0
+    case Warning{}:
+      1
+    case Information{}:
+      2
+    case Hint{}:
+      3
+
+# Whether two runs found the same finding: the same code, severity and span.
+def get_same_finding(a: RuleFinding, b: RuleFinding) -> Bool:
+  match a b:
+    case RuleFinding{
+      x,
+      Finding{s, m, BendSourceSpan{p, i, j}, f}
+    } RuleFinding{y, Finding{t, n, BendSourceSpan{q, k, l}, g}}:
+      String.eq(
+        x,
+        y
+      )
+        && U32.is_eq(get_severity_rank(s), get_severity_rank(t))
+        && String.eq(p, q)
+        && U32.is_eq(i, k)
+        && U32.is_eq(j, l)
+
+def get_has_finding(xs: List<&2, RuleFinding>, +f: RuleFinding) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{x, t}:
+      get_same_finding(x, f) || get_has_finding(t, f)
+
+def get_in_all(runs: List<&2, List<&2, RuleFinding>>, +f: RuleFinding) -> Bool:
+  match runs:
+    case Nil{}:
+      True{}
+    case Con{r, t}:
+      get_has_finding(r, f) && get_in_all(t, f)
+
+# The first check's findings that stand: an `every` rule's only when every other check found it too.
+def get_merged.first(
+  fs: List<&2, RuleFinding>,
+  +rest: List<&2, List<&2, RuleFinding>>,
+  +every: List<&2, String>
+) -> List<&2, RuleFinding>:
+  match fs:
+    case Nil{}:
+      []
+    case Con{+f, t}:
+      get_kept(
+        RuleFinding,
+        Bool.not(get_has_text(every, get_rule_id(f))) || get_in_all(rest, f),
+        f,
+        get_merged.first(t, rest, every)
+      )
+
+# `seen`, and the findings of a later check that are new: a `some` rule's, once.
+def get_merged.run(
+  fs: List<&2, RuleFinding>,
+  +every: List<&2, String>,
+  +seen: List<&2, RuleFinding>
+) -> List<&2, RuleFinding>:
+  match fs:
+    case Nil{}:
+      seen
+    case Con{+f, t}:
+      get_merged.run(
+        t,
+        every,
+        Bool.pick(
+          List<&2, RuleFinding>,
+          get_has_text(every, get_rule_id(f)) || get_has_finding(seen, f),
+          seen,
+          List.append(&2, RuleFinding, seen, [f])
+        )
+      )
+
+def get_merged.rest(
+  runs: List<&2, List<&2, RuleFinding>>,
+  +every: List<&2, String>,
+  seen: List<&2, RuleFinding>
+) -> List<&2, RuleFinding>:
+  match runs:
+    case Nil{}:
+      seen
+    case Con{r, t}:
+      get_merged.rest(t, every, get_merged.run(r, every, seen))
+
+# The program rules' findings over all checks: a `some` rule's when one check finds it, an `every` rule's when all do.
+def get_merged(
+  runs: List<&2, List<&2, RuleFinding>>,
+  +every: List<&2, String>
+) -> List<&2, RuleFinding>:
+  match runs:
+    case Nil{}:
+      []
+    case Con{first, +rest}:
+      get_merged.rest(rest, every, get_merged.first(first, rest, every))
+
+# The findings of the rules, level by level; `found` holds the findings so far, last first. File rules run on each
+# linted file of the first check; program rules on each check, their findings merged.
 def get_lint_findings(
   ~rules: Unit -> List<&1, Rule>,
   fuel: Nat,
@@ -777,11 +1027,12 @@ def get_lint_findings(
   +heads: List<&2, RuleHead>,
   +done: List<&2, String>,
   +found: List<&2, RuleFinding>,
-  +places: List<&2, RunPlace>,
-  +root: BendSource,
-  +sources: List<&2, BendSource>,
+  +files: List<&2, RunPlace>,
+  +checks: List<&2, BendCheck>,
+  +first: BendCheck,
   +linted_paths: List<&2, String>,
-  +declarations: List<&2, SourceDeclarations>
+  +settings: List<&2, RuleSetting>,
+  +every: List<&2, String>
 ) -> List<&2, RuleFinding>:
   match fuel ready:
     case 0n _:
@@ -790,6 +1041,15 @@ def get_lint_findings(
       List.reverse(&2, RuleFinding, found)
     case 1n+k Con{+h, +t}:
       +now = List.append(&2, String, done, h <> t)
+      a b = get_places_findings(
+        ~rules,
+        files,
+        h <> t,
+        found,
+        first,
+        linted_paths,
+        settings
+      ) get_program_runs(~rules, checks, h <> t, found, first, linted_paths, settings)
       get_lint_findings(
         ~rules,
         k,
@@ -799,27 +1059,15 @@ def get_lint_findings(
         List.append(
           &2,
           RuleFinding,
-          List.reverse(
-            &2,
-            RuleFinding,
-            get_places_findings(
-              ~rules,
-              places,
-              h <> t,
-              found,
-              root,
-              sources,
-              linted_paths,
-              declarations
-            )
-          ),
+          List.reverse(&2, RuleFinding, List.append(&2, RuleFinding, a, get_merged(b, every))),
           found
         ),
-        places,
-        root,
-        sources,
+        files,
+        checks,
+        first,
         linted_paths,
-        declarations
+        settings,
+        every
       )
 
 def get_failure_list(failure: Maybe<&2, RuleFinding>) -> List<&2, RuleFinding>:
@@ -861,47 +1109,83 @@ def get_homed(paths: List<&2, String>, +found: List<&2, RuleFinding>) -> List<&2
     case Con{p, t}:
       List.append(&2, RuleFinding, get_found_in(found, [p]), get_homed(t, found))
 
+def get_source_at(sources: List<&2, BendSource>, +path: String) -> Maybe<&2, BendSource>:
+  match sources:
+    case Nil{}:
+      None{}
+    case Con{+s, t}:
+      Bool.pick(
+        Maybe<&2, BendSource>,
+        String.eq(get_source_path(s), path),
+        Some{s},
+        get_source_at(t, path)
+      )
+
+# A finding with its Safe fixes checked against the text of its file, a linted one.
+def get_check_failures(checks: List<&2, BendCheck>) -> List<&2, RuleFinding>:
+  match checks:
+    case Nil{}:
+      []
+    case Con{BendCheck{root, sources, failure, declarations, program_paths}, t}:
+      List.append(&2, RuleFinding, get_failure_list(failure), get_check_failures(t))
+
+def get_rules_off(partial: Bool, +every: List<&2, String>) -> List<&2, String>:
+  match partial:
+    case True{}:
+      every
+    case False{}:
+      []
+
+# The report on the file at `named`, over `checks`, the first holding the file: `failures` are the failed checks'
+# findings, and `partial` tells whether an entry that reads the file failed its check, so that no `every` rule runs.
 def get_lint_report(
   ~rules: Unit -> List<&1, Rule>,
-  check: BendCheck,
+  checks: List<&2, BendCheck>,
+  failures: List<&2, RuleFinding>,
+  partial: Bool,
+  +named: String,
   config: LintConfig
 ) -> LintReport:
-  match check config:
-    case BendCheck{
-      +root,
-      +sources,
-      +failure,
-      +declarations,
-      program_paths
-    } LintConfig{load, entries, imports, settings}:
-      +linted = get_linted(imports, root, sources, program_paths)
+  match checks config:
+    case Con{
+      BendCheck{+root, +sources, +failure, +declarations, +program_paths},
+      rest
+    } LintConfig{load, entries, imports, +settings}:
+      +first: BendCheck = BendCheck{root, sources, failure, declarations, program_paths}
+      +own = Maybe.default(&2, BendSource, get_source_at(sources, named), root)
+      +linted = get_linted(imports, own, sources, program_paths)
       +linted_paths = get_source_paths(linted)
       +heads = get_check_heads(failure, get_rule_heads(rules(Unit{})))
+      +every = get_every_ids(rules(Unit{}))
+      +done = List.append(&2, String, get_off_ids(settings), get_rules_off(partial, every))
       LintReport{
         List.append(
           &2,
           RuleFinding,
-          get_failure_list(failure),
+          failures,
           get_homed(
             linted_paths,
             get_lint_findings(
               ~rules,
               (1n + List.length(&2, RuleHead, heads): Nat),
-              get_ready_ids(heads, []),
+              get_ready_ids(heads, done),
               heads,
+              done,
               [],
-              [],
-              ProgramRun{} <> get_file_places(linted),
-              root,
-              sources,
+              get_file_places(linted),
+              first <> rest,
+              first,
               linted_paths,
-              declarations
+              settings,
+              every
             )
           )
         ),
         [],
         linted
       }
+    case Nil{} c:
+      LintReport{failures, [], []}
 
 def get_fix_outcome(report: LintReport, level: Maybe<&2, FixApplicability>) -> FixOutcome:
   FixOutcome{[], []}
@@ -1057,8 +1341,733 @@ def get_linter_check(check: BendCheck) -> BendCheck:
         get_posix_paths(program_paths)
       }
 
+def get_code(c: Char) -> U32:
+  match c:
+    case Chr{code}:
+      code
+
+def get_is_between(+x: U32, lo: U32, hi: U32) -> Bool:
+  U32.is_ge(x, lo) && U32.is_le(x, hi)
+
+def get_json_blank(+s: String) -> String:
+  match s:
+    case SCon{' ', rest}:
+      get_json_blank(rest)
+    case SCon{'\t', rest}:
+      get_json_blank(rest)
+    case SCon{'\n', rest}:
+      get_json_blank(rest)
+    case SCon{'\r', rest}:
+      get_json_blank(rest)
+    case _:
+      s
+
+# A hex digit's value; 16 when `c` is none.
+def get_hex_value(c: Char) -> U32:
+  +x = get_code(c)
+  Bool.pick(
+    U32,
+    get_is_between(x, 48, 57),
+    U32.sub(x, 48),
+    Bool.pick(
+      U32,
+      get_is_between(x, 97, 102),
+      U32.sub(x, 87),
+      Bool.pick(U32, get_is_between(x, 65, 70), U32.sub(x, 55), 16)
+    )
+  )
+
+# The code point four hex digits spell; U+FFFD when one is not a hex digit.
+def get_hex4(a: Char, b: Char, c: Char, d: Char) -> Char:
+  +w = get_hex_value(a)
+  +x = get_hex_value(b)
+  +y = get_hex_value(c)
+  +z = get_hex_value(d)
+  Char.from_u32(
+    Bool.pick(
+      U32,
+      U32.is_lt(w, 16) && U32.is_lt(x, 16) && U32.is_lt(y, 16) && U32.is_lt(z, 16),
+      U32.add(U32.mul(U32.add(U32.mul(U32.add(U32.mul(w, 16), x), 16), y), 16), z),
+      65533
+    )
+  )
+
+# The string after an opening quote: its text, and what follows its closing quote.
+def get_json_text.go(fuel: Nat, s: String, acc: String) -> JsonPart:
+  match fuel s:
+    case 0n _:
+      JsonPartFail{"a string is not closed"}
+    case 1n+k SCon{'"', rest}:
+      JsonPartDone{JsonText{String.reverse(acc)}, rest}
+    case 1n+k SCon{'\\', SCon{'"', rest}}:
+      get_json_text.go(k, rest, SCon{'"', acc})
+    case 1n+k SCon{'\\', SCon{'\\', rest}}:
+      get_json_text.go(k, rest, SCon{'\\', acc})
+    case 1n+k SCon{'\\', SCon{'/', rest}}:
+      get_json_text.go(k, rest, SCon{'/', acc})
+    case 1n+k SCon{'\\', SCon{'n', rest}}:
+      get_json_text.go(k, rest, SCon{'\n', acc})
+    case 1n+k SCon{'\\', SCon{'t', rest}}:
+      get_json_text.go(k, rest, SCon{'\t', acc})
+    case 1n+k SCon{'\\', SCon{'r', rest}}:
+      get_json_text.go(k, rest, SCon{'\r', acc})
+    case 1n+k SCon{'\\', SCon{'b', rest}}:
+      get_json_text.go(k, rest, SCon{Char.from_u32(8), acc})
+    case 1n+k SCon{'\\', SCon{'f', rest}}:
+      get_json_text.go(k, rest, SCon{Char.from_u32(12), acc})
+    case 1n+k SCon{'\\', SCon{'u', SCon{a, SCon{b, SCon{c, SCon{d, rest}}}}}}:
+      get_json_text.go(k, rest, SCon{get_hex4(a, b, c, d), acc})
+    case 1n+k SCon{'\\', rest}:
+      JsonPartFail{"a string has a bad escape"}
+    case 1n+k SCon{c, rest}:
+      get_json_text.go(k, rest, SCon{c, acc})
+    case 1n+k SNil{}:
+      JsonPartFail{"a string is not closed"}
+
+def get_json_text(+s: String) -> JsonPart:
+  get_json_text.go((2n + String.length(s): Nat), s, "")
+
+def get_is_number_char(c: Char) -> Bool:
+  +x = get_code(c)
+  get_is_between(
+    x,
+    48,
+    57
+  )
+    || U32.is_eq(x, 45)
+    || U32.is_eq(x, 43)
+    || U32.is_eq(x, 46)
+    || U32.is_eq(x, 101)
+    || U32.is_eq(x, 69)
+
+# A number: `c` and the characters of a number after it.
+def get_json_number.go(+s: String, ok: Bool, c: Char, acc: String) -> JsonPart:
+  match s ok:
+    case SCon{+d, rest} True{}:
+      get_json_number.go(rest, get_is_number_char(d), d, SCon{c, acc})
+    case SNil{} True{}:
+      JsonPartDone{JsonNumber{String.reverse(SCon{c, acc})}, ""}
+    case _ False{}:
+      JsonPartDone{JsonNumber{String.reverse(acc)}, SCon{c, s}}
+
+def get_json_number(s: String) -> JsonPart:
+  match s:
+    case SCon{+c, rest}:
+      Bool.pick(
+        JsonPart,
+        get_is_between(get_code(c), 48, 57) || U32.is_eq(get_code(c), 45),
+        get_json_number.go(rest, True{}, c, ""),
+        JsonPartFail{"a value was expected"}
+      )
+    case SNil{}:
+      JsonPartFail{"a value was expected"}
+
+# A JSON value, read with an explicit stack: Bend has no mutual recursion. `step` is what comes next, `stack` the
+# lists and objects that are open.
+def get_json.go(
+  fuel: Nat,
+  step: JsonStep,
+  s: String,
+  stack: List<&2, JsonFrame>
+) -> Result<&1, &1, String, JsonValue>:
+  match fuel:
+    case 0n:
+      Fail{"the JSON is too long"}
+    case 1n+k:
+      match step s stack:
+        case JsonWantValue{} SCon{'{', rest} st:
+          get_json.go(k, JsonWantKey{True{}}, get_json_blank(rest), JsonObjectFrame{[], ""} <> st)
+        case JsonWantValue{} SCon{'[', rest} st:
+          get_json.go(k, JsonWantItem{}, get_json_blank(rest), JsonListFrame{[]} <> st)
+        case JsonWantValue{} SCon{'"', rest} st:
+          get_json.go(k, JsonParsed{get_json_text(rest)}, "", st)
+        case JsonWantValue{} SCon{'t', SCon{'r', SCon{'u', SCon{'e', rest}}}} st:
+          get_json.go(k, JsonGot{JsonBool{True{}}}, get_json_blank(rest), st)
+        case JsonWantValue{} SCon{'f', SCon{'a', SCon{'l', SCon{'s', SCon{'e', rest}}}}} st:
+          get_json.go(k, JsonGot{JsonBool{False{}}}, get_json_blank(rest), st)
+        case JsonWantValue{} SCon{'n', SCon{'u', SCon{'l', SCon{'l', rest}}}} st:
+          get_json.go(k, JsonGot{JsonNull{}}, get_json_blank(rest), st)
+        case JsonWantValue{} x st:
+          get_json.go(k, JsonParsed{get_json_number(x)}, "", st)
+        case JsonWantItem{} SCon{']', rest} Con{JsonListFrame{items}, t}:
+          get_json.go(
+            k,
+            JsonGot{JsonList{List.reverse(&2, JsonValue, items)}},
+            get_json_blank(rest),
+            t
+          )
+        case JsonWantItem{} x st:
+          get_json.go(k, JsonWantValue{}, x, st)
+        case JsonWantKey{True{}} SCon{'}', rest} Con{JsonObjectFrame{fields, key}, t}:
+          get_json.go(
+            k,
+            JsonGot{JsonObject{List.reverse(&2, JsonField, fields)}},
+            get_json_blank(rest),
+            t
+          )
+        case JsonWantKey{first} SCon{'"', rest} st:
+          get_json.go(k, JsonParsedKey{get_json_text(rest)}, "", st)
+        case JsonWantKey{first} x st:
+          Fail{"a key was expected"}
+        case JsonParsedKey{JsonPartDone{JsonText{key}, rest}} x st:
+          get_json.go(k, JsonWantColon{key}, get_json_blank(rest), st)
+        case JsonParsedKey{JsonPartFail{e}} x st:
+          Fail{e}
+        case JsonParsedKey{p} x st:
+          Fail{"a key was expected"}
+        case JsonWantColon{key} SCon{':', rest} Con{JsonObjectFrame{fields, old}, t}:
+          get_json.go(k, JsonWantValue{}, get_json_blank(rest), JsonObjectFrame{fields, key} <> t)
+        case JsonWantColon{key} x st:
+          Fail{"a colon was expected after the key " ++ key}
+        case JsonParsed{JsonPartDone{v, rest}} x st:
+          get_json.go(k, JsonGot{v}, get_json_blank(rest), st)
+        case JsonParsed{JsonPartFail{e}} x st:
+          Fail{e}
+        case JsonGot{v} SNil{} Nil{}:
+          Done{v}
+        case JsonGot{v} x Nil{}:
+          Fail{"text follows the JSON value"}
+        case JsonGot{v} SCon{',', rest} Con{JsonListFrame{items}, t}:
+          get_json.go(k, JsonWantValue{}, get_json_blank(rest), JsonListFrame{v <> items} <> t)
+        case JsonGot{v} SCon{']', rest} Con{JsonListFrame{items}, t}:
+          get_json.go(
+            k,
+            JsonGot{JsonList{List.reverse(&2, JsonValue, v <> items)}},
+            get_json_blank(rest),
+            t
+          )
+        case JsonGot{v} SCon{',', rest} Con{JsonObjectFrame{fields, key}, t}:
+          get_json.go(
+            k,
+            JsonWantKey{False{}},
+            get_json_blank(rest),
+            JsonObjectFrame{JsonField{key, v} <> fields, ""} <> t
+          )
+        case JsonGot{v} SCon{'}', rest} Con{JsonObjectFrame{fields, key}, t}:
+          get_json.go(
+            k,
+            JsonGot{JsonObject{List.reverse(&2, JsonField, JsonField{key, v} <> fields)}},
+            get_json_blank(rest),
+            t
+          )
+        case JsonGot{v} x st:
+          Fail{"a comma or a closing bracket was expected"}
+
+def get_json(+text: String) -> Result<&1, &1, String, JsonValue>:
+  get_json.go(
+    (16n + Nat.double(String.length(text)): Nat),
+    JsonWantValue{},
+    get_json_blank(text),
+    []
+  )
+
+# A whole number that fits a U32, from its digits; none if `s` is not one.
+def get_whole.go(s: String, +acc: U32) -> Maybe<&2, U32>:
+  match s:
+    case SNil{}:
+      Some{acc}
+    case SCon{c, rest}:
+      +d = U32.sub(get_code(c), 48)
+      Bool.pick(
+        Maybe<&2, U32>,
+        U32.is_lt(
+          d,
+          10
+        )
+          && (U32.is_lt(acc, 429496729) || (U32.is_eq(acc, 429496729) && U32.is_le(d, 5))),
+        get_whole.go(rest, U32.add(U32.mul(acc, 10), d)),
+        None{}
+      )
+
+def get_whole(+s: String) -> Maybe<&2, U32>:
+  match s:
+    case SNil{}:
+      None{}
+    case _:
+      get_whole.go(s, 0)
+
+def get_severity_named(+name: String) -> Maybe<&2, FindingSeverity>:
+  Bool.pick(
+    Maybe<&2, FindingSeverity>,
+    String.eq(name, "error"),
+    Some{Error{}},
+    Bool.pick(
+      Maybe<&2, FindingSeverity>,
+      String.eq(name, "warning"),
+      Some{Warning{}},
+      Bool.pick(
+        Maybe<&2, FindingSeverity>,
+        String.eq(name, "information"),
+        Some{Information{}},
+        Bool.pick(Maybe<&2, FindingSeverity>, String.eq(name, "hint"), Some{Hint{}}, None{})
+      )
+    )
+  )
+
+def get_option_number(+key: String, m: Maybe<&2, U32>) -> Result<&1, &1, String, OptionGiven>:
+  match m:
+    case Some{n}:
+      Done{OptionGiven{key, NumberValue{n}}}
+    case None{}:
+      Fail{key ++ " must be a whole number from 0 to 4294967295"}
+
+def get_option_given(field: JsonField) -> Result<&1, &1, String, OptionGiven>:
+  match field:
+    case JsonField{+key, JsonNumber{text}}:
+      get_option_number(key, get_whole(text))
+    case JsonField{key, JsonBool{b}}:
+      Done{OptionGiven{key, FlagValue{b}}}
+    case JsonField{key, JsonText{t}}:
+      Done{OptionGiven{key, TextValue{t}}}
+    case JsonField{key, v}:
+      Fail{key ++ " must be a number, true or false, or text"}
+
+def get_rule_severity.named(
+  m: Maybe<&2, FindingSeverity>,
+  name: String
+) -> Result<&1, &1, String, Maybe<&2, FindingSeverity>>:
+  match m:
+    case Some{s}:
+      Done{Some{s}}
+    case None{}:
+      Fail{name ++ " is not a severity: error, warning, information or hint"}
+
+# A rule's severity in its settings, if given.
+def get_rule_severity(
+  fields: List<&2, JsonField>
+) -> Result<&1, &1, String, Maybe<&2, FindingSeverity>>:
+  match fields:
+    case Nil{}:
+      Done{None{}}
+    case Con{JsonField{"severity", JsonText{+name}}, t}:
+      get_rule_severity.named(get_severity_named(name), name)
+    case Con{JsonField{"severity", v}, t}:
+      Fail{"severity must be error, warning, information or hint"}
+    case Con{f, t}:
+      get_rule_severity(t)
+
+def get_with_given(
+  r: Result<&1, &1, String, OptionGiven>,
+  xs: List<&2, OptionGiven>
+) -> Result<&1, &1, String, List<&2, OptionGiven>>:
+  match r:
+    case Done{o}:
+      Done{o <> xs}
+    case Fail{e}:
+      Fail{e}
+
+# A rule's options in its settings, after `acc`, last first.
+def get_rule_options(
+  fields: List<&2, JsonField>,
+  acc: Result<&1, &1, String, List<&2, OptionGiven>>
+) -> Result<&1, &1, String, List<&2, OptionGiven>>:
+  match fields acc:
+    case _ Fail{e}:
+      Fail{e}
+    case Nil{} Done{xs}:
+      Done{List.reverse(&2, OptionGiven, xs)}
+    case Con{JsonField{"severity", v}, t} Done{xs}:
+      get_rule_options(t, Done{xs})
+    case Con{f, t} Done{xs}:
+      get_rule_options(t, get_with_given(get_option_given(f), xs))
+
+def get_rule_on(
+  +id: String,
+  severity: Result<&1, &1, String, Maybe<&2, FindingSeverity>>,
+  options: Result<&1, &1, String, List<&2, OptionGiven>>
+) -> Result<&1, &1, String, RuleSetting>:
+  match severity options:
+    case Done{s} Done{os}:
+      Done{RuleOn{id, s, os}}
+    case Fail{e} _:
+      Fail{"rules." ++ id ++ ": " ++ e}
+    case _ Fail{e}:
+      Fail{"rules." ++ id ++ ": " ++ e}
+
+def get_rule_off(+id: String, +v: String) -> Result<&1, &1, String, RuleSetting>:
+  Bool.pick(
+    Result<&1, &1, String, RuleSetting>,
+    String.eq(v, "off"),
+    Done{RuleOff{id}},
+    Fail{"rules." ++ id ++ " must be \"off\" or an object of options"}
+  )
+
+def get_rule_setting(field: JsonField) -> Result<&1, &1, String, RuleSetting>:
+  match field:
+    case JsonField{+id, JsonText{v}}:
+      get_rule_off(id, v)
+    case JsonField{+id, JsonObject{+fields}}:
+      get_rule_on(id, get_rule_severity(fields), get_rule_options(fields, Done{[]}))
+    case JsonField{id, v}:
+      Fail{"rules." ++ id ++ " must be \"off\" or an object of options"}
+
+def get_with_setting(
+  r: Result<&1, &1, String, RuleSetting>,
+  xs: List<&2, RuleSetting>
+) -> Result<&1, &1, String, List<&2, RuleSetting>>:
+  match r:
+    case Done{x}:
+      Done{x <> xs}
+    case Fail{e}:
+      Fail{e}
+
+def get_rule_settings(
+  fields: List<&2, JsonField>,
+  acc: Result<&1, &1, String, List<&2, RuleSetting>>
+) -> Result<&1, &1, String, List<&2, RuleSetting>>:
+  match fields acc:
+    case _ Fail{e}:
+      Fail{e}
+    case Nil{} Done{xs}:
+      Done{List.reverse(&2, RuleSetting, xs)}
+    case Con{f, t} Done{xs}:
+      get_rule_settings(t, get_with_setting(get_rule_setting(f), xs))
+
+# Each item's text; none if one is not text.
+def get_json_texts(items: List<&2, JsonValue>) -> Maybe<&2, List<&2, String>>:
+  match items:
+    case Nil{}:
+      Some{[]}
+    case Con{JsonText{t}, rest}:
+      Maybe.map(&2, List<&2, String>, List<&2, String>, ts => t <> ts, get_json_texts(rest))
+    case Con{v, rest}:
+      None{}
+
+def get_is_absolute(+p: String) -> Bool:
+  String.starts_with(p, "/") || Path.get_normalized_path.is_drive(p)
+
+# `p` from the folder `dir`, unless it is absolute.
+def get_joined_path(+dir: String, +p: String) -> String:
+  Path.get_normalized_path(Bool.pick(String, get_is_absolute(p), p, dir ++ "/" ++ p))
+
+def get_joined_paths(+dir: String, ps: List<&2, String>) -> List<&2, String>:
+  match ps:
+    case Nil{}:
+      []
+    case Con{p, t}:
+      get_joined_path(dir, Path.get_posix_path(p)) <> get_joined_paths(dir, t)
+
+def get_config_paths.of(
+  +dir: String,
+  m: Maybe<&2, List<&2, String>>,
+  +key: String
+) -> Result<&1, &1, String, List<&2, String>>:
+  match m:
+    case Some{ps}:
+      Done{get_joined_paths(dir, ps)}
+    case None{}:
+      Fail{key ++ " must be a list of paths"}
+
+def get_config_paths(
+  +dir: String,
+  v: JsonValue,
+  +key: String
+) -> Result<&1, &1, String, List<&2, String>>:
+  match v:
+    case JsonList{items}:
+      get_config_paths.of(dir, get_json_texts(items), key)
+    case _:
+      Fail{key ++ " must be a list of paths"}
+
+def get_config_with(
+  field: JsonField,
+  c: ConfigFile,
+  +dir: String
+) -> Result<&1, &1, String, ConfigFile>:
+  match field c:
+    case JsonField{"load", v} ConfigFile{load, entries, imports, rules}:
+      Result.map(
+        &1,
+        &1,
+        String,
+        List<&2, String>,
+        ConfigFile,
+        ps => ConfigFile{ps, entries, imports, rules},
+        get_config_paths(dir, v, "load")
+      )
+    case JsonField{"entries", v} ConfigFile{load, entries, imports, rules}:
+      Result.map(
+        &1,
+        &1,
+        String,
+        List<&2, String>,
+        ConfigFile,
+        ps => ConfigFile{load, ps, imports, rules},
+        get_config_paths(dir, v, "entries")
+      )
+    case JsonField{"imports", JsonBool{b}} ConfigFile{load, entries, imports, rules}:
+      Done{ConfigFile{load, entries, Some{b}, rules}}
+    case JsonField{"imports", v} c2:
+      Fail{"imports must be true or false"}
+    case JsonField{"rules", JsonObject{fields}} ConfigFile{load, entries, imports, rules}:
+      Result.map(
+        &1,
+        &1,
+        String,
+        List<&2, RuleSetting>,
+        ConfigFile,
+        rs => ConfigFile{load, entries, imports, rs},
+        get_rule_settings(fields, Done{[]})
+      )
+    case JsonField{"rules", v} c2:
+      Fail{"rules must be an object, from rule id to its settings"}
+    case JsonField{key, v} c2:
+      Done{c2}
+
+def get_config_fields(
+  fields: List<&2, JsonField>,
+  acc: Result<&1, &1, String, ConfigFile>,
+  +dir: String
+) -> Result<&1, &1, String, ConfigFile>:
+  match fields acc:
+    case _ Fail{e}:
+      Fail{e}
+    case Nil{} Done{c}:
+      Done{c}
+    case Con{f, t} Done{c}:
+      get_config_fields(t, get_config_with(f, c, dir), dir)
+
+# A config file's settings, its paths from its folder `dir`.
+def get_config_file(
+  json: Result<&1, &1, String, JsonValue>,
+  +dir: String
+) -> Result<&1, &1, String, ConfigFile>:
+  match json:
+    case Done{JsonObject{fields}}:
+      get_config_fields(fields, Done{ConfigFile{[], [], None{}, []}}, dir)
+    case Done{v}:
+      Fail{"the config must be a JSON object"}
+    case Fail{e}:
+      Fail{e}
+
+# The folder of a path: all before its last slash.
+def get_folder.go(rev: String) -> String:
+  match rev:
+    case SNil{}:
+      ""
+    case SCon{'/', rest}:
+      String.reverse(rest)
+    case SCon{c, rest}:
+      get_folder.go(rest)
+
+def get_folder(p: String) -> String:
+  get_folder.go(String.reverse(p))
+
+# `xs` without repeats, the first of each kept, after `seen`, reversed.
+def get_unique_texts(xs: List<&2, String>, +seen: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      List.reverse(&2, String, seen)
+    case Con{+x, t}:
+      get_unique_texts(t, get_kept(String, Bool.not(get_has_text(seen, x)), x, seen))
+
+def get_file_text.closed(
+  got: File & Result<&1, &1, U32 & String, String>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match got:
+    case (f, r):
+      IO.bind(
+        Unit,
+        Result<&1, &1, U32 & String, String>,
+        File.close(f),
+        u => IO.pure(Result<&1, &1, U32 & String, String>, r)
+      )
+
+def get_file_text.sized(
+  sized: File & Result<&1, &1, U32 & String, U32>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match sized:
+    case (f, Done{n}):
+      IO.bind(
+        File & Result<&1, &1, U32 & String, String>,
+        Result<&1, &1, U32 & String, String>,
+        File.read(f, n),
+        get_file_text.closed
+      )
+    case (f, Fail{e}):
+      IO.bind(
+        Unit,
+        Result<&1, &1, U32 & String, String>,
+        File.close(f),
+        u => IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
+      )
+
+def get_file_text.opened(
+  r: Result<&1, &1, U32 & String, File>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match r:
+    case Done{f}:
+      IO.bind(
+        File & Result<&1, &1, U32 & String, U32>,
+        Result<&1, &1, U32 & String, String>,
+        File.size(f),
+        get_file_text.sized
+      )
+    case Fail{e}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
+
+# A file's text, as Base reads it.
+def get_file_text(path: String) -> IO(Result<&1, &1, U32 & String, String>):
+  IO.bind(
+    Result<&1, &1, U32 & String, File>,
+    Result<&1, &1, U32 & String, String>,
+    File.open(path, "r"),
+    get_file_text.opened
+  )
+
+# `path`, if `r` opened it; the file is closed.
+def get_opened_path(r: Result<&1, &1, U32 & String, File>, path: String) -> IO(Maybe<&2, String>):
+  match r:
+    case Done{f}:
+      IO.bind(Unit, Maybe<&2, String>, File.close(f), u => IO.pure(Maybe<&2, String>, Some{path}))
+    case Fail{e}:
+      IO.pure(Maybe<&2, String>, None{})
+
+# The first of `paths` that opens, unless `found` holds one already.
+def get_first_file(paths: List<&2, String>, found: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+  match paths found:
+    case _ Some{p}:
+      IO.pure(Maybe<&2, String>, Some{p})
+    case Nil{} None{}:
+      IO.pure(Maybe<&2, String>, None{})
+    case Con{+p, t} None{}:
+      IO.bind(
+        Maybe<&2, String>,
+        Maybe<&2, String>,
+        IO.bind(
+          Result<&1, &1, U32 & String, File>,
+          Maybe<&2, String>,
+          File.open(p, "r"),
+          r => get_opened_path(r, p)
+        ),
+        m => get_first_file(t, m)
+      )
+
+# The config files a file in `dir` may take, nearest first: one in each folder from `dir` up, some more than once.
+def get_config_candidates(fuel: Nat, +dir: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
+      []
+    case 1n+k:
+      (dir ++ "/bend-lint.json") <> get_config_candidates(k, get_folder(dir))
+
+def get_config_named(
+  r: Result<&1, &1, String, ConfigFile>,
+  +path: String
+) -> Result<&1, &1, String, ConfigFile>:
+  match r:
+    case Done{c}:
+      Done{c}
+    case Fail{e}:
+      Fail{path ++ ": " ++ e}
+
+# The config file at `path`.
+def get_config_read(
+  r: Result<&1, &1, U32 & String, String>,
+  +path: String
+) -> Result<&1, &1, String, ConfigFile>:
+  match r:
+    case Done{text}:
+      get_config_named(get_config_file(get_json(text), get_folder(path)), path)
+    case Fail{error}:
+      match error:
+        case (code, why):
+          Fail{path ++ ": " ++ why}
+
+def get_config_at(+path: String) -> IO(Result<&1, &1, String, ConfigFile>):
+  IO.bind(
+    Result<&1, &1, U32 & String, String>,
+    Result<&1, &1, String, ConfigFile>,
+    get_file_text(path),
+    r => IO.pure(Result<&1, &1, String, ConfigFile>, get_config_read(r, path))
+  )
+
+def get_config_found(m: Maybe<&2, String>) -> IO(Result<&1, &1, String, ConfigFile>):
+  match m:
+    case Some{p}:
+      get_config_at(p)
+    case None{}:
+      IO.pure(Result<&1, &1, String, ConfigFile>, Done{ConfigFile{[], [], None{}, []}})
+
+# The config of the file at `path`: the one given, else the nearest, else none.
+def get_file_config(
+  given: Maybe<&2, String>,
+  +path: String
+) -> IO(Result<&1, &1, String, ConfigFile>):
+  match given:
+    case Some{c}:
+      get_config_at(c)
+    case None{}:
+      +dir = get_folder(path)
+      IO.bind(
+        Maybe<&2, String>,
+        Result<&1, &1, String, ConfigFile>,
+        get_first_file(
+          get_unique_texts(get_config_candidates((1n + String.length(dir): Nat), dir), []),
+          None{}
+        ),
+        get_config_found
+      )
+
+def get_config_or_die(r: Result<&1, &1, String, ConfigFile>) -> IO(ConfigFile):
+  match r:
+    case Done{c}:
+      IO.pure(ConfigFile, c)
+    case Fail{e}:
+      IO.die(ConfigFile, 2, "bend-lint: " ++ e)
+
+# The config of each of `files`, in order, after `done`, last first.
+def get_file_configs(
+  +given: Maybe<&2, String>,
+  files: List<&2, String>,
+  done: List<&2, ConfigFile>
+) -> IO(List<&2, ConfigFile>):
+  match files:
+    case Nil{}:
+      IO.pure(List<&2, ConfigFile>, List.reverse(&2, ConfigFile, done))
+    case Con{f, t}:
+      IO.bind(
+        ConfigFile,
+        List<&2, ConfigFile>,
+        IO.bind(
+          Result<&1, &1, String, ConfigFile>,
+          ConfigFile,
+          get_file_config(given, f),
+          get_config_or_die
+        ),
+        c => get_file_configs(given, t, c <> done)
+      )
+
+def get_glob(pattern: String) -> IO(List<&2, String>):
+  import "./effs/host.js"
+
+def get_globbed_or_die(+pattern: String, found: List<&2, String>) -> IO(List<&2, String>):
+  match found:
+    case Nil{}:
+      IO.die(List<&2, String>, 2, "bend-lint: " ++ pattern ++ " matches no file")
+    case Con{h, t}:
+      IO.pure(List<&2, String>, h <> t)
+
+# The files each of `patterns` matches, in order, after `done`.
+def get_globbed(patterns: List<&2, String>, done: List<&2, String>) -> IO(List<&2, String>):
+  match patterns:
+    case Nil{}:
+      IO.pure(List<&2, String>, done)
+    case Con{+p, t}:
+      IO.bind(
+        List<&2, String>,
+        List<&2, String>,
+        IO.bind(
+          List<&2, String>,
+          List<&2, String>,
+          get_glob(p),
+          found => get_globbed_or_die(p, found)
+        ),
+        found => get_globbed(t, get_unique_texts(List.append(&2, String, done, found), []))
+      )
+
 def get_usage() -> String:
-  "usage: bun BEND-REWRITE/host.ts <file>... [--imports | --no-imports] [--rules <rule.bend>]..."
+  "usage: bun BEND-REWRITE/host.ts <glob>... [--imports | --no-imports] [--rules <rule.bend>]... [--config <bend-lint.json>]"
 
 def get_flag_error(+flag: String) -> String:
   Bool.pick(
@@ -1069,7 +2078,6 @@ def get_flag_error(+flag: String) -> String:
         "--fix-dangerously",
         "--json",
         "--show-suppressed",
-        "--config",
         "--no-fix",
         "--no-fix-dangerously",
         "--no-json",
@@ -1085,6 +2093,7 @@ def get_cli_command.go(
   args: List<String>,
   files: List<&2, String>,
   rules: List<&2, String>,
+  config: Maybe<&2, String>,
   imports: Maybe<&2, Bool>
 ) -> Result<&1, &1, String, CliCommand>:
   match args:
@@ -1093,18 +2102,22 @@ def get_cli_command.go(
         CliLint{
           List.reverse(&2, String, files),
           List.reverse(&2, String, rules),
-          None{},
+          config,
           imports,
           None{},
           CliTextOutput{False{}}
         }
       }
     case Con{"--rules", Con{x, t}}:
-      get_cli_command.go(t, files, x <> rules, imports)
+      get_cli_command.go(t, files, x <> rules, config, imports)
+    case Con{"--config", Con{x, t}}:
+      get_cli_command.go(t, files, rules, Some{x}, imports)
+    case Con{"--config", Nil{}}:
+      Fail{"--config needs a config file"}
     case Con{"--imports", t}:
-      get_cli_command.go(t, files, rules, Some{True{}})
+      get_cli_command.go(t, files, rules, config, Some{True{}})
     case Con{"--no-imports", t}:
-      get_cli_command.go(t, files, rules, Some{False{}})
+      get_cli_command.go(t, files, rules, config, Some{False{}})
     case Con{"--rules", Nil{}}:
       Fail{"--rules needs a rule file"}
     case Con{"--help", t}:
@@ -1116,11 +2129,11 @@ def get_cli_command.go(
         Result<&1, &1, String, CliCommand>,
         String.starts_with(h, "-"),
         Fail{get_flag_error(h)},
-        get_cli_command.go(t, h <> files, rules, imports)
+        get_cli_command.go(t, h <> files, rules, config, imports)
       )
 
 def get_cli_command(args: List<String>) -> Result<&1, &1, String, CliCommand>:
-  get_cli_command.go(args, [], [], None{})
+  get_cli_command.go(args, [], [], None{}, None{})
 
 def get_linter_paths.one(r: Result<&1, &1, U32 & String, String>) -> IO(String):
   match r:
@@ -1319,19 +2332,6 @@ def get_checked_finding(+path: String, +text: String, found: RuleFinding) -> IO(
         )
       )
 
-def get_source_at(sources: List<&2, BendSource>, +path: String) -> Maybe<&2, BendSource>:
-  match sources:
-    case Nil{}:
-      None{}
-    case Con{+s, t}:
-      Bool.pick(
-        Maybe<&2, BendSource>,
-        String.eq(get_source_path(s), path),
-        Some{s},
-        get_source_at(t, path)
-      )
-
-# A finding with its Safe fixes checked against the text of its file, a linted one.
 def get_checked_finding.in(source: Maybe<&2, BendSource>, found: RuleFinding) -> IO(RuleFinding):
   match source:
     case None{}:
@@ -1369,119 +2369,649 @@ def get_checked_report(report: LintReport) -> IO(LintReport):
         checked => IO.pure(LintReport, LintReport{checked, suppressed, linted})
       )
 
-def lint_file.resolved(
-  ~rules: Unit -> List<&1, Rule>,
-  r: Result<&1, &1, U32 & String, String>,
-  path: String,
-  imports: Bool
-) -> IO(LintReport):
+def get_is_choice(+choices: List<&2, String>, +t: String) -> Bool:
+  List.is_empty(&2, String, choices) || get_has_text(choices, t)
+
+# Whether `value` fits `spec`, an AnySpec aside.
+def get_fits_one(spec: OptionSpec, value: OptionValue) -> Bool:
+  match spec value:
+    case NumberSpec{lo, hi} NumberValue{n}:
+      get_is_between(n, lo, hi)
+    case FlagSpec{} FlagValue{b}:
+      True{}
+    case TextSpec{choices} TextValue{t}:
+      get_is_choice(choices, t)
+    case _ _:
+      False{}
+
+# Whether `value` fits one of `specs`; an AnySpec counts as its own specs.
+def get_fits(fuel: Nat, specs: List<&2, OptionSpec>, +value: OptionValue) -> Bool:
+  match fuel specs:
+    case 0n _:
+      False{}
+    case 1n+k Nil{}:
+      False{}
+    case 1n+k Con{AnySpec{inner}, t}:
+      get_fits(k, List.append(&2, OptionSpec, inner, t), value)
+    case 1n+k Con{s, t}:
+      get_fits_one(s, value) || get_fits(k, t, value)
+
+def get_spec_shown(spec: OptionSpec) -> String:
+  match spec:
+    case NumberSpec{lo, hi}:
+      "a whole number from " ++ U32.show(lo) ++ " to " ++ U32.show(hi)
+    case FlagSpec{}:
+      "true or false"
+    case TextSpec{Nil{}}:
+      "text"
+    case TextSpec{Con{c, cs}}:
+      "one of " ++ String.join(c <> cs, ", ")
+    case AnySpec{specs}:
+      "one of the values it allows"
+
+def get_spec_problems(+spec: OptionSpec, +value: OptionValue, +what: String) -> List<&2, String>:
+  Bool.pick(
+    List<&2, String>,
+    get_fits(64n, [spec], value),
+    [],
+    [what ++ " must be " ++ get_spec_shown(spec)]
+  )
+
+def get_declared_spec(declared: List<&2, OptionDeclared>, +key: String) -> Maybe<&2, OptionSpec>:
+  match declared:
+    case Nil{}:
+      None{}
+    case Con{OptionDeclared{+k, default, +spec}, t}:
+      Bool.pick(Maybe<&2, OptionSpec>, String.eq(k, key), Some{spec}, get_declared_spec(t, key))
+
+def get_given_problem(
+  m: Maybe<&2, OptionSpec>,
+  +value: OptionValue,
+  +id: String,
+  +key: String
+) -> List<&2, String>:
+  match m:
+    case None{}:
+      ["bend-lint config: " ++ id ++ ": there is no option " ++ key]
+    case Some{spec}:
+      get_spec_problems(spec, value, "bend-lint config: " ++ id ++ ": " ++ key)
+
+def get_given_problems(
+  given: List<&2, OptionGiven>,
+  +declared: List<&2, OptionDeclared>,
+  +id: String
+) -> List<&2, String>:
+  match given:
+    case Nil{}:
+      []
+    case Con{OptionGiven{+key, value}, t}:
+      List.append(
+        &2,
+        String,
+        get_given_problem(get_declared_spec(declared, key), value, id, key),
+        get_given_problems(t, declared, id)
+      )
+
+def get_default_problems(declared: List<&2, OptionDeclared>, +id: String) -> List<&2, String>:
+  match declared:
+    case Nil{}:
+      []
+    case Con{OptionDeclared{key, default, spec}, t}:
+      List.append(
+        &2,
+        String,
+        get_spec_problems(spec, default, id ++ ": the default of " ++ key),
+        get_default_problems(t, id)
+      )
+
+# What is wrong with the rules' option defaults, and with the options `settings` give them.
+def get_setting_problems(
+  rules: List<&1, Rule>,
+  +settings: List<&2, RuleSetting>
+) -> List<&2, String>:
+  match rules:
+    case Nil{}:
+      []
+    case Con{Rule{+id, scope, +options, after, needs, run}, t}:
+      List.append(
+        &2,
+        String,
+        List.append(
+          &2,
+          String,
+          get_default_problems(options, id),
+          get_given_problems(get_set_options(settings, id), options, id)
+        ),
+        get_setting_problems(t, settings)
+      )
+
+def get_rule_ids(rules: List<&1, Rule>) -> List<&2, String>:
+  get_head_ids(get_rule_heads(rules))
+
+def get_rule_file_paths(files: List<&2, RuleFile>) -> List<&2, String>:
+  match files:
+    case Nil{}:
+      []
+    case Con{RuleFile{path, ids}, t}:
+      path <> get_rule_file_paths(t)
+
+def get_offs(ids: List<&2, String>) -> List<&2, RuleSetting>:
+  match ids:
+    case Nil{}:
+      []
+    case Con{id, t}:
+      RuleOff{id} <> get_offs(t)
+
+# The rules of the compiled rule files that are not `active`, turned off.
+def get_inactive(files: List<&2, RuleFile>, +active: List<&2, String>) -> List<&2, RuleSetting>:
+  match files:
+    case Nil{}:
+      []
+    case Con{RuleFile{+path, ids}, t}:
+      List.append(
+        &2,
+        RuleSetting,
+        Bool.pick(List<&2, RuleSetting>, get_has_text(active, path), [], get_offs(ids)),
+        get_inactive(t, active)
+      )
+
+def get_config_loads(configs: List<&2, ConfigFile>) -> List<&2, String>:
+  match configs:
+    case Nil{}:
+      []
+    case Con{ConfigFile{load, entries, imports, rules}, t}:
+      List.append(&2, String, load, get_config_loads(t))
+
+# The configs with their rule files' real paths.
+def get_configs_resolved(
+  configs: List<&2, ConfigFile>,
+  done: List<&2, ConfigFile>
+) -> IO(List<&2, ConfigFile>):
+  match configs:
+    case Nil{}:
+      IO.pure(List<&2, ConfigFile>, List.reverse(&2, ConfigFile, done))
+    case Con{ConfigFile{load, entries, imports, rules}, t}:
+      IO.bind(
+        List<&2, String>,
+        List<&2, ConfigFile>,
+        get_linter_paths(load, []),
+        ps => get_configs_resolved(t, ConfigFile{ps, entries, imports, rules} <> done)
+      )
+
+def get_imports(cli: Maybe<&2, Bool>, file: Maybe<&2, Bool>) -> Bool:
+  match cli:
+    case Some{b}:
+      b
+    case None{}:
+      Maybe.default(&2, Bool, file, False{})
+
+def get_is_glob(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{'*', rest}:
+      True{}
+    case SCon{'?', rest}:
+      True{}
+    case SCon{'[', rest}:
+      True{}
+    case SCon{'{', rest}:
+      True{}
+    case SCon{'!', rest}:
+      True{}
+    case SCon{c, rest}:
+      get_is_glob(rest)
+
+def get_cli_file(glob: Bool, +f: String) -> IO(List<&2, String>):
+  match glob:
+    case True{}:
+      get_globbed([f], [])
+    case False{}:
+      IO.pure(List<&2, String>, [f])
+
+# The files the command line names: a glob is expanded, a path is itself.
+def get_cli_files(files: List<&2, String>, done: List<&2, String>) -> IO(List<&2, String>):
+  match files:
+    case Nil{}:
+      IO.pure(List<&2, String>, done)
+    case Con{+f, t}:
+      IO.bind(
+        List<&2, String>,
+        List<&2, String>,
+        get_cli_file(get_is_glob(f), f),
+        fs => get_cli_files(t, get_unique_texts(List.append(&2, String, done, fs), []))
+      )
+
+def get_target(+given: String, r: Result<&1, &1, U32 & String, String>) -> LintTarget:
   match r:
-    case Done{value}:
+    case Done{p}:
+      LintTarget{given, p, True{}, ""}
+    case Fail{error}:
+      match error:
+        case (code, why):
+          LintTarget{given, Path.get_posix_path(given), False{}, why}
+
+def get_targets(files: List<&2, String>, done: List<&2, LintTarget>) -> IO(List<&2, LintTarget>):
+  match files:
+    case Nil{}:
+      IO.pure(List<&2, LintTarget>, List.reverse(&2, LintTarget, done))
+    case Con{+f, t}:
+      IO.bind(
+        Result<&1, &1, U32 & String, String>,
+        List<&2, LintTarget>,
+        Path.get_linter_path(f),
+        r => get_targets(t, get_target(f, r) <> done)
+      )
+
+def get_target_paths(targets: List<&2, LintTarget>) -> List<&2, String>:
+  match targets:
+    case Nil{}:
+      []
+    case Con{LintTarget{given, path, found, why}, t}:
+      path <> get_target_paths(t)
+
+def get_config_given.of(
+  r: Result<&1, &1, U32 & String, String>,
+  +c: String
+) -> IO(Maybe<&2, String>):
+  match r:
+    case Done{p}:
+      IO.pure(Maybe<&2, String>, Some{p})
+    case Fail{error}:
+      match error:
+        case (code, why):
+          IO.die(Maybe<&2, String>, 2, "bend-lint: " ++ c ++ ": " ++ why)
+
+# The config `--config` names, as a real path.
+def get_config_given(m: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+  match m:
+    case None{}:
+      IO.pure(Maybe<&2, String>, None{})
+    case Some{+c}:
+      IO.bind(
+        Result<&1, &1, U32 & String, String>,
+        Maybe<&2, String>,
+        Path.get_linter_path(c),
+        r => get_config_given.of(r, c)
+      )
+
+def get_job_entries(imports: Bool, entries: List<&2, String>) -> IO(List<&2, String>):
+  match imports:
+    case True{}:
+      IO.pure(List<&2, String>, [])
+    case False{}:
+      get_globbed(entries, [])
+
+# A lint job per target, with its config: its rules are the given ones and those it loads, and its entries are
+# expanded.
+def get_jobs(
+  targets: List<&2, LintTarget>,
+  configs: List<&2, ConfigFile>,
+  +given: List<&2, String>,
+  +imports: Maybe<&2, Bool>,
+  +compiled: List<&2, RuleFile>,
+  done: List<&2, LintJob>
+) -> IO(List<&2, LintJob>):
+  match targets configs:
+    case Con{target, tt} Con{ConfigFile{+load, entries, cimports, settings}, ct}:
+      +im = get_imports(imports, cimports)
+      IO.bind(
+        List<&2, String>,
+        List<&2, LintJob>,
+        get_job_entries(im, entries),
+        es => get_jobs(
+          tt,
+          ct,
+          given,
+          imports,
+          compiled,
+          LintJob{
+            target,
+            LintConfig{
+              load,
+              es,
+              im,
+              List.append(
+                &2,
+                RuleSetting,
+                get_inactive(compiled, List.append(&2, String, given, load)),
+                settings
+              )
+            }
+          }
+            <> done
+        )
+      )
+    case _ _:
+      IO.pure(List<&2, LintJob>, List.reverse(&2, LintJob, done))
+
+def get_job_imports(jobs: List<&2, LintJob>) -> Bool:
+  match jobs:
+    case Nil{}:
+      False{}
+    case Con{LintJob{target, LintConfig{load, entries, imports, rules}}, t}:
+      imports || get_job_imports(t)
+
+def get_checks_reading(checks: List<&2, BendCheck>, +path: String) -> List<&2, BendCheck>:
+  match checks:
+    case Nil{}:
+      []
+    case Con{BendCheck{root, +sources, failure, declarations, program_paths}, t}:
+      get_kept(
+        BendCheck,
+        get_has_text(get_source_paths(sources), path),
+        BendCheck{root, sources, failure, declarations, program_paths},
+        get_checks_reading(t, path)
+      )
+
+def get_checks_passed(checks: List<&2, BendCheck>) -> List<&2, BendCheck>:
+  match checks:
+    case Nil{}:
+      []
+    case Con{BendCheck{root, sources, None{}, declarations, program_paths}, t}:
+      BendCheck{root, sources, None{}, declarations, program_paths} <> get_checks_passed(t)
+    case Con{c, t}:
+      get_checks_passed(t)
+
+def get_needed_check(path: String, needs: CheckNeeds) -> IO(BendCheck):
+  match needs:
+    case CheckNeeds{declarations, bodies, facts}:
+      get_check(path, declarations, bodies, facts)
+
+# The checks of each entry, in order, after `done`, last first.
+def get_entry_checks(
+  entries: List<&2, String>,
+  +needs: CheckNeeds,
+  done: List<&2, BendCheck>
+) -> IO(List<&2, BendCheck>):
+  match entries:
+    case Nil{}:
+      IO.pure(List<&2, BendCheck>, List.reverse(&2, BendCheck, done))
+    case Con{e, t}:
+      IO.bind(
+        BendCheck,
+        List<&2, BendCheck>,
+        get_needed_check(e, needs),
+        c => get_entry_checks(t, needs, get_linter_check(c) <> done)
+      )
+
+# The report on the file at `path` from its own check, when no entry that reads it passed: `reaching` are the entries'
+# checks that read it.
+def lint_job.alone(
+  ~rules: Unit -> List<&1, Rule>,
+  +own: BendCheck,
+  +reaching: List<&2, BendCheck>,
+  +path: String,
+  config: LintConfig
+) -> LintReport:
+  get_lint_report(
+    ~rules,
+    [own],
+    List.append(&2, RuleFinding, get_check_failures(reaching), get_check_failures([own])),
+    Bool.not(List.is_empty(&2, BendCheck, reaching)),
+    path,
+    config
+  )
+
+def lint_job.pick(
+  ~rules: Unit -> List<&1, Rule>,
+  passed: List<&2, BendCheck>,
+  +reaching: List<&2, BendCheck>,
+  +path: String,
+  config: LintConfig,
+  +needs: CheckNeeds
+) -> IO(LintReport):
+  match passed:
+    case Nil{}:
       IO.bind(
         BendCheck,
         LintReport,
-        get_check(
-          value,
-          get_heads_need(get_rule_heads(rules(Unit{})), DeclarationsNeed{}),
-          get_heads_need(get_rule_heads(rules(Unit{})), BodiesNeed{}),
-          get_heads_need(get_rule_heads(rules(Unit{})), FactsNeed{})
-        ),
-        check => get_checked_report(
-          get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], imports, []})
+        get_needed_check(path, needs),
+        c => IO.pure(
+          LintReport,
+          lint_job.alone(~rules, get_linter_check(c), reaching, path, config)
         )
       )
-    case Fail{error}:
-      match error:
-        case (code, text):
-          IO.pure(
-            LintReport,
-            LintReport{
-              [
-                RuleFinding{
-                  "bend-lint/path",
-                  Finding{Error{}, text, BendSourceSpan{path, 0, 0}, []}
-                }
-              ],
-              [],
-              []
-            }
-          )
+    case Con{h, t}:
+      +all: List<&2, BendCheck> = h <> t
+      IO.pure(
+        LintReport,
+        get_lint_report(
+          ~rules,
+          all,
+          get_check_failures(reaching),
+          U32.is_lt(
+            U32.from_nat(List.length(&2, BendCheck, all)),
+            U32.from_nat(List.length(&2, BendCheck, reaching))
+          ),
+          path,
+          config
+        )
+      )
 
-def lint_file(~rules: Unit -> List<&1, Rule>, +path: String, imports: Bool) -> IO(LintReport):
-  IO.bind(
-    Result<&1, &1, U32 & String, String>,
-    LintReport,
-    Path.get_linter_path(path),
-    r => lint_file.resolved(~rules, r, path, imports)
-  )
+def lint_job.entries(
+  ~rules: Unit -> List<&1, Rule>,
+  +checks: List<&2, BendCheck>,
+  +path: String,
+  config: LintConfig,
+  +needs: CheckNeeds
+) -> IO(LintReport):
+  +reaching = get_checks_reading(checks, path)
+  lint_job.pick(~rules, get_checks_passed(reaching), reaching, path, config, needs)
 
-def lint_files.finish(tally: LintTally) -> IO(Unit):
+# The report on the file at `path`: from the checks of the entries that read it, or else from its own.
+def lint_job.found(
+  ~rules: Unit -> List<&1, Rule>,
+  +path: String,
+  config: LintConfig,
+  +needs: CheckNeeds
+) -> IO(LintReport):
+  match config:
+    case LintConfig{load, +entries, imports, settings}:
+      IO.bind(
+        List<&2, BendCheck>,
+        LintReport,
+        get_entry_checks(entries, needs, []),
+        cs => lint_job.entries(
+          ~rules,
+          cs,
+          Path.get_posix_path(path),
+          LintConfig{load, entries, imports, settings},
+          needs
+        )
+      )
+
+def lint_job(~rules: Unit -> List<&1, Rule>, job: LintJob, +needs: CheckNeeds) -> IO(LintReport):
+  match job:
+    case LintJob{LintTarget{given, path, True{}, why}, config}:
+      lint_job.found(~rules, path, config, needs)
+    case LintJob{LintTarget{given, path, False{}, why}, config}:
+      IO.pure(
+        LintReport,
+        LintReport{
+          [RuleFinding{"bend-lint/path", Finding{Error{}, why, BendSourceSpan{path, 0, 0}, []}}],
+          [],
+          []
+        }
+      )
+
+def lint_jobs.finish(tally: LintTally) -> IO(Unit):
   match tally:
     case LintTally{count, True{}}:
       IO.die(Unit, 1, "bend-lint: FAIL")
     case LintTally{count, False{}}:
       IO.print("bend-lint: " ++ Nat.show(count) ++ " finding(s)")
 
-def lint_files(
+def lint_jobs(
   ~rules: Unit -> List<&1, Rule>,
-  files: List<&2, String>,
-  +imports: Bool,
+  jobs: List<&2, LintJob>,
+  +needs: CheckNeeds,
   tally: LintTally
 ) -> IO(Unit):
-  match files:
+  match jobs:
     case Nil{}:
-      lint_files.finish(tally)
-    case Con{h, t}:
+      lint_jobs.finish(tally)
+    case Con{j, t}:
       IO.bind(
         LintTally,
         Unit,
         IO.bind(
           LintReport,
           LintTally,
-          lint_file(~rules, h, imports),
+          IO.bind(LintReport, LintReport, lint_job(~rules, j, needs), get_checked_report),
           report => print_findings(get_report_findings(report), tally)
         ),
-        next => lint_files(~rules, t, imports, next)
+        next => lint_jobs(~rules, t, needs, next)
       )
 
-def serve.ordered(
-  ~rules: Unit -> List<&1, Rule>,
-  problems: List<&2, String>,
-  files: List<&2, String>,
-  imports: Bool
-) -> IO(Unit):
+def serve.problems(problems: List<&2, String>) -> IO(Unit):
   match problems:
     case Nil{}:
-      lint_files(~rules, files, imports, LintTally{0n, False{}})
+      IO.pure(Unit, Unit{})
     case Con{h, t}:
-      IO.die(Unit, 2, "bend-lint: the rules' order is broken:\n" ++ String.join(h <> t, "\n"))
+      IO.die(Unit, 2, "bend-lint: " ++ String.join(h <> t, "\nbend-lint: "))
 
+# What is wrong with the rules, or with the settings the configs give them.
+def get_configs_problems(
+  ~rules: Unit -> List<&1, Rule>,
+  configs: List<&2, ConfigFile>
+) -> List<&2, String>:
+  match configs:
+    case Nil{}:
+      []
+    case Con{ConfigFile{load, entries, imports, settings}, t}:
+      List.append(
+        &2,
+        String,
+        get_setting_problems(rules(Unit{}), settings),
+        get_configs_problems(~rules, t)
+      )
+
+def get_order_lines(problems: List<&2, String>) -> List<&2, String>:
+  match problems:
+    case Nil{}:
+      []
+    case Con{h, t}:
+      ["the order of the rules is broken:\n" ++ String.join(h <> t, "\n")]
+
+def serve.jobs(~rules: Unit -> List<&1, Rule>, +jobs: List<&2, LintJob>) -> IO(Unit):
+  +heads = get_rule_heads(rules(Unit{}))
+  IO.bind(
+    Unit,
+    Unit,
+    serve.problems(
+      Bool.pick(
+        List<&2, String>,
+        U32.is_lt(1, U32.from_nat(List.length(&2, LintJob, jobs))) && get_job_imports(jobs),
+        [
+          "--imports takes one entry file, also from the config; "
+            ++ Nat.show(List.length(&2, LintJob, jobs))
+            ++ " match\n"
+            ++ get_usage()
+        ],
+        []
+      )
+    ),
+    u => lint_jobs(
+      ~rules,
+      jobs,
+      CheckNeeds{
+        get_heads_need(heads, DeclarationsNeed{}),
+        get_heads_need(heads, BodiesNeed{}),
+        get_heads_need(heads, FactsNeed{})
+      },
+      LintTally{0n, False{}}
+    )
+  )
+
+def serve.compiled(
+  ~rules: Unit -> List<&1, Rule>,
+  targets: List<&2, LintTarget>,
+  +given: List<&2, String>,
+  +configs: List<&2, ConfigFile>,
+  imports: Maybe<&2, Bool>,
+  +compiled: List<&2, RuleFile>
+) -> IO(Unit):
+  IO.bind(
+    Unit,
+    Unit,
+    serve.problems(
+      List.append(
+        &2,
+        String,
+        get_order_lines(get_order_problems(get_rule_heads(rules(Unit{})))),
+        get_configs_problems(~rules, configs)
+      )
+    ),
+    u => IO.bind(
+      List<&2, LintJob>,
+      Unit,
+      get_jobs(targets, configs, given, imports, compiled, []),
+      jobs => serve.jobs(~rules, jobs)
+    )
+  )
+
+# Lints, unless the rule files the targets want are not the ones compiled in: then the program restarts with them.
 def serve.choose(
   ~rules: Unit -> List<&1, Rule>,
   same: Bool,
   wanted: List<&2, String>,
-  files: List<&2, String>,
-  imports: Bool
+  targets: List<&2, LintTarget>,
+  given: List<&2, String>,
+  configs: List<&2, ConfigFile>,
+  imports: Maybe<&2, Bool>,
+  compiled: List<&2, RuleFile>
 ) -> IO(Unit):
   match same:
     case True{}:
-      serve.ordered(~rules, get_order_problems(get_rule_heads(rules(Unit{}))), files, imports)
+      serve.compiled(~rules, targets, given, configs, imports, compiled)
     case False{}:
       restart_with_rules(wanted)
 
-def serve.wanted(
+def serve.configured(
   ~rules: Unit -> List<&1, Rule>,
-  +wanted: List<&2, String>,
-  compiled: List<&2, String>,
-  files: List<&2, String>,
-  imports: Bool
+  targets: List<&2, LintTarget>,
+  +given: List<&2, String>,
+  +configs: List<&2, ConfigFile>,
+  imports: Maybe<&2, Bool>,
+  +compiled: List<&2, RuleFile>
 ) -> IO(Unit):
-  serve.choose(~rules, get_same_texts(wanted, compiled), wanted, files, imports)
+  +wanted = get_unique_texts(List.append(&2, String, given, get_config_loads(configs)), [])
+  serve.choose(
+    ~rules,
+    get_same_texts(wanted, get_rule_file_paths(compiled)),
+    wanted,
+    targets,
+    given,
+    configs,
+    imports,
+    compiled
+  )
+
+def serve.targets(
+  ~rules: Unit -> List<&1, Rule>,
+  +targets: List<&2, LintTarget>,
+  given: List<&2, String>,
+  config: Maybe<&2, String>,
+  imports: Maybe<&2, Bool>,
+  compiled: List<&2, RuleFile>
+) -> IO(Unit):
+  IO.bind(
+    List<&2, ConfigFile>,
+    Unit,
+    IO.bind(
+      List<&2, ConfigFile>,
+      List<&2, ConfigFile>,
+      get_file_configs(config, get_target_paths(targets), []),
+      configs => get_configs_resolved(configs, [])
+    ),
+    configs => serve.configured(~rules, targets, given, configs, imports, compiled)
+  )
 
 def serve.command(
   ~rules: Unit -> List<&1, Rule>,
   command: CliCommand,
-  +compiled: List<&2, String>
+  compiled: List<&2, RuleFile>
 ) -> IO(Unit):
   match command:
     case CliHelp{}:
@@ -1490,20 +3020,29 @@ def serve.command(
       IO.bind(
         List<&2, String>,
         Unit,
-        get_linter_paths(rule_files, []),
-        wanted => serve.wanted(
-          ~rules,
-          wanted,
-          compiled,
-          files,
-          Maybe.default(&2, Bool, imports, False{})
+        get_cli_files(files, []),
+        named => IO.bind(
+          List<&2, String>,
+          Unit,
+          get_linter_paths(rule_files, []),
+          given => IO.bind(
+            List<&2, LintTarget>,
+            Unit,
+            get_targets(named, []),
+            targets => IO.bind(
+              Maybe<&2, String>,
+              Unit,
+              get_config_given(config),
+              c => serve.targets(~rules, targets, given, c, imports, compiled)
+            )
+          )
         )
       )
 
 def serve.parsed(
   ~rules: Unit -> List<&1, Rule>,
   parsed: Result<&1, &1, String, CliCommand>,
-  +compiled: List<&2, String>
+  compiled: List<&2, RuleFile>
 ) -> IO(Unit):
   match parsed:
     case Done{value}:
@@ -1514,7 +3053,7 @@ def serve.parsed(
 def serve.args(
   ~rules: Unit -> List<&1, Rule>,
   args: List<String>,
-  +compiled: List<&2, String>
+  compiled: List<&2, RuleFile>
 ) -> IO(Unit):
   match args:
     case Nil{}:
@@ -1522,5 +3061,5 @@ def serve.args(
     case Con{h, t}:
       serve.parsed(~rules, get_cli_command(t), compiled)
 
-def serve(~rules: Unit -> List<&1, Rule>, +compiled: List<&2, String>) -> IO(Unit):
+def serve(~rules: Unit -> List<&1, Rule>, compiled: List<&2, RuleFile>) -> IO(Unit):
   IO.bind(List<String>, Unit, IO.args(), args => serve.args(~rules, args, compiled))

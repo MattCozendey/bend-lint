@@ -20,6 +20,11 @@ function bendlint_get_keeps_declarations(path, text) {
   return globalThis.BEND_HOST.ask({ op: "same", path, text });
 }
 
+function bendlint_get_glob(pattern) {
+  return globalThis.BEND_HOST.ask({ op: "glob", pattern });
+}
+
 io_eff(CID(get_check), bendlint_get_check);
+io_eff(CID(get_glob), bendlint_get_glob);
 io_eff(CID(get_keeps_declarations), bendlint_get_keeps_declarations);
 io_eff(CID(restart_with_rules), bendlint_restart_with_rules);

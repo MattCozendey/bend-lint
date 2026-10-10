@@ -81,6 +81,7 @@ type Want = { declarations: boolean; bodies: boolean; facts: boolean };
 type Ask =
   | ({ op: "check"; path: string } & Want)
   | { op: "restart"; files: string[] }
+  | { op: "glob"; pattern: string }
   | { op: "same"; path: string; text: string };
 
 // A declaration's or import's name, as bend's parser read it.
@@ -176,6 +177,9 @@ const EFF = /^effs\/[\w.-]+$/;
 const GIVE = "set BEND_DIR to a bend checkout";
 const MARK = "BEND_HOST_PATCH";
 const SHIM = "bend-host:shim";
+
+// A part of a path that makes it a glob.
+const GLOB = /[*?[\]{}!]/;
 
 // The program the load-time self-check reads, never on disk.
 const SAMPLE = "sample.bend";
@@ -1348,6 +1352,25 @@ const declarationsOf = (m: Loaded, c: Checked, want: Want): Plain[] =>
     declarations: declarationsIn(m, c, file, want),
   }));
 
+// The files a pattern names, real and sorted: a glob with / between its
+// parts, or a path, which names itself if it is a file.
+const globbed = (pattern: string): string[] => {
+  const parts = pattern.split("/");
+  const at = parts.findIndex((p) => GLOB.test(p));
+  const found =
+    at < 0
+      ? nodeFs.existsSync(pattern) && nodeFs.statSync(pattern).isFile()
+        ? [pattern]
+        : []
+      : [
+          ...new Bun.Glob(parts.slice(at).join("/")).scanSync({
+            cwd: parts.slice(0, at).join("/") || ".",
+            absolute: true,
+          }),
+        ];
+  return [...new Set(found.map((f) => slash(nodeFs.realpathSync(f))))].sort();
+};
+
 const sourceOf = (file: string, text: string): Plain => ({
   $: "BendSource",
   path: file,
@@ -1614,8 +1637,8 @@ const programText = (files: string[]): string => {
     "def rules(u: Unit) -> List<&1, Lint.Rule>:",
     `  List.concat(&1, Lint.Rule, [${files.map((_, i) => `R${i}.rules()`).join(", ")}])`,
     "",
-    "def compiled() -> List<&2, String>:",
-    `  [${files.map((f) => JSON.stringify(f)).join(", ")}]`,
+    "def compiled() -> List<&2, Lint.RuleFile>:",
+    `  [${files.map((f, i) => `Lint.RuleFile{${JSON.stringify(f)}, Lint.get_rule_ids(R${i}.rules())}`).join(", ")}]`,
     "",
     "def main() -> IO(Unit):",
     "  Lint.serve(~rules, compiled())",
@@ -1711,6 +1734,8 @@ const run = async (m: Loaded, files: string[], args: string[], again: boolean): 
       if ("exit" in msg) {
         port1.close();
         done(msg);
+      } else if (msg.op === "glob") {
+        reply(globbed(msg.pattern));
       } else if (msg.op === "same") {
         reply(keepsDeclarations(m, msg.path, msg.text));
       } else if (msg.op === "restart") {

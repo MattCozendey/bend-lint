@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { lintIn } from "./testing.ts";
+import { lintIn, lintRun } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
@@ -39,6 +39,13 @@ const rule = (id: string, scope: string, body: string): string =>
     "    case Con{Lint.SourceDeclarations{path, declarations}, t}:",
     "      at(path, message) <> each(t, message)",
     "",
+    "def each_at(sources: List<&2, Lint.SourceDeclarations>, +at: U32) -> List<&2, Lint.Finding>:",
+    "  match sources:",
+    "    case Nil{}:",
+    "      []",
+    "    case Con{Lint.SourceDeclarations{path, declarations}, t}:",
+    '      Lint.Finding{Lint.Hint{}, "here", Lint.BendSourceSpan{path, at, at}, []} <> each_at(t, at)',
+    "",
     "def others(sources: List<&2, Lint.BendSource>, +root: String) -> List<&2, Lint.Finding>:",
     "  match sources:",
     "    case Nil{}:",
@@ -50,12 +57,36 @@ const rule = (id: string, scope: string, body: string): string =>
     "  match input:",
     "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, +declarations}:",
     "      +n = Nat.show(List.length(&2, Lint.SourceDeclarations, declarations))",
+    "      +c = U32.from_nat(List.length(&2, Lint.SourceDeclarations, declarations))",
     `      ${body}`,
     "",
     "def rules() -> List<&1, Lint.Rule>:",
     `  [Lint.Rule{"${id}", Lint.${scope}{}, [], [], [Lint.DeclarationsNeed{}], run}]`,
     "",
   ].join("\n");
+
+// A file rule with the option `width`, a number from 1 to 10 (2 by default),
+// that reports its value at the start of its file.
+const WIDTH = [
+  "import Base",
+  `import ${LINT} as Lint`,
+  "",
+  "def width(options: List<&2, Lint.OptionGiven>) -> String:",
+  "  match options:",
+  "    case Con{Lint.OptionGiven{k, Lint.NumberValue{n}}, t}:",
+  "      U32.show(n)",
+  "    case _:",
+  '      "none"',
+  "",
+  "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+  "  match input:",
+  "    case Lint.RuleInput{Lint.BendSource{path, text, lines}, sources, options, prior, declarations}:",
+  "      [Lint.Finding{Lint.Hint{}, width(options), Lint.BendSourceSpan{path, 0, 0}, []}]",
+  "",
+  "def rules() -> List<&1, Lint.Rule>:",
+  '  [Lint.Rule{"test/width", Lint.FileScope{}, [Lint.OptionDeclared{"width", Lint.NumberValue{2}, Lint.NumberSpec{1, 10}}], [], [], run}]',
+  "",
+].join("\n");
 
 // A rule that needs `need`, and reports each variable the checker checked
 // in its file: its name, type and quantity.
@@ -128,6 +159,11 @@ const RULES = {
   "elsewhere.bend": rule("test/elsewhere", "FileScope", "others(sources, path)"),
   "types.bend": typesRule("FactsNeed"),
   "untyped.bend": typesRule("BodiesNeed"),
+  // A program rule that reports in each file it saw, at as many characters as
+  // it saw files: checks of different programs disagree on where.
+  "some.bend": rule("test/some", "ProgramSomeScope", "each_at(declarations, c)"),
+  "every.bend": rule("test/every", "ProgramEveryScope", "each_at(declarations, c)"),
+  "width.bend": WIDTH,
 };
 
 // main.bend imports util.bend, which imports other.bend and does not use it.
@@ -225,5 +261,147 @@ describe("facts", () => {
 
   test("a rule that needs only bodies gets them without facts", () => {
     expect(facts("untyped.bend")).toEqual([]);
+  });
+});
+
+describe("config", () => {
+  // A file in the folder `folder`, with a bend-lint.json of `config` there.
+  const configured = (folder: string, config: string, ...args: string[]) =>
+    lintRun(
+      dir,
+      {
+        ...RULES,
+        [folder + "/bend-lint.json"]: config,
+        [folder + "/a.bend"]: PROGRAM["other.bend"],
+      },
+      folder + "/a.bend",
+      args,
+    );
+  const brief = (out: Found[]) => out.map(({ code, message }) => ({ code, message }));
+
+  test("a config's load adds its rules", () => {
+    expect(brief(configured("load", '{"load": ["../seen.bend"]}').found)).toEqual([
+      { code: "test/seen", message: "1" },
+    ]);
+  });
+
+  test("a config can turn a rule off", () => {
+    expect(
+      configured("off", '{"load": ["../seen.bend"], "rules": {"test/seen": "off"}}').found,
+    ).toEqual([]);
+  });
+
+  test("a rule gets its default options, and the ones a config gives", () => {
+    expect(brief(configured("defaults", '{"load": ["../width.bend"]}').found)).toEqual([
+      { code: "test/width", message: "2" },
+    ]);
+    expect(
+      brief(
+        configured("width", '{"load": ["../width.bend"], "rules": {"test/width": {"width": 7}}}')
+          .found,
+      ),
+    ).toEqual([{ code: "test/width", message: "7" }]);
+  });
+
+  test("an option the rule does not declare, or one that does not fit, is a config error", () => {
+    const unknown = configured(
+      "unknown",
+      '{"load": ["../width.bend"], "rules": {"test/width": {"height": 1}}}',
+    );
+    expect([unknown.code, unknown.found]).toEqual([2, []]);
+    expect(unknown.stderr).toContain("test/width: there is no option height");
+    const wide = configured(
+      "wide",
+      '{"load": ["../width.bend"], "rules": {"test/width": {"width": 11}}}',
+    );
+    expect(wide.stderr).toContain("test/width: width must be a whole number from 1 to 10");
+  });
+
+  test("a config that is not JSON is an error that names it", () => {
+    const out = configured("broken", '{"load": [');
+    expect(out.code).toBe(2);
+    expect(out.stderr).toContain("bend-lint.json");
+  });
+
+  test("--config names the config, in place of the nearest one", () => {
+    const named = path.join(dir, "named.json");
+    fs.writeFileSync(named, '{"rules": {"test/seen": "off"}}');
+    expect(
+      configured(
+        "given",
+        '{"load": ["../seen.bend"]}',
+        "--rules",
+        path.join(dir, "seen.bend"),
+        "--config",
+        named,
+      ).found,
+    ).toEqual([]);
+  });
+
+  test("a glob names every file it matches", () => {
+    const out = lintRun(
+      dir,
+      {
+        ...RULES,
+        "globbed/x.bend": PROGRAM["other.bend"],
+        "globbed/y.bend": PROGRAM["other.bend"],
+      },
+      "globbed/*.bend",
+      ["--rules", path.join(dir, "seen.bend")],
+    );
+    expect(out.found.map((f) => f.file)).toEqual(["x.bend", "y.bend"]);
+  });
+});
+
+describe("entries", () => {
+  // e1 reads util and other; e2 also reads e2more. util is linted alone.
+  const entries = {
+    "entries/util.bend": PROGRAM["util.bend"],
+    "entries/other.bend": PROGRAM["other.bend"],
+    "entries/e1.bend": PROGRAM["main.bend"],
+    "entries/e2.bend":
+      "import Base\nimport ./util.bend as U\nimport ./e2more.bend as M\n\ndef main() -> U32:\n  U32.add(U.k(), M.z())\n",
+    "entries/e2more.bend": PROGRAM["other.bend"],
+  };
+  const linted = (config: string, rule: string) =>
+    lintRun(dir, { ...RULES, ...entries, "entries/bend-lint.json": config }, "entries/util.bend", [
+      "--rules",
+      path.join(dir, rule),
+    ]).found.map(({ code, file, text }) => ({ code, file, at: text.length }));
+
+  test("a program rule sees the whole program of the entry that reads the file", () => {
+    expect(
+      lintRun(
+        dir,
+        { ...RULES, ...entries, "entries/bend-lint.json": '{"entries": ["e1.bend"]}' },
+        "entries/util.bend",
+        ["--rules", path.join(dir, "everywhere.bend")],
+      ).found.map(({ file, message }) => ({ file, message })),
+    ).toEqual([{ file: "util.bend", message: "3" }]);
+  });
+
+  test("a some rule keeps what one entry's check finds; an every rule what all do", () => {
+    const config = '{"entries": ["e1.bend", "e2.bend"]}';
+    const some = linted(config, "some.bend");
+    const every = linted(config, "every.bend");
+    expect(some.map((f) => f.code)).toEqual(["test/some", "test/some"]);
+    expect(every).toEqual([]);
+  });
+
+  test("when an entry that reads the file fails its check, it is shown, and no every rule runs", () => {
+    const broken = {
+      ...entries,
+      "entries/e3.bend":
+        "import Base\nimport ./util.bend as U\n\ndef main() -> U32:\n  U.nothing()\n",
+    };
+    const run = (rule: string) =>
+      lintRun(
+        dir,
+        { ...RULES, ...broken, "entries/bend-lint.json": '{"entries": ["e1.bend", "e3.bend"]}' },
+        "entries/util.bend",
+        ["--rules", path.join(dir, rule)],
+      ).found.map((f) => f.code);
+    expect(run("every.bend")).toEqual(["bend/check"]);
+    expect(run("some.bend")).toEqual(["bend/check", "test/some"]);
   });
 });
