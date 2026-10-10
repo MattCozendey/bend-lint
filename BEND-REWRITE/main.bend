@@ -4,46 +4,44 @@
 # Drifts are intentional: Ergonomics win over 1:1 parity. Every drift is documented in the table below,
 # with a stated reason.
 #
-# | Drift from the TS version                                  | Reason                                                       |
-# | ---------------------------------------------------------- | ------------------------------------------------------------ |
-# | No "suggested" fixes: only Safe and Dangerous.             | Reporting matters more than autofixing, for agents.          |
-# | AutoFix applies Safe fixes; DangerousFix applies both.     | With no "suggested", two levels of fixing are enough.        |
-# | A fix can also create, write, rename and delete files.     | Real fixes move code between files, not only inside one.     |
-# | A fix's edits apply in order, each on the result before.   | One edit can build on another, such as a rename then a text  |
-# |                                                            | change in the renamed file.                                  |
-# | So a later edit shifts its offsets by the edits before it, | A rule's spans come from the text as read. A law will state  |
-# | and uses the path of any RenameFile before it.             | this later.                                                  |
-# | apply_fixes returns no ReplaceText: only whole files.      | The caller only writes, renames and deletes files. A law     |
-# |                                                            | will state this later.                                       |
-# | A program rule's fix may touch many files.                 | Only a program rule sees who imports what. TS skips such a   |
-# |                                                            | fix.                                                         |
-# | apply_fixes never writes: it returns the edits to make.    | One shape for the CLI and the library. An editor or agent    |
-# |                                                            | can show the edits, or make them itself.                     |
-# | Skipped fixes come back as a list of findings.             | The caller can tell which fixes to run again. TS gives only  |
-# |                                                            | counts.                                                      |
-# | A finding always has a span.                               | Every finding has a natural place, and readers never unwrap  |
-# |                                                            | a Maybe.                                                     |
-# | A rule returns plain findings; the runner adds its id.     | A rule cannot give its findings a wrong code.                |
-# | Only a program rule has entries (some or every).           | A file rule cannot set a value that would be ignored.        |
-# | The config lint takes is resolved: no missing fields.      | lint never guesses. The caller decides defaults and flags    |
-# |                                                            | first, so lint takes no separate imports.                    |
-# | Per-rule config is a list of settings, not a map.          | Base has no map. RuleOff cannot carry a severity or options. |
-# | lint returns findings, suppressed findings and the linted  | Callers need little else. Other failures stop the program    |
-# | files; errors use IO.die, not a Result.                    | with a message.                                              |
-# | Paths are always normalized POSIX paths.                   | One spelling per file, on every system.                      |
-# | Offsets count code points, not UTF-16 units.               | That is how Bend counts String characters.                   |
-# | A rule is a value with a run function, not a module.       | Rules are plain Bend data. A Rule cannot be copied, so build |
-# |                                                            | the list again where it is needed.                           |
-# | No abort signal and no unsaved text yet.                   | Bend cannot hold an abort signal; it will be an effect.      |
-# |                                                            | Unsaved text is for editors and can wait.                    |
-# | Names carry their family as a prefix (FixEdit, RuleScope). | Long names that say what they are read better than short     |
-# |                                                            | ones.                                                        |
+# | Drift from the TS version                                   | Reason                                                       |
+# | ----------------------------------------------------------- | ------------------------------------------------------------ |
+# | No "suggested" fixes: only Safe and Dangerous.              | Reporting matters more than autofixing, for agents.          |
+# | The fix level is a Maybe<&2, FixApplicability>: None        | One type fewer, and each applicability is a level too.       |
+# | fixes nothing, Some{Safe} applies Safe fixes, and           |                                                              |
+# | Some{Dangerous} applies both.                               |                                                              |
+# | A fix can also create, write, rename and delete files.      | Real fixes move code between files, not only inside one.     |
+# | A fix's edits apply in order, each on the result before.    | One edit can build on another, such as a rename then a text  |
+# |                                                             | change in the renamed file.                                  |
+# | So a later edit shifts its offsets by the edits before it,  | A rule's spans come from the text as read. A law will state  |
+# | and uses the path of any RenameFile before it.              | this later.                                                  |
+# | apply_fixes returns no ReplaceText: only whole files.       | The caller only writes, renames and deletes files. A law     |
+# |                                                             | will state this later.                                       |
+# | A program rule's fix may touch many files.                  | Only a program rule sees who imports what. TS skips such a   |
+# |                                                             | fix.                                                         |
+# | apply_fixes takes the LintReport and never writes: it       | One shape for the CLI and the library. An editor or agent    |
+# | returns the edits to make.                                  | can show the edits, or make them itself.                     |
+# | Skipped fixes come back as a list of findings.              | The caller can tell which fixes to run again. TS gives only  |
+# |                                                             | counts.                                                      |
+# | A finding always has a span.                                | Every finding has a natural place, and readers never unwrap  |
+# |                                                             | a Maybe.                                                     |
+# | A rule returns plain findings; the runner adds its rule_id. | A rule cannot give its findings a wrong code.                |
+# | Only a program rule has entries: ProgramSomeScope or        | A file rule cannot set a value that would be ignored.        |
+# | ProgramEveryScope.                                          |                                                              |
+# | The config lint takes is resolved: no missing fields.       | lint never guesses. The caller decides defaults and flags    |
+# |                                                             | first, so lint takes no separate imports.                    |
+# | Per-rule config is a list of settings, not a map.           | Base has no map. RuleOff cannot carry a severity or options. |
+# | lint returns findings, suppressed findings and the linted   | Callers need little else. Other failures stop the program    |
+# | files; errors use IO.die, not a Result.                     | with a message.                                              |
+# | Paths are always normalized POSIX paths.                    | One spelling per file, on every system.                      |
+# | Offsets count code points, not UTF-16 units.                | That is how Bend counts String characters.                   |
+# | A rule is a value with a run function, not a module.        | Rules are plain Bend data. A Rule cannot be copied, so build |
+# |                                                             | the list again where it is needed.                           |
+# | No abort signal and no unsaved text yet.                    | Bend cannot hold an abort signal; it will be an effect.      |
+# |                                                             | Unsaved text is for editors and can wait.                    |
+# | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
+# |                                                             | ones.                                                        |
 import Base
-
-type FixLevel is Data:
-  NoFix{}
-  AutoFix{}
-  DangerousFix{}
 
 type FixApplicability is Data:
   Safe{}
@@ -91,7 +89,7 @@ type OptionDeclared is Data:
   OptionDeclared{key: String, default: OptionValue, spec: OptionSpec}
 
 type RuleFinding is Data:
-  RuleFinding{code: String, finding: Finding}
+  RuleFinding{rule_id: String, finding: Finding}
 
 type RuleInput is Data:
   RuleInput{
@@ -101,13 +99,10 @@ type RuleInput is Data:
     prior: List<&2, RuleFinding>
   }
 
-type RuleEntries is Data:
-  SomeEntry{}
-  EveryEntry{}
-
 type RuleScope is Data:
   FileScope{}
-  ProgramScope{entries: RuleEntries}
+  ProgramSomeScope{}
+  ProgramEveryScope{}
 
 type Rule is Type:
   Rule{
@@ -142,9 +137,5 @@ type FixOutcome is Data:
 def lint(file: BendSource, rules: List<&1, Rule>, config: LintConfig) -> IO(LintReport):
   IO.pure(LintReport, LintReport{[], [], [file]})
 
-def apply_fixes(
-  linted: List<&2, BendSource>,
-  findings: List<&2, RuleFinding>,
-  level: FixLevel
-) -> FixOutcome:
+def apply_fixes(report: LintReport, level: Maybe<&2, FixApplicability>) -> FixOutcome:
   FixOutcome{[], []}
