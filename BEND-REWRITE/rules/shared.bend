@@ -188,15 +188,34 @@ def get_variable_name(t: Lint.BendTerm) -> String:
       name
     case Lint.AnnotatedTerm{value, annotation, span}:
       get_variable_name(value)
+    case Lint.CheckedTerm{term, fact}:
+      get_variable_name(term)
     case _:
       ""
 
+# The def or constructor a term names, through annotations, or "".
 def get_reference_name(t: Lint.BendTerm) -> String:
   match t:
     case Lint.ReferenceTerm{name, span}:
       name
+    case Lint.AnnotatedTerm{value, annotation, span}:
+      get_reference_name(value)
+    case Lint.CheckedTerm{term, fact}:
+      get_reference_name(term)
     case _:
       ""
+
+# Whether a type, after its arrows, is a sort (Type, Data or Kind(..)).
+def get_ends_in_sort(t: Lint.BendTerm) -> Bool:
+  match t:
+    case Lint.ForallTerm{name, quantity, domain, body, span}:
+      get_ends_in_sort(body)
+    case Lint.AnnotatedTerm{value, annotation, span}:
+      get_ends_in_sort(value)
+    case Lint.SortTerm{level, span}:
+      True{}
+    case _:
+      False{}
 
 def get_arg_names(args: Lint.BendTerm) -> List<&2, String>:
   match args:
@@ -221,8 +240,16 @@ def get_calls(t: Lint.BendTerm, done: List<&2, Call>) -> List<&2, Call>:
       get_calls(fields, done)
     case Lint.AnnotatedTerm{value, annotation, span}:
       get_calls(annotation, get_calls(value, done))
+    case Lint.ForallTerm{name, quantity, domain, body, span}:
+      get_calls(body, get_calls(domain, done))
+    case Lint.SortTerm{level, span}:
+      get_calls(level, done)
+    case Lint.DatatypeTerm{name, arguments, span}:
+      get_calls(arguments, done)
     case Lint.OtherTerm{parts, span}:
       get_calls(parts, done)
+    case Lint.CheckedTerm{term, fact}:
+      get_calls(term, done)
     case Lint.SomeTerms{first, rest}:
       get_calls(rest, get_calls(first, done))
     case _:

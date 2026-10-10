@@ -60,14 +60,19 @@ def fits(want: Case, +s: String) -> Bool:
     case Either{}:
       Bool.or(is_pascal(s), is_snake(s))
 
+def typed.of(sort: Bool) -> Case:
+  match sort:
+    case True{}:
+      Pascal{}
+    case False{}:
+      Snake{}
+
 def typed(written: Maybe<&2, Lint.BendType>) -> Case:
   match written:
     case None{}:
       Either{}
-    case Some{Lint.BendType{id, shown, True{}}}:
-      Pascal{}
-    case Some{Lint.BendType{id, shown, False{}}}:
-      Snake{}
+    case Some{Lint.BendType{id, shown, term}}:
+      typed.of(Shared.get_ends_in_sort(term))
 
 def written_of(kind: Lint.DeclarationKind) -> Maybe<&2, Lint.BendType>:
   match kind:

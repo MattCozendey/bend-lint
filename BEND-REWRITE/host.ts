@@ -34,7 +34,7 @@ import type { MessagePort } from "node:worker_threads";
 
 import pkg from "../package.json" with { type: "json" };
 
-import type { Book, Err, HTerm, LTerm, Name, Parse } from "bend2/bend.ts";
+import type { Book, Ctx, Err, HTerm, LTerm, Name, Parse, Quant, Uses } from "bend2/bend.ts";
 import type { Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
@@ -74,9 +74,12 @@ type Program = { module: string; ctors: Record<string, Ctor> };
 // every file it was made from, with its text's hash.
 type Kept = Program & { compiler: string; files: Array<[string, string]> };
 
+// What a check is asked to give, past its sources and failure.
+type Want = { declarations: boolean; bodies: boolean; facts: boolean };
+
 // What an effect asks the main thread.
 type Ask =
-  | { op: "check"; path: string; declarations: boolean; bodies: boolean }
+  | ({ op: "check"; path: string } & Want)
   | { op: "restart"; files: string[] }
   | { op: "same"; path: string; text: string };
 
@@ -88,8 +91,15 @@ type Imported = { path: string; name: Name; beg: number };
 // them as BendTerms, and its span.
 type View = { kids: LTerm[]; term: (kids: Plain[], span: Plain) => Plain };
 
+// What the checker reports for one term: its result, which wraps the term in
+// the checker's own annotation, the type it was checked as, in the book,
+// context and depth it was checked in, how often it is demanded, and the
+// variables it uses.
+type Report = { tm: LTerm; ty: HTerm; bok: Book; ctx: Ctx; dep: number; qt: Quant; us: Uses };
+
 // Where the probes report, for one check at a time.
 type Hook = {
+  see?: (report: Report) => void;
   declare?: (kind: Heading["kind"], name: Name, span: BendSpan) => void;
   import?: (path: string, name: Name, beg: number) => void;
   term?: (p: Parse, t: LTerm) => void;
@@ -126,6 +136,7 @@ type Checked = {
   imports: Imported[];
   placed: WeakMap<object, Placed | null>;
   types: Scoped[];
+  reports: WeakMap<object, Report>;
   declared: Map<string, string | undefined>;
   aliases?: Map<string, Record<Name, Name>>;
   order?: Order;
@@ -236,6 +247,8 @@ const PATCHES: Record<string, Patch> = {
     edits: [
       ...SHIMMED,
       ["export function parse_term(", "function unseen_parse_term("],
+      ["export function term_infer(", "function unseen_term_infer("],
+      ["export function term_check(", "function unseen_term_check("],
       ["export function parse_bind(", "function unseen_parse_bind("],
       ["export function parse_tele(", "function unseen_parse_tele("],
       ["const nm  = parse_name(p);", 'const nm  = seeDeclared(p, parse_name(p), "def");'],
@@ -254,7 +267,7 @@ const PATCHES: Record<string, Patch> = {
       ['body[i] = "";', 'body[i] = "";\n    seeImported(real, at, lines[i], m);'],
     ],
     needs: [],
-    tail: `import { seeDeclared, seeImported, seeParseBind, seeParseTele, seeParseTerm } from "${SHIM}";\nexport const parse_bind = seeParseBind(unseen_parse_bind);\nexport const parse_tele = seeParseTele(unseen_parse_tele);\nexport const parse_term = seeParseTerm(unseen_parse_term);\n`,
+    tail: `import { seeCheck, seeDeclared, seeImported, seeInfer, seeParseBind, seeParseTele, seeParseTerm } from "${SHIM}";\nexport const term_infer = seeInfer(unseen_term_infer);\nexport const term_check = seeCheck(unseen_term_check);\nexport const parse_bind = seeParseBind(unseen_parse_bind);\nexport const parse_tele = seeParseTele(unseen_parse_tele);\nexport const parse_term = seeParseTerm(unseen_parse_term);\n`,
     exports: [],
   },
   "comp.ts": {
@@ -472,7 +485,17 @@ const load = async (): Promise<Loaded> => {
     name: "bend-host",
     setup: (build) => {
       build.module(SHIM, () => ({
-        exports: { fs, path, seeDeclared, seeImported, seeParseBind, seeParseTele, seeParseTerm },
+        exports: {
+          fs,
+          path,
+          seeCheck,
+          seeDeclared,
+          seeImported,
+          seeInfer,
+          seeParseBind,
+          seeParseTele,
+          seeParseTerm,
+        },
         loader: "object",
       }));
       build.onLoad({ filter }, (args) => {
@@ -540,6 +563,28 @@ const arity = (f: (...args: never[]) => unknown, n: number, name: string): void 
   if (f.length !== n) {
     throw drift(`${name} takes ${f.length} parameters, not ${n}; update BEND-REWRITE/host.ts`);
   }
+};
+
+// term_infer and term_check as bend.ts calls them: every argument passes
+// through, and each result is also reported to HOOK.see.
+const seeInfer = (f: typeof BendModule.term_infer): typeof BendModule.term_infer => {
+  arity(f, 6, "term_infer");
+  return (...args) => {
+    const r = f(...args);
+    const [bok, , , qt, ctx, dep] = args;
+    HOOK.see?.({ tm: r.tm, ty: r.ty, bok, ctx, dep, qt, us: r.us });
+    return r;
+  };
+};
+
+const seeCheck = (f: typeof BendModule.term_check): typeof BendModule.term_check => {
+  arity(f, 7, "term_check");
+  return (...args) => {
+    const r = f(...args);
+    const [bok, , , qt, ty, ctx, dep] = args;
+    HOOK.see?.({ tm: r.tm, ty, bok, ctx, dep, qt, us: r.us });
+    return r;
+  };
 };
 
 // parse_term as bend.ts calls it: every argument passes through, and each
@@ -809,17 +854,24 @@ const spanOf = (
   end: points(end),
 });
 
-// Whether a type, after its arrows, is a sort (Type, Data or Kind(..)).
-const endsInSort = (m: Loaded, ty: HTerm, dep: number): boolean => {
-  const end = (t: HTerm, d: number): HTerm =>
-    t.$ === "All" ? end(t.B(m.Bend.Var(t.k, d)), d + 1) : t.$ === "Ann" ? end(t.x, d) : t;
-  return end(ty, dep).$ === "Typ";
+// Whether a term is the checker's own annotation: neither it nor its type
+// is in the source.
+const checked = (t: LTerm): t is Extract<LTerm, { $: "Ann" }> =>
+  t.$ === "Ann" && t.s === undefined && t.T.s === undefined;
+
+// A term without the checker's own annotations.
+const sourceTerm = (t: LTerm): LTerm => (checked(t) ? sourceTerm(t.x) : t);
+
+// A term without any annotation.
+const stripped = (t: LTerm): LTerm => (t.$ === "Ann" ? stripped(t.x) : t);
+
+const QUANTITIES: Record<Quant["$"], string> = {
+  None: "ErasedQuantity",
+  Lone: "OnceQuantity",
+  Many: "ManyQuantity",
 };
 
-// A term without the checker's own annotations: those that neither are in
-// the source nor have a type that is.
-const sourceTerm = (t: LTerm): LTerm =>
-  t.$ === "Ann" && t.s === undefined && t.T.s === undefined ? sourceTerm(t.x) : t;
+const quantityOf = (q: Quant): Plain => ({ $: QUANTITIES[q.$] });
 
 // Whether a term is a literal as written, or as the checker unfolded it: a
 // Lit, or constructors and Lits only.
@@ -844,12 +896,15 @@ const bitsOf = (w: LTerm): LTerm[] =>
       ? []
       : [w];
 
-// A call's head and its arguments, through annotations.
-const spineOf = (x: LTerm, args: LTerm[]): LTerm[] =>
-  x.$ === "App" ? spineOf(x.f, [x.x, ...args]) : x.$ === "Ann" ? spineOf(x.x, args) : [x, ...args];
+// A call's head and its arguments, through the annotations of its partial
+// applications; the head keeps its own.
+const spineOf = (x: LTerm, args: LTerm[]): LTerm[] => {
+  const s = stripped(x);
+  return s.$ === "App" ? spineOf(s.f, [s.x, ...args]) : [x, ...args];
+};
 
 // The views of the kinds a rule tells apart; names as `sp` spells them. A
-// call has all its arguments, and its head without annotations.
+// call has all its arguments.
 const VIEWS: { [K in LTerm["$"]]?: (t: Extract<LTerm, { $: K }>, sp: Spelling) => View } = {
   Var: (t, sp) => ({
     kids: [],
@@ -890,13 +945,34 @@ const VIEWS: { [K in LTerm["$"]]?: (t: Extract<LTerm, { $: K }>, sp: Spelling) =
     kids: [t.x, t.T],
     term: ([value, annotation], span) => ({ $: "AnnotatedTerm", value, annotation, span }),
   }),
+  All: (t) => ({
+    kids: [t.A, t.B],
+    term: ([domain, body], span) => ({
+      $: "ForallTerm",
+      name: t.k,
+      quantity: quantityOf(t.q),
+      domain,
+      body,
+      span,
+    }),
+  }),
+  Typ: (t) => ({ kids: [t.g], term: ([level], span) => ({ $: "SortTerm", level, span }) }),
+  ADT: (t, sp) => ({
+    kids: t.x,
+    term: (args, span) => ({
+      $: "DatatypeTerm",
+      name: sp.spell(t.k),
+      arguments: terms(args),
+      span,
+    }),
+  }),
 };
 
 // A term as a rule sees it: a literal as one term, as bend prints it back;
 // a word the checker built from bits as one term, with its parts that are
 // not constant; a kind of VIEWS as its view; any other term with its kids.
 const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
-  if (t.$ === "Lit" || (t.$ === "Ctr" && LITERAL_ROOTS.has(t.k) && constant(t))) {
+  if (t.$ === "Lit" || t.$ === "Qua" || (t.$ === "Ctr" && LITERAL_ROOTS.has(t.k) && constant(t))) {
     return {
       kids: [],
       term: (_, span) => ({ $: "LiteralTerm", shown: m.Bend.term_show(t, -1, [], sp.shown), span }),
@@ -911,12 +987,58 @@ const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
       : { kids: children(t), term: other };
 };
 
-// The term `t` as a BendTerm, with its span on the file on disk.
-const termOf = (m: Loaded, c: Checked, sp: Spelling, t: LTerm): Plain => {
+// A type as main.bend's BendType: a handle to it, as `sp` shows it, and as a
+// term, without spans.
+const typeOf = (m: Loaded, c: Checked, sp: Spelling, ty: HTerm, dep: number, bok: Book): Plain => {
+  const lowered = m.Bend.term_lower(ty, dep);
+  const term = (t: LTerm): Plain => {
+    const view = viewOf(m, sp, t);
+    return view.term(
+      view.kids.map((kid) => term(sourceTerm(kid))),
+      { $: "None" },
+    );
+  };
+  return {
+    $: "BendType",
+    id: c.types.push({ ty, bok, dep }) - 1,
+    shown: m.Bend.term_show(lowered, -1, [], sp.shown),
+    term: term(sourceTerm(lowered)),
+  };
+};
+
+// What the checker found for a term: the type it was checked as, how often
+// it is demanded, the variables it uses, and, for a variable, its binder's
+// type.
+const factOf = (m: Loaded, c: Checked, sp: Spelling, r: Report): Plain => {
+  const type = (ty: HTerm): Plain => typeOf(m, c, sp, ty, r.dep, r.bok);
+  const v = stripped(r.tm);
+  const binder = v.$ === "Var" ? m.Bend.pmap_get(r.ctx, v.i) : null;
+  return {
+    $: "TermFact",
+    checked_as: type(r.ty),
+    quantity: quantityOf(r.qt),
+    uses: m.Bend.pmap_to_array(r.us).flatMap(([at, q]): Plain[] =>
+      q.$ === "None"
+        ? []
+        : [{ $: "TermUse", name: m.Bend.pmap_get(r.ctx, at)?.k ?? "", quantity: quantityOf(q) }],
+    ),
+    binder: some(binder === null ? undefined : type(binder.T)),
+  };
+};
+
+// The term `t` as a BendTerm, with its span on the file on disk. A term the
+// checker annotated is a CheckedTerm with what it found, if `facts`; else
+// the annotation is left out.
+const termOf = (m: Loaded, c: Checked, sp: Spelling, t: LTerm, facts: boolean): Plain => {
+  const report = checked(t) && facts ? c.reports.get(t) : undefined;
+  if (checked(t)) {
+    const term = termOf(m, c, sp, t.x, facts);
+    return report === undefined ? term : { $: "CheckedTerm", term, fact: factOf(m, c, sp, report) };
+  }
   const { kids, term } = viewOf(m, sp, t);
   const at = t.s && placedSpan(c.seen, c.placed, t.s);
   return term(
-    kids.map((kid) => termOf(m, c, sp, sourceTerm(kid))),
+    kids.map((kid) => termOf(m, c, sp, kid, facts)),
     some(at && spanOf(at.path, at.points, at.beg, at.end)),
   );
 };
@@ -936,9 +1058,9 @@ const headingsIn = (
 
 // The declarations of `file`, as `file` spells them: its imports, defs,
 // datatypes and constructors, and its parameters, variables and fields,
-// each with the uses of its name; each def with its checked body if
-// `bodies`.
-const declarationsIn = (m: Loaded, c: Checked, file: string, bodies: boolean): Plain[] => {
+// each with the uses of its name; each def with its checked body if `want`
+// asks for bodies or facts, and the checker's facts in it if for facts.
+const declarationsIn = (m: Loaded, c: Checked, file: string, want: Want): Plain[] => {
   const text = fs.readFileSync(file, "utf8");
   const sp = spellingOf(m, c, file, text);
   const points = pointsOf(text);
@@ -1022,18 +1144,13 @@ const declarationsIn = (m: Loaded, c: Checked, file: string, bodies: boolean): P
       HOOK.binding = undefined;
     }
   })();
-  const typeOf = (ty: HTerm, dep: number): Plain => ({
-    $: "BendType",
-    id: c.types.push({ ty, bok: parsed, dep }) - 1,
-    shown: m.Bend.term_show(m.Bend.term_lower(ty, dep), -1, [], sp.shown),
-    ends_in_sort: endsInSort(m, ty, dep),
-  });
+  const typed = (ty: HTerm, dep: number): Plain => typeOf(m, c, sp, ty, dep, parsed);
   const telescope = (T: HTerm, n: number, from: number, kind: Binding["kind"]): Plain => {
     const go = (t: HTerm, i: number): Plain => {
       if (i >= n || t.$ !== "All") {
-        return typeOf(t, i);
+        return typed(t, i);
       }
-      if (i >= from) binding(t.k, t.i, t.s, kind, typeOf(t.A, i));
+      if (i >= from) binding(t.k, t.i, t.s, kind, typed(t.A, i));
       return go(t.B(m.Bend.Var(t.k, i)), i + 1);
     };
     return go(T, 0);
@@ -1093,8 +1210,8 @@ const declarationsIn = (m: Loaded, c: Checked, file: string, bodies: boolean): P
   const bodyOf = (k: Name): Plain => {
     const tld = c.book.tlds[k];
     return some(
-      bodies && tld?.$ === "Def" && tld.e !== undefined
-        ? termOf(m, c, sp, sourceTerm(tld.e))
+      (want.bodies || want.facts) && tld?.$ === "Def" && tld.e !== undefined
+        ? termOf(m, c, sp, tld.e, want.facts)
         : undefined,
     );
   };
@@ -1223,13 +1340,12 @@ const programFiles = (m: Loaded, seen: Map<string, string | null>): string[] =>
     .filter(([file, ns]) => file !== m.Bend.BASE_BEND && !/^0x[0-9a-f]+\//.test(ns ?? ""))
     .map(([file]) => file);
 
-// The declarations of every file of the program; each def with its checked
-// body if `bodies`.
-const declarationsOf = (m: Loaded, c: Checked, bodies: boolean): Plain[] =>
+// The declarations of every file of the program, with what `want` asks.
+const declarationsOf = (m: Loaded, c: Checked, want: Want): Plain[] =>
   programFiles(m, c.seen).map((file) => ({
     $: "SourceDeclarations",
     path: file,
-    declarations: declarationsIn(m, c, file, bodies),
+    declarations: declarationsIn(m, c, file, want),
   }));
 
 const sourceOf = (file: string, text: string): Plain => ({
@@ -1241,17 +1357,14 @@ const sourceOf = (file: string, text: string): Plain => ({
 
 // The check of `file` as plain data: its root, every file it read, its
 // bend/check finding if it fails, the files of its program, and, if it
-// passes and they are wanted, their declarations, with the defs' bodies if
-// those are wanted.
-const check = async (
-  m: Loaded,
-  file: string,
-  wanted: { declarations: boolean; bodies: boolean },
-): Promise<Plain> => {
+// passes and anything is wanted, their declarations, with what is wanted.
+const check = async (m: Loaded, file: string, want: Want): Promise<Plain> => {
   const seen = new Map<string, string | null>();
   const headings: Heading[] = [];
   const imports: Imported[] = [];
+  const reports = new WeakMap<object, Report>();
   HOOK.declare = (kind, name, span) => headings.push({ kind, name, span });
+  HOOK.see = want.facts ? (r) => reports.set(r.tm, r) : undefined;
   HOOK.import = (at, name, beg) => imports.push({ path: at, name, beg });
   const seeded = fs.existsSync(file) && /^import Base$/m.test(fs.readFileSync(file, "utf8"));
   const read = await m.Main.book_read(file, seeded ? m.base : undefined, seen)
@@ -1261,6 +1374,7 @@ const check = async (
     )
     .finally(() => {
       HOOK.declare = undefined;
+      HOOK.see = undefined;
       HOOK.import = undefined;
     });
   const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
@@ -1275,6 +1389,7 @@ const check = async (
       imports,
       placed,
       types: [],
+      reports,
       declared: new Map(),
     });
   }
@@ -1289,8 +1404,8 @@ const check = async (
     root: seen.has(real) ? sourceOf(real, text(real)) : sourceOf(file, ""),
     sources: [...seen.keys()].map((f) => sourceOf(f, text(f))),
     declarations:
-      "book" in read && (wanted.declarations || wanted.bodies)
-        ? declarationsOf(m, CHECKS.get(real)!, wanted.bodies)
+      "book" in read && (want.declarations || want.bodies || want.facts)
+        ? declarationsOf(m, CHECKS.get(real)!, want)
         : [],
     program_paths: programFiles(m, seen),
     failure:
@@ -1322,10 +1437,18 @@ const check = async (
 type SampledTerm = {
   $: string;
   name?: string;
+  span?: { value?: { beg: number; end: number } };
   head?: SampledTerm;
   arguments?: SampledTerm;
   first?: SampledTerm;
   rest?: SampledTerm;
+  term?: SampledTerm;
+  fact?: {
+    checked_as: { shown: string };
+    quantity: { $: string };
+    uses: Array<{ name: string; quantity: { $: string } }>;
+    binder: { value?: { shown: string } };
+  };
 };
 
 // What a check gives, as the self-check reads it.
@@ -1340,28 +1463,55 @@ type Sampled = {
       kind: {
         $: string;
         owner?: string;
-        written_type?: { value?: { shown: string; ends_in_sort: boolean } };
+        written_type?: { value?: { shown: string; term: { $: string } } };
         body?: { value?: SampledTerm };
       };
     }>;
   }>;
 };
 
+// Every term in `t`, `t` included: every field that is a term, a fact and
+// its types aside.
+const sampledTerms = (t: SampledTerm | undefined): SampledTerm[] =>
+  t === undefined
+    ? []
+    : [
+        t,
+        ...Object.entries(t).flatMap(([k, v]) =>
+          k !== "fact" && typeof v === "object" && v !== null && "$" in v
+            ? sampledTerms(v as SampledTerm)
+            : [],
+        ),
+      ];
+
 // Checks a small program as a rule sees it: `x` in `def id(x: N) -> N: x`
 // must be a parameter of id, written as N, used once, at its own span; `id`
 // and the constructor `Z` are used once, in main, whose body is the call
-// id(Z{}). A bend2 that gives anything else has changed in a way the host
-// does not follow.
+// id(Z{}). In id's body, the checker found `x` of type N, demanded once,
+// using x once, with a binder of type N. Only term_infer sees the head `id`
+// of main's call, and only term_check the Lam of id. A bend2 that gives
+// anything else has changed in a way the host does not follow.
 const selfCheck = async (m: Loaded): Promise<void> => {
   const at = slash(nodePath.join(nodeFs.realpathSync(HERE), SAMPLE));
   PROGRAMS.set(at, SAMPLE_TEXT);
-  const run = (await check(m, at, { declarations: true, bodies: true })) as unknown as Sampled;
+  const run = (await check(m, at, {
+    declarations: true,
+    bodies: true,
+    facts: true,
+  })) as unknown as Sampled;
   const found = run.declarations.find((s) => s.path === at)?.declarations ?? [];
   const named = (name: string, kind: string) =>
     found.find((d) => d.name === name && d.kind.$ === kind);
   const x = named("x", "ParameterDeclaration");
-  const main = named("main", "DefDeclaration")?.kind.body?.value;
-  const arg = main?.arguments?.first;
+  const bare = (t: SampledTerm | undefined): SampledTerm | undefined =>
+    t?.$ === "CheckedTerm" ? bare(t.term) : t;
+  const main = bare(named("main", "DefDeclaration")?.kind.body?.value);
+  const arg = bare(main?.arguments?.first);
+  const id = sampledTerms(named("id", "DefDeclaration")?.kind.body?.value);
+  const checkedOf = (terms: SampledTerm[], kind: string) =>
+    terms.find((t) => t.$ === "CheckedTerm" && t.term?.$ === kind);
+  const use = checkedOf(id, "VariableTerm");
+  const used = use?.term?.span?.value;
   const checks: Array<[string, boolean]> = [
     ["check", run.failure.$ === "None"],
     ["def", named("id", "DefDeclaration")?.references.length === 1],
@@ -1369,7 +1519,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     ["span", x !== undefined && SAMPLE_TEXT.slice(x.span.beg, x.span.end) === "x"],
     [
       "written type",
-      x?.kind.written_type?.value?.shown === "N" && !x.kind.written_type.value.ends_in_sort,
+      x?.kind.written_type?.value?.shown === "N" && x.kind.written_type.value.term.$ !== "SortTerm",
     ],
     [
       "constructor",
@@ -1379,12 +1529,25 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     [
       "body",
       main?.$ === "CallTerm" &&
-        main.head?.$ === "ReferenceTerm" &&
-        main.head.name === "id" &&
+        bare(main.head)?.$ === "ReferenceTerm" &&
+        bare(main.head)?.name === "id" &&
         arg?.$ === "ConstructorTerm" &&
         arg.name === "Z" &&
         main.arguments?.rest?.$ === "NoTerms",
     ],
+    [
+      "fact",
+      use?.term?.name === "x" &&
+        used !== undefined &&
+        SAMPLE_TEXT.slice(used.beg, used.end) === "x" &&
+        use.fact?.checked_as.shown === "N" &&
+        use.fact.quantity.$ === "OnceQuantity" &&
+        JSON.stringify(use.fact.uses) ===
+          '[{"$":"TermUse","name":"x","quantity":{"$":"OnceQuantity"}}]' &&
+        use.fact.binder.value?.shown === "N",
+    ],
+    ["term_infer", checkedOf(sampledTerms(main?.head), "ReferenceTerm") !== undefined],
+    ["term_check", checkedOf(id, "LambdaTerm") !== undefined],
   ];
   const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
   PROGRAMS.delete(at);

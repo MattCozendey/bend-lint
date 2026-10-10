@@ -77,6 +77,10 @@
 # | checker added.                                              |                                                              |
 # | A term holds its sub-terms, and a list of terms is a term   | Bend has no mutual recursion, so one def walks a whole body. |
 # | too (SomeTerms, NoTerms). No term has a parent.             | A walk passes what it knows down instead.                    |
+# | The checker's facts are in the body: with FactsNeed, a term | They are where the checker put them: its annotations. A term |
+# | the checker checked is a CheckedTerm with its TermFact.     | checked twice has both facts.                                |
+# | A call's partial applications have no facts of their own.  | A call is one term; its head and arguments keep theirs.      |
+# | A type is also a term (BendType.term), without spans.       | One representation for terms and types, as in Bend.          |
 #
 # TODO
 # - performance/missed-fork crashes (machine stack overflow) and performance/append-in-loop hangs on this file.
@@ -106,7 +110,23 @@ type BendSourceSpan is Data:
   BendSourceSpan{path: String, beg: U32, end: U32}
 
 type BendType is Data:
-  BendType{id: U32, shown: String, ends_in_sort: Bool}
+  BendType{id: U32, shown: String, term: BendTerm}
+
+type Quantity is Data:
+  ErasedQuantity{}
+  OnceQuantity{}
+  ManyQuantity{}
+
+type TermUse is Data:
+  TermUse{name: String, quantity: Quantity}
+
+type TermFact is Data:
+  TermFact{
+    checked_as: BendType,
+    quantity: Quantity,
+    uses: List<&2, TermUse>,
+    binder: Maybe<&2, BendType>
+  }
 
 type BendTerm is Data:
   VariableTerm{name: String, span: Maybe<&2, BendSourceSpan>}
@@ -122,7 +142,17 @@ type BendTerm is Data:
   ConstructorTerm{name: String, fields: BendTerm, span: Maybe<&2, BendSourceSpan>}
   LiteralTerm{shown: String, span: Maybe<&2, BendSourceSpan>}
   AnnotatedTerm{value: BendTerm, annotation: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  ForallTerm{
+    name: String,
+    quantity: Quantity,
+    domain: BendTerm,
+    body: BendTerm,
+    span: Maybe<&2, BendSourceSpan>
+  }
+  SortTerm{level: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  DatatypeTerm{name: String, arguments: BendTerm, span: Maybe<&2, BendSourceSpan>}
   OtherTerm{parts: BendTerm, span: Maybe<&2, BendSourceSpan>}
+  CheckedTerm{term: BendTerm, fact: TermFact}
   SomeTerms{first: BendTerm, rest: BendTerm}
   NoTerms{}
 
@@ -199,6 +229,7 @@ type RuleInput is Data:
 type RuleNeed is Data:
   DeclarationsNeed{}
   BodiesNeed{}
+  FactsNeed{}
 
 type RuleScope is Data:
   FileScope{}
@@ -271,7 +302,7 @@ type RuleHead is Data:
 type LintTally is Data:
   LintTally{count: Nat, failed: Bool}
 
-def get_check(path: String, declarations: Bool, bodies: Bool) -> IO(BendCheck):
+def get_check(path: String, declarations: Bool, bodies: Bool, facts: Bool) -> IO(BendCheck):
   import "./effs/host.js"
 
 def restart_with_rules(files: List<&2, String>) -> IO(Unit):
@@ -351,6 +382,8 @@ def get_is_need(a: RuleNeed, b: RuleNeed) -> Bool:
     case DeclarationsNeed{} DeclarationsNeed{}:
       True{}
     case BodiesNeed{} BodiesNeed{}:
+      True{}
+    case FactsNeed{} FactsNeed{}:
       True{}
     case _ _:
       False{}
@@ -586,7 +619,12 @@ def get_level_finding(
           get_option_defaults(options),
           get_found_in(get_prior(found, after), get_place_paths(place, linted_paths)),
           get_given_declarations(
-            get_needs(needs, DeclarationsNeed{}) || get_needs(needs, BodiesNeed{}),
+            get_needs(
+              needs,
+              DeclarationsNeed{}
+            )
+              || get_needs(needs, BodiesNeed{})
+              || get_needs(needs, FactsNeed{}),
             get_place_declarations(place, declarations)
           )
         }
@@ -923,8 +961,22 @@ def get_linter_term(term: BendTerm) -> BendTerm:
       LiteralTerm{shown, get_linter_term_span(span)}
     case AnnotatedTerm{value, annotation, span}:
       AnnotatedTerm{get_linter_term(value), get_linter_term(annotation), get_linter_term_span(span)}
+    case ForallTerm{name, quantity, domain, body, span}:
+      ForallTerm{
+        name,
+        quantity,
+        get_linter_term(domain),
+        get_linter_term(body),
+        get_linter_term_span(span)
+      }
+    case SortTerm{level, span}:
+      SortTerm{get_linter_term(level), get_linter_term_span(span)}
+    case DatatypeTerm{name, arguments, span}:
+      DatatypeTerm{name, get_linter_term(arguments), get_linter_term_span(span)}
     case OtherTerm{parts, span}:
       OtherTerm{get_linter_term(parts), get_linter_term_span(span)}
+    case CheckedTerm{term, fact}:
+      CheckedTerm{get_linter_term(term), fact}
     case SomeTerms{first, rest}:
       SomeTerms{get_linter_term(first), get_linter_term(rest)}
     case NoTerms{}:
@@ -1327,7 +1379,8 @@ def lint_file.resolved(
         get_check(
           value,
           get_heads_need(get_rule_heads(rules(Unit{})), DeclarationsNeed{}),
-          get_heads_need(get_rule_heads(rules(Unit{})), BodiesNeed{})
+          get_heads_need(get_rule_heads(rules(Unit{})), BodiesNeed{}),
+          get_heads_need(get_rule_heads(rules(Unit{})), FactsNeed{})
         ),
         check => get_checked_report(
           get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], imports, []})
