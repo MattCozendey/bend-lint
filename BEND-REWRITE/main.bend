@@ -299,8 +299,9 @@ type RunPlace is Data:
 type RuleHead is Data:
   RuleHead{id: String, after: List<&2, String>, needs: List<&2, RuleNeed>}
 
+# What the reports so far hold: their findings and suppressed findings, each last first.
 type LintTally is Data:
-  LintTally{count: Nat, failed: Bool}
+  LintTally{findings: List<&2, RuleFinding>, suppressed: List<&2, RuleFinding>}
 
 type JsonValue is Data:
   JsonNull{}
@@ -346,6 +347,80 @@ type LintTarget is Data:
 
 type LintJob is Data:
   LintJob{target: LintTarget, config: LintConfig}
+
+# A comment of a linted file: where it is (from its `#`), its line, whether code comes before it on that line, and its
+# text after the `#`.
+type Comment is Data:
+  Comment{beg: U32, end: U32, line: U32, trailing: Bool, body: String}
+
+type ScanMode is Data:
+  ScanCode{}
+  ScanComment{}
+  ScanString{}
+  ScanStringEscape{}
+  ScanChar{}
+  ScanCharEscape{}
+
+# A file's comments, and whether each of its lines holds code, from the first line.
+type Scan is Data:
+  Scan{comments: List<&2, Comment>, code: List<&2, Bool>}
+
+# A directive's parts as written: action, scope, rule, the severity it names, and its reason.
+type DirectiveParts is Data:
+  DirectiveParts{
+    action: String,
+    scope: String,
+    rule: String,
+    pinned: Maybe<&2, String>,
+    reason: Maybe<&2, String>
+  }
+
+# A directive: its action (disable or expect), scope (file, begin, end, next or line), rule, the severity it pins, and
+# its comment.
+type Directive is Data:
+  Directive{
+    action: String,
+    scope: String,
+    rule: String,
+    severity: Maybe<&2, FindingSeverity>,
+    comment: Comment
+  }
+
+type DirectiveRead is Data:
+  DirectiveFound{directive: Directive}
+  DirectiveWrong{why: String, comment: Comment}
+
+# A directive, its number in its file, and the lines it covers, both ends included; none when `from` is past `to`.
+type Covering is Data:
+  Covering{index: Nat, directive: Directive, from: U32, to: U32}
+
+# An open begin: the key of its action and rule, its number, its severity, and its comment.
+type OpenBegin is Data:
+  OpenBegin{key: String, index: Nat, severity: Maybe<&2, FindingSeverity>, comment: Comment}
+
+type Closed is Data:
+  Closed{index: Nat, line: U32}
+
+# What the directives of a file say: the lines each covers, and the findings about them.
+type FileDirectives is Data:
+  FileDirectives{
+    path: String,
+    lines: List<&2, String>,
+    coverings: List<&2, Covering>,
+    wrong: List<&2, RuleFinding>
+  }
+
+# A directive that covered a finding: its file and number.
+type Used is Data:
+  Used{path: String, index: Nat}
+
+# The findings that stay and those a directive covers, and the directives that covered one.
+type SuppressState is Data:
+  SuppressState{
+    kept: List<&2, RuleFinding>,
+    suppressed: List<&2, RuleFinding>,
+    used: List<&2, Used>
+  }
 
 # What the rules need from a check: declarations, bodies, facts.
 type CheckNeeds is Data:
@@ -1122,6 +1197,1197 @@ def get_source_at(sources: List<&2, BendSource>, +path: String) -> Maybe<&2, Ben
       )
 
 # A finding with its Safe fixes checked against the text of its file, a linted one.
+# Suppression
+# ===========
+
+# The comments of a text and whether each line holds code; a `#` inside a string or char literal is not a comment. A
+# literal that spans lines makes each of them hold code.
+def get_scan.go(
+  s: String,
+  mode: ScanMode,
+  +at: U32,
+  +line: U32,
+  +here: Bool,
+  +beg: U32,
+  body: String,
+  comments: List<&2, Comment>,
+  code: List<&2, Bool>
+) -> Scan:
+  match s mode:
+    case SNil{} ScanComment{}:
+      Scan{
+        List.reverse(&2, Comment, Comment{beg, at, line, here, String.reverse(body)} <> comments),
+        List.reverse(&2, Bool, here <> code)
+      }
+    case SNil{} m:
+      Scan{List.reverse(&2, Comment, comments), List.reverse(&2, Bool, here <> code)}
+    case SCon{'\n', rest} ScanComment{}:
+      get_scan.go(
+        rest,
+        ScanCode{},
+        U32.inc(at),
+        U32.inc(line),
+        False{},
+        beg,
+        "",
+        Comment{beg, at, line, here, String.reverse(body)} <> comments,
+        here <> code
+      )
+    case SCon{c, rest} ScanComment{}:
+      get_scan.go(rest, ScanComment{}, U32.inc(at), line, here, beg, SCon{c, body}, comments, code)
+    case SCon{'\n', rest} ScanCode{}:
+      get_scan.go(
+        rest,
+        ScanCode{},
+        U32.inc(at),
+        U32.inc(line),
+        False{},
+        beg,
+        body,
+        comments,
+        here <> code
+      )
+    case SCon{'#', rest} ScanCode{}:
+      get_scan.go(rest, ScanComment{}, U32.inc(at), line, here, at, "", comments, code)
+    case SCon{'"', rest} ScanCode{}:
+      get_scan.go(rest, ScanString{}, U32.inc(at), line, True{}, beg, body, comments, code)
+    case SCon{'\'', rest} ScanCode{}:
+      get_scan.go(rest, ScanChar{}, U32.inc(at), line, True{}, beg, body, comments, code)
+    case SCon{' ', rest} ScanCode{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\t', rest} ScanCode{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\r', rest} ScanCode{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{c, rest} ScanCode{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, True{}, beg, body, comments, code)
+    case SCon{'\n', rest} ScanString{}:
+      get_scan.go(
+        rest,
+        ScanString{},
+        U32.inc(at),
+        U32.inc(line),
+        True{},
+        beg,
+        body,
+        comments,
+        True{} <> code
+      )
+    case SCon{'\\', rest} ScanString{}:
+      get_scan.go(rest, ScanStringEscape{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'"', rest} ScanString{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{c, rest} ScanString{}:
+      get_scan.go(rest, ScanString{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\n', rest} ScanStringEscape{}:
+      get_scan.go(
+        rest,
+        ScanString{},
+        U32.inc(at),
+        U32.inc(line),
+        True{},
+        beg,
+        body,
+        comments,
+        True{} <> code
+      )
+    case SCon{c, rest} ScanStringEscape{}:
+      get_scan.go(rest, ScanString{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\n', rest} ScanChar{}:
+      get_scan.go(
+        rest,
+        ScanChar{},
+        U32.inc(at),
+        U32.inc(line),
+        True{},
+        beg,
+        body,
+        comments,
+        True{} <> code
+      )
+    case SCon{'\\', rest} ScanChar{}:
+      get_scan.go(rest, ScanCharEscape{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\'', rest} ScanChar{}:
+      get_scan.go(rest, ScanCode{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{c, rest} ScanChar{}:
+      get_scan.go(rest, ScanChar{}, U32.inc(at), line, here, beg, body, comments, code)
+    case SCon{'\n', rest} ScanCharEscape{}:
+      get_scan.go(
+        rest,
+        ScanChar{},
+        U32.inc(at),
+        U32.inc(line),
+        True{},
+        beg,
+        body,
+        comments,
+        True{} <> code
+      )
+    case SCon{c, rest} ScanCharEscape{}:
+      get_scan.go(rest, ScanChar{}, U32.inc(at), line, here, beg, body, comments, code)
+
+def get_scan(text: String) -> Scan:
+  get_scan.go(text, ScanCode{}, 0, 0, False{}, 0, "", [], [])
+
+def get_drop_spaces(+s: String) -> String:
+  match s:
+    case SCon{' ', rest}:
+      get_drop_spaces(rest)
+    case SCon{'\t', rest}:
+      get_drop_spaces(rest)
+    case _:
+      s
+
+def get_starts_blank(s: String) -> Bool:
+  match s:
+    case SCon{' ', rest}:
+      True{}
+    case SCon{'\t', rest}:
+      True{}
+    case _:
+      False{}
+
+def get_code(c: Char) -> U32:
+  match c:
+    case Chr{code}:
+      code
+
+def get_is_between(+x: U32, lo: U32, hi: U32) -> Bool:
+  U32.is_ge(x, lo) && U32.is_le(x, hi)
+
+def get_is_word_char(c: Char) -> Bool:
+  +x = get_code(c)
+  get_is_between(
+    x,
+    48,
+    57
+  )
+    || get_is_between(x, 65, 90)
+    || get_is_between(x, 97, 122)
+    || U32.is_eq(x, 95)
+
+# The word characters `s` starts with.
+def get_word.go(s: String, ok: Bool, c: Char) -> String:
+  match s ok:
+    case SCon{+d, rest} True{}:
+      SCon{c, get_word.go(rest, get_is_word_char(d), d)}
+    case SNil{} True{}:
+      SCon{c, ""}
+    case _ False{}:
+      ""
+
+def get_word(s: String) -> String:
+  match s:
+    case SCon{+c, rest}:
+      get_word.go(rest, get_is_word_char(c), c)
+    case SNil{}:
+      ""
+
+# What `s` starts with, up to a blank.
+def get_token(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{' ', rest}:
+      ""
+    case SCon{'\t', rest}:
+      ""
+    case SCon{c, rest}:
+      SCon{c, get_token(rest)}
+
+def get_before_at(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{'@', rest}:
+      ""
+    case SCon{c, rest}:
+      SCon{c, get_before_at(rest)}
+
+def get_after_at(s: String) -> Maybe<&2, String>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{'@', rest}:
+      Some{rest}
+    case SCon{c, rest}:
+      get_after_at(rest)
+
+def get_trim_end(s: String) -> String:
+  String.reverse(get_drop_spaces(String.reverse(s)))
+
+# Whether `s` holds a slash with a part before and after it, and no second one.
+def get_is_rule_name(+s: String) -> Bool:
+  +parts = String.split(s, '/')
+  U32.is_eq(
+    U32.from_nat(List.length(&2, String, parts)),
+    2
+  )
+    && Bool.not(String.eq(String.take(s, 1n), "/"))
+    && Bool.not(String.ends_with(s, "/"))
+
+def get_pinned_ok(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{p}:
+      Bool.not(String.eq(p, ""))
+
+def get_reason(none: Bool, reason: String) -> Maybe<&2, String>:
+  match none:
+    case True{}:
+      None{}
+    case False{}:
+      Some{reason}
+
+# A directive's parts, as `bend-lint: <action>-<scope> <rule>[@severity] [-- <reason>]` spells them in `body`, the
+# text after `#`; none when it does not follow that form.
+def get_directive_parts(body: String) -> Maybe<&2, DirectiveParts>:
+  +b1 = get_drop_spaces(String.drop(get_drop_spaces(body), 10n))
+  +action = get_word(b1)
+  +r1 = String.drop(b1, String.length(action))
+  +r2 = String.drop(r1, 1n)
+  +scope = get_word(r2)
+  +r3 = String.drop(r2, String.length(scope))
+  +r4 = get_drop_spaces(r3)
+  +token = get_token(r4)
+  +r6 = get_drop_spaces(String.drop(r4, String.length(token)))
+  +rule = get_before_at(token)
+  +pinned = get_after_at(token)
+  +tail = String.drop(r6, 2n)
+  +reason = get_trim_end(get_drop_spaces(tail))
+  Bool.pick(
+    Maybe<&2, DirectiveParts>,
+    Bool.not(
+      String.eq(action, "")
+    )
+      && String.starts_with(r1, "-")
+      && Bool.not(String.eq(scope, ""))
+      && get_starts_blank(r3)
+      && get_is_rule_name(rule)
+      && get_pinned_ok(pinned)
+      && (
+        String.eq(
+          r6,
+          ""
+        )
+          || (
+            String.starts_with(
+              r6,
+              "--"
+            )
+              && get_starts_blank(tail)
+              && Bool.not(String.eq(reason, ""))
+          )
+      ),
+    Some{DirectiveParts{action, scope, rule, pinned, get_reason(String.eq(r6, ""), reason)}},
+    None{}
+  )
+
+def get_directive_syntax() -> String:
+  "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`."
+
+def get_first_problem(problems: List<&2, Maybe<&2, String>>) -> Maybe<&2, String>:
+  match problems:
+    case Nil{}:
+      None{}
+    case Con{Some{why}, t}:
+      Some{why}
+    case Con{None{}, t}:
+      get_first_problem(t)
+
+def get_problem_if(hit: Bool, why: String) -> Maybe<&2, String>:
+  match hit:
+    case True{}:
+      Some{why}
+    case False{}:
+      None{}
+
+def get_severity_named(+name: String) -> Maybe<&2, FindingSeverity>:
+  Bool.pick(
+    Maybe<&2, FindingSeverity>,
+    String.eq(name, "error"),
+    Some{Error{}},
+    Bool.pick(
+      Maybe<&2, FindingSeverity>,
+      String.eq(name, "warning"),
+      Some{Warning{}},
+      Bool.pick(
+        Maybe<&2, FindingSeverity>,
+        String.eq(name, "information"),
+        Some{Information{}},
+        Bool.pick(Maybe<&2, FindingSeverity>, String.eq(name, "hint"), Some{Hint{}}, None{})
+      )
+    )
+  )
+
+def get_is_severity_or_none(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{+p}:
+      Maybe.is_some(&2, FindingSeverity, get_severity_named(p))
+
+def get_pinned_shown(m: Maybe<&2, String>) -> String:
+  match m:
+    case None{}:
+      ""
+    case Some{p}:
+      p
+
+def get_pinned_severity(m: Maybe<&2, String>) -> Maybe<&2, FindingSeverity>:
+  match m:
+    case None{}:
+      None{}
+    case Some{p}:
+      get_severity_named(p)
+
+def get_directive_checked.made(
+  wrong: Maybe<&2, String>,
+  action: String,
+  scope: String,
+  rule: String,
+  pinned: Maybe<&2, String>,
+  comment: Comment
+) -> DirectiveRead:
+  match wrong:
+    case Some{why}:
+      DirectiveWrong{why, comment}
+    case None{}:
+      DirectiveFound{Directive{action, scope, rule, get_pinned_severity(pinned), comment}}
+
+def get_directive_checked(
+  +action: String,
+  +scope: String,
+  +rule: String,
+  +pinned: Maybe<&2, String>,
+  +reason: Maybe<&2, String>,
+  +comment: Comment,
+  +known: List<&2, String>
+) -> DirectiveRead:
+  match comment:
+    case Comment{beg, end, line, +trailing, body}:
+      +wrong = get_first_problem(
+        [
+          get_problem_if(
+            Bool.not(
+              get_has_text(["disable", "expect"], action)
+            )
+              || Bool.not(get_has_text(["file", "begin", "end", "next", "line"], scope)),
+            get_directive_syntax()
+          ),
+          get_problem_if(
+            Bool.not(get_is_severity_or_none(pinned)),
+            get_pinned_shown(pinned) ++ " is not a severity."
+          ),
+          get_problem_if(
+            String.eq(action, "disable") && Maybe.is_some(&2, String, pinned),
+            "A disable takes no severity."
+          ),
+          get_problem_if(
+            String.eq(action, "expect") && Maybe.is_none(&2, String, pinned),
+            "An expect pins a severity: " ++ rule ++ "@..."
+          ),
+          get_problem_if(
+            String.eq(scope, "end") && Maybe.is_some(&2, String, reason),
+            "An end takes no reason; the begin has it."
+          ),
+          get_problem_if(
+            Bool.not(String.eq(scope, "end")) && Maybe.is_none(&2, String, reason),
+            "A reason is required, after `--`."
+          ),
+          get_problem_if(
+            String.eq(scope, "line") && Bool.not(trailing),
+            "A line directive must follow code on its line."
+          ),
+          get_problem_if(
+            String.starts_with(rule, "bend/") || String.starts_with(rule, "bend-lint/"),
+            rule ++ " findings cannot be suppressed."
+          ),
+          get_problem_if(Bool.not(get_has_text(known, rule)), "There is no rule " ++ rule ++ ".")
+        ]
+      )
+      get_directive_checked.made(
+        wrong,
+        action,
+        scope,
+        rule,
+        pinned,
+        Comment{beg, end, line, trailing, body}
+      )
+
+def get_directive_read(
+  parts: Maybe<&2, DirectiveParts>,
+  comment: Comment,
+  +known: List<&2, String>
+) -> DirectiveRead:
+  match parts:
+    case None{}:
+      DirectiveWrong{get_directive_syntax(), comment}
+    case Some{DirectiveParts{action, scope, rule, pinned, reason}}:
+      get_directive_checked(action, scope, rule, pinned, reason, comment, known)
+
+def get_is_directive(body: String) -> Bool:
+  String.starts_with(get_drop_spaces(body), "bend-lint:")
+
+# The directives among `comments`, and what is wrong with the ones that are not right.
+def get_directives_read(
+  comments: List<&2, Comment>,
+  +known: List<&2, String>
+) -> List<&2, DirectiveRead>:
+  match comments:
+    case Nil{}:
+      []
+    case Con{Comment{beg, end, line, trailing, +body}, t}:
+      +rest = get_directives_read(t, known)
+      Bool.pick(
+        List<&2, DirectiveRead>,
+        get_is_directive(body),
+        get_directive_read(
+          get_directive_parts(body),
+          Comment{beg, end, line, trailing, body},
+          known
+        )
+          <> rest,
+        rest
+      )
+
+def get_directive_found(rs: List<&2, DirectiveRead>) -> List<&2, Directive>:
+  match rs:
+    case Nil{}:
+      []
+    case Con{DirectiveFound{d}, t}:
+      d <> get_directive_found(t)
+    case Con{DirectiveWrong{why, c}, t}:
+      get_directive_found(t)
+
+def get_directive_finding(+path: String, why: String, c: Comment) -> RuleFinding:
+  match c:
+    case Comment{beg, end, line, trailing, body}:
+      RuleFinding{"bend-lint/directive", Finding{Error{}, why, BendSourceSpan{path, beg, end}, []}}
+
+def get_directive_wrong(rs: List<&2, DirectiveRead>, +path: String) -> List<&2, RuleFinding>:
+  match rs:
+    case Nil{}:
+      []
+    case Con{DirectiveWrong{why, c}, t}:
+      get_directive_finding(path, why, c) <> get_directive_wrong(t, path)
+    case Con{DirectiveFound{d}, t}:
+      get_directive_wrong(t, path)
+
+def get_same_severity(a: Maybe<&2, FindingSeverity>, b: Maybe<&2, FindingSeverity>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{x} Some{y}:
+      U32.is_eq(get_severity_rank(x), get_severity_rank(y))
+    case _ _:
+      False{}
+
+# The open begin of `key` that an end closes: the latest; it closes it when their severities agree.
+def get_top_open(open: List<&2, OpenBegin>, +key: String) -> Maybe<&2, OpenBegin>:
+  match open:
+    case Nil{}:
+      None{}
+    case Con{OpenBegin{+k, i, s, c}, t}:
+      Bool.pick(
+        Maybe<&2, OpenBegin>,
+        String.eq(k, key),
+        Some{OpenBegin{k, i, s, c}},
+        get_top_open(t, key)
+      )
+
+def get_without_top(open: List<&2, OpenBegin>, +key: String) -> List<&2, OpenBegin>:
+  match open:
+    case Nil{}:
+      []
+    case Con{OpenBegin{+k, i, s, c}, +t}:
+      Bool.pick(
+        List<&2, OpenBegin>,
+        String.eq(k, key),
+        t,
+        OpenBegin{k, i, s, c} <> get_without_top(t, key)
+      )
+
+def get_comment_line(c: Comment) -> U32:
+  match c:
+    case Comment{beg, end, line, trailing, body}:
+      line
+
+def get_closes(top: Maybe<&2, OpenBegin>, severity: Maybe<&2, FindingSeverity>) -> Bool:
+  match top:
+    case Some{OpenBegin{k, i, s, c}}:
+      get_same_severity(s, severity)
+    case None{}:
+      False{}
+
+def get_closed_of(top: Maybe<&2, OpenBegin>, +line: U32) -> Closed:
+  match top:
+    case Some{OpenBegin{k, i, s, c}}:
+      Closed{i, line}
+    case None{}:
+      Closed{0n, line}
+
+# The rule of a key: what follows its first blank.
+def get_rule_of_key(key: String) -> String:
+  match key:
+    case SNil{}:
+      ""
+    case SCon{' ', rest}:
+      rest
+    case SCon{c, rest}:
+      get_rule_of_key(rest)
+
+def get_never_closed(open: List<&2, OpenBegin>, +path: String) -> List<&2, RuleFinding>:
+  match open:
+    case Nil{}:
+      []
+    case Con{OpenBegin{key, i, s, c}, t}:
+      List.append(
+        &2,
+        RuleFinding,
+        get_never_closed(t, path),
+        [
+          get_directive_finding(
+            path,
+            "This begin of " ++ get_rule_of_key(key) ++ " is never closed.",
+            c
+          )
+        ]
+      )
+
+# The ends of the begins, and the ends that close none: each end closes the latest open begin of its action and rule,
+# when their severities agree.
+def get_paired(
+  ds: List<&2, Directive>,
+  +i: Nat,
+  +open: List<&2, OpenBegin>,
+  +closed: List<&2, Closed>,
+  +wrong: List<&2, RuleFinding>,
+  +path: String
+) -> (List<&2, Closed> & List<&2, RuleFinding>):
+  match ds:
+    case Nil{}:
+      (closed, List.append(&2, RuleFinding, wrong, get_never_closed(open, path)))
+    case Con{Directive{+action, "begin", +rule, severity, comment}, t}:
+      get_paired(
+        t,
+        (1n + i: Nat),
+        OpenBegin{action ++ " " ++ rule, i, severity, comment} <> open,
+        closed,
+        wrong,
+        path
+      )
+    case Con{Directive{+action, "end", +rule, +severity, +comment}, t}:
+      +key = action ++ " " ++ rule
+      +top = get_top_open(open, key)
+      +closes = get_closes(top, severity)
+      get_paired(
+        t,
+        (1n + i: Nat),
+        Bool.pick(List<&2, OpenBegin>, closes, get_without_top(open, key), open),
+        Bool.pick(
+          List<&2, Closed>,
+          closes,
+          get_closed_of(top, get_comment_line(comment)) <> closed,
+          closed
+        ),
+        Bool.pick(
+          List<&2, RuleFinding>,
+          closes,
+          wrong,
+          List.append(
+            &2,
+            RuleFinding,
+            wrong,
+            [get_directive_finding(path, "This end closes no begin of " ++ rule ++ ".", comment)]
+          )
+        ),
+        path
+      )
+    case Con{d, t}:
+      get_paired(t, (1n + i: Nat), open, closed, wrong, path)
+
+def get_closed_line(closed: List<&2, Closed>, +i: Nat, +last: U32) -> U32:
+  match closed:
+    case Nil{}:
+      last
+    case Con{Closed{+j, +line}, t}:
+      Bool.pick(U32, Nat.is_eq(j, i), line, get_closed_line(t, i, last))
+
+# The first line after `l` that holds code, if any; `code` holds whether each line from `at` on does.
+def get_following(code: List<&2, Bool>, +l: U32, +at: U32) -> Maybe<&2, U32>:
+  match code:
+    case Nil{}:
+      None{}
+    case Con{h, t}:
+      Bool.pick(Maybe<&2, U32>, h && U32.is_lt(l, at), Some{at}, get_following(t, l, U32.inc(at)))
+
+def get_cover_next(
+  i: Nat,
+  d: Directive,
+  m: Maybe<&2, U32>,
+  rest: List<&2, Covering>
+) -> List<&2, Covering>:
+  match m:
+    case Some{+x}:
+      Covering{i, d, x, x} <> rest
+    case None{}:
+      Covering{i, d, 1, 0} <> rest
+
+# The lines each directive covers: file all of them, line its own, next the next line with code, begin those up to
+# its end (or the last line); an end covers none.
+def get_coverings(
+  ds: List<&2, Directive>,
+  +i: Nat,
+  +closed: List<&2, Closed>,
+  +code: List<&2, Bool>,
+  +last: U32
+) -> List<&2, Covering>:
+  match ds:
+    case Nil{}:
+      []
+    case Con{Directive{action, +scope, rule, severity, +comment}, t}:
+      +l = get_comment_line(comment)
+      +d: Directive = Directive{action, scope, rule, severity, comment}
+      +rest = get_coverings(t, (1n + i: Nat), closed, code, last)
+      Bool.pick(
+        List<&2, Covering>,
+        String.eq(scope, "file"),
+        Covering{i, d, 0, last} <> rest,
+        Bool.pick(
+          List<&2, Covering>,
+          String.eq(scope, "line"),
+          Covering{i, d, l, l} <> rest,
+          Bool.pick(
+            List<&2, Covering>,
+            String.eq(scope, "next"),
+            get_cover_next(i, d, get_following(code, l, 0), rest),
+            Bool.pick(
+              List<&2, Covering>,
+              String.eq(scope, "begin"),
+              Covering{i, d, l, get_closed_line(closed, i, last)} <> rest,
+              rest
+            )
+          )
+        )
+      )
+
+# Text order: less, the same, or more, as 0, 1, 2.
+def get_text_order(a: String, b: String) -> U32:
+  match a b:
+    case SNil{} SNil{}:
+      1
+    case SNil{} _:
+      0
+    case _ SNil{}:
+      2
+    case SCon{x, s} SCon{y, t}:
+      +p = get_code(x)
+      +q = get_code(y)
+      Bool.pick(U32, U32.is_lt(p, q), 0, Bool.pick(U32, U32.is_lt(q, p), 2, get_text_order(s, t)))
+
+def get_severity_name(s: FindingSeverity) -> String:
+  match s:
+    case Error{}:
+      "error"
+    case Warning{}:
+      "warning"
+    case Information{}:
+      "information"
+    case Hint{}:
+      "hint"
+
+def get_severity_key(m: Maybe<&2, FindingSeverity>) -> String:
+  match m:
+    case None{}:
+      ""
+    case Some{s}:
+      get_severity_name(s)
+
+# Whether `a` comes before `b`, or with it, when directives stack: by rule, then severity, then keyword.
+def get_in_order(a: Directive, b: Directive) -> Bool:
+  match a b:
+    case Directive{x, s, r, v, c} Directive{y, t, q, w, d}:
+      +rules = get_text_order(r, q)
+      +severities = get_text_order(get_severity_key(v), get_severity_key(w))
+      U32.is_lt(
+        rules,
+        1
+      )
+        || (
+          U32.is_eq(
+            rules,
+            1
+          )
+            && (
+              U32.is_lt(
+                severities,
+                1
+              )
+                || (
+                  U32.is_eq(
+                    severities,
+                    1
+                  )
+                    && U32.is_lt(get_text_order(x ++ "-" ++ s, y ++ "-" ++ t), 2)
+                )
+            )
+        )
+
+def get_inserted(+d: Directive, sorted: List<&2, Directive>) -> List<&2, Directive>:
+  match sorted:
+    case Nil{}:
+      [d]
+    case Con{+h, +t}:
+      Bool.pick(List<&2, Directive>, get_in_order(h, d), h <> get_inserted(d, t), d <> h <> t)
+
+def get_sorted(ds: List<&2, Directive>, done: List<&2, Directive>) -> List<&2, Directive>:
+  match ds:
+    case Nil{}:
+      done
+    case Con{d, t}:
+      get_sorted(t, get_inserted(d, done))
+
+def get_comment_beg(d: Directive) -> U32:
+  match d:
+    case Directive{action, scope, rule, severity, Comment{beg, end, line, trailing, body}}:
+      beg
+
+def get_same_order(a: List<&2, Directive>, b: List<&2, Directive>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case Con{x, s} Con{y, t}:
+      U32.is_eq(get_comment_beg(x), get_comment_beg(y)) && get_same_order(s, t)
+    case _ _:
+      False{}
+
+# The edits that put a run in order, last first: each replaces a comment with the one that belongs there.
+def get_sort_edits(
+  run: List<&2, Directive>,
+  sorted: List<&2, Directive>,
+  +path: String,
+  done: List<&2, FixEdit>
+) -> List<&2, FixEdit>:
+  match run sorted:
+    case Con{
+      Directive{a, s, r, v, Comment{beg, end, line, trailing, body}},
+      rt
+    } Con{Directive{b, u, q, w, Comment{x, y, z, k, put}}, st}:
+      get_sort_edits(rt, st, path, ReplaceText{BendSourceSpan{path, beg, end}, "#" ++ put} <> done)
+    case _ _:
+      done
+
+def get_run_end(run: List<&2, Directive>, end: U32) -> U32:
+  match run:
+    case Nil{}:
+      end
+    case Con{Directive{a, s, r, v, Comment{b, e, line, trailing, body}}, t}:
+      get_run_end(t, e)
+
+def get_run_beg(run: List<&2, Directive>) -> U32:
+  match run:
+    case Con{d, t}:
+      get_comment_beg(d)
+    case Nil{}:
+      0
+
+def get_unsorted_run(+run: List<&2, Directive>, +path: String) -> List<&2, RuleFinding>:
+  +sorted = get_sorted(run, [])
+  Bool.pick(
+    List<&2, RuleFinding>,
+    get_same_order(run, sorted),
+    [],
+    [
+      RuleFinding{
+        "bend-lint/directive",
+        Finding{
+          Error{},
+          "Directives that stack must be in order: by rule, then severity, then keyword.",
+          BendSourceSpan{path, get_run_beg(run), get_run_end(run, 0)},
+          [Fix{"Sort the directives", Safe{}, get_sort_edits(run, sorted, path, [])}]
+        }
+      }
+    ]
+  )
+
+def get_directive_comment(d: Directive) -> Comment:
+  match d:
+    case Directive{action, scope, rule, severity, comment}:
+      comment
+
+def get_is_trailing(d: Directive) -> Bool:
+  match d:
+    case Directive{action, scope, rule, severity, Comment{b, e, line, trailing, body}}:
+      trailing
+
+# The runs of directives on consecutive comment-only lines, each in file order: `run` is the current one, last first,
+# `last` its last line.
+def get_runs(
+  ds: List<&2, Directive>,
+  +run: List<&2, Directive>,
+  +last: U32,
+  +done: List<&2, List<&2, Directive>>
+) -> List<&2, List<&2, Directive>>:
+  match ds:
+    case Nil{}:
+      List.reverse(&2, List<&2, Directive>, List.reverse(&2, Directive, run) <> done)
+    case Con{+d, t}:
+      +l = get_comment_line(get_directive_comment(d))
+      +joins = U32.is_eq(l, U32.inc(last)) && Bool.not(List.is_empty(&2, Directive, run))
+      get_runs(
+        t,
+        Bool.pick(
+          List<&2, Directive>,
+          get_is_trailing(d),
+          [],
+          Bool.pick(List<&2, Directive>, joins, d <> run, [d])
+        ),
+        l,
+        Bool.pick(
+          List<&2, List<&2, Directive>>,
+          joins && Bool.not(get_is_trailing(d)),
+          done,
+          List.reverse(&2, Directive, run) <> done
+        )
+      )
+
+def get_unsorted(runs: List<&2, List<&2, Directive>>, +path: String) -> List<&2, RuleFinding>:
+  match runs:
+    case Nil{}:
+      []
+    case Con{r, t}:
+      List.append(&2, RuleFinding, get_unsorted_run(r, path), get_unsorted(t, path))
+
+def get_file_directives.paired(
+  +path: String,
+  lines: List<&2, String>,
+  +found: List<&2, Directive>,
+  read: List<&2, DirectiveRead>,
+  +code: List<&2, Bool>,
+  paired: List<&2, Closed> & List<&2, RuleFinding>
+) -> FileDirectives:
+  match paired:
+    case (closed, unpaired):
+      FileDirectives{
+        path,
+        lines,
+        get_coverings(
+          found,
+          0n,
+          closed,
+          code,
+          U32.sub(U32.from_nat(List.length(&2, Bool, code)), 1)
+        ),
+        List.append(
+          &2,
+          RuleFinding,
+          List.append(&2, RuleFinding, get_directive_wrong(read, path), unpaired),
+          get_unsorted(get_runs(found, [], 0, []), path)
+        )
+      }
+
+def get_file_directives.scanned(
+  +path: String,
+  lines: List<&2, String>,
+  scan: Scan,
+  +known: List<&2, String>
+) -> FileDirectives:
+  match scan:
+    case Scan{comments, code}:
+      +read = get_directives_read(comments, known)
+      +found = get_directive_found(read)
+      get_file_directives.paired(
+        path,
+        lines,
+        found,
+        read,
+        code,
+        get_paired(found, 0n, [], [], [], path)
+      )
+
+# What the directives of the linted file `source` say.
+def get_file_directives(source: BendSource, +known: List<&2, String>) -> FileDirectives:
+  match source:
+    case BendSource{path, text, lines}:
+      get_file_directives.scanned(path, lines, get_scan(text), known)
+
+# The line of offset `at` in a file whose lines are `lines`, from 0; `beg` is where the first of them starts.
+def get_line_at(lines: List<&2, String>, +at: U32, +beg: U32, +row: U32) -> U32:
+  match lines:
+    case Nil{}:
+      row
+    case Con{h, t}:
+      +next = U32.add(U32.add(beg, U32.from_nat(String.length(h))), 1)
+      Bool.pick(U32, U32.is_lt(at, next), row, get_line_at(t, at, next, U32.inc(row)))
+
+def get_directives_of(files: List<&2, FileDirectives>, +path: String) -> Maybe<&2, FileDirectives>:
+  match files:
+    case Nil{}:
+      None{}
+    case Con{FileDirectives{+p, lines, coverings, wrong}, t}:
+      Bool.pick(
+        Maybe<&2, FileDirectives>,
+        String.eq(p, path),
+        Some{FileDirectives{p, lines, coverings, wrong}},
+        get_directives_of(t, path)
+      )
+
+# The directives of `coverings` that cover a finding of rule `rule`, severity `severity`, on line `row`.
+def get_hits(
+  coverings: List<&2, Covering>,
+  +rule: String,
+  +severity: FindingSeverity,
+  +row: U32
+) -> List<&2, Nat>:
+  match coverings:
+    case Nil{}:
+      []
+    case Con{Covering{+i, Directive{+action, scope, +r, +s, c}, +from, +to}, t}:
+      get_kept(
+        Nat,
+        String.eq(
+          r,
+          rule
+        )
+          && U32.is_le(from, row)
+          && U32.is_le(row, to)
+          && (String.eq(action, "disable") || get_same_severity(s, Some{severity})),
+        i,
+        get_hits(t, rule, severity, row)
+      )
+
+def get_finding_hits(
+  m: Maybe<&2, FileDirectives>,
+  +rule: String,
+  +severity: FindingSeverity,
+  +at: U32
+) -> List<&2, Nat>:
+  match m:
+    case None{}:
+      []
+    case Some{FileDirectives{path, lines, coverings, wrong}}:
+      get_hits(coverings, rule, severity, get_line_at(lines, at, 0, 0))
+
+def get_uses(hits: List<&2, Nat>, +path: String) -> List<&2, Used>:
+  match hits:
+    case Nil{}:
+      []
+    case Con{i, t}:
+      Used{path, i} <> get_uses(t, path)
+
+def get_split(
+  +f: RuleFinding,
+  hits: List<&2, Nat>,
+  +path: String,
+  s: SuppressState
+) -> SuppressState:
+  match hits s:
+    case Nil{} SuppressState{kept, suppressed, used}:
+      SuppressState{f <> kept, suppressed, used}
+    case Con{h, t} SuppressState{kept, suppressed, used}:
+      SuppressState{kept, f <> suppressed, List.append(&2, Used, get_uses(h <> t, path), used)}
+
+# The findings split into those that stay and those a directive covers, and the directives that covered one; each
+# list last first.
+def get_suppressing(
+  findings: List<&2, RuleFinding>,
+  +files: List<&2, FileDirectives>,
+  s: SuppressState
+) -> SuppressState:
+  match findings:
+    case Nil{}:
+      s
+    case Con{
+      RuleFinding{+rule, Finding{+severity, message, BendSourceSpan{+path, +beg, end}, fixes}},
+      t
+    }:
+      get_suppressing(
+        t,
+        files,
+        get_split(
+          RuleFinding{rule, Finding{severity, message, BendSourceSpan{path, beg, end}, fixes}},
+          get_finding_hits(get_directives_of(files, path), rule, severity, beg),
+          path,
+          s
+        )
+      )
+
+def get_is_used(used: List<&2, Used>, +path: String, +i: Nat) -> Bool:
+  match used:
+    case Nil{}:
+      False{}
+    case Con{Used{p, j}, t}:
+      (String.eq(p, path) && Nat.is_eq(j, i)) || get_is_used(t, path, i)
+
+def get_unmet_finding(+path: String, d: Directive) -> RuleFinding:
+  match d:
+    case Directive{"expect", scope, rule, severity, Comment{beg, end, line, trailing, body}}:
+      RuleFinding{
+        "bend-lint/unmet-expectation",
+        Finding{
+          Error{},
+          "Expected a "
+            ++ rule
+            ++ "@"
+            ++ get_severity_key(severity)
+            ++ " finding on the lines this covers; none.",
+          BendSourceSpan{path, beg, end},
+          []
+        }
+      }
+    case Directive{action, scope, rule, severity, Comment{beg, end, line, trailing, body}}:
+      RuleFinding{
+        "bend-lint/unused-disable",
+        Finding{
+          Warning{},
+          "This disables " ++ rule ++ ", but nothing on the lines it covers needs it.",
+          BendSourceSpan{path, beg, end},
+          []
+        }
+      }
+
+def get_directive_rule(d: Directive) -> String:
+  match d:
+    case Directive{action, scope, rule, severity, comment}:
+      rule
+
+# The directives of a file that covered nothing, of rules that ran to their end there (`ran`, and not `crashed`).
+def get_unmet(
+  coverings: List<&2, Covering>,
+  +path: String,
+  +used: List<&2, Used>,
+  +ran: List<&2, String>,
+  +crashed: List<&2, String>
+) -> List<&2, RuleFinding>:
+  match coverings:
+    case Nil{}:
+      []
+    case Con{Covering{+i, +d, from, to}, t}:
+      +rule = get_directive_rule(d)
+      get_kept(
+        RuleFinding,
+        Bool.not(
+          get_is_used(used, path, i)
+        )
+          && get_has_text(ran, rule)
+          && Bool.not(get_has_text(crashed, path ++ " " ++ rule)),
+        get_unmet_finding(path, d),
+        get_unmet(t, path, used, ran, crashed)
+      )
+
+def get_files_unmet(
+  files: List<&2, FileDirectives>,
+  +used: List<&2, Used>,
+  +ran: List<&2, String>,
+  +crashed: List<&2, String>
+) -> List<&2, RuleFinding>:
+  match files:
+    case Nil{}:
+      []
+    case Con{FileDirectives{path, lines, coverings, wrong}, t}:
+      List.append(
+        &2,
+        RuleFinding,
+        get_unmet(coverings, path, used, ran, crashed),
+        get_files_unmet(t, used, ran, crashed)
+      )
+
+def get_files_wrong(files: List<&2, FileDirectives>) -> List<&2, RuleFinding>:
+  match files:
+    case Nil{}:
+      []
+    case Con{FileDirectives{path, lines, coverings, wrong}, t}:
+      List.append(&2, RuleFinding, wrong, get_files_wrong(t))
+
+# The rule a crash finding names: its message up to the first colon.
+def get_crash_rule(message: String) -> String:
+  match message:
+    case SNil{}:
+      ""
+    case SCon{':', rest}:
+      ""
+    case SCon{c, rest}:
+      SCon{c, get_crash_rule(rest)}
+
+# The file and rule of each rule that crashed, as `path rule`.
+def get_crashed(findings: List<&2, RuleFinding>) -> List<&2, String>:
+  match findings:
+    case Nil{}:
+      []
+    case Con{
+      RuleFinding{
+        "bend-lint/rule-crash",
+        Finding{s, message, BendSourceSpan{path, beg, end}, fixes}
+      },
+      t
+    }:
+      (path ++ " " ++ get_crash_rule(message)) <> get_crashed(t)
+    case Con{f, t}:
+      get_crashed(t)
+
+def get_with_directives(
+  +source: BendSource,
+  +known: List<&2, String>,
+  +done: List<&2, FileDirectives>
+) -> List<&2, FileDirectives>:
+  match source:
+    case BendSource{path, text, lines}:
+      Bool.pick(
+        List<&2, FileDirectives>,
+        String.contains(text, "bend-lint:"),
+        get_file_directives(source, known) <> done,
+        done
+      )
+
+def get_linted_directives(
+  linted: List<&2, BendSource>,
+  +known: List<&2, String>
+) -> List<&2, FileDirectives>:
+  match linted:
+    case Nil{}:
+      []
+    case Con{s, t}:
+      get_with_directives(s, known, get_linted_directives(t, known))
+
+def get_suppression.split(
+  s: SuppressState,
+  +files: List<&2, FileDirectives>,
+  +ran: List<&2, String>,
+  +crashed: List<&2, String>
+) -> List<&2, RuleFinding>
+  & List<&2, RuleFinding>:
+  match s:
+    case SuppressState{kept, suppressed, +used}:
+      (
+        List.append(
+          &2,
+          RuleFinding,
+          List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, kept), get_files_wrong(files)),
+          get_files_unmet(files, used, ran, crashed)
+        ),
+        List.reverse(&2, RuleFinding, suppressed)
+      )
+
+# The findings that stay, with the findings about the directives of the linted files, and those a directive covers.
+# A directive that covered nothing is reported only where its rule ran to its end (`ran`, minus the rules that
+# crashed).
+def get_suppression(
+  +findings: List<&2, RuleFinding>,
+  linted: List<&2, BendSource>,
+  +known: List<&2, String>,
+  +ran: List<&2, String>
+) -> List<&2, RuleFinding>
+  & List<&2, RuleFinding>:
+  +files = get_linted_directives(linted, known)
+  get_suppression.split(
+    get_suppressing(findings, files, SuppressState{[], [], []}),
+    files,
+    ran,
+    get_crashed(findings)
+  )
+
 def get_check_failures(checks: List<&2, BendCheck>) -> List<&2, RuleFinding>:
   match checks:
     case Nil{}:
@@ -1138,6 +2404,18 @@ def get_rules_off(partial: Bool, +every: List<&2, String>) -> List<&2, String>:
 
 # The report on the file at `named`, over `checks`, the first holding the file: `failures` are the failed checks'
 # findings, and `partial` tells whether an entry that reads the file failed its check, so that no `every` rule runs.
+# The directives of the linted files then suppress findings, and their problems are findings too.
+def get_lint_report.made(
+  split: List<&2, RuleFinding> & List<&2, RuleFinding>,
+  linted: List<&2, BendSource>
+) -> LintReport:
+  match split:
+    case (findings, suppressed):
+      LintReport{findings, suppressed, linted}
+
+def get_rule_ids(rules: List<&1, Rule>) -> List<&2, String>:
+  get_head_ids(get_rule_heads(rules))
+
 def get_lint_report(
   ~rules: Unit -> List<&1, Rule>,
   checks: List<&2, BendCheck>,
@@ -1158,32 +2436,36 @@ def get_lint_report(
       +heads = get_check_heads(failure, get_rule_heads(rules(Unit{})))
       +every = get_every_ids(rules(Unit{}))
       +done = List.append(&2, String, get_off_ids(settings), get_rules_off(partial, every))
-      LintReport{
-        List.append(
-          &2,
-          RuleFinding,
-          failures,
-          get_homed(
-            linted_paths,
-            get_lint_findings(
-              ~rules,
-              (1n + List.length(&2, RuleHead, heads): Nat),
-              get_ready_ids(heads, done),
-              heads,
-              done,
-              [],
-              get_file_places(linted),
-              first <> rest,
-              first,
+      get_lint_report.made(
+        get_suppression(
+          List.append(
+            &2,
+            RuleFinding,
+            failures,
+            get_homed(
               linted_paths,
-              settings,
-              every
+              get_lint_findings(
+                ~rules,
+                (1n + List.length(&2, RuleHead, heads): Nat),
+                get_ready_ids(heads, done),
+                heads,
+                done,
+                [],
+                get_file_places(linted),
+                first <> rest,
+                first,
+                linted_paths,
+                settings,
+                every
+              )
             )
-          )
+          ),
+          linted,
+          get_rule_ids(rules(Unit{})),
+          get_texts_where(False{}, get_head_ids(heads), done)
         ),
-        [],
         linted
-      }
+      )
     case Nil{} c:
       LintReport{failures, [], []}
 
@@ -1340,14 +2622,6 @@ def get_linter_check(check: BendCheck) -> BendCheck:
         get_linter_source_declarations(declarations),
         get_posix_paths(program_paths)
       }
-
-def get_code(c: Char) -> U32:
-  match c:
-    case Chr{code}:
-      code
-
-def get_is_between(+x: U32, lo: U32, hi: U32) -> Bool:
-  U32.is_ge(x, lo) && U32.is_le(x, hi)
 
 def get_json_blank(+s: String) -> String:
   match s:
@@ -1585,24 +2859,6 @@ def get_whole(+s: String) -> Maybe<&2, U32>:
       None{}
     case _:
       get_whole.go(s, 0)
-
-def get_severity_named(+name: String) -> Maybe<&2, FindingSeverity>:
-  Bool.pick(
-    Maybe<&2, FindingSeverity>,
-    String.eq(name, "error"),
-    Some{Error{}},
-    Bool.pick(
-      Maybe<&2, FindingSeverity>,
-      String.eq(name, "warning"),
-      Some{Warning{}},
-      Bool.pick(
-        Maybe<&2, FindingSeverity>,
-        String.eq(name, "information"),
-        Some{Information{}},
-        Bool.pick(Maybe<&2, FindingSeverity>, String.eq(name, "hint"), Some{Hint{}}, None{})
-      )
-    )
-  )
 
 def get_option_number(+key: String, m: Maybe<&2, U32>) -> Result<&1, &1, String, OptionGiven>:
   match m:
@@ -2073,67 +3329,72 @@ def get_flag_error(+flag: String) -> String:
   Bool.pick(
     String,
     get_has_text(
-      [
-        "--fix",
-        "--fix-dangerously",
-        "--json",
-        "--show-suppressed",
-        "--no-fix",
-        "--no-fix-dangerously",
-        "--no-json",
-        "--no-show-suppressed"
-      ],
+      ["--fix", "--fix-dangerously", "--json", "--no-fix", "--no-fix-dangerously", "--no-json"],
       flag
     ),
     flag ++ " is not supported yet",
     "unknown option " ++ flag
   )
 
-def get_cli_command.go(
-  args: List<String>,
-  files: List<&2, String>,
-  rules: List<&2, String>,
-  config: Maybe<&2, String>,
-  imports: Maybe<&2, Bool>
-) -> Result<&1, &1, String, CliCommand>:
-  match args:
-    case Nil{}:
+def get_shown_suppressed(show: Bool, output: CliOutput) -> CliOutput:
+  match output:
+    case CliTextOutput{old}:
+      CliTextOutput{show}
+    case CliJsonOutput{}:
+      CliJsonOutput{}
+
+# The command `args` give, after what `acc` holds: its files and rule files last first.
+def get_cli_command.go(args: List<String>, acc: CliCommand) -> Result<&1, &1, String, CliCommand>:
+  match args acc:
+    case Nil{} CliLint{files, rules, config, imports, fix, output}:
       Done{
         CliLint{
           List.reverse(&2, String, files),
           List.reverse(&2, String, rules),
           config,
           imports,
-          None{},
-          CliTextOutput{False{}}
+          fix,
+          output
         }
       }
-    case Con{"--rules", Con{x, t}}:
-      get_cli_command.go(t, files, x <> rules, config, imports)
-    case Con{"--config", Con{x, t}}:
-      get_cli_command.go(t, files, rules, Some{x}, imports)
-    case Con{"--config", Nil{}}:
-      Fail{"--config needs a config file"}
-    case Con{"--imports", t}:
-      get_cli_command.go(t, files, rules, config, Some{True{}})
-    case Con{"--no-imports", t}:
-      get_cli_command.go(t, files, rules, config, Some{False{}})
-    case Con{"--rules", Nil{}}:
+    case Con{"--rules", Con{x, t}} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, x <> rules, config, imports, fix, output})
+    case Con{"--rules", Nil{}} c:
       Fail{"--rules needs a rule file"}
-    case Con{"--help", t}:
+    case Con{"--config", Con{x, t}} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, Some{x}, imports, fix, output})
+    case Con{"--config", Nil{}} c:
+      Fail{"--config needs a config file"}
+    case Con{"--imports", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, Some{True{}}, fix, output})
+    case Con{"--no-imports", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, Some{False{}}, fix, output})
+    case Con{"--show-suppressed", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(
+        t,
+        CliLint{files, rules, config, imports, fix, get_shown_suppressed(True{}, output)}
+      )
+    case Con{"--no-show-suppressed", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(
+        t,
+        CliLint{files, rules, config, imports, fix, get_shown_suppressed(False{}, output)}
+      )
+    case Con{"--help", t} c:
       Done{CliHelp{}}
-    case Con{"-h", t}:
+    case Con{"-h", t} c:
       Done{CliHelp{}}
-    case Con{+h, t}:
+    case Con{+h, t} CliLint{files, rules, config, imports, fix, output}:
       Bool.pick(
         Result<&1, &1, String, CliCommand>,
         String.starts_with(h, "-"),
         Fail{get_flag_error(h)},
-        get_cli_command.go(t, h <> files, rules, config, imports)
+        get_cli_command.go(t, CliLint{h <> files, rules, config, imports, fix, output})
       )
+    case _ CliHelp{}:
+      Done{CliHelp{}}
 
 def get_cli_command(args: List<String>) -> Result<&1, &1, String, CliCommand>:
-  get_cli_command.go(args, [], [], None{}, None{})
+  get_cli_command.go(args, CliLint{[], [], None{}, None{}, None{}, CliTextOutput{False{}}})
 
 def get_linter_paths.one(r: Result<&1, &1, U32 & String, String>) -> IO(String):
   match r:
@@ -2161,13 +3422,6 @@ def get_linter_paths(paths: List<&2, String>, done: List<&2, String>) -> IO(List
         path => get_linter_paths(t, path <> done)
       )
 
-def get_tally(tally: LintTally, severity: FindingSeverity) -> LintTally:
-  match tally severity:
-    case LintTally{count, failed} Error{}:
-      LintTally{(1n + count: Nat), True{}}
-    case LintTally{count, failed} _:
-      LintTally{(1n + count: Nat), failed}
-
 def get_fix_lines(fixes: List<&2, Fix>) -> String:
   match fixes:
     case Nil{}:
@@ -2177,32 +3431,33 @@ def get_fix_lines(fixes: List<&2, Fix>) -> String:
     case Con{Fix{title, Dangerous{}, edits}, t}:
       "\n  fix: " ++ title ++ " [dangerous]" ++ get_fix_lines(t)
 
-def print_findings(findings: List<&2, RuleFinding>, tally: LintTally) -> IO(LintTally):
-  match findings:
+def get_finding_text(f: RuleFinding) -> String:
+  match f:
+    case RuleFinding{rule_id, Finding{severity, message, BendSourceSpan{path, beg, end}, fixes}}:
+      path ++ ":" ++ U32.show(beg) ++ ": " ++ rule_id ++ ": " ++ message ++ get_fix_lines(fixes)
+
+def print_lines(lines: List<&2, String>) -> IO(Unit):
+  match lines:
     case Nil{}:
-      IO.pure(LintTally, tally)
+      IO.pure(Unit, Unit{})
+    case Con{h, t}:
+      IO.bind(Unit, Unit, IO.print(h), u => print_lines(t))
+
+def get_finding_texts(fs: List<&2, RuleFinding>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      []
     case Con{f, t}:
-      match f:
-        case RuleFinding{rule_id, finding}:
-          match finding:
-            case Finding{severity, message, span, fixes}:
-              match span:
-                case BendSourceSpan{path, beg, end}:
-                  IO.bind(
-                    Unit,
-                    LintTally,
-                    IO.print(
-                      path
-                        ++ ":"
-                        ++ U32.show(beg)
-                        ++ ": "
-                        ++ rule_id
-                        ++ ": "
-                        ++ message
-                        ++ get_fix_lines(fixes)
-                    ),
-                    u => print_findings(t, get_tally(tally, severity))
-                  )
+      get_finding_text(f) <> get_finding_texts(t)
+
+def get_has_error(fs: List<&2, RuleFinding>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Con{RuleFinding{id, Finding{Error{}, m, s, x}}, t}:
+      True{}
+    case Con{f, t}:
+      get_has_error(t)
 
 def get_report_findings(report: LintReport) -> List<&2, RuleFinding>:
   match report:
@@ -2484,9 +3739,6 @@ def get_setting_problems(
         ),
         get_setting_problems(t, settings)
       )
-
-def get_rule_ids(rules: List<&1, Rule>) -> List<&2, String>:
-  get_head_ids(get_rule_heads(rules))
 
 def get_rule_file_paths(files: List<&2, RuleFile>) -> List<&2, String>:
   match files:
@@ -2835,33 +4087,98 @@ def lint_job(~rules: Unit -> List<&1, Rule>, job: LintJob, +needs: CheckNeeds) -
         }
       )
 
-def lint_jobs.finish(tally: LintTally) -> IO(Unit):
+def get_summary(failed: Bool, +found: Nat, +suppressed: Nat) -> String:
+  match failed:
+    case True{}:
+      "bend-lint: FAIL"
+    case False{}:
+      "bend-lint: "
+        ++ Nat.show(found)
+        ++ " finding(s)"
+        ++ Bool.pick(
+          String,
+          Nat.is_eq(suppressed, 0n),
+          "",
+          ", " ++ Nat.show(suppressed) ++ " suppressed"
+        )
+
+def get_suppressed_lines(show: Bool, fs: List<&2, RuleFinding>) -> List<&2, String>:
+  match show fs:
+    case True{} Con{h, t}:
+      "bend-lint: suppressed" <> get_finding_texts(h <> t)
+    case _ _:
+      []
+
+def get_shows_suppressed(output: CliOutput) -> Bool:
+  match output:
+    case CliTextOutput{show}:
+      show
+    case CliJsonOutput{}:
+      False{}
+
+def lint_jobs.exit(failed: Bool) -> IO(Unit):
+  match failed:
+    case True{}:
+      IO.die(Unit, 1, "")
+    case False{}:
+      IO.pure(Unit, Unit{})
+
+# Prints what every report found, and fails when a finding is an error.
+def lint_jobs.finish(output: CliOutput, tally: LintTally) -> IO(Unit):
   match tally:
-    case LintTally{count, True{}}:
-      IO.die(Unit, 1, "bend-lint: FAIL")
-    case LintTally{count, False{}}:
-      IO.print("bend-lint: " ++ Nat.show(count) ++ " finding(s)")
+    case LintTally{found, suppressed}:
+      +all = List.reverse(&2, RuleFinding, found)
+      +hidden = List.reverse(&2, RuleFinding, suppressed)
+      +failed = get_has_error(all)
+      IO.bind(
+        Unit,
+        Unit,
+        print_lines(
+          List.append(
+            &2,
+            String,
+            List.append(
+              &2,
+              String,
+              get_finding_texts(all),
+              get_suppressed_lines(get_shows_suppressed(output), hidden)
+            ),
+            [
+              get_summary(
+                failed,
+                List.length(&2, RuleFinding, all),
+                List.length(&2, RuleFinding, hidden)
+              )
+            ]
+          )
+        ),
+        u => lint_jobs.exit(failed)
+      )
+
+def get_tallied(report: LintReport, tally: LintTally) -> LintTally:
+  match report tally:
+    case LintReport{findings, suppressed, linted} LintTally{f, s}:
+      LintTally{
+        List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, findings), f),
+        List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, suppressed), s)
+      }
 
 def lint_jobs(
   ~rules: Unit -> List<&1, Rule>,
   jobs: List<&2, LintJob>,
   +needs: CheckNeeds,
+  output: CliOutput,
   tally: LintTally
 ) -> IO(Unit):
   match jobs:
     case Nil{}:
-      lint_jobs.finish(tally)
+      lint_jobs.finish(output, tally)
     case Con{j, t}:
       IO.bind(
-        LintTally,
+        LintReport,
         Unit,
-        IO.bind(
-          LintReport,
-          LintTally,
-          IO.bind(LintReport, LintReport, lint_job(~rules, j, needs), get_checked_report),
-          report => print_findings(get_report_findings(report), tally)
-        ),
-        next => lint_jobs(~rules, t, needs, next)
+        IO.bind(LintReport, LintReport, lint_job(~rules, j, needs), get_checked_report),
+        report => lint_jobs(~rules, t, needs, output, get_tallied(report, tally))
       )
 
 def serve.problems(problems: List<&2, String>) -> IO(Unit):
@@ -2894,7 +4211,11 @@ def get_order_lines(problems: List<&2, String>) -> List<&2, String>:
     case Con{h, t}:
       ["the order of the rules is broken:\n" ++ String.join(h <> t, "\n")]
 
-def serve.jobs(~rules: Unit -> List<&1, Rule>, +jobs: List<&2, LintJob>) -> IO(Unit):
+def serve.jobs(
+  ~rules: Unit -> List<&1, Rule>,
+  +jobs: List<&2, LintJob>,
+  output: CliOutput
+) -> IO(Unit):
   +heads = get_rule_heads(rules(Unit{}))
   IO.bind(
     Unit,
@@ -2920,7 +4241,8 @@ def serve.jobs(~rules: Unit -> List<&1, Rule>, +jobs: List<&2, LintJob>) -> IO(U
         get_heads_need(heads, BodiesNeed{}),
         get_heads_need(heads, FactsNeed{})
       },
-      LintTally{0n, False{}}
+      output,
+      LintTally{[], []}
     )
   )
 
@@ -2930,7 +4252,8 @@ def serve.compiled(
   +given: List<&2, String>,
   +configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
-  +compiled: List<&2, RuleFile>
+  +compiled: List<&2, RuleFile>,
+  output: CliOutput
 ) -> IO(Unit):
   IO.bind(
     Unit,
@@ -2947,7 +4270,7 @@ def serve.compiled(
       List<&2, LintJob>,
       Unit,
       get_jobs(targets, configs, given, imports, compiled, []),
-      jobs => serve.jobs(~rules, jobs)
+      jobs => serve.jobs(~rules, jobs, output)
     )
   )
 
@@ -2960,11 +4283,12 @@ def serve.choose(
   given: List<&2, String>,
   configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
-  compiled: List<&2, RuleFile>
+  compiled: List<&2, RuleFile>,
+  output: CliOutput
 ) -> IO(Unit):
   match same:
     case True{}:
-      serve.compiled(~rules, targets, given, configs, imports, compiled)
+      serve.compiled(~rules, targets, given, configs, imports, compiled, output)
     case False{}:
       restart_with_rules(wanted)
 
@@ -2974,7 +4298,8 @@ def serve.configured(
   +given: List<&2, String>,
   +configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
-  +compiled: List<&2, RuleFile>
+  +compiled: List<&2, RuleFile>,
+  output: CliOutput
 ) -> IO(Unit):
   +wanted = get_unique_texts(List.append(&2, String, given, get_config_loads(configs)), [])
   serve.choose(
@@ -2985,7 +4310,8 @@ def serve.configured(
     given,
     configs,
     imports,
-    compiled
+    compiled,
+    output
   )
 
 def serve.targets(
@@ -2994,7 +4320,8 @@ def serve.targets(
   given: List<&2, String>,
   config: Maybe<&2, String>,
   imports: Maybe<&2, Bool>,
-  compiled: List<&2, RuleFile>
+  compiled: List<&2, RuleFile>,
+  output: CliOutput
 ) -> IO(Unit):
   IO.bind(
     List<&2, ConfigFile>,
@@ -3005,7 +4332,7 @@ def serve.targets(
       get_file_configs(config, get_target_paths(targets), []),
       configs => get_configs_resolved(configs, [])
     ),
-    configs => serve.configured(~rules, targets, given, configs, imports, compiled)
+    configs => serve.configured(~rules, targets, given, configs, imports, compiled, output)
   )
 
 def serve.command(
@@ -3033,7 +4360,7 @@ def serve.command(
               Maybe<&2, String>,
               Unit,
               get_config_given(config),
-              c => serve.targets(~rules, targets, given, c, imports, compiled)
+              c => serve.targets(~rules, targets, given, c, imports, compiled, output)
             )
           )
         )

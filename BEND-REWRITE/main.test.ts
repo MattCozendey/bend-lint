@@ -164,6 +164,32 @@ const RULES = {
   "some.bend": rule("test/some", "ProgramSomeScope", "each_at(declarations, c)"),
   "every.bend": rule("test/every", "ProgramEveryScope", "each_at(declarations, c)"),
   "width.bend": WIDTH,
+  // A warning at the start of each line that holds `zap`.
+  "mark.bend": [
+    "import Base",
+    `import ${LINT} as Lint`,
+    "",
+    "def marked(lines: List<&2, String>, +at: U32, +path: String) -> List<&2, Lint.Finding>:",
+    "  match lines:",
+    "    case Nil{}:",
+    "      []",
+    "    case Con{+h, t}:",
+    "      Lint.get_kept(",
+    "        Lint.Finding,",
+    '        String.contains(h, "zap"),',
+    '        Lint.Finding{Lint.Warning{}, "zap", Lint.BendSourceSpan{path, at, at}, []},',
+    "        marked(t, U32.add(U32.add(at, U32.from_nat(String.length(h))), 1), path)",
+    "      )",
+    "",
+    "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+    "  match input:",
+    "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, declarations}:",
+    "      marked(lines, 0, path)",
+    "",
+    "def rules() -> List<&1, Lint.Rule>:",
+    '  [Lint.Rule{"test/mark", Lint.FileScope{}, [], [], [], run}]',
+    "",
+  ].join("\n"),
 };
 
 // main.bend imports util.bend, which imports other.bend and does not use it.
@@ -403,5 +429,98 @@ describe("entries", () => {
       ).found.map((f) => f.code);
     expect(run("every.bend")).toEqual(["bend/check"]);
     expect(run("some.bend")).toEqual(["bend/check", "test/some"]);
+  });
+});
+
+describe("directives", () => {
+  // The findings of test/mark on `body`, after `import Base`, with the suppressed ones shown.
+  const marked = (body: string) => {
+    const out = lintRun(dir, { ...RULES, "marked.bend": "import Base\n\n" + body }, "marked.bend", [
+      "--rules",
+      path.join(dir, "mark.bend"),
+      "--show-suppressed",
+    ]);
+    const brief = (fs: Found[]) => fs.map(({ code, text, fixes }) => ({ code, text, fixes }));
+    return { found: brief(out.found), suppressed: brief(out.suppressed), code: out.code };
+  };
+  const zap = (name: string): string => `def ${name}() -> U32:\n  1\n`;
+
+  test("disable-next suppresses the finding on the next line with code", () => {
+    const out = marked("# bend-lint: disable-next test/mark -- a sample\n\n" + zap("zap_a"));
+    expect(out.found).toEqual([]);
+    expect(out.suppressed.map((f) => f.text)).toEqual(["def zap_a() -> U32:"]);
+  });
+
+  test("disable-line suppresses the finding on its own line", () => {
+    const out = marked(
+      "def zap_a() -> U32: # bend-lint: disable-line test/mark -- a sample\n  1\n" + zap("zap_b"),
+    );
+    expect(out.found.map((f) => f.text)).toEqual(["def zap_b() -> U32:"]);
+  });
+
+  test("disable-begin and disable-end suppress the lines between them", () => {
+    const out = marked(
+      "# bend-lint: disable-begin test/mark -- a sample\n" +
+        zap("zap_a") +
+        zap("zap_b") +
+        "# bend-lint: disable-end test/mark\n" +
+        zap("zap_c"),
+    );
+    expect(out.found.map((f) => f.text)).toEqual(["def zap_c() -> U32:"]);
+    expect(out.suppressed.length).toBe(2);
+  });
+
+  test("disable-file suppresses the whole file", () => {
+    expect(
+      marked("# bend-lint: disable-file test/mark -- a sample\n" + zap("zap_a") + zap("zap_b"))
+        .found,
+    ).toEqual([]);
+  });
+
+  test("a met expect is quiet; an unmet one is an error", () => {
+    expect(
+      marked("# bend-lint: expect-next test/mark@warning -- a sample\n" + zap("zap_a")).found,
+    ).toEqual([]);
+    const unmet = marked("# bend-lint: expect-next test/mark@warning -- a sample\n" + zap("quiet"));
+    expect(unmet.found.map((f) => f.code)).toEqual(["bend-lint/unmet-expectation"]);
+    expect(unmet.code).toBe(1);
+  });
+
+  test("an expect of another severity is unmet, and the finding stays", () => {
+    expect(
+      marked("# bend-lint: expect-next test/mark@hint -- a sample\n" + zap("zap_a")).found.map(
+        (f) => f.code,
+      ),
+    ).toEqual(["test/mark", "bend-lint/unmet-expectation"]);
+  });
+
+  test("a disable that covers nothing is a warning", () => {
+    expect(
+      marked("# bend-lint: disable-next test/mark -- a sample\n" + zap("quiet")).found.map(
+        (f) => f.code,
+      ),
+    ).toEqual(["bend-lint/unused-disable"]);
+  });
+
+  test("a directive without a reason, or for no rule, is an error", () => {
+    expect(
+      marked("# bend-lint: disable-next test/mark\n" + zap("quiet")).found.map((f) => f.code),
+    ).toEqual(["bend-lint/directive"]);
+    const unknown = marked("# bend-lint: disable-next no/such -- a sample\n" + zap("quiet"));
+    expect(unknown.found.map((f) => f.code)).toEqual(["bend-lint/directive"]);
+  });
+
+  test("stacked directives out of order are an error, with a safe fix", () => {
+    const out = marked(
+      "# bend-lint: expect-next test/mark@warning -- one\n# bend-lint: disable-next test/mark -- two\n" +
+        zap("zap_a"),
+    );
+    expect(out.found).toEqual([
+      {
+        code: "bend-lint/directive",
+        text: "# bend-lint: expect-next test/mark@warning -- one",
+        fixes: ["Sort the directives [safe]"],
+      },
+    ]);
   });
 });
