@@ -151,7 +151,7 @@ def get_unused_imports(
         case _:
           get_unused_imports(rest, all, fuel, lines, size)
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
     case Lint.RuleInput{root, sources, options, prior, +all}:
       match root:
@@ -163,6 +163,9 @@ def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
             lines,
             U32.from_nat(String.length(text))
           )
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
+  Lint.RuleDone{lint(input)}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"no-unused/imports", Lint.FileScope{}, [], [], [Lint.DeclarationsNeed{}], run}]

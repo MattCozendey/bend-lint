@@ -32,7 +32,15 @@ function bendlint_delete_file(path) {
   return globalThis.BEND_HOST.ask({ op: "delete", path });
 }
 
+function bendlint_get_type_answers(questions) {
+  return globalThis.BEND_HOST.ask({
+    op: "types",
+    questions: globalThis.BEND_HOST.plain(questions),
+  });
+}
+
 io_eff(CID(get_check), bendlint_get_check);
+io_eff(CID(get_type_answers), bendlint_get_type_answers);
 io_eff(CID(rename_file), bendlint_rename_file);
 io_eff(CID(delete_file), bendlint_delete_file);
 io_eff(CID(get_glob), bendlint_get_glob);

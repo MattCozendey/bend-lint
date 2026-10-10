@@ -53,12 +53,15 @@ const rule = (id: string, scope: string, body: string): string =>
     "    case Con{Lint.BendSource{+path, text, lines}, t}:",
     '      Lint.get_kept(Lint.Finding, Bool.not(String.eq(path, root)), at(path, "here"), others(t, root))',
     "",
-    "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+    "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
     "  match input:",
     "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, +declarations}:",
     "      +n = Nat.show(List.length(&2, Lint.SourceDeclarations, declarations))",
     "      +c = U32.from_nat(List.length(&2, Lint.SourceDeclarations, declarations))",
     `      ${body}`,
+    "",
+    "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
+    "  Lint.RuleDone{lint(input)}",
     "",
     "def rules() -> List<&1, Lint.Rule>:",
     `  [Lint.Rule{"${id}", Lint.${scope}{}, [], [], [Lint.DeclarationsNeed{}], run}]`,
@@ -78,19 +81,23 @@ const WIDTH = [
   "    case _:",
   '      "none"',
   "",
-  "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+  "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
   "  match input:",
   "    case Lint.RuleInput{Lint.BendSource{path, text, lines}, sources, options, prior, declarations}:",
   "      [Lint.Finding{Lint.Hint{}, width(options), Lint.BendSourceSpan{path, 0, 0}, []}]",
+  "",
+  "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
+  "  Lint.RuleDone{lint(input)}",
   "",
   "def rules() -> List<&1, Lint.Rule>:",
   '  [Lint.Rule{"test/width", Lint.FileScope{}, [Lint.OptionDeclared{"width", Lint.NumberValue{2}, Lint.NumberSpec{1, 10}}], [], [], run}]',
   "",
 ].join("\n");
 
-// A rule that needs `need`, and reports each variable the checker checked
-// in its file: its name, type and quantity.
-const typesRule = (need: string): string =>
+// A rule `id` that needs `need`; `run`, after `helpers`, gives its step from
+// `seen`: each variable the checker checked in its file, with its quantity,
+// span, type and binder's type.
+const varsRule = (id: string, need: string, helpers: string[], run: string): string =>
   [
     "import Base",
     `import ${LINT} as Lint`,
@@ -104,13 +111,19 @@ const typesRule = (need: string): string =>
     "    case Lint.ManyQuantity{}:",
     '      "many"',
     "",
-    "def found(t: Lint.BendTerm, done: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:",
+    "type Seen is Data:",
+    "  Seen{",
+    "    name: String,",
+    "    quantity: String,",
+    "    span: Lint.BendSourceSpan,",
+    "    checked: Lint.BendType,",
+    "    binder: Maybe<&2, Lint.BendType>",
+    "  }",
+    "",
+    "def found(t: Lint.BendTerm, done: List<&2, Seen>) -> List<&2, Seen>:",
     "  match t:",
-    "    case Lint.CheckedTerm{",
-    "      Lint.VariableTerm{name, Some{span}},",
-    "      Lint.TermFact{Lint.BendType{id, shown, term}, q, uses, binder}",
-    "    }:",
-    '      Lint.Finding{Lint.Hint{}, name ++ ": " ++ shown ++ ", " ++ quantity(q), span, []} <> done',
+    "    case Lint.CheckedTerm{Lint.VariableTerm{name, Some{span}}, Lint.TermFact{checked, q, uses, binder}}:",
+    "      Seen{name, quantity(q), span, checked, binder} <> done",
     "    case Lint.CheckedTerm{term, fact}:",
     "      found(term, done)",
     "    case Lint.LambdaTerm{name, body, span}:",
@@ -124,31 +137,108 @@ const typesRule = (need: string): string =>
     "    case _:",
     "      done",
     "",
-    "def each(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.Finding>:",
+    "def each(ds: List<&2, Lint.Declaration>) -> List<&2, Seen>:",
     "  match ds:",
     "    case Nil{}:",
     "      []",
     "    case Con{Lint.Declaration{name, span, references, Lint.DefDeclaration{fills, written, Some{body}}}, t}:",
-    "      List.append(&2, Lint.Finding, List.reverse(&2, Lint.Finding, found(body, [])), each(t))",
+    "      List.append(&2, Seen, List.reverse(&2, Seen, found(body, [])), each(t))",
     "    case Con{d, t}:",
     "      each(t)",
     "",
-    "def all(sources: List<&2, Lint.SourceDeclarations>) -> List<&2, Lint.Finding>:",
+    "def all(sources: List<&2, Lint.SourceDeclarations>) -> List<&2, Seen>:",
     "  match sources:",
     "    case Nil{}:",
     "      []",
     "    case Con{Lint.SourceDeclarations{path, ds}, t}:",
-    "      List.append(&2, Lint.Finding, each(ds), all(t))",
+    "      List.append(&2, Seen, each(ds), all(t))",
     "",
-    "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+    ...helpers,
+    "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
     "  match input:",
     "    case Lint.RuleInput{root, sources, options, prior, declarations}:",
-    "      all(declarations)",
+    "      +seen = all(declarations)",
+    `      ${run}`,
     "",
     "def rules() -> List<&1, Lint.Rule>:",
-    `  [Lint.Rule{"test/types", Lint.FileScope{}, [], [], [Lint.${need}{}], run}]`,
+    `  [Lint.Rule{"${id}", Lint.FileScope{}, [], [], [Lint.${need}{}], run}]`,
     "",
   ].join("\n");
+
+// A rule that needs `need`, and reports each variable the checker checked
+// in its file: its name, type and quantity.
+const typesRule = (need: string): string =>
+  varsRule(
+    "test/types",
+    need,
+    [
+      "def asked(seen: List<&2, Seen>) -> List<&2, Lint.TypeQuestion>:",
+      "  match seen:",
+      "    case Nil{}:",
+      "      []",
+      "    case Con{Seen{name, quantity, span, checked, binder}, t}:",
+      "      Lint.ShowType{checked} <> asked(t)",
+      "",
+      "def shown(seen: List<&2, Seen>, answers: List<&2, Lint.TypeAnswer>) -> List<&2, Lint.Finding>:",
+      "  match seen answers:",
+      "    case Con{Seen{name, quantity, span, checked, binder}, t} Con{Lint.ShownAnswer{text}, u}:",
+      '      Lint.Finding{Lint.Hint{}, name ++ ": " ++ text ++ ", " ++ quantity, span, []} <> shown(t, u)',
+      "    case _ _:",
+      "      []",
+      "",
+    ],
+    "Lint.RuleAsk{asked(seen), answers => Lint.RuleDone{shown(seen, answers)}}",
+  );
+
+// A rule that reports, at the first variable the checker checked, whether
+// its type is the same as its binder's, then its type, its binder's and the
+// binder's normal form, as shown: it asks twice.
+const SAME = varsRule(
+  "test/same",
+  "FactsNeed",
+  [
+    "def said(same: Bool) -> String:",
+    "  match same:",
+    "    case True{}:",
+    '      "same"',
+    "    case False{}:",
+    '      "not same"',
+    "",
+    "def shown(answers: List<&2, Lint.TypeAnswer>, span: Lint.BendSourceSpan, same: Bool) -> List<&2, Lint.Finding>:",
+    "  match answers:",
+    "    case Con{Lint.ShownAnswer{a}, Con{Lint.ShownAnswer{b}, Con{Lint.ShownAnswer{c}, rest}}}:",
+    '      [Lint.Finding{Lint.Hint{}, said(same) ++ ": " ++ a ++ ", " ++ b ++ ", " ++ c, span, []}]',
+    "    case _:",
+    "      []",
+    "",
+    "def second(",
+    "  answers: List<&2, Lint.TypeAnswer>,",
+    "  span: Lint.BendSourceSpan,",
+    "  checked: Lint.BendType,",
+    "  binder: Lint.BendType",
+    ") -> Lint.RuleStep:",
+    "  match answers:",
+    "    case Con{Lint.SameAnswer{same}, Con{Lint.NormalAnswer{normal}, rest}}:",
+    "      Lint.RuleAsk{",
+    "        [Lint.ShowType{checked}, Lint.ShowType{binder}, Lint.ShowType{normal}],",
+    "        shown_answers => Lint.RuleDone{shown(shown_answers, span, same)}",
+    "      }",
+    "    case _:",
+    "      Lint.RuleDone{[]}",
+    "",
+    "def first(seen: List<&2, Seen>) -> Lint.RuleStep:",
+    "  match seen:",
+    "    case Con{Seen{name, quantity, span, +checked, Some{+binder}}, t}:",
+    "      Lint.RuleAsk{",
+    "        [Lint.SameTypes{checked, binder}, Lint.NormalType{binder}],",
+    "        answers => second(answers, span, checked, binder)",
+    "      }",
+    "    case _:",
+    "      Lint.RuleDone{[]}",
+    "",
+  ],
+  "first(seen)",
+);
 
 const RULES = {
   // Reports, at the start of its file, how many files it saw.
@@ -159,6 +249,7 @@ const RULES = {
   "elsewhere.bend": rule("test/elsewhere", "FileScope", "others(sources, path)"),
   "types.bend": typesRule("FactsNeed"),
   "untyped.bend": typesRule("BodiesNeed"),
+  "same.bend": SAME,
   // A program rule that reports in each file it saw, at as many characters as
   // it saw files: checks of different programs disagree on where.
   "some.bend": rule("test/some", "ProgramSomeScope", "each_at(declarations, c)"),
@@ -181,10 +272,13 @@ const RULES = {
     "        marked(t, U32.add(U32.add(at, U32.from_nat(String.length(h))), 1), path)",
     "      )",
     "",
-    "def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
+    "def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:",
     "  match input:",
     "    case Lint.RuleInput{Lint.BendSource{+path, text, lines}, sources, options, prior, declarations}:",
     "      marked(lines, 0, path)",
+    "",
+    "def run(input: Lint.RuleInput) -> Lint.RuleStep:",
+    "  Lint.RuleDone{lint(input)}",
     "",
     "def rules() -> List<&1, Lint.Rule>:",
     '  [Lint.Rule{"test/mark", Lint.FileScope{}, [], [], [], run}]',
@@ -290,6 +384,18 @@ describe("facts", () => {
 
   test("a rule that needs only bodies gets them without facts", () => {
     expect(facts("untyped.bend")).toEqual([]);
+  });
+
+  test("a rule can ask, again after the answers, whether types are the same as the checker compares them, and for a normal form", () => {
+    const named = {
+      "named.bend":
+        "import Base\n\ntype N is Data:\n  Z{}\n\ndef M() -> Type:\n  N\n\ndef id(x: M) -> N:\n  x\n\ndef main() -> N:\n  id(Z{})\n",
+    };
+    const found = lintIn(dir, { ...RULES, ...named }, "named.bend", [
+      "--rules",
+      path.join(dir, "same.bend"),
+    ]).map(({ text, message }) => ({ text, message }));
+    expect(found).toEqual([{ text: "x", message: "same: N, M, N" }]);
   });
 });
 

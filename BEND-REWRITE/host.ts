@@ -82,6 +82,7 @@ type Ask =
   | ({ op: "check"; path: string } & Want)
   | { op: "restart"; files: string[] }
   | { op: "glob"; pattern: string }
+  | { op: "types"; questions: Plain[] }
   | { op: "rename"; from: string; to: string }
   | { op: "delete"; path: string }
   | { op: "same"; path: string; text: string };
@@ -121,9 +122,9 @@ type Binding = {
   type?: Plain;
 };
 
-// A written type, as a type handle holds it: the type, the book and depth of
-// its scope.
-type Scoped = { ty: HTerm; bok: Book; dep: number };
+// A type a handle names: the type, the book and depth of its scope, and how
+// the file it is shown in spells names.
+type Typed = { ty: HTerm; bok: Book; dep: number; sp: Spelling };
 
 // A file of a check as a span of bend.ts's copy of it moves to: its path and
 // text on disk, and where its lines start in the copy and on disk.
@@ -138,7 +139,6 @@ type Checked = {
   headings: Heading[];
   imports: Imported[];
   placed: WeakMap<object, Placed | null>;
-  types: Scoped[];
   reports: WeakMap<object, Report>;
   declared: Map<string, string | undefined>;
   aliases?: Map<string, Record<Name, Name>>;
@@ -166,7 +166,9 @@ type Use = { key: Name; owner: Name; beg: number; end: number };
 // thread.
 type Start = Program & { args: string[]; port: MessagePort; flag: Int32Array };
 
-type Host = { ask: (ask: Ask) => unknown };
+// What the program's effects use: ask the main thread, and read a value of the
+// program as plain data.
+type Host = { ask: (ask: Ask) => unknown; plain: (x: unknown) => Plain };
 
 // Constants
 // =========
@@ -291,6 +293,9 @@ const PATCHES: Record<string, Patch> = {
 };
 
 const PATCHED = Object.keys(PATCHES);
+
+// The types the program has handles to, by handle.
+const TYPES: Typed[] = [];
 
 // The programs bend2 checks, by path: never on disk; fs below serves them.
 const PROGRAMS = new Map<string, string>();
@@ -997,23 +1002,58 @@ const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
       : { kids: children(t), term: other };
 };
 
-// A type as main.bend's BendType: a handle to it, as `sp` shows it, and as a
-// term, without spans.
-const typeOf = (m: Loaded, c: Checked, sp: Spelling, ty: HTerm, dep: number, bok: Book): Plain => {
-  const lowered = m.Bend.term_lower(ty, dep);
-  const term = (t: LTerm): Plain => {
-    const view = viewOf(m, sp, t);
+// A type as main.bend's BendType: a handle to it.
+const typeOf = (m: Loaded, c: Checked, sp: Spelling, ty: HTerm, dep: number, bok: Book): Plain => ({
+  $: "BendType",
+  id: TYPES.push({ ty, bok, dep, sp }) - 1,
+});
+
+// A type as a term, without spans.
+const termOfType = (m: Loaded, t: Typed): Plain => {
+  const term = (x: LTerm): Plain => {
+    const view = viewOf(m, t.sp, x);
     return view.term(
       view.kids.map((kid) => term(sourceTerm(kid))),
       { $: "None" },
     );
   };
-  return {
-    $: "BendType",
-    id: c.types.push({ ty, bok, dep }) - 1,
-    shown: m.Bend.term_show(lowered, -1, [], sp.shown),
-    term: term(sourceTerm(lowered)),
+  return term(sourceTerm(m.Bend.term_lower(t.ty, t.dep)));
+};
+
+// A type as its file shows it.
+const shownOf = (m: Loaded, t: Typed): string =>
+  m.Bend.term_show(m.Bend.term_lower(t.ty, t.dep), -1, [], t.sp.shown);
+
+// The answer to a rule's question about types, by their handles: whether two
+// are the same, as bend's checker compares them, how one is shown, one as a
+// term, or one's normal form.
+const answer = (m: Loaded, q: Plain): Plain => {
+  const handle = (x: Plain): Typed => {
+    const id = typeof x === "object" && !Array.isArray(x) ? x.id : undefined;
+    const t = typeof id === "number" ? TYPES[id] : undefined;
+    if (t === undefined) {
+      throw drift("a rule asked about a type with no handle; update BEND-REWRITE/host.ts");
+    }
+    return t;
   };
+  const asked = q as { $: string; a: Plain; b: Plain; of: Plain };
+  const a = asked.$ === "SameTypes" ? handle(asked.a) : handle(asked.of);
+  switch (asked.$) {
+    case "SameTypes":
+      return {
+        $: "SameAnswer",
+        same: m.Bend.term_compare("EQ", a.bok, a.ty, handle(asked.b).ty, a.dep),
+      };
+    case "ShowType":
+      return { $: "ShownAnswer", text: shownOf(m, a) };
+    case "TermOfType":
+      return { $: "TermAnswer", term: termOfType(m, a) };
+    default:
+      return {
+        $: "NormalAnswer",
+        normal: { $: "BendType", id: TYPES.push({ ...a, ty: m.Bend.term_snf(a.bok, a.ty) }) - 1 },
+      };
+  }
 };
 
 // What the checker found for a term: the type it was checked as, how often
@@ -1417,7 +1457,6 @@ const check = async (m: Loaded, file: string, want: Want): Promise<Plain> => {
       headings,
       imports,
       placed,
-      types: [],
       reports,
       declared: new Map(),
     });
@@ -1473,10 +1512,10 @@ type SampledTerm = {
   rest?: SampledTerm;
   term?: SampledTerm;
   fact?: {
-    checked_as: { shown: string };
+    checked_as: { id: number };
     quantity: { $: string };
     uses: Array<{ name: string; quantity: { $: string } }>;
-    binder: { value?: { shown: string } };
+    binder: { value?: { id: number } };
   };
 };
 
@@ -1492,7 +1531,7 @@ type Sampled = {
       kind: {
         $: string;
         owner?: string;
-        written_type?: { value?: { shown: string; term: { $: string } } };
+        written_type?: { value?: { id: number } };
         body?: { value?: SampledTerm };
       };
     }>;
@@ -1540,6 +1579,8 @@ const selfCheck = async (m: Loaded): Promise<void> => {
   const checkedOf = (terms: SampledTerm[], kind: string) =>
     terms.find((t) => t.$ === "CheckedTerm" && t.term?.$ === kind);
   const use = checkedOf(id, "VariableTerm");
+  const shown = (t: { id: number } | undefined) => (t === undefined ? "" : shownOf(m, TYPES[t.id]));
+  const written = x?.kind.written_type?.value;
   const used = use?.term?.span?.value;
   const checks: Array<[string, boolean]> = [
     ["check", run.failure.$ === "None"],
@@ -1548,7 +1589,9 @@ const selfCheck = async (m: Loaded): Promise<void> => {
     ["span", x !== undefined && SAMPLE_TEXT.slice(x.span.beg, x.span.end) === "x"],
     [
       "written type",
-      x?.kind.written_type?.value?.shown === "N" && x.kind.written_type.value.term.$ !== "SortTerm",
+      shown(written) === "N" &&
+        written !== undefined &&
+        (termOfType(m, TYPES[written.id]) as { $: string }).$ !== "SortTerm",
     ],
     [
       "constructor",
@@ -1569,11 +1612,11 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       use?.term?.name === "x" &&
         used !== undefined &&
         SAMPLE_TEXT.slice(used.beg, used.end) === "x" &&
-        use.fact?.checked_as.shown === "N" &&
-        use.fact.quantity.$ === "OnceQuantity" &&
-        JSON.stringify(use.fact.uses) ===
+        shown(use.fact?.checked_as) === "N" &&
+        use.fact?.quantity.$ === "OnceQuantity" &&
+        JSON.stringify(use.fact?.uses) ===
           '[{"$":"TermUse","name":"x","quantity":{"$":"OnceQuantity"}}]' &&
-        use.fact.binder.value?.shown === "N",
+        shown(use.fact?.binder.value) === "N",
     ],
     ["term_infer", checkedOf(sampledTerms(main?.head), "ReferenceTerm") !== undefined],
     ["term_check", checkedOf(id, "LambdaTerm") !== undefined],
@@ -1746,6 +1789,8 @@ const run = async (m: Loaded, files: string[], args: string[], again: boolean): 
       } else if (msg.op === "delete") {
         nodeFs.rmSync(msg.path);
         reply({ $: "Unit" });
+      } else if (msg.op === "types") {
+        reply(msg.questions.map((q) => answer(m, q)));
       } else if (msg.op === "glob") {
         reply(globbed(msg.pattern));
       } else if (msg.op === "same") {
@@ -1800,6 +1845,34 @@ const valueOf = (ctors: Record<string, Ctor>, x: Plain): unknown => {
   ]);
 };
 
+// A value of the program as plain data: the inverse of valueOf.
+const plainOf = (ctors: Record<string, Ctor>, x: unknown): Plain => {
+  const byKey = new Map(
+    Object.entries(ctors).map(([name, c]) => [c.key, { name, fields: c.fields }]),
+  );
+  const plain = (v: unknown): Plain => {
+    if (typeof v !== "object" || v === null) {
+      return v as Plain;
+    }
+    const known = byKey.get((v as { $: string }).$);
+    if (known === undefined) {
+      throw drift("the program gave a value the host cannot read; update BEND-REWRITE/host.ts");
+    }
+    if (known.name === "Nil") {
+      return [];
+    }
+    if (known.name === "Con") {
+      const { head, tail } = v as { head: unknown; tail: unknown };
+      return [plain(head), ...(plain(tail) as Plain[])];
+    }
+    return Object.fromEntries([
+      ["$", known.name],
+      ...known.fields.map((f) => [f, plain((v as Record<string, unknown>)[f])]),
+    ]) as Plain;
+  };
+  return plain(x);
+};
+
 // The worker: runs the program; an effect asks the main thread and waits
 // for its answer.
 const work = async (start: Start): Promise<void> => {
@@ -1810,7 +1883,10 @@ const work = async (start: Start): Promise<void> => {
     Atomics.wait(flag, 0, 0);
     return valueOf(ctors, receiveMessageOnPort(port)?.message as Plain);
   };
-  (globalThis as typeof globalThis & { BEND_HOST?: Host }).BEND_HOST = { ask };
+  (globalThis as typeof globalThis & { BEND_HOST?: Host }).BEND_HOST = {
+    ask,
+    plain: (x) => plainOf(ctors, x),
+  };
   const loaded = (await import(url.pathToFileURL(module).href)) as {
     default: (a: string[]) => number;
   };

@@ -195,12 +195,15 @@ def judge(
         judge(rest, lines, path)
       )
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           judge(Shared.get_bodies(Shared.get_declarations_of(declarations, path)), lines, path)
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
+  Lint.RuleDone{lint(input)}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"performance/append-in-loop", Lint.FileScope{}, [], [], [Lint.BodiesNeed{}], run}]

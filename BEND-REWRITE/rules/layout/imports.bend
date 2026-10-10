@@ -281,7 +281,7 @@ def judge(+path: String, +text: String, b: Block) -> List<&2, Lint.Finding>:
         Lint.BendSourceSpan{path, beg, end}
       )
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
@@ -291,6 +291,9 @@ def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
             text,
             block(Shared.get_declarations_of(declarations, path), text, Block{0, 0, []})
           )
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
+  Lint.RuleDone{lint(input)}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"layout/imports", Lint.FileScope{}, [], [], [Lint.DeclarationsNeed{}], run}]

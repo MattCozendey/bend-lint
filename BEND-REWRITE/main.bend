@@ -81,7 +81,11 @@
 # | The checker's facts are in the body: with FactsNeed, a term | They are where the checker put them: its annotations. A term |
 # | the checker checked is a CheckedTerm with its TermFact.     | checked twice has both facts.                                |
 # | A call's partial applications have no facts of their own.  | A call is one term; its head and arguments keep theirs.      |
-# | A type is also a term (BendType.term), without spans.       | One representation for terms and types, as in Bend.          |
+# | A type is a handle (BendType). A rule's run returns a      | Types stay in the checker: facts stay small, and two types   |
+# | RuleStep: RuleDone with its findings, or RuleAsk with      | are compared as the checker compares them. The run stays     |
+# | questions about types (same, shown, term, normal form) and | pure: the runner answers between its steps.                  |
+# | what to do with the answers. TS gives cx.same, cx.show and | TS's calls are IO; a Bend rule cannot make them.             |
+# | cx.normal as calls.                                        |                                                              |
 # | The text output is a line per finding,                      | Short to read and to search; --json holds the rest.          |
 # | path:line:column: severity code: message, then a line per   |                                                              |
 # | fix with its title and applicability.                       |                                                              |
@@ -102,6 +106,7 @@
 # - The Safe-fix check covers ReplaceText edits of the linted file only; any other Safe fix is offered as Dangerous.
 #   Check each file a fix changes, and the files together, so such a fix can stay Safe.
 # - The text output shows each fix's title and applicability; the TS output also shows its diff.
+# - Template instances' facts (TS's facts.instances).
 import Base
 import ./path.bend as Path
 
@@ -115,8 +120,24 @@ type BendSource is Data:
 type BendSourceSpan is Data:
   BendSourceSpan{path: String, beg: U32, end: U32}
 
+# A type, by its handle: a rule asks about it with a TypeQuestion.
 type BendType is Data:
-  BendType{id: U32, shown: String, term: BendTerm}
+  BendType{id: U32}
+
+# A question a rule asks about types, by their handles: whether two are the same, as the checker compares them; how
+# one is shown in its file; one as a term (without spans); one's normal form.
+type TypeQuestion is Data:
+  SameTypes{a: BendType, b: BendType}
+  ShowType{of: BendType}
+  TermOfType{of: BendType}
+  NormalType{of: BendType}
+
+# The answer to a TypeQuestion, of its kind.
+type TypeAnswer is Data:
+  SameAnswer{same: Bool}
+  ShownAnswer{text: String}
+  TermAnswer{term: BendTerm}
+  NormalAnswer{normal: BendType}
 
 type Quantity is Data:
   ErasedQuantity{}
@@ -242,6 +263,11 @@ type RuleScope is Data:
   ProgramSomeScope{}
   ProgramEveryScope{}
 
+# What a run of a rule gives: its findings, or questions about types, and what to do with their answers, in order.
+type RuleStep is Type:
+  RuleDone{findings: List<&2, Finding>}
+  RuleAsk{questions: List<&2, TypeQuestion>, then: List<&2, TypeAnswer> -> RuleStep}
+
 type Rule is Type:
   Rule{
     id: String,
@@ -249,8 +275,12 @@ type Rule is Type:
     options: List<&2, OptionDeclared>,
     after: List<&2, String>,
     needs: List<&2, RuleNeed>,
-    run: RuleInput -> List<&2, Finding>
+    run: RuleInput -> RuleStep
   }
+
+# A run of a rule under way: the rule, the severity its settings give, where it ran, and what it gave.
+type RuleRun is Type:
+  RuleRun{id: String, severity: Maybe<&2, FindingSeverity>, place: RunPlace, step: RuleStep}
 
 type RuleSetting is Data:
   RuleOff{id: String}
@@ -462,6 +492,9 @@ type SuppressState is Data:
 # What the rules need from a check: declarations, bodies, facts.
 type CheckNeeds is Data:
   CheckNeeds{declarations: Bool, bodies: Bool, facts: Bool}
+
+def get_type_answers(questions: List<&2, TypeQuestion>) -> IO(List<&2, TypeAnswer>):
+  import "./effs/host.js"
 
 def get_check(path: String, declarations: Bool, bodies: Bool, facts: Bool) -> IO(BendCheck):
   import "./effs/host.js"
@@ -745,14 +778,13 @@ def get_rule_run(
   hit: Bool,
   id: String,
   severity: Maybe<&2, FindingSeverity>,
-  run: RuleInput -> List<&2, Finding>,
+  run: RuleInput -> RuleStep,
   place: RunPlace,
-  linted_paths: List<&2, String>,
   input: RuleInput
-) -> List<&2, RuleFinding>:
+) -> List<&1, RuleRun>:
   match hit:
     case True{}:
-      get_placed(id, severity, place, linted_paths, run(input))
+      [RuleRun{id, severity, place, run(input)}]
     case False{}:
       []
 
@@ -851,7 +883,7 @@ def get_level_finding(
   +first: BendCheck,
   +linted_paths: List<&2, String>,
   +settings: List<&2, RuleSetting>
-) -> List<&2, RuleFinding>:
+) -> List<&1, RuleRun>:
   match r:
     case Rule{+id, scope, options, after, needs, run}:
       get_rule_run(
@@ -860,7 +892,6 @@ def get_level_finding(
         get_set_severity(settings, id),
         run,
         place,
-        linted_paths,
         get_rule_input(
           get_place_check(place, first),
           get_options(options, get_set_options(settings, id)),
@@ -877,7 +908,7 @@ def get_level_findings(
   +first: BendCheck,
   +linted_paths: List<&2, String>,
   +settings: List<&2, RuleSetting>
-) -> List<&2, RuleFinding>:
+) -> List<&1, RuleRun>:
   match rules:
     case Nil{}:
       []
@@ -891,7 +922,7 @@ def get_level_findings(
         linted_paths,
         settings
       ) get_level_findings(rest, ready, found, place, first, linted_paths, settings)
-      List.append(&2, RuleFinding, a, b)
+      List.append(&1, RuleRun, a, b)
 
 # What the ready rules find in each place: a file rule on each linted file.
 def get_places_findings(
@@ -902,7 +933,7 @@ def get_places_findings(
   +first: BendCheck,
   +linted_paths: List<&2, String>,
   +settings: List<&2, RuleSetting>
-) -> List<&2, RuleFinding>:
+) -> List<&1, RuleRun>:
   match places:
     case Nil{}:
       []
@@ -916,7 +947,7 @@ def get_places_findings(
         linted_paths,
         settings
       ) get_places_findings(~rules, t, ready, found, first, linted_paths, settings)
-      List.append(&2, RuleFinding, a, b)
+      List.append(&1, RuleRun, a, b)
 
 # What the ready program rules find in each check, a list per check.
 def get_program_runs(
@@ -927,7 +958,7 @@ def get_program_runs(
   +first: BendCheck,
   +linted_paths: List<&2, String>,
   +settings: List<&2, RuleSetting>
-) -> List<&2, List<&2, RuleFinding>>:
+) -> List<&1, List<&1, RuleRun>>:
   match checks:
     case Nil{}:
       []
@@ -1130,6 +1161,62 @@ def get_merged(
     case Con{first, +rest}:
       get_merged.rest(rest, every, get_merged.first(first, rest, every))
 
+# The findings a step comes to: questions are answered, at most `fuel` times.
+def get_resolved(fuel: Nat, step: RuleStep) -> IO(List<&2, Finding>):
+  match fuel step:
+    case 0n _:
+      IO.pure(List<&2, Finding>, [])
+    case 1n+k RuleDone{findings}:
+      IO.pure(List<&2, Finding>, findings)
+    case 1n+k RuleAsk{questions, then}:
+      IO.bind(
+        List<&2, TypeAnswer>,
+        List<&2, Finding>,
+        get_type_answers(questions),
+        answers => get_resolved(k, then(answers))
+      )
+
+def get_ask_fuel() -> Nat:
+  1024n
+
+# What each run found, placed, after `done`.
+def get_runs_resolved(
+  runs: List<&1, RuleRun>,
+  +linted_paths: List<&2, String>,
+  done: List<&2, RuleFinding>
+) -> IO(List<&2, RuleFinding>):
+  match runs:
+    case Nil{}:
+      IO.pure(List<&2, RuleFinding>, done)
+    case Con{RuleRun{id, severity, place, step}, t}:
+      IO.bind(
+        List<&2, Finding>,
+        List<&2, RuleFinding>,
+        get_resolved(get_ask_fuel(), step),
+        found => get_runs_resolved(
+          t,
+          linted_paths,
+          List.append(&2, RuleFinding, done, get_placed(id, severity, place, linted_paths, found))
+        )
+      )
+
+# What each check's program runs found, a list per check, after `done`.
+def get_checks_resolved(
+  runs: List<&1, List<&1, RuleRun>>,
+  +linted_paths: List<&2, String>,
+  done: List<&2, List<&2, RuleFinding>>
+) -> IO(List<&2, List<&2, RuleFinding>>):
+  match runs:
+    case Nil{}:
+      IO.pure(List<&2, List<&2, RuleFinding>>, List.reverse(&2, List<&2, RuleFinding>, done))
+    case Con{r, t}:
+      IO.bind(
+        List<&2, RuleFinding>,
+        List<&2, List<&2, RuleFinding>>,
+        get_runs_resolved(r, linted_paths, []),
+        found => get_checks_resolved(t, linted_paths, found <> done)
+      )
+
 # The findings of the rules, level by level; `found` holds the findings so far, last first. File rules run on each
 # linted file of the first check; program rules on each check, their findings merged.
 def get_lint_findings(
@@ -1145,12 +1232,12 @@ def get_lint_findings(
   +linted_paths: List<&2, String>,
   +settings: List<&2, RuleSetting>,
   +every: List<&2, String>
-) -> List<&2, RuleFinding>:
+) -> IO(List<&2, RuleFinding>):
   match fuel ready:
     case 0n _:
-      List.reverse(&2, RuleFinding, found)
+      IO.pure(List<&2, RuleFinding>, List.reverse(&2, RuleFinding, found))
     case 1n+k Nil{}:
-      List.reverse(&2, RuleFinding, found)
+      IO.pure(List<&2, RuleFinding>, List.reverse(&2, RuleFinding, found))
     case 1n+k Con{+h, +t}:
       +now = List.append(&2, String, done, h <> t)
       a b = get_places_findings(
@@ -1162,24 +1249,34 @@ def get_lint_findings(
         linted_paths,
         settings
       ) get_program_runs(~rules, checks, h <> t, found, first, linted_paths, settings)
-      get_lint_findings(
-        ~rules,
-        k,
-        get_ready_ids(heads, now),
-        heads,
-        now,
-        List.append(
-          &2,
-          RuleFinding,
-          List.reverse(&2, RuleFinding, List.append(&2, RuleFinding, a, get_merged(b, every))),
-          found
-        ),
-        files,
-        checks,
-        first,
-        linted_paths,
-        settings,
-        every
+      IO.bind(
+        List<&2, RuleFinding>,
+        List<&2, RuleFinding>,
+        get_runs_resolved(a, linted_paths, []),
+        fa => IO.bind(
+          List<&2, List<&2, RuleFinding>>,
+          List<&2, RuleFinding>,
+          get_checks_resolved(b, linted_paths, []),
+          fb => get_lint_findings(
+            ~rules,
+            k,
+            get_ready_ids(heads, now),
+            heads,
+            now,
+            List.append(
+              &2,
+              RuleFinding,
+              List.reverse(&2, RuleFinding, List.append(&2, RuleFinding, fa, get_merged(fb, every))),
+              found
+            ),
+            files,
+            checks,
+            first,
+            linted_paths,
+            settings,
+            every
+          )
+        )
       )
 
 def get_failure_list(failure: Maybe<&2, RuleFinding>) -> List<&2, RuleFinding>:
@@ -2461,7 +2558,7 @@ def get_lint_report(
   partial: Bool,
   +named: String,
   config: LintConfig
-) -> LintReport:
+) -> IO(LintReport):
   match checks config:
     case Con{
       BendCheck{+root, +sources, +failure, +declarations, +program_paths},
@@ -2474,39 +2571,39 @@ def get_lint_report(
       +heads = get_check_heads(failure, get_rule_heads(rules(Unit{})))
       +every = get_every_ids(rules(Unit{}))
       +done = List.append(&2, String, get_off_ids(settings), get_rules_off(partial, every))
-      get_lint_report.made(
-        get_suppression(
-          List.append(
-            &2,
-            RuleFinding,
-            failures,
-            get_homed(
-              linted_paths,
-              get_lint_findings(
-                ~rules,
-                (1n + List.length(&2, RuleHead, heads): Nat),
-                get_ready_ids(heads, done),
-                heads,
-                done,
-                [],
-                get_file_places(linted),
-                first <> rest,
-                first,
-                linted_paths,
-                settings,
-                every
-              )
-            )
+      IO.bind(
+        List<&2, RuleFinding>,
+        LintReport,
+        get_lint_findings(
+            ~rules,
+            (1n + List.length(&2, RuleHead, heads): Nat),
+            get_ready_ids(heads, done),
+            heads,
+            done,
+            [],
+            get_file_places(linted),
+            first <> rest,
+            first,
+            linted_paths,
+            settings,
+            every
           ),
-          linted,
-          get_rule_ids(rules(Unit{})),
-          get_texts_where(False{}, get_head_ids(heads), done)
-        ),
-        linted,
-        sources
+        found => IO.pure(
+          LintReport,
+          get_lint_report.made(
+            get_suppression(
+              List.append(&2, RuleFinding, failures, get_homed(linted_paths, found)),
+              linted,
+              get_rule_ids(rules(Unit{})),
+              get_texts_where(False{}, get_head_ids(heads), done)
+            ),
+            linted,
+            sources
+          )
+        )
       )
     case Nil{} c:
-      LintReport{failures, [], [], []}
+      IO.pure(LintReport, LintReport{failures, [], [], []})
 
 def get_fix_allowed(level: FixApplicability, a: FixApplicability) -> Bool:
   match level a:
@@ -4525,7 +4622,7 @@ def lint_job.alone(
   +reaching: List<&2, BendCheck>,
   +path: String,
   config: LintConfig
-) -> LintReport:
+) -> IO(LintReport):
   get_lint_report(
     ~rules,
     [own],
@@ -4549,26 +4646,20 @@ def lint_job.pick(
         BendCheck,
         LintReport,
         get_needed_check(path, needs),
-        c => IO.pure(
-          LintReport,
-          lint_job.alone(~rules, get_linter_check(c), reaching, path, config)
-        )
+        c => lint_job.alone(~rules, get_linter_check(c), reaching, path, config)
       )
     case Con{h, t}:
       +all: List<&2, BendCheck> = h <> t
-      IO.pure(
-        LintReport,
-        get_lint_report(
-          ~rules,
-          all,
-          get_check_failures(reaching),
-          U32.is_lt(
-            U32.from_nat(List.length(&2, BendCheck, all)),
-            U32.from_nat(List.length(&2, BendCheck, reaching))
-          ),
-          path,
-          config
-        )
+      get_lint_report(
+        ~rules,
+        all,
+        get_check_failures(reaching),
+        U32.is_lt(
+          U32.from_nat(List.length(&2, BendCheck, all)),
+          U32.from_nat(List.length(&2, BendCheck, reaching))
+        ),
+        path,
+        config
       )
 
 def lint_job.entries(

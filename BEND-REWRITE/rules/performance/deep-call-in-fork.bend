@@ -215,13 +215,16 @@ def findings(+all: List<&2, Walked>, ws: List<&2, Walked>, +path: String) -> Lis
         findings(all, rest, path)
       )
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
         case Lint.BendSource{+path, text, lines}:
           +ws = walked(Shared.get_defs(Shared.get_declarations_of(declarations, path)))
           findings(ws, ws, path)
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
+  Lint.RuleDone{lint(input)}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"performance/deep-call-in-fork", Lint.FileScope{}, [], [], [Lint.BodiesNeed{}], run}]

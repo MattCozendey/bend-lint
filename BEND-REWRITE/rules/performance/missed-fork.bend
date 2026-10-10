@@ -36,9 +36,9 @@ type LetSeen is Data:
 type Seen is Data:
   Seen{calls: List<&2, Found>, lets: List<&2, LetSeen>, count: Nat}
 
-# A def to check: its name, and its body.
+# A def to check: its name, its written type, and its body.
 type Work is Data:
-  Work{name: String, body: Lint.BendTerm}
+  Work{name: String, written: Lint.BendType, body: Lint.BendTerm}
 
 # A name a new local must not take, with the def it belongs to, if any.
 type Taken is Data:
@@ -105,8 +105,15 @@ def starts_statement(+s: String) -> Bool:
   )
     || (String.eq(String.reverse(String.take(String.reverse(rest), 2n)), "= ") && no_bracket(rest))
 
-def is_io(shown: String) -> Bool:
-  String.eq(String.take(shown, 3n), "IO(")
+# Whether a type is IO(..).
+def is_io(t: Lint.BendTerm) -> Bool:
+  match t:
+    case Lint.CallTerm{Lint.ReferenceTerm{"IO", s}, arguments, span}:
+      True{}
+    case Lint.AnnotatedTerm{value, annotation, span}:
+      is_io(value)
+    case _:
+      False{}
 
 def letters() -> String:
   "abcdefghijklmnopqrstuvwxyz"
@@ -730,8 +737,8 @@ def owner_of(kind: Lint.DeclarationKind) -> Maybe<&2, String>:
     case _:
       None{}
 
-# The defs to check, and the names each declaration takes, from the file's declarations: a def that does not
-# return IO, with a body.
+# The defs to check, and the names each declaration takes, from the file's declarations: a def with a written type
+# and a body.
 def split(
   ds: List<&2, Lint.Declaration>,
   works: List<&2, Work>,
@@ -740,20 +747,8 @@ def split(
   match ds:
     case Nil{}:
       (List.reverse(&2, Work, works), taken)
-    case Con{
-      Lint.Declaration{
-        +name,
-        span,
-        references,
-        Lint.DefDeclaration{fills, Some{Lint.BendType{id, shown, term}}, Some{body}}
-      },
-      t
-    }:
-      split(
-        t,
-        Lint.get_kept(Work, Bool.not(is_io(shown)), Work{name, body}, works),
-        Taken{name, None{}} <> taken
-      )
+    case Con{Lint.Declaration{+name, span, references, Lint.DefDeclaration{fills, Some{written}, Some{body}}}, t}:
+      split(t, Work{name, written, body} <> works, Taken{name, None{}} <> taken)
     case Con{Lint.Declaration{name, span, references, kind}, t}:
       split(t, works, Taken{name, owner_of(kind)} <> taken)
 
@@ -766,7 +761,7 @@ def checks(
   match ws:
     case Nil{}:
       []
-    case Con{Work{+name, body}, rest}:
+    case Con{Work{+name, written, body}, rest}:
       List.append(
         &2,
         Lint.Finding,
@@ -780,16 +775,31 @@ def checks(
         checks(rest, taken, text, lines)
       )
 
+def written_types(works: List<&2, Work>) -> List<&2, Lint.TypeQuestion>:
+  match works:
+    case Nil{}:
+      []
+    case Con{Work{name, written, body}, t}:
+      Lint.TermOfType{written} <> written_types(t)
+
+# The defs that do not return IO, by the terms of their written types, in order.
+def not_io(works: List<&2, Work>, answers: List<&2, Lint.TypeAnswer>) -> List<&2, Work>:
+  match works answers:
+    case Con{w, t} Con{Lint.TermAnswer{term}, u}:
+      Lint.get_kept(Work, Bool.not(is_io(term)), w, not_io(t, u))
+    case _ _:
+      []
+
 def run.split(
   found: (List<&2, Work> & List<&2, Taken>),
   +text: String,
   +lines: List<&2, String>
-) -> List<&2, Lint.Finding>:
+) -> Lint.RuleStep:
   match found:
-    case (works, taken):
-      checks(works, taken, text, lines)
+    case (+works, taken):
+      Lint.RuleAsk{written_types(works), answers => Lint.RuleDone{checks(not_io(works, answers), taken, text, lines)}}
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:

@@ -67,12 +67,12 @@ def typed.of(sort: Bool) -> Case:
     case False{}:
       Snake{}
 
-def typed(written: Maybe<&2, Lint.BendType>) -> Case:
-  match written:
+def typed(sort: Maybe<&2, Bool>) -> Case:
+  match sort:
     case None{}:
       Either{}
-    case Some{Lint.BendType{id, shown, term}}:
-      typed.of(Shared.get_ends_in_sort(term))
+    case Some{b}:
+      typed.of(b)
 
 def written_of(kind: Lint.DeclarationKind) -> Maybe<&2, Lint.BendType>:
   match kind:
@@ -100,7 +100,7 @@ def owner_of(kind: Lint.DeclarationKind) -> Maybe<&2, String>:
     case _:
       None{}
 
-def wanted(kind: Lint.DeclarationKind, written: Maybe<&2, Lint.BendType>) -> Case:
+def wanted(kind: Lint.DeclarationKind, sort: Maybe<&2, Bool>) -> Case:
   match kind:
     case Lint.ImportDeclaration{loads}:
       Pascal{}
@@ -109,7 +109,7 @@ def wanted(kind: Lint.DeclarationKind, written: Maybe<&2, Lint.BendType>) -> Cas
     case Lint.ConstructorDeclaration{owner}:
       Pascal{}
     case _:
-      typed(written)
+      typed(sort)
 
 def noun(kind: Lint.DeclarationKind, sort: Bool) -> String:
   match kind sort:
@@ -389,7 +389,8 @@ def verdict(
 def check(
   +ds: List<&2, Lint.Declaration>,
   +lines: List<&2, String>,
-  d: Lint.Declaration
+  d: Lint.Declaration,
+  sort: Maybe<&2, Bool>
 ) -> List<&2, Lint.Finding>:
   match d:
     case Lint.Declaration{name, span, references, Lint.DefDeclaration{True{}, written_type, body}}:
@@ -397,27 +398,70 @@ def check(
     case Lint.Declaration{"Base", span, references, Lint.ImportDeclaration{loads}}:
       []
     case Lint.Declaration{+name, +span, +references, +kind}:
-      +want = wanted(kind, written_of(kind))
+      +want = wanted(kind, sort)
       verdict(fits(want, segment(name, "")), ds, lines, kind, want, name, span, references)
 
-def checks(
-  +all: List<&2, Lint.Declaration>,
-  +lines: List<&2, String>,
-  ds: List<&2, Lint.Declaration>
-) -> List<&2, Lint.Finding>:
+# Whether a written type ends in a sort, from the answer for its term.
+def sort_of(a: Lint.TypeAnswer) -> Bool:
+  match a:
+    case Lint.TermAnswer{term}:
+      Shared.get_ends_in_sort(term)
+    case _:
+      False{}
+
+# Whether each declaration has a written type, in order.
+def written_flags(ds: List<&2, Lint.Declaration>) -> List<&2, Bool>:
   match ds:
     case Nil{}:
       []
-    case Con{d, rest}:
-      List.append(&2, Lint.Finding, check(all, lines, d), checks(all, lines, rest))
+    case Con{Lint.Declaration{name, span, references, kind}, rest}:
+      Maybe.is_some(&2, Lint.BendType, written_of(kind)) <> written_flags(rest)
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+# For each declaration, in order, whether its written type ends in a sort, if it has one; `answers` hold the terms of
+# the written types.
+def sorts(flags: List<&2, Bool>, answers: List<&2, Lint.TypeAnswer>) -> List<&2, Maybe<&2, Bool>>:
+  match flags answers:
+    case Nil{} _:
+      []
+    case Con{True{}, f} Con{a, t}:
+      Some{sort_of(a)} <> sorts(f, t)
+    case Con{x, f} t:
+      None{} <> sorts(f, t)
+
+# Each declaration's findings, with its sort.
+def checks(
+  +all: List<&2, Lint.Declaration>,
+  +lines: List<&2, String>,
+  ds: List<&2, Lint.Declaration>,
+  ss: List<&2, Maybe<&2, Bool>>
+) -> List<&2, Lint.Finding>:
+  match ds ss:
+    case Con{d, rest} Con{sort, more}:
+      List.append(&2, Lint.Finding, check(all, lines, d, sort), checks(all, lines, rest, more))
+    case _ _:
+      []
+
+def written_type_of(m: Maybe<&2, Lint.BendType>, rest: List<&2, Lint.TypeQuestion>) -> List<&2, Lint.TypeQuestion>:
+  match m:
+    case Some{t}:
+      Lint.TermOfType{t} <> rest
+    case None{}:
+      rest
+
+def written_types(ds: List<&2, Lint.Declaration>) -> List<&2, Lint.TypeQuestion>:
+  match ds:
+    case Nil{}:
+      []
+    case Con{Lint.Declaration{name, span, references, kind}, rest}:
+      written_type_of(written_of(kind), written_types(rest))
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           +ds = Shared.get_declarations_of(declarations, path)
-          checks(ds, lines, ds)
+          Lint.RuleAsk{written_types(ds), answers => Lint.RuleDone{checks(ds, lines, ds, sorts(written_flags(ds), answers))}}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"layout/case", Lint.FileScope{}, [], [], [Lint.DeclarationsNeed{}], run}]

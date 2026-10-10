@@ -126,12 +126,15 @@ def findings(ds: List<&2, Lint.Declaration>, +lines: List<&2, String>) -> List<&
     case Con{d, rest}:
       List.append(&2, Lint.Finding, check(lines, d), findings(rest, lines))
 
-def run(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
+def lint(input: Lint.RuleInput) -> List<&2, Lint.Finding>:
   match input:
     case Lint.RuleInput{root, sources, options, prior, declarations}:
       match root:
         case Lint.BendSource{+path, text, +lines}:
           findings(Shared.get_declarations_of(declarations, path), lines)
+
+def run(input: Lint.RuleInput) -> Lint.RuleStep:
+  Lint.RuleDone{lint(input)}
 
 def rules() -> List<&1, Lint.Rule>:
   [Lint.Rule{"layout/canon-import-path", Lint.FileScope{}, [], [], [Lint.DeclarationsNeed{}], run}]
