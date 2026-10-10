@@ -151,9 +151,17 @@ type Found is Data:
 type Here is Data:
   Here{program: Program, source: Source, declarations: List<&2, Declaration>}
 
-# A rule: its id (`namespace/.../name`), and what it finds where it runs.
+# What a program rule sees: the program (its files, hub packages aside), and every declaration of its files, with their
+# uses in all of them.
+type Whole is Data:
+  Whole{program: Program, declarations: List<&2, Declaration>}
+
+# A rule: its id (`namespace/.../name`), and what it finds. A file rule runs once per linted file, and may report only
+# in it. A program rule runs once per check, and may report in any file; what it finds in a file that is not linted
+# is dropped.
 type Rule is Type:
-  Rule{id: String, run: @+here: Here -> List<&2, Finding>}
+  FileRule{id: String, run: @+here: Here -> List<&2, Finding>}
+  ProgramRule{id: String, run: @+whole: Whole -> List<&2, Finding>}
 
 # The nodes of the file a rule runs on, parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:
@@ -165,6 +173,16 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
   match here:
     case Here{program, source, declarations}:
       declarations
+
+def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
+  match whole:
+    case Whole{program, declarations}:
+      declarations
+
+def Whole.sources(whole: Whole) -> List<&2, Source>:
+  match whole:
+    case Whole{Program{sources}, declarations}:
+      sources
 
 def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List<&2, Finding>) -> List<&2, Finding>:
   match xs:

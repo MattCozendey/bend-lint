@@ -14,4 +14,4 @@ def run(+here: Lint.Here) -> List<&2, Lint.Finding>:
   Lint.findings(~Lint.Declaration, ~unused, Lint.Here.declarations(here))
 
 def rule() -> Lint.Rule:
-  Lint.Rule{"no-unused/imports", run}
+  Lint.FileRule{"no-unused/imports", run}

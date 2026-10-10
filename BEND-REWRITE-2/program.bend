@@ -364,12 +364,60 @@ def Declarations.of.go(
         Shared.push(Lint.Declaration, Declarations.of.node(sources, nodes, uses, n), out)
       )
 
-# The declarations of a file's nodes, in order, with their uses in that file.
-def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>) -> List<&2, Lint.Declaration>:
-  Declarations.of.go(nodes, sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>)), [])
+# The declarations of a file's nodes, in order, with their uses that `uses` indexes.
+def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>, +uses: Map<&2, List<&2, Lint.Node>>) ->
+  List<&2, Lint.Declaration>:
+  Declarations.of.go(nodes, sources, nodes, uses, [])
 
-# The program from one of its files, built once for every rule that runs on that file.
+# The program from one of its files, built once for every file rule that runs on that file: references from it alone.
 def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
   match program source:
     case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes}:
-      Lint.Here{Lint.Program{sources}, Lint.Source{path, namespace, text, nodes}, Declarations.of(sources, nodes)}
+      Lint.Here{
+        Lint.Program{sources},
+        Lint.Source{path, namespace, text, nodes},
+        Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>)))
+      }
+
+# Whether a file is the program's own: not of a hub package.
+def Source.own(source: Lint.Source) -> Bool:
+  match source:
+    case Lint.Source{path, namespace, text, nodes}:
+      Bool.not(String.starts_with(namespace, "0x"))
+
+# The program's own files, hub packages aside.
+def Program.own(sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
+  List.filter(~Lint.Source, ~Source.own, sources)
+
+# The nodes of every file, in order.
+def Program.nodes(sources: List<&2, Lint.Source>, out: List<&2, List<&2, Lint.Node>>) -> List<&2, Lint.Node>:
+  match sources:
+    case Nil{}:
+      List.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+      Program.nodes(rest, nodes <> out)
+
+# The declarations of every file, in order, with their uses that `uses` indexes; `files` are those left to read.
+def Whole.declarations(
+  files: List<&2, Lint.Source>,
+  +sources: List<&2, Lint.Source>,
+  +uses: Map<&2, List<&2, Lint.Node>>,
+  out: List<&2, List<&2, Lint.Declaration>>
+) -> List<&2, Lint.Declaration>:
+  match files:
+    case Nil{}:
+      List.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+      Whole.declarations(rest, sources, uses, Declarations.of(sources, nodes, uses) <> out)
+
+def Whole.from(+sources: List<&2, Lint.Source>) -> Lint.Whole:
+  Lint.Whole{
+    Lint.Program{sources},
+    Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), [])
+  }
+
+# The whole program, built once for every program rule: references from all its own files.
+def Whole.of(program: Lint.Program) -> Lint.Whole:
+  match program:
+    case Lint.Program{sources}:
+      Whole.from(Program.own(sources))
