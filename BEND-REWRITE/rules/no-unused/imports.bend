@@ -13,7 +13,12 @@ def get_any_fills(ds: List<&2, Lint.Declaration>) -> Bool:
       False{}
     case Con{d, rest}:
       match d:
-        case Lint.Declaration{name, span, references, Lint.DefDeclaration{fills, written_type}}:
+        case Lint.Declaration{
+          name,
+          span,
+          references,
+          Lint.DefDeclaration{fills, written_type, body}
+        }:
           fills || get_any_fills(rest)
         case _:
           get_any_fills(rest)

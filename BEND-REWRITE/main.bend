@@ -69,6 +69,11 @@
 # |                                                             | Unsaved text is for editors and can wait.                    |
 # | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
 # |                                                             | ones.                                                        |
+# | A def's checked body is a list of BodyNode in its           | Rules never see Bend's own terms, so they stay when Bend's   |
+# | DefDeclaration, given only to a rule that needs BodiesNeed: | checker changes. TS gives Bend's term kinds, bit by bit.     |
+# | a call with all its arguments, a literal as one term, no    |                                                              |
+# | annotation the checker added. A node lists its sub-terms by |                                                              |
+# | index; they come after it.                                  |                                                              |
 #
 # TODO
 # - performance/missed-fork crashes (machine stack overflow) and performance/append-in-loop hangs on this file.
@@ -100,12 +105,26 @@ type BendSourceSpan is Data:
 type BendType is Data:
   BendType{id: U32, shown: String, ends_in_sort: Bool}
 
+type BendTerm is Data:
+  VariableTerm{name: String}
+  ReferenceTerm{name: String}
+  CallTerm{head: U32, arguments: List<&2, U32>}
+  LetTerm{names: List<&2, String>, values: List<&2, U32>, body: U32}
+  LambdaTerm{name: String, body: U32}
+  ConstructorTerm{name: String, fields: List<&2, U32>}
+  LiteralTerm{shown: String}
+  AnnotatedTerm{value: U32, annotation: U32}
+  OtherTerm{parts: List<&2, U32>}
+
+type BodyNode is Data:
+  BodyNode{index: U32, parent: Maybe<&2, U32>, span: Maybe<&2, BendSourceSpan>, term: BendTerm}
+
 type DeclarationReference is Data:
   DeclarationReference{owner: String, span: BendSourceSpan}
 
 type DeclarationKind is Data:
   ImportDeclaration{loads: String}
-  DefDeclaration{fills: Bool, written_type: Maybe<&2, BendType>}
+  DefDeclaration{fills: Bool, written_type: Maybe<&2, BendType>, body: List<&2, BodyNode>}
   DatatypeDeclaration{written_type: Maybe<&2, BendType>}
   ConstructorDeclaration{owner: String}
   ParameterDeclaration{owner: String, written_type: Maybe<&2, BendType>}
@@ -172,6 +191,7 @@ type RuleInput is Data:
 
 type RuleNeed is Data:
   DeclarationsNeed{}
+  BodiesNeed{}
 
 type RuleScope is Data:
   FileScope{}
@@ -239,7 +259,7 @@ type RuleHead is Data:
 type LintTally is Data:
   LintTally{count: Nat, failed: Bool}
 
-def get_check(path: String, declarations: Bool) -> IO(BendCheck):
+def get_check(path: String, declarations: Bool, bodies: Bool) -> IO(BendCheck):
   import "./effs/host.js"
 
 def restart_with_rules(files: List<&2, String>) -> IO(Unit):
@@ -314,23 +334,30 @@ def get_ready_ids(heads: List<&2, RuleHead>, +done: List<&2, String>) -> List<&2
             get_ready_ids(t, done)
           )
 
-def get_needs_declarations(needs: List<&2, RuleNeed>) -> Bool:
+def get_is_need(a: RuleNeed, b: RuleNeed) -> Bool:
+  match a b:
+    case DeclarationsNeed{} DeclarationsNeed{}:
+      True{}
+    case BodiesNeed{} BodiesNeed{}:
+      True{}
+    case _ _:
+      False{}
+
+def get_needs(needs: List<&2, RuleNeed>, +want: RuleNeed) -> Bool:
   match needs:
     case Nil{}:
       False{}
     case Con{h, t}:
-      match h:
-        case DeclarationsNeed{}:
-          True{}
+      get_is_need(h, want) || get_needs(t, want)
 
-def get_heads_need_declarations(heads: List<&2, RuleHead>) -> Bool:
+def get_heads_need(heads: List<&2, RuleHead>, +want: RuleNeed) -> Bool:
   match heads:
     case Nil{}:
       False{}
     case Con{h, t}:
       match h:
         case RuleHead{id, after, needs}:
-          get_needs_declarations(needs) || get_heads_need_declarations(t)
+          get_needs(needs, want) || get_heads_need(t, want)
 
 def get_given_declarations(
   want: Bool,
@@ -398,7 +425,7 @@ def get_level_finding(
   +declarations: List<&2, SourceDeclarations>
 ) -> List<&2, RuleFinding>:
   match r:
-    case Rule{+id, scope, options, after, needs, run}:
+    case Rule{+id, scope, options, after, +needs, run}:
       +given = get_option_defaults(options)
       get_rule_run(
         get_has_text(ready, id),
@@ -409,7 +436,10 @@ def get_level_finding(
           sources,
           given,
           get_prior(found, after),
-          get_given_declarations(get_needs_declarations(needs), declarations)
+          get_given_declarations(
+            get_needs(needs, DeclarationsNeed{}) || get_needs(needs, BodiesNeed{}),
+            declarations
+          )
         }
       )
 
@@ -631,10 +661,26 @@ def get_linter_references(
         case DeclarationReference{owner, span}:
           DeclarationReference{owner, get_linter_span(span)} <> get_linter_references(t)
 
+def get_linter_node_span(span: Maybe<&2, BendSourceSpan>) -> Maybe<&2, BendSourceSpan>:
+  match span:
+    case None{}:
+      None{}
+    case Some{value}:
+      Some{get_linter_span(value)}
+
+def get_linter_nodes(nodes: List<&2, BodyNode>, done: List<&2, BodyNode>) -> List<&2, BodyNode>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, BodyNode, done)
+    case Con{BodyNode{index, parent, span, term}, t}:
+      get_linter_nodes(t, BodyNode{index, parent, get_linter_node_span(span), term} <> done)
+
 def get_linter_kind(kind: DeclarationKind) -> DeclarationKind:
   match kind:
     case ImportDeclaration{loads}:
       ImportDeclaration{Path.get_posix_path(loads)}
+    case DefDeclaration{fills, written_type, body}:
+      DefDeclaration{fills, written_type, get_linter_nodes(body, [])}
     case _:
       kind
 
@@ -990,7 +1036,11 @@ def lint_file.resolved(
       IO.bind(
         BendCheck,
         LintReport,
-        get_check(value, get_heads_need_declarations(get_rule_heads(rules(Unit{})))),
+        get_check(
+          value,
+          get_heads_need(get_rule_heads(rules(Unit{})), DeclarationsNeed{}),
+          get_heads_need(get_rule_heads(rules(Unit{})), BodiesNeed{})
+        ),
         check => get_checked_report(
           get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], False{}, []})
         )

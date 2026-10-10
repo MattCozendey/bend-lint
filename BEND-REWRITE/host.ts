@@ -76,13 +76,17 @@ type Kept = Program & { compiler: string; files: Array<[string, string]> };
 
 // What an effect asks the main thread.
 type Ask =
-  | { op: "check"; path: string; declarations: boolean }
+  | { op: "check"; path: string; declarations: boolean; bodies: boolean }
   | { op: "restart"; files: string[] }
   | { op: "same"; path: string; text: string };
 
 // A declaration's or import's name, as bend's parser read it.
 type Heading = { kind: "def" | "type" | "constructor"; name: Name; span: BendSpan };
 type Imported = { path: string; name: Name; beg: number };
+
+// A term as a rule sees it: its sub-terms (kids), and its BendTerm, given
+// where they sit in the body's list.
+type View = { kids: LTerm[]; term: (at: number[]) => Plain };
 
 // Where the probes report, for one check at a time.
 type Hook = {
@@ -181,6 +185,10 @@ const SAMPLE_TEXT = [
 const SOURCE_TOKEN = /#[^\r\n]*|"(?:\\[^]|[^"\\])*(?:"|$)|'(?:\\[^]|[^'\\])*(?:'|$)|\n|[^\s#"']+/g;
 
 const HOOK: Hook = {};
+
+// The constructors a literal unfolds to at its root, where the checker
+// reads it: a word (U32, F32), a char, a string and a Nat.
+const LITERAL_ROOTS = new Set(["U32", "F32", "Chr", "SCon", "SNil", "Succ", "Zero"]);
 
 // Binders are explicit in checked terms, so Var.v cells are not followed.
 // A new term kind is a type error here, and a drift error when walked.
@@ -786,6 +794,9 @@ const parseSource = (
   return parsed;
 };
 
+const some = (x: Plain | undefined): Plain =>
+  x === undefined ? { $: "None" } : { $: "Some", value: x };
+
 const spanOf = (
   file: string,
   points: (off: number) => number,
@@ -805,6 +816,108 @@ const endsInSort = (m: Loaded, ty: HTerm, dep: number): boolean => {
   return end(ty, dep).$ === "Typ";
 };
 
+// A term without the checker's own annotations: those that neither are in
+// the source nor have a type that is.
+const sourceTerm = (t: LTerm): LTerm =>
+  t.$ === "Ann" && t.s === undefined && t.T.s === undefined ? sourceTerm(t.x) : t;
+
+// Whether a term is a literal as written, or as the checker unfolded it: a
+// Lit, or constructors and Lits only.
+const constant = (t: LTerm): boolean =>
+  t.$ === "Lit" || (t.$ === "Ctr" && t.x.every((x) => constant(sourceTerm(x))));
+
+const other = (parts: number[]): Plain => ({ $: "OtherTerm", parts });
+
+// The bits of a word (WCon{bit, ..}), and its tail unless it is WNil{}.
+const bitsOf = (w: LTerm): LTerm[] =>
+  w.$ === "Ctr" && w.k === "WCon" && w.x.length === 2
+    ? [sourceTerm(w.x[0]), ...bitsOf(sourceTerm(w.x[1]))]
+    : w.$ === "Ctr" && w.k === "WNil"
+      ? []
+      : [w];
+
+// A call's head and its arguments, through annotations.
+const spineOf = (x: LTerm, args: LTerm[]): LTerm[] =>
+  x.$ === "App" ? spineOf(x.f, [x.x, ...args]) : x.$ === "Ann" ? spineOf(x.x, args) : [x, ...args];
+
+// The views of the kinds a rule tells apart; names as `sp` spells them. A
+// call has all its arguments, and its head without annotations.
+const VIEWS: { [K in LTerm["$"]]?: (t: Extract<LTerm, { $: K }>, sp: Spelling) => View } = {
+  Var: (t, sp) => ({ kids: [], term: () => ({ $: "VariableTerm", name: sp.spell(t.k) }) }),
+  Ref: (t, sp) => ({ kids: [], term: () => ({ $: "ReferenceTerm", name: sp.spell(t.k) }) }),
+  App: (t) => ({
+    kids: spineOf(t, []),
+    term: ([head, ...args]) => ({ $: "CallTerm", head, arguments: args }),
+  }),
+  Let: (t) => ({
+    kids: [...t.v, t.f],
+    term: (at) => ({ $: "LetTerm", names: t.k, values: at.slice(0, -1), body: at[at.length - 1] }),
+  }),
+  Lam: (t) => ({ kids: [t.f], term: ([body]) => ({ $: "LambdaTerm", name: t.k, body }) }),
+  Ctr: (t, sp) => ({
+    kids: t.x,
+    term: (fields) => ({ $: "ConstructorTerm", name: sp.spell(t.k), fields }),
+  }),
+  Ann: (t) => ({
+    kids: [t.x, t.T],
+    term: ([value, annotation]) => ({ $: "AnnotatedTerm", value, annotation }),
+  }),
+};
+
+// A term as a rule sees it: a literal as one term, as bend prints it back;
+// a word the checker built from bits as one term, with its parts that are
+// not constant; a kind of VIEWS as its view; any other term with its kids.
+const viewOf = (m: Loaded, sp: Spelling, t: LTerm): View => {
+  if (t.$ === "Lit" || (t.$ === "Ctr" && LITERAL_ROOTS.has(t.k) && constant(t))) {
+    return {
+      kids: [],
+      term: () => ({ $: "LiteralTerm", shown: m.Bend.term_show(t, -1, [], sp.shown) }),
+    };
+  }
+  const word = t.$ === "Ctr" && (t.k === "U32" || t.k === "F32") && t.x.length === 1;
+  const view = (VIEWS as Record<string, ((tm: LTerm, sp: Spelling) => View) | undefined>)[t.$];
+  return word
+    ? { kids: bitsOf(sourceTerm(t.x[0])).filter((b) => !constant(b)), term: other }
+    : view !== undefined
+      ? view(t, sp)
+      : { kids: children(t), term: other };
+};
+
+// The nodes of the term `t` at `index`, parents first, each a BodyNode
+// whose index is its place in the body's list; its sub-terms come after it.
+const nodesOf = (
+  m: Loaded,
+  c: Checked,
+  sp: Spelling,
+  t: LTerm,
+  index: number,
+  parent: number | undefined,
+): Plain[] => {
+  const { kids, term } = viewOf(m, sp, t);
+  const placed = kids.reduce<{ next: number; at: number[]; trees: Plain[][] }>(
+    (acc, kid) => {
+      const tree = nodesOf(m, c, sp, sourceTerm(kid), acc.next, index);
+      return {
+        next: acc.next + tree.length,
+        at: [...acc.at, acc.next],
+        trees: [...acc.trees, tree],
+      };
+    },
+    { next: index + 1, at: [], trees: [] },
+  );
+  const at = t.s && placedSpan(c.seen, c.placed, t.s);
+  return [
+    {
+      $: "BodyNode",
+      index,
+      parent: some(parent),
+      span: some(at && spanOf(at.path, at.points, at.beg, at.end)),
+      term: term(placed.at),
+    },
+    ...placed.trees.flat(),
+  ];
+};
+
 // The headings bend's parser read in `file`, as `file` declares them.
 const headingsIn = (
   c: Checked,
@@ -820,8 +933,9 @@ const headingsIn = (
 
 // The declarations of `file`, as `file` spells them: its imports, defs,
 // datatypes and constructors, and its parameters, variables and fields,
-// each with the uses of its name.
-const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
+// each with the uses of its name; each def with its checked body if
+// `bodies`.
+const declarationsIn = (m: Loaded, c: Checked, file: string, bodies: boolean): Plain[] => {
   const text = fs.readFileSync(file, "utf8");
   const sp = spellingOf(m, c, file, text);
   const points = pointsOf(text);
@@ -973,9 +1087,13 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
     heads.filter((h) => h.kind === "def").map((h) => h.name),
   );
   const order = orderOf(c);
+  const bodyOf = (k: Name): Plain[] => {
+    const tld = c.book.tlds[k];
+    return bodies && tld?.$ === "Def" && tld.e !== undefined
+      ? nodesOf(m, c, sp, sourceTerm(tld.e), 0, undefined)
+      : [];
+  };
   const base = m.Bend.BASE_BEND;
-  const some = (x: Plain | undefined): Plain =>
-    x === undefined ? { $: "None" } : { $: "Some", value: x };
   const imports = c.imports
     .filter((i) => i.path === file)
     .map((i): { beg: number; plain: Plain } => {
@@ -1020,6 +1138,7 @@ const declarationsIn = (m: Loaded, c: Checked, file: string): Plain[] => {
               $: "DefDeclaration",
               fills: fills.has(h.name),
               written_type: some(written.get(h.name)),
+              body: bodyOf(h.name),
             }
           : h.kind === "type"
             ? { $: "DatatypeDeclaration", written_type: some(written.get(h.name)) }
@@ -1090,14 +1209,14 @@ const keepsDeclarations = (m: Loaded, file: string, text: string): boolean => {
 };
 
 // The declarations of every file the check read, Base and hub packages
-// aside.
-const declarationsOf = (m: Loaded, c: Checked): Plain[] =>
+// aside; each def with its checked body if `bodies`.
+const declarationsOf = (m: Loaded, c: Checked, bodies: boolean): Plain[] =>
   [...c.seen]
     .filter(([file, ns]) => file !== m.Bend.BASE_BEND && !/^0x[0-9a-f]+\//.test(ns ?? ""))
     .map(([file]) => ({
       $: "SourceDeclarations",
       path: file,
-      declarations: declarationsIn(m, c, file),
+      declarations: declarationsIn(m, c, file, bodies),
     }));
 
 const sourceOf = (file: string, text: string): Plain => ({
@@ -1108,9 +1227,14 @@ const sourceOf = (file: string, text: string): Plain => ({
 });
 
 // The check of `file` as plain data: its root, every file it read, its
-// bend/check finding if it fails, and, if `wanted` and it passes, the
-// declarations of every file it read but Base and hub packages.
-const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> => {
+// bend/check finding if it fails, and, if it passes and they are wanted, the
+// declarations of every file it read but Base and hub packages, with the
+// defs' bodies if those are wanted.
+const check = async (
+  m: Loaded,
+  file: string,
+  wanted: { declarations: boolean; bodies: boolean },
+): Promise<Plain> => {
   const seen = new Map<string, string | null>();
   const headings: Heading[] = [];
   const imports: Imported[] = [];
@@ -1142,7 +1266,10 @@ const check = async (m: Loaded, file: string, wanted: boolean): Promise<Plain> =
     $: "BendCheck",
     root: seen.has(real) ? sourceOf(real, text(real)) : sourceOf(file, ""),
     sources: [...seen.keys()].map((f) => sourceOf(f, text(f))),
-    declarations: "book" in read && wanted ? declarationsOf(m, CHECKS.get(real)!) : [],
+    declarations:
+      "book" in read && (wanted.declarations || wanted.bodies)
+        ? declarationsOf(m, CHECKS.get(real)!, wanted.bodies)
+        : [],
     failure:
       failed === undefined
         ? { $: "None" }
@@ -1181,6 +1308,7 @@ type Sampled = {
         $: string;
         owner?: string;
         written_type?: { value?: { shown: string; ends_in_sort: boolean } };
+        body?: Array<{ term: { $: string; name?: string; head?: number; arguments?: number[] } }>;
       };
     }>;
   }>;
@@ -1188,16 +1316,19 @@ type Sampled = {
 
 // Checks a small program as a rule sees it: `x` in `def id(x: N) -> N: x`
 // must be a parameter of id, written as N, used once, at its own span; `id`
-// and the constructor `Z` are used once, in main. A bend2 that gives
-// anything else has changed in a way the host does not follow.
+// and the constructor `Z` are used once, in main, whose body is the call
+// id(Z{}). A bend2 that gives anything else has changed in a way the host
+// does not follow.
 const selfCheck = async (m: Loaded): Promise<void> => {
   const at = slash(nodePath.join(nodeFs.realpathSync(HERE), SAMPLE));
   PROGRAMS.set(at, SAMPLE_TEXT);
-  const run = (await check(m, at, true)) as unknown as Sampled;
+  const run = (await check(m, at, { declarations: true, bodies: true })) as unknown as Sampled;
   const found = run.declarations.find((s) => s.path === at)?.declarations ?? [];
   const named = (name: string, kind: string) =>
     found.find((d) => d.name === name && d.kind.$ === kind);
   const x = named("x", "ParameterDeclaration");
+  const main = named("main", "DefDeclaration")?.kind.body;
+  const term = (i: number | undefined) => (i === undefined ? undefined : main?.[i]?.term);
   const checks: Array<[string, boolean]> = [
     ["check", run.failure.$ === "None"],
     ["def", named("id", "DefDeclaration")?.references.length === 1],
@@ -1211,6 +1342,15 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       "constructor",
       named("Z", "ConstructorDeclaration")?.kind.owner === "N" &&
         named("Z", "ConstructorDeclaration")?.references.length === 1,
+    ],
+    [
+      "body",
+      term(0)?.$ === "CallTerm" &&
+        term(term(0)?.head)?.$ === "ReferenceTerm" &&
+        term(term(0)?.head)?.name === "id" &&
+        term(0)?.arguments?.length === 1 &&
+        term(term(0)?.arguments?.[0])?.$ === "ConstructorTerm" &&
+        term(term(0)?.arguments?.[0])?.name === "Z",
     ],
   ];
   const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
@@ -1383,7 +1523,7 @@ const run = async (m: Loaded, files: string[], args: string[], again: boolean): 
         void worker.terminate();
         done({ restart: msg.files });
       } else {
-        void check(m, msg.path, msg.declarations).then(reply, fail);
+        void check(m, msg.path, msg).then(reply, fail);
       }
     });
   }).then((end) => {

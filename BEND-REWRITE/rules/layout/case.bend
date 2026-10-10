@@ -71,7 +71,7 @@ def typed(written: Maybe<&2, Lint.BendType>) -> Case:
 
 def written_of(kind: Lint.DeclarationKind) -> Maybe<&2, Lint.BendType>:
   match kind:
-    case Lint.DefDeclaration{fills, written_type}:
+    case Lint.DefDeclaration{fills, written_type, body}:
       written_type
     case Lint.DatatypeDeclaration{written_type}:
       written_type
@@ -114,9 +114,9 @@ def noun(kind: Lint.DeclarationKind, sort: Bool) -> String:
       "a type"
     case Lint.ConstructorDeclaration{owner} _:
       "a constructor"
-    case Lint.DefDeclaration{fills, written_type} True{}:
+    case Lint.DefDeclaration{fills, written_type, body} True{}:
       "a def that returns a type"
-    case Lint.DefDeclaration{fills, written_type} False{}:
+    case Lint.DefDeclaration{fills, written_type, body} False{}:
       "a def that does not return a type"
     case Lint.ParameterDeclaration{owner, written_type} True{}:
       "a parameter that is a type"
@@ -387,7 +387,7 @@ def check(
   d: Lint.Declaration
 ) -> List<&2, Lint.Finding>:
   match d:
-    case Lint.Declaration{name, span, references, Lint.DefDeclaration{True{}, written_type}}:
+    case Lint.Declaration{name, span, references, Lint.DefDeclaration{True{}, written_type, body}}:
       []
     case Lint.Declaration{"Base", span, references, Lint.ImportDeclaration{loads}}:
       []
