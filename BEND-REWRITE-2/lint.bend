@@ -674,6 +674,24 @@ type Severity is Data:
   Information{}
   Hint{}
 
+def Severity.show(s: Severity) -> String:
+  match s:
+    case Error{}:
+      "error"
+    case Warning{}:
+      "warning"
+    case Information{}:
+      "information"
+    case Hint{}:
+      "hint"
+
+def Severity.is_error(s: Severity) -> Bool:
+  match s:
+    case Error{}:
+      True{}
+    case _:
+      False{}
+
 # What a rule finds: how severe, where, and what to do about it.
 type Finding is Data:
   Finding{severity: Severity, span: Span, message: String}
@@ -750,6 +768,895 @@ def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List
 def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:
   findings.go(~A, ~f, xs, [])
 
+# Directives
+# ==========
+# Comments in a linted file that silence findings (disable) or demand them (expect):
+# `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`. One directive names one
+# rule. An expect pins a severity; a disable takes none. file covers the whole file; begin and end bound a region;
+# line covers its own line; next covers the next line that holds code. A finding is covered when its span starts on a
+# covered line. Directives that stack on consecutive comment-only lines must be in order, by rule, severity and
+# keyword. The checker's and bend-lint's own findings cannot be suppressed.
+
+# A comment: where it is (code points), its line (from 0), whether code comes before it on its line, and its text
+# after the #.
+type Comment is Data:
+  Comment{beg: U32, end: U32, line: U32, trailing: Bool, body: String}
+
+# What a character is to the scan of a text.
+type Glyph is Data:
+  LineEnd{}
+  CarriageReturn{}
+  Hash{}
+  DoubleQuote{}
+  SingleQuote{}
+  Backslash{}
+  Blank{}
+  Other{}
+
+# Where the scan is: in code, a comment, a string or a char literal, or just after a \ in one.
+type Mode is Data:
+  InCode{}
+  InComment{}
+  InString{}
+  InStringEscape{}
+  InChar{}
+  InCharEscape{}
+
+# The scan so far: where it is, its offset and line, whether its line holds code, the comment it is in (its body last
+# first), the comments before (last first), and whether each line before holds code (last first).
+type Scan is Data:
+  Scan{mode: Mode, at: U32, line: U32, code: Bool, open: Comment, comments: List<&2, Comment>, lines: List<&2, Bool>}
+
+def Glyph.of(+c: Char) -> Glyph:
+  Bool.pick(
+    Glyph,
+    Char.is_eq(c, '\n'),
+    LineEnd{},
+    Bool.pick(
+      Glyph,
+      Char.is_eq(c, '#'),
+      Hash{},
+      Bool.pick(
+        Glyph,
+        Char.is_eq(c, '"'),
+        DoubleQuote{},
+        Bool.pick(
+          Glyph,
+          Char.is_eq(c, '\''),
+          SingleQuote{},
+          Bool.pick(
+            Glyph,
+            Char.is_eq(c, '\\'),
+            Backslash{},
+            Bool.pick(
+              Glyph,
+              Char.is_eq(c, '\r'),
+              CarriageReturn{},
+              Bool.pick(Glyph, Char.is_eq(c, ' ') || Char.is_eq(c, '\t'), Blank{}, Other{})
+            )
+          )
+        )
+      )
+    )
+  )
+
+# No comment: what the scan holds as its open comment outside one.
+def Comment.none() -> Comment:
+  Comment{0, 0, 0, False{}, ""}
+
+# The comment `open`, ended at `at`, its body in order.
+def Comment.closed(open: Comment, at: U32) -> Comment:
+  match open:
+    case Comment{beg, end, line, trailing, body}:
+      Comment{beg, at, line, trailing, String.reverse(body)}
+
+def Comment.push(open: Comment, c: Char) -> Comment:
+  match open:
+    case Comment{beg, end, line, trailing, body}:
+      Comment{beg, end, line, trailing, SCon{c, body}}
+
+def Scan.in_code(glyph: Glyph, +at: U32, +line: U32, +code: Bool, open: Comment, comments: List<&2, Comment>, lines: List<&2, Bool>) -> Scan:
+  match glyph:
+    case LineEnd{}:
+      Scan{InCode{}, (at + 1 : U32), (line + 1 : U32), False{}, open, comments, code <> lines}
+    case Hash{}:
+      Scan{InComment{}, (at + 1 : U32), line, code, Comment{at, at, line, code, ""}, comments, lines}
+    case DoubleQuote{}:
+      Scan{InString{}, (at + 1 : U32), line, True{}, open, comments, lines}
+    case SingleQuote{}:
+      Scan{InChar{}, (at + 1 : U32), line, True{}, open, comments, lines}
+    case Blank{}:
+      Scan{InCode{}, (at + 1 : U32), line, code, open, comments, lines}
+    case CarriageReturn{}:
+      Scan{InCode{}, (at + 1 : U32), line, code, open, comments, lines}
+    case _:
+      Scan{InCode{}, (at + 1 : U32), line, True{}, open, comments, lines}
+
+def Scan.in_comment(glyph: Glyph, c: Char, +at: U32, +line: U32, code: Bool, open: Comment, comments: List<&2, Comment>, lines: List<&2, Bool>) -> Scan:
+  match glyph:
+    case LineEnd{}:
+      Scan{InCode{}, (at + 1 : U32), (line + 1 : U32), False{}, Comment.none(), Comment.closed(open, at) <> comments, code <> lines}
+    case CarriageReturn{}:
+      Scan{InCode{}, (at + 1 : U32), line, code, Comment.none(), Comment.closed(open, at) <> comments, lines}
+    case _:
+      Scan{InComment{}, (at + 1 : U32), line, code, Comment.push(open, c), comments, lines}
+
+# A step in a string (`string`) or a char literal: a \ escapes the next character, the closing quote ends it, and a
+# line it spans holds code.
+def Scan.in_quote(string: Bool, glyph: Glyph, +at: U32, +line: U32, code: Bool, open: Comment, comments: List<&2, Comment>, lines: List<&2, Bool>) -> Scan:
+  match string glyph:
+    case True{} Backslash{}:
+      Scan{InStringEscape{}, (at + 1 : U32), line, code, open, comments, lines}
+    case False{} Backslash{}:
+      Scan{InCharEscape{}, (at + 1 : U32), line, code, open, comments, lines}
+    case True{} DoubleQuote{}:
+      Scan{InCode{}, (at + 1 : U32), line, code, open, comments, lines}
+    case False{} SingleQuote{}:
+      Scan{InCode{}, (at + 1 : U32), line, code, open, comments, lines}
+    case True{} LineEnd{}:
+      Scan{InString{}, (at + 1 : U32), (line + 1 : U32), True{}, open, comments, True{} <> lines}
+    case False{} LineEnd{}:
+      Scan{InChar{}, (at + 1 : U32), (line + 1 : U32), True{}, open, comments, True{} <> lines}
+    case True{} _:
+      Scan{InString{}, (at + 1 : U32), line, code, open, comments, lines}
+    case False{} _:
+      Scan{InChar{}, (at + 1 : U32), line, code, open, comments, lines}
+
+# A step just after a \ in a string (`string`) or a char literal: the character is taken as is.
+def Scan.in_escape(string: Bool, glyph: Glyph, +at: U32, +line: U32, code: Bool, open: Comment, comments: List<&2, Comment>, lines: List<&2, Bool>) -> Scan:
+  match string glyph:
+    case True{} LineEnd{}:
+      Scan{InString{}, (at + 1 : U32), (line + 1 : U32), True{}, open, comments, True{} <> lines}
+    case False{} LineEnd{}:
+      Scan{InChar{}, (at + 1 : U32), (line + 1 : U32), True{}, open, comments, True{} <> lines}
+    case True{} _:
+      Scan{InString{}, (at + 1 : U32), line, code, open, comments, lines}
+    case False{} _:
+      Scan{InChar{}, (at + 1 : U32), line, code, open, comments, lines}
+
+def Scan.step(glyph: Glyph, c: Char, s: Scan) -> Scan:
+  match s:
+    case Scan{InCode{}, at, line, code, open, comments, lines}:
+      Scan.in_code(glyph, at, line, code, open, comments, lines)
+    case Scan{InComment{}, at, line, code, open, comments, lines}:
+      Scan.in_comment(glyph, c, at, line, code, open, comments, lines)
+    case Scan{InString{}, at, line, code, open, comments, lines}:
+      Scan.in_quote(True{}, glyph, at, line, code, open, comments, lines)
+    case Scan{InChar{}, at, line, code, open, comments, lines}:
+      Scan.in_quote(False{}, glyph, at, line, code, open, comments, lines)
+    case Scan{InStringEscape{}, at, line, code, open, comments, lines}:
+      Scan.in_escape(True{}, glyph, at, line, code, open, comments, lines)
+    case Scan{InCharEscape{}, at, line, code, open, comments, lines}:
+      Scan.in_escape(False{}, glyph, at, line, code, open, comments, lines)
+
+def Scan.go(text: String, s: Scan) -> Scan:
+  match text:
+    case SNil{}:
+      s
+    case SCon{+c, t}:
+      Scan.go(t, Scan.step(Glyph.of(c), c, s))
+
+# A text's comments, in order, and whether each line holds code, in order.
+type Scanned is Data:
+  Scanned{comments: List<&2, Comment>, lines: List<&2, Bool>}
+
+def Scan.done(s: Scan) -> Scanned:
+  match s:
+    case Scan{InComment{}, +at, line, code, open, comments, lines}:
+      Scanned{List.reverse(&2, Comment, Comment.closed(open, at) <> comments), List.reverse(&2, Bool, code <> lines)}
+    case Scan{mode, at, line, code, open, comments, lines}:
+      Scanned{List.reverse(&2, Comment, comments), List.reverse(&2, Bool, code <> lines)}
+
+def Scan.of(text: String) -> Scanned:
+  Scan.done(Scan.go(text, Scan{InCode{}, 0, 0, False{}, Comment.none(), [], []}))
+
+type Action is Data:
+  Disable{}
+  Expect{}
+
+type Scope is Data:
+  WholeFile{}
+  Begin{}
+  End{}
+  NextLine{}
+  SameLine{}
+
+# A directive: what it does, how far, the rule it names, the severity it pins, its comment, and its place among the
+# file's directives.
+type Directive is Data:
+  Directive{action: Action, scope: Scope, rule: String, severity: Maybe<&2, Severity>, comment: Comment, index: U32}
+
+# A comment that says bend-lint: a directive, or what is wrong with it.
+type Said is Data:
+  Said{directive: Directive}
+  Wrong{comment: Comment, why: String}
+
+def Directive.syntax() -> String:
+  "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`."
+
+def Action.names() -> List<&2, Named<Action>>:
+  [Named{"disable", Disable{}}, Named{"expect", Expect{}}]
+
+def Scope.names() -> List<&2, Named<Scope>>:
+  [
+    Named{"file", WholeFile{}},
+    Named{"begin", Begin{}},
+    Named{"end", End{}},
+    Named{"next", NextLine{}},
+    Named{"line", SameLine{}}
+  ]
+
+def Severity.names() -> List<&2, Named<Severity>>:
+  [Named{"error", Error{}}, Named{"warning", Warning{}}, Named{"information", Information{}}, Named{"hint", Hint{}}]
+
+
+def Action.show(a: Action) -> String:
+  match a:
+    case Disable{}:
+      "disable"
+    case Expect{}:
+      "expect"
+
+def Scope.show(s: Scope) -> String:
+  match s:
+    case WholeFile{}:
+      "file"
+    case Begin{}:
+      "begin"
+    case End{}:
+      "end"
+    case NextLine{}:
+      "next"
+    case SameLine{}:
+      "line"
+
+def Severity.code(s: Severity) -> U32:
+  match s:
+    case Error{}:
+      0
+    case Warning{}:
+      1
+    case Information{}:
+      2
+    case Hint{}:
+      3
+
+def Severity.same(a: Maybe<&2, Severity>, b: Maybe<&2, Severity>) -> Bool:
+  match a b:
+    case Some{x} Some{y}:
+      U32.is_eq(Severity.code(x), Severity.code(y))
+    case None{} None{}:
+      True{}
+    case _ _:
+      False{}
+
+# The words of a text, split at blanks: the word so far, last first, and the words before it, last first.
+type Words is Data:
+  Words{word: String, out: List<&2, String>}
+
+def Words.step(blank: Bool, c: Char, w: Words) -> Words:
+  match blank w:
+    case True{} Words{SNil{}, out}:
+      Words{"", out}
+    case True{} Words{SCon{h, t}, out}:
+      Words{"", String.reverse(SCon{h, t}) <> out}
+    case False{} Words{word, out}:
+      Words{SCon{c, word}, out}
+
+def Words.go(s: String, w: Words) -> Words:
+  match s:
+    case SNil{}:
+      w
+    case SCon{+c, t}:
+      Words.go(t, Words.step(Char.is_eq(c, ' ') || Char.is_eq(c, '\t'), c, w))
+
+def Words.done(w: Words) -> List<&2, String>:
+  match w:
+    case Words{SNil{}, out}:
+      List.reverse(&2, String, out)
+    case Words{SCon{h, t}, out}:
+      List.reverse(&2, String, String.reverse(SCon{h, t}) <> out)
+
+def Words.of(s: String) -> List<&2, String>:
+  Words.done(Words.go(s, Words{"", []}))
+
+# A directive as written, before its severity and rule are checked.
+type Draft is Data:
+  Draft{action: Action, scope: Scope, rule: String, pinned: Maybe<&2, String>, reason: Maybe<&2, String>}
+
+# Whether a rule id is two non-empty parts split by a /.
+def Draft.rule_ok(parts: List<&2, String>) -> Bool:
+  match parts:
+    case Con{a, Con{b, Nil{}}}:
+      Bool.not(String.is_empty(a)) && Bool.not(String.is_empty(b))
+    case _:
+      False{}
+
+def Draft.ruled(ok: Bool, action: Action, scope: Scope, rule: String, pinned: Maybe<&2, String>, reason: Maybe<&2, String>) ->
+  Maybe<&2, Draft>:
+  match ok:
+    case True{}:
+      Some{Draft{action, scope, rule, pinned, reason}}
+    case False{}:
+      None{}
+
+def Draft.named(action: Action, scope: Scope, parts: List<&2, String>, reason: Maybe<&2, String>) -> Maybe<&2, Draft>:
+  match parts:
+    case Con{+rule, Nil{}}:
+      Draft.ruled(Draft.rule_ok(String.split(rule, '/')), action, scope, rule, None{}, reason)
+    case Con{+rule, Con{p, rest}}:
+      Draft.ruled(Draft.rule_ok(String.split(rule, '/')), action, scope, rule, Some{String.join(p <> rest, "@")}, reason)
+    case Nil{}:
+      None{}
+
+def Draft.kind(parts: List<&2, String>, named: String, reason: Maybe<&2, String>) -> Maybe<&2, Draft>:
+  match parts:
+    case Con{a, Con{s, Nil{}}}:
+      do Maybe<&2, Draft>:
+        action : Action <- Program.lookup(Action, a, Action.names())
+        scope : Scope <- Program.lookup(Scope, s, Scope.names())
+        Draft.named(action, scope, String.split(named, '@'), reason)
+    case _:
+      None{}
+
+def Draft.dashed(dash: Bool, kind: String, named: String, reason: String) -> Maybe<&2, Draft>:
+  match dash:
+    case True{}:
+      Draft.kind(String.split(kind, '-'), named, Some{reason})
+    case False{}:
+      None{}
+
+# The draft of a directive's words, after `bend-lint:`.
+def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
+  match words:
+    case Con{kind, Con{named, Nil{}}}:
+      Draft.kind(String.split(kind, '-'), named, None{})
+    case Con{kind, Con{named, Con{+dash, Con{r, rest}}}}:
+      Draft.dashed(String.eq(dash, "--"), kind, named, String.join(r <> rest, " "))
+    case _:
+      None{}
+
+def Problem.when(hit: Bool, why: String) -> Maybe<&2, String>:
+  match hit:
+    case True{}:
+      Some{why}
+    case False{}:
+      None{}
+
+def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
+  match pinned:
+    case Some{+p}:
+      Problem.when(Maybe.is_none(&2, Severity, Program.lookup(Severity, p, Severity.names())), p ++ " is not a severity.")
+    case None{}:
+      None{}
+
+def Problem.severity(action: Action, pinned: Bool, +rule: String) -> Maybe<&2, String>:
+  match action pinned:
+    case Disable{} True{}:
+      Some{"A disable takes no severity."}
+    case Expect{} False{}:
+      Some{"An expect pins a severity: " ++ rule ++ "@..."}
+    case _ _:
+      None{}
+
+def Problem.reason(scope: Scope, reason: Bool) -> Maybe<&2, String>:
+  match scope reason:
+    case End{} True{}:
+      Some{"An end takes no reason; the begin has it."}
+    case End{} False{}:
+      None{}
+    case _ False{}:
+      Some{"A reason is required, after `--`."}
+    case _ True{}:
+      None{}
+
+def Problem.line(scope: Scope, trailing: Bool) -> Maybe<&2, String>:
+  match scope trailing:
+    case SameLine{} False{}:
+      Some{"A line directive must follow code on its line."}
+    case _ _:
+      None{}
+
+def Problem.first(problems: List<&2, Maybe<&2, String>>) -> Maybe<&2, String>:
+  match problems:
+    case Nil{}:
+      None{}
+    case Con{Some{why}, rest}:
+      Some{why}
+    case Con{None{}, rest}:
+      Problem.first(rest)
+
+# The namespace of a rule id: what comes before its first /.
+def Rule.namespace.of(parts: List<&2, String>) -> String:
+  match parts:
+    case Con{ns, rest}:
+      ns
+    case Nil{}:
+      ""
+
+def Rule.namespace(rule: String) -> String:
+  Rule.namespace.of(String.split(rule, '/'))
+
+def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: U32) -> Said:
+  match why draft:
+    case Some{w} _:
+      Wrong{comment, w}
+    case None{} Draft{action, scope, rule, pinned, reason}:
+      Said{
+        Directive{
+          action,
+          scope,
+          rule,
+          Maybe.bind(&2, String, Severity, pinned, p => Program.lookup(Severity, p, Severity.names())),
+          comment,
+          index
+        }
+      }
+
+def Rule.reserved(namespace: String) -> Bool:
+  match namespace:
+    case +ns:
+      String.eq(ns, "bend") || String.eq(ns, "bend-lint")
+
+def Comment.trailing(comment: Comment) -> Bool:
+  match comment:
+    case Comment{beg, end, line, trailing, body}:
+      trailing
+
+# What a comment that holds a draft (or not) says, checked against the rules there are.
+def Said.of(draft: Maybe<&2, Draft>, +comment: Comment, +known: List<&2, String>, index: U32) -> Said:
+  match draft:
+    case None{}:
+      Wrong{comment, Directive.syntax()}
+    case Some{Draft{+action, +scope, +rule, +pinned, +reason}}:
+      Said.checked(
+        Problem.first(
+          [
+            Problem.pinned(pinned),
+            Problem.severity(action, Maybe.is_some(&2, String, pinned), rule),
+            Problem.reason(scope, Maybe.is_some(&2, String, reason)),
+            Problem.line(scope, Comment.trailing(comment)),
+            Problem.when(Rule.reserved(Rule.namespace(rule)), rule ++ " findings cannot be suppressed."),
+            Problem.when(Bool.not(List.contains(~String, ~String.eq, known, rule)), "There is no rule " ++ rule ++ ".")
+          ]
+        ),
+        Draft{action, scope, rule, pinned, reason},
+        comment,
+        index
+      )
+
+def Said.read.body(directive: Bool, +rest: String, +comment: Comment, +known: List<&2, String>, index: U32) ->
+  Maybe<&2, Said>:
+  match directive:
+    case True{}:
+      Some{Said.of(Draft.of(Words.of(String.drop(rest, 10n))), comment, known, index)}
+    case False{}:
+      None{}
+
+# What a comment says, if it says bend-lint:.
+def Said.read(+comment: Comment, +known: List<&2, String>, index: U32) -> Maybe<&2, Said>:
+  match comment:
+    case Comment{beg, end, line, trailing, body}:
+      Said.read.body(
+        String.starts_with(String.trim_start(body), "bend-lint:"),
+        String.trim_start(body),
+        comment,
+        known,
+        index
+      )
+
+def Said.push(said: Maybe<&2, Said>, out: List<&2, Said>) -> List<&2, Said>:
+  match said:
+    case Some{s}:
+      s <> out
+    case None{}:
+      out
+
+# What the comments say, in order, each numbered; `out` holds those so far, last first.
+def Said.all(comments: List<&2, Comment>, +known: List<&2, String>, +index: U32, out: List<&2, Said>) -> List<&2, Said>:
+  match comments:
+    case Nil{}:
+      List.reverse(&2, Said, out)
+    case Con{c, rest}:
+      Said.all(rest, known, (index + 1 : U32), Said.push(Said.read(c, known, index), out))
+
+# Where a begin was closed: its index, and the line of its end.
+type Closed is Data:
+  Closed{index: U32, line: U32}
+
+# The begins open so far (latest first), the begins closed, and what is wrong (last first).
+type Pairing is Data:
+  Pairing{open: List<&2, Directive>, closed: List<&2, Closed>, wrong: List<&2, Said>}
+
+# The latest open begin of an action and a rule.
+def Open.latest(open: List<&2, Directive>, +action: String, +rule: String) -> Maybe<&2, Directive>:
+  match open:
+    case Nil{}:
+      None{}
+    case Con{Directive{+a, s, +r, +sev, +c, +i}, rest}:
+      Bool.pick(
+        Maybe<&2, Directive>,
+        String.eq(Action.show(a), action) && String.eq(r, rule),
+        Some{Directive{a, s, r, sev, c, i}},
+        Open.latest(rest, action, rule)
+      )
+
+def Open.keep(drop: Bool, d: Directive, rest: List<&2, Directive>) -> List<&2, Directive>:
+  match drop:
+    case True{}:
+      rest
+    case False{}:
+      d <> rest
+
+# The open begins, less the one numbered `index`.
+def Open.without(open: List<&2, Directive>, +index: U32) -> List<&2, Directive>:
+  match open:
+    case Nil{}:
+      []
+    case Con{Directive{a, s, r, sev, c, +i}, rest}:
+      Open.keep(U32.is_eq(i, index), Directive{a, s, r, sev, c, i}, Open.without(rest, index))
+
+def Pairing.closing(same: Bool, +index: U32, line: U32, rule: String, comment: Comment, p: Pairing) -> Pairing:
+  match same p:
+    case True{} Pairing{open, closed, wrong}:
+      Pairing{Open.without(open, index), Closed{index, line} <> closed, wrong}
+    case False{} Pairing{open, closed, wrong}:
+      Pairing{open, closed, Wrong{comment, "This end closes no begin of " ++ rule ++ "."} <> wrong}
+
+def Pairing.close(begin: Maybe<&2, Directive>, end: Directive, p: Pairing) -> Pairing:
+  match begin end p:
+    case Some{Directive{a, s, r, sev, c, +i}} Directive{ea, es, er, esev, Comment{b, e, +line, t, body}, ei} Pairing{+open, closed, wrong}:
+      Pairing.closing(Severity.same(sev, esev), i, line, er, Comment{b, e, line, t, body}, Pairing{open, closed, wrong})
+    case None{} Directive{ea, es, er, esev, ec, ei} Pairing{open, closed, wrong}:
+      Pairing{open, closed, Wrong{ec, "This end closes no begin of " ++ er ++ "."} <> wrong}
+
+def Pairing.step(said: Said, p: Pairing) -> Pairing:
+  match said p:
+    case Said{Directive{a, Begin{}, r, sev, c, i}} Pairing{open, closed, wrong}:
+      Pairing{Directive{a, Begin{}, r, sev, c, i} <> open, closed, wrong}
+    case Said{Directive{+a, End{}, +r, sev, c, i}} Pairing{+open, closed, wrong}:
+      Pairing.close(Open.latest(open, Action.show(a), r), Directive{a, End{}, r, sev, c, i}, Pairing{open, closed, wrong})
+    case _ _:
+      p
+
+def Pairing.go(saids: List<&2, Said>, p: Pairing) -> Pairing:
+  match saids:
+    case Nil{}:
+      p
+    case Con{s, rest}:
+      Pairing.go(rest, Pairing.step(s, p))
+
+# The begins left open, as what is wrong, onto `wrong`.
+def Pairing.unclosed(open: List<&2, Directive>, wrong: List<&2, Said>) -> List<&2, Said>:
+  match open:
+    case Nil{}:
+      wrong
+    case Con{Directive{a, s, r, sev, c, i}, rest}:
+      Pairing.unclosed(rest, Wrong{c, "This begin of " ++ r ++ " is never closed."} <> wrong)
+
+# A directive and the lines it covers, both ends included (from 1 to 0 covers none).
+type Covering is Data:
+  Covering{directive: Directive, from: U32, to: U32}
+
+def Lines.pick(hit: Bool, i: U32) -> Maybe<&2, U32>:
+  match hit:
+    case True{}:
+      Some{i}
+    case False{}:
+      None{}
+
+# The first line after `after` that holds code; `i` is the line of the head of `lines`.
+def Lines.next_code(lines: List<&2, Bool>, found: Maybe<&2, U32>, +i: U32, +after: U32) -> Maybe<&2, U32>:
+  match lines found:
+    case _ Some{x}:
+      Some{x}
+    case Nil{} None{}:
+      None{}
+    case Con{code, rest} None{}:
+      Lines.next_code(rest, Lines.pick(code && U32.is_gt(i, after), i), (i + 1 : U32), after)
+
+def Closed.find(closed: List<&2, Closed>, +index: U32) -> Maybe<&2, U32>:
+  match closed:
+    case Nil{}:
+      None{}
+    case Con{Closed{+i, +line}, rest}:
+      Bool.pick(Maybe<&2, U32>, U32.is_eq(i, index), Some{line}, Closed.find(rest, index))
+
+def Covering.next(d: Directive, found: Maybe<&2, U32>) -> Covering:
+  match found:
+    case Some{+l}:
+      Covering{d, l, l}
+    case None{}:
+      Covering{d, 1, 0}
+
+# The lines a directive covers; `last` is the file's last line.
+def Covering.of(said: Said, +lines: List<&2, Bool>, +closed: List<&2, Closed>, +last: U32) -> Maybe<&2, Covering>:
+  match said:
+    case Said{Directive{a, WholeFile{}, r, sev, c, i}}:
+      Some{Covering{Directive{a, WholeFile{}, r, sev, c, i}, 0, last}}
+    case Said{Directive{a, SameLine{}, r, sev, Comment{b, e, +l, t, body}, i}}:
+      Some{Covering{Directive{a, SameLine{}, r, sev, Comment{b, e, l, t, body}, i}, l, l}}
+    case Said{Directive{a, NextLine{}, r, sev, Comment{b, e, +l, t, body}, i}}:
+      Some{Covering.next(Directive{a, NextLine{}, r, sev, Comment{b, e, l, t, body}, i}, Lines.next_code(lines, None{}, 0, l))}
+    case Said{Directive{a, Begin{}, r, sev, Comment{b, e, +l, t, body}, +i}}:
+      Some{
+        Covering{
+          Directive{a, Begin{}, r, sev, Comment{b, e, l, t, body}, i},
+          l,
+          Maybe.default(&2, U32, Closed.find(closed, i), last)
+        }
+      }
+    case _:
+      None{}
+
+def Covering.push(c: Maybe<&2, Covering>, out: List<&2, Covering>) -> List<&2, Covering>:
+  match c:
+    case Some{x}:
+      x <> out
+    case None{}:
+      out
+
+def Covering.all(
+  saids: List<&2, Said>,
+  +lines: List<&2, Bool>,
+  +closed: List<&2, Closed>,
+  +last: U32,
+  out: List<&2, Covering>
+) -> List<&2, Covering>:
+  match saids:
+    case Nil{}:
+      List.reverse(&2, Covering, out)
+    case Con{s, rest}:
+      Covering.all(rest, lines, closed, last, Covering.push(Covering.of(s, lines, closed, last), out))
+
+def Covering.pins(action: Action, pinned: Maybe<&2, Severity>, severity: Severity) -> Bool:
+  match action:
+    case Disable{}:
+      True{}
+    case Expect{}:
+      Severity.same(pinned, Some{severity})
+
+# Whether a covering covers a finding of `rule` and `severity` on line `row`.
+def Covering.covers(+rule: String, +severity: Severity, +row: U32, covering: Covering) -> Bool:
+  match covering:
+    case Covering{Directive{action, scope, r, sev, c, i}, +from, +to}:
+      String.eq(r, rule) && U32.is_le(from, row) && U32.is_le(row, to) && Covering.pins(action, sev, severity)
+
+def Covering.hit(hit: Bool, c: Covering, out: List<&2, U32>) -> List<&2, U32>:
+  match hit c:
+    case True{} Covering{Directive{a, s, r, sev, comment, i}, from, to}:
+      i <> out
+    case False{} _:
+      out
+
+# The indexes of the coverings that cover a finding, onto `out`.
+def Covering.hits(coverings: List<&2, Covering>, +rule: String, +severity: Severity, +row: U32, out: List<&2, U32>) ->
+  List<&2, U32>:
+  match coverings:
+    case Nil{}:
+      out
+    case Con{+c, rest}:
+      Covering.hits(rest, rule, severity, row, Covering.hit(Covering.covers(rule, severity, row, c), c, out))
+
+# The line (from 0) of offset `at` of `text`.
+def Text.line.go(s: String, +line: U32) -> U32:
+  match s:
+    case SNil{}:
+      line
+    case SCon{+c, t}:
+      Text.line.go(t, Bool.pick(U32, Char.is_eq(c, '\n'), (line + 1 : U32), line))
+
+def Text.line(text: String, at: U32) -> U32:
+  Text.line.go(String.take(text, U32.to_nat(at)), 0)
+
+# The findings so far: those that stay, those a directive covers (both last first), and the directives that covered
+# one.
+type Applied is Data:
+  Applied{kept: List<&2, Found>, suppressed: List<&2, Found>, used: List<&2, U32>}
+
+def Applied.add(hits: List<&2, U32>, found: Found, a: Applied) -> Applied:
+  match hits a:
+    case Nil{} Applied{kept, suppressed, used}:
+      Applied{found <> kept, suppressed, used}
+    case Con{h, t} Applied{kept, suppressed, used}:
+      Applied{kept, found <> suppressed, List.append(&2, U32, Con{h, t}, used)}
+
+def Applied.go(founds: List<&2, Found>, +coverings: List<&2, Covering>, +text: String, a: Applied) -> Applied:
+  match founds:
+    case Nil{}:
+      a
+    case Con{Found{+rule, Finding{+severity, Span{path, +beg, end}, message}}, rest}:
+      Applied.go(
+        rest,
+        coverings,
+        text,
+        Applied.add(
+          Covering.hits(coverings, rule, severity, Text.line(text, beg), []),
+          Found{rule, Finding{severity, Span{path, beg, end}, message}},
+          a
+        )
+      )
+
+def Unmet.add(used: Bool, action: Action, rule: String, pinned: Maybe<&2, Severity>, span: Span, out: List<&2, Found>) ->
+  List<&2, Found>:
+  match used action:
+    case True{} _:
+      out
+    case False{} Expect{}:
+      Found{
+        "bend-lint/unmet-expectation",
+        Finding{
+          Error{},
+          span,
+          "Expected a " ++ rule ++ "@" ++ Maybe.default(&2, String, Maybe.map(&2, Severity, String, Severity.show, pinned), "")
+            ++ " finding on the lines this covers; none."
+        }
+      } <> out
+    case False{} Disable{}:
+      Found{
+        "bend-lint/unused-disable",
+        Finding{Warning{}, span, "This disables " ++ rule ++ ", but nothing on the lines it covers needs it."}
+      } <> out
+
+# The findings about the directives that nothing used: an expect not met, a disable that covered nothing.
+def Unmet.go(coverings: List<&2, Covering>, +used: List<&2, U32>, +path: String, out: List<&2, Found>) -> List<&2, Found>:
+  match coverings:
+    case Nil{}:
+      List.reverse(&2, Found, out)
+    case Con{Covering{Directive{a, s, r, sev, Comment{b, e, l, t, body}, +i}, from, to}, rest}:
+      Unmet.go(rest, used, path, Unmet.add(List.contains(~U32, ~U32.is_eq, used, i), a, r, sev, Span{path, b, e}, out))
+
+# The key stacked directives are sorted by: rule, then severity, then keyword.
+def Directive.key(a: Action, s: Scope, r: String, sev: Maybe<&2, Severity>) -> String:
+  r ++ "\t" ++ Maybe.default(&2, String, Maybe.map(&2, Severity, String, Severity.show, sev), "") ++ "\t"
+    ++ Action.show(a) ++ "-" ++ Scope.show(s)
+
+# A run of directives on consecutive comment-only lines: where it starts and ends, its last line, its last key, and
+# whether it is in order.
+type Run is Data:
+  Run{beg: U32, end: U32, line: U32, key: String, sorted: Bool}
+
+# The runs so far: the open one, and the findings about the closed ones that are out of order (last first).
+type Runs is Data:
+  Runs{open: Maybe<&2, Run>, out: List<&2, Found>}
+
+def Runs.close(open: Maybe<&2, Run>, +path: String, out: List<&2, Found>) -> List<&2, Found>:
+  match open:
+    case Some{Run{beg, end, line, key, False{}}}:
+      Found{
+        "bend-lint/directive",
+        Finding{Error{}, Span{path, beg, end}, "Directives that stack must be in order: by rule, then severity, then keyword."}
+      } <> out
+    case _:
+      out
+
+def Runs.start(+b: U32, +e: U32, +l: U32, key: String) -> Run:
+  Run{b, e, l, key, True{}}
+
+def Runs.extend(continues: Bool, run: Run, comment: Comment, +key: String, +path: String, out: List<&2, Found>) -> Runs:
+  match continues run comment:
+    case True{} Run{beg, end, line, +last, sorted} Comment{b, e, l, t, body}:
+      Runs{Some{Run{beg, e, l, key, sorted && String.is_le(last, key)}}, out}
+    case False{} _ Comment{b, e, l, t, body}:
+      Runs{Some{Runs.start(b, e, l, key)}, Runs.close(Some{run}, path, out)}
+
+def Runs.step(said: Said, +path: String, runs: Runs) -> Runs:
+  match said runs:
+    case Said{Directive{a, s, r, sev, Comment{b, e, +l, False{}, body}, i}} Runs{Some{Run{rb, re, +rl, rk, rs}}, out}:
+      Runs.extend(
+        U32.is_eq(l, (rl + 1 : U32)),
+        Run{rb, re, rl, rk, rs},
+        Comment{b, e, l, False{}, body},
+        Directive.key(a, s, r, sev),
+        path,
+        out
+      )
+    case Said{Directive{a, s, r, sev, Comment{+b, +e, +l, False{}, body}, i}} Runs{None{}, out}:
+      Runs{Some{Runs.start(b, e, l, Directive.key(a, s, r, sev))}, out}
+    case _ _:
+      runs
+
+def Runs.go(saids: List<&2, Said>, +path: String, runs: Runs) -> List<&2, Found>:
+  match saids runs:
+    case Nil{} Runs{open, out}:
+      List.reverse(&2, Found, Runs.close(open, path, out))
+    case Con{s, rest} _:
+      Runs.go(rest, path, Runs.step(s, path, runs))
+
+# What is wrong with the directives, in order, as findings.
+def Wrong.found(saids: List<&2, Said>, +path: String, out: List<&2, Found>) -> List<&2, Found>:
+  match saids:
+    case Nil{}:
+      List.reverse(&2, Found, out)
+    case Con{Wrong{Comment{b, e, l, t, body}, why}, rest}:
+      Wrong.found(rest, path, Found{"bend-lint/directive", Finding{Error{}, Span{path, b, e}, why}} <> out)
+    case Con{s, rest}:
+      Wrong.found(rest, path, out)
+
+# A file's findings after its directives: those that stay, then the findings about its directives, and those a
+# directive covers.
+type Suppressed is Data:
+  Suppressed{kept: List<&2, Found>, suppressed: List<&2, Found>}
+
+def Directives.done(
+  a: Applied,
+  +coverings: List<&2, Covering>,
+  unpaired: List<&2, Said>,
+  +saids: List<&2, Said>,
+  +path: String
+) -> Suppressed:
+  match a:
+    case Applied{kept, suppressed, used}:
+      Suppressed{
+        List.concat(
+          &2,
+          Found,
+          [
+            List.reverse(&2, Found, kept),
+            Wrong.found(saids, path, []),
+            Wrong.found(List.reverse(&2, Said, unpaired), path, []),
+            Runs.go(saids, path, Runs{None{}, []}),
+            Unmet.go(coverings, used, path, [])
+          ]
+        ),
+        List.reverse(&2, Found, suppressed)
+      }
+
+def Directives.covered(
+  +coverings: List<&2, Covering>,
+  unpaired: List<&2, Said>,
+  +saids: List<&2, Said>,
+  +path: String,
+  +text: String,
+  founds: List<&2, Found>
+) -> Suppressed:
+  Directives.done(Applied.go(founds, coverings, text, Applied{[], [], []}), coverings, unpaired, saids, path)
+
+def Directives.paired(
+  p: Pairing,
+  +saids: List<&2, Said>,
+  +lines: List<&2, Bool>,
+  +path: String,
+  +text: String,
+  founds: List<&2, Found>
+) -> Suppressed:
+  match p:
+    case Pairing{open, closed, wrong}:
+      Directives.covered(
+        Covering.all(saids, lines, closed, (U32.from_nat(List.length(&2, Bool, lines)) - 1 : U32), []),
+        Pairing.unclosed(open, wrong),
+        saids,
+        path,
+        text,
+        founds
+      )
+
+def Directives.read(
+  +saids: List<&2, Said>,
+  +lines: List<&2, Bool>,
+  +path: String,
+  +text: String,
+  founds: List<&2, Found>
+) -> Suppressed:
+  Directives.paired(Pairing.go(saids, Pairing{[], [], []}), saids, lines, path, text, founds)
+
+def Directives.scanned(scanned: Scanned, +known: List<&2, String>, +path: String, +text: String, founds: List<&2, Found>) ->
+  Suppressed:
+  match scanned:
+    case Scanned{comments, +lines}:
+      Directives.read(Said.all(comments, known, 0, []), lines, path, text, founds)
+
+def Directives.when(has: Bool, +known: List<&2, String>, +path: String, +text: String, founds: List<&2, Found>) -> Suppressed:
+  match has:
+    case True{}:
+      Directives.scanned(Scan.of(text), known, path, text, founds)
+    case False{}:
+      Suppressed{founds, []}
+
+# A file's findings after the directives of its text: `known` are the ids of the rules there are.
+def Directives.apply(+known: List<&2, String>, +path: String, +text: String, founds: List<&2, Found>) -> Suppressed:
+  Directives.when(String.contains(text, "bend-lint:"), known, path, text, founds)
+
 # Running
 # =======
 
@@ -797,24 +1704,6 @@ def Program.root(sources: List<&2, Source>, last: Maybe<&2, Source>) -> Maybe<&2
 
 # Output
 # ======
-
-def Severity.show(s: Severity) -> String:
-  match s:
-    case Error{}:
-      "error"
-    case Warning{}:
-      "warning"
-    case Information{}:
-      "information"
-    case Hint{}:
-      "hint"
-
-def Severity.is_error(s: Severity) -> Bool:
-  match s:
-    case Error{}:
-      True{}
-    case _:
-      False{}
 
 # The line and column (from 1) after reading `s`, from `line` and `column`.
 def Text.position.go(s: String, +line: U32, +column: U32) -> String:
@@ -872,23 +1761,52 @@ def cli.say(lines: List<&2, String>) -> IO(Unit):
     case Con{h, t}:
       IO.print(String.join(h <> t, "\n"))
 
-def cli.end(failed: Bool, n: Nat) -> IO(Unit):
+# The summary line: how many findings stay, and how many directives suppressed.
+def cli.summary(n: Nat, suppressed: Nat) -> String:
+  match suppressed:
+    case 0n:
+      "bend-lint: " ++ Nat.show(n) ++ " finding(s)"
+    case _:
+      "bend-lint: " ++ Nat.show(n) ++ " finding(s), " ++ Nat.show(suppressed) ++ " suppressed"
+
+def cli.end(failed: Bool, summary: String) -> IO(Unit):
   match failed:
     case True{}:
       IO.die(Unit, 1, "bend-lint: FAIL")
     case False{}:
-      IO.print("bend-lint: " ++ Nat.show(n) ++ " finding(s)")
+      IO.print(summary)
 
-# Prints the findings of the file whose text is `text`; fails if one is an error.
-def cli.print(+text: String, +founds: List<&2, Found>) -> IO(Unit):
-  do IO<Unit>:
-    cli.say(Found.lines(text, founds, []))
-    cli.end(Found.any_error(founds, False{}), List.length(&2, Found, founds))
+# Prints the findings that stay, of the file whose text is `text`; fails if one is an error.
+def cli.print(+text: String, found: Suppressed) -> IO(Unit):
+  match found:
+    case Suppressed{+kept, suppressed}:
+      do IO<Unit>:
+        cli.say(Found.lines(text, kept, []))
+        cli.end(
+          Found.any_error(kept, False{}),
+          cli.summary(List.length(&2, Found, kept), List.length(&2, Found, suppressed))
+        )
+
+# The ids of the rules, in order.
+def Rule.ids(rules: List<&1, Rule>, out: List<&2, String>) -> List<&2, String>:
+  match rules:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{Rule{id, run}, rest}:
+      Rule.ids(rest, id <> out)
 
 def cli.lint(~rules: List<&1, Rule>, +program: Program, root: Maybe<&2, Source>) -> IO(Unit):
   match root:
     case Some{Source{+path, namespace, +text, nodes}}:
-      cli.print(text, Rule.run_all(4n, Rule.deal(rules, [], []), Here.of(program, Source{path, namespace, text, nodes})))
+      cli.print(
+        text,
+        Directives.apply(
+          Rule.ids(rules, []),
+          path,
+          text,
+          Rule.run_all(4n, Rule.deal(rules, [], []), Here.of(program, Source{path, namespace, text, nodes}))
+        )
+      )
     case None{}:
       IO.die(Unit, 2, "bend-lint: the check parsed no file")
 
