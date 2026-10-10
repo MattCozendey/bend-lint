@@ -61,7 +61,7 @@ describe("performance/deep-call-in-fork", () => {
     expect(out.map((f) => f.message)).toEqual([
       "pow2 recurses without a tail call, and f calls it at each fork. In our tests, such a call cut the 16-thread speedup from 10x to 1.9x; a tail call kept it. Make pow2 tail-recursive with an accumulator, compute its value with native operations, or pass it down as a parameter.",
     ]);
-    expect(out.map((f) => f.text)).toEqual(["pow2(p)))"]);
+    expect(out.map((f) => f.text)).toEqual(["pow2(p)"]);
   });
 
   test("a call in a let just before the fork is reported", () => {

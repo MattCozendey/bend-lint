@@ -308,11 +308,22 @@ def get_arg_names(args: Lint.BendTerm) -> List<&2, String>:
     case _:
       []
 
-# Every call in `t`, parents first, last first, before `done`.
+# Every call in `t`, parents first, last first, before `done`. A call names its head when the head is a reference, maybe
+# under an annotation; its head is not copied, for a match is a call whose head holds all its cases.
 def get_calls(t: Lint.BendTerm, done: List<&2, Call>) -> List<&2, Call>:
   match t:
-    case Lint.CallTerm{+head, +arguments, span}:
-      get_calls(arguments, get_calls(head, Call{get_reference_name(head), arguments, span} <> done))
+    case Lint.CallTerm{Lint.ReferenceTerm{+name, s}, +arguments, span}:
+      get_calls(arguments, Call{name, arguments, span} <> done)
+    case Lint.CallTerm{Lint.CheckedTerm{Lint.ReferenceTerm{+name, s}, fact}, +arguments, span}:
+      get_calls(arguments, Call{name, arguments, span} <> done)
+    case Lint.CallTerm{
+      Lint.AnnotatedTerm{Lint.ReferenceTerm{+name, s}, annotation, a},
+      +arguments,
+      span
+    }:
+      get_calls(arguments, get_calls(annotation, Call{name, arguments, span} <> done))
+    case Lint.CallTerm{head, +arguments, span}:
+      get_calls(arguments, get_calls(head, Call{"", arguments, span} <> done))
     case Lint.LetTerm{names, values, body, span}:
       get_calls(body, get_calls(values, done))
     case Lint.LambdaTerm{name, body, span}:
@@ -381,12 +392,52 @@ def get_defs.go(
 def get_defs(ds: List<&2, Lint.Declaration>) -> List<&2, Def>:
   get_defs.go(ds, None{}, [])
 
+def get_same_place(a: Maybe<&2, Lint.BendSourceSpan>, b: Maybe<&2, Lint.BendSourceSpan>) -> Bool:
+  match a b:
+    case Some{Lint.BendSourceSpan{p, i, j}} Some{Lint.BendSourceSpan{q, k, l}}:
+      String.eq(p, q) && U32.is_eq(i, k) && U32.is_eq(j, l)
+    case _ _:
+      False{}
+
+def get_seen_call(
+  seen: List<&2, Maybe<&2, Lint.BendSourceSpan>>,
+  +span: Maybe<&2, Lint.BendSourceSpan>
+) -> Bool:
+  match seen:
+    case Nil{}:
+      False{}
+    case Con{s, t}:
+      get_same_place(s, span) || get_seen_call(t, span)
+
+# `cs` with each call once per place in the source, in order, after `done`, reversed: the checker copies an expression
+# into each case of a match on characters, and its calls with it.
+def get_unique_calls(
+  cs: List<&2, Call>,
+  +seen: List<&2, Maybe<&2, Lint.BendSourceSpan>>,
+  +done: List<&2, Call>
+) -> List<&2, Call>:
+  match cs:
+    case Nil{}:
+      List.reverse(&2, Call, done)
+    case Con{Call{head, arguments, +span}, t}:
+      +copy = get_seen_call(seen, span)
+      get_unique_calls(
+        t,
+        Bool.pick(List<&2, Maybe<&2, Lint.BendSourceSpan>>, copy, seen, span <> seen),
+        Bool.pick(List<&2, Call>, copy, done, Call{head, arguments, span} <> done)
+      )
+
 def get_bodies.of(defs: List<&2, Def>) -> List<&2, Body>:
   match defs:
     case Nil{}:
       []
     case Con{Def{name, params, body}, t}:
-      Body{name, params, List.reverse(&2, Call, get_calls(body, []))} <> get_bodies.of(t)
+      Body{
+        name,
+        params,
+        get_unique_calls(List.reverse(&2, Call, get_calls(body, [])), [], [])
+      }
+        <> get_bodies.of(t)
 
 # The name, parameters and calls of each def of `ds`, a file's declarations, in file order.
 def get_bodies(ds: List<&2, Lint.Declaration>) -> List<&2, Body>:

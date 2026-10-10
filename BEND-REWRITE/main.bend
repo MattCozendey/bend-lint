@@ -47,8 +47,9 @@
 # | Per-rule config is a list of settings, not a map.           | Base has no map. RuleOff cannot carry a severity or options. |
 # | The config file is bend-lint.json only: no bend-lint.js or  | Bend cannot run JS or TS code.                               |
 # | bend-lint.ts.                                               |                                                              |
-# | get_lint_report returns findings, suppressed findings and   | Callers need little else. Other failures stop the program    |
-# | the linted files; errors use IO.die, not a Result.          | with a message.                                              |
+# | get_lint_report returns findings, suppressed findings, the  | Callers need little else. Other failures stop the program    |
+# | linted files and the files the check read; errors use       | with a message.                                              |
+# | IO.die, not a Result.                                       |                                                              |
 # | EVERY path the linter touches is a normalized POSIX-style   | One spelling per file, on every system.                      |
 # | path, symlinks included. Base and BendHub paths are exempt. |                                                              |
 # | On Windows, C:\x\y becomes c:/x/y.                          | Windows reads it as it is, so no path is converted on its    |
@@ -81,6 +82,11 @@
 # | the checker checked is a CheckedTerm with its TermFact.     | checked twice has both facts.                                |
 # | A call's partial applications have no facts of their own.  | A call is one term; its head and arguments keep theirs.      |
 # | A type is also a term (BendType.term), without spans.       | One representation for terms and types, as in Bend.          |
+# | The text output is a line per finding,                      | Short to read and to search; --json holds the rest.          |
+# | path:line:column: severity code: message, then a line per   |                                                              |
+# | fix with its title and applicability.                       |                                                              |
+# | In --json, an edit that is not a text edit has no range: it | A fix can create, rename and delete files.                   |
+# | holds the whole text of a file, or a rename, or a delete.   |                                                              |
 #
 # TODO
 # - performance/missed-fork crashes (machine stack overflow) and performance/append-in-loop hangs on this file.
@@ -262,7 +268,8 @@ type LintReport is Data:
   LintReport{
     findings: List<&2, RuleFinding>,
     suppressed: List<&2, RuleFinding>,
-    linted: List<&2, BendSource>
+    linted: List<&2, BendSource>,
+    sources: List<&2, BendSource>
   }
 
 type FixOutcome is Data:
@@ -299,9 +306,39 @@ type RunPlace is Data:
 type RuleHead is Data:
   RuleHead{id: String, after: List<&2, String>, needs: List<&2, RuleNeed>}
 
-# What the reports so far hold: their findings and suppressed findings, each last first.
+# What the reports so far hold: their findings and suppressed findings, each last first, and the files they read.
 type LintTally is Data:
-  LintTally{findings: List<&2, RuleFinding>, suppressed: List<&2, RuleFinding>}
+  LintTally{
+    findings: List<&2, RuleFinding>,
+    suppressed: List<&2, RuleFinding>,
+    sources: List<&2, BendSource>
+  }
+
+# A file's text as fixes change it, and whether one did.
+type FileText is Data:
+  FileText{path: String, text: String, changed: Bool}
+
+# A fix taken, per file it edits: where its edits start and end, and how much they add and remove.
+type FixApplied is Data:
+  FixApplied{path: String, beg: U32, end: U32, added: U32, removed: U32}
+
+# The files as the fixes taken so far left them, those fixes, the files they create, rename or delete, and the
+# findings whose fix was skipped.
+type FixState is Data:
+  FixState{
+    texts: List<&2, FileText>,
+    applied: List<&2, FixApplied>,
+    ops: List<&2, FixEdit>,
+    skipped: List<&2, RuleFinding>
+  }
+
+# How much the fixes before an offset added and removed.
+type Shift is Data:
+  Shift{added: U32, removed: U32}
+
+# What the CLI does with the reports: the fixes it applies, and how it prints them.
+type CliRun is Data:
+  CliRun{fix: Maybe<&2, FixApplicability>, output: CliOutput}
 
 type JsonValue is Data:
   JsonNull{}
@@ -2407,11 +2444,12 @@ def get_rules_off(partial: Bool, +every: List<&2, String>) -> List<&2, String>:
 # The directives of the linted files then suppress findings, and their problems are findings too.
 def get_lint_report.made(
   split: List<&2, RuleFinding> & List<&2, RuleFinding>,
-  linted: List<&2, BendSource>
+  linted: List<&2, BendSource>,
+  sources: List<&2, BendSource>
 ) -> LintReport:
   match split:
     case (findings, suppressed):
-      LintReport{findings, suppressed, linted}
+      LintReport{findings, suppressed, linted, sources}
 
 def get_rule_ids(rules: List<&1, Rule>) -> List<&2, String>:
   get_head_ids(get_rule_heads(rules))
@@ -2464,13 +2502,316 @@ def get_lint_report(
           get_rule_ids(rules(Unit{})),
           get_texts_where(False{}, get_head_ids(heads), done)
         ),
-        linted
+        linted,
+        sources
       )
     case Nil{} c:
-      LintReport{failures, [], []}
+      LintReport{failures, [], [], []}
 
+def get_fix_allowed(level: FixApplicability, a: FixApplicability) -> Bool:
+  match level a:
+    case Dangerous{} _:
+      True{}
+    case Safe{} Safe{}:
+      True{}
+    case Safe{} Dangerous{}:
+      False{}
+
+def get_has_file(texts: List<&2, FileText>, +path: String) -> Bool:
+  match texts:
+    case Nil{}:
+      False{}
+    case Con{FileText{p, text, changed}, t}:
+      String.eq(p, path) || get_has_file(t, path)
+
+# Where a fix's text edits of `path` start and end, at their widest, from `beg` and `end`.
+def get_hull(edits: List<&2, FixEdit>, +path: String, +beg: U32, +end: U32) -> BendSourceSpan:
+  match edits:
+    case Nil{}:
+      BendSourceSpan{path, beg, end}
+    case Con{ReplaceText{BendSourceSpan{p, +b, +e}, put}, t}:
+      +here = String.eq(p, path)
+      get_hull(
+        t,
+        path,
+        Bool.pick(U32, here, U32.min(beg, b), beg),
+        Bool.pick(U32, here, U32.max(end, e), end)
+      )
+    case Con{x, t}:
+      get_hull(t, path, beg, end)
+
+# Whether a span clashes with a fix taken already: their ranges overlap, or they insert at one point.
+def get_clashes(applied: List<&2, FixApplied>, span: BendSourceSpan) -> Bool:
+  match applied span:
+    case Nil{} _:
+      False{}
+    case Con{FixApplied{p, +b, +e, added, removed}, t} BendSourceSpan{+q, +c, +d}:
+      (
+        String.eq(
+          p,
+          q
+        )
+          && ((U32.is_lt(b, d) && U32.is_lt(c, e)) || (U32.is_eq(b, c) && U32.is_eq(e, d)))
+      )
+        || get_clashes(t, BendSourceSpan{q, c, d})
+
+# Whether a fix can be taken: each text edit is in a linted file, and none clashes with a fix taken already.
+def get_fix_fits(
+  edits: List<&2, FixEdit>,
+  +all: List<&2, FixEdit>,
+  +texts: List<&2, FileText>,
+  +applied: List<&2, FixApplied>
+) -> Bool:
+  match edits:
+    case Nil{}:
+      True{}
+    case Con{ReplaceText{BendSourceSpan{+p, b, e}, put}, t}:
+      get_has_file(
+        texts,
+        p
+      )
+        && Bool.not(get_clashes(applied, get_hull(all, p, 4294967295, 0)))
+        && get_fix_fits(t, all, texts, applied)
+    case Con{x, t}:
+      get_fix_fits(t, all, texts, applied)
+
+# How far the fixes taken already moved offset `at` of `path`: what they added and removed before it.
+def get_shift(
+  applied: List<&2, FixApplied>,
+  +path: String,
+  +at: U32,
+  +added: U32,
+  +removed: U32
+) -> Shift:
+  match applied:
+    case Nil{}:
+      Shift{added, removed}
+    case Con{FixApplied{p, b, +e, a, r}, t}:
+      +before = String.eq(p, path) && U32.is_le(e, at)
+      get_shift(
+        t,
+        path,
+        at,
+        Bool.pick(U32, before, U32.add(added, a), added),
+        Bool.pick(U32, before, U32.add(removed, r), removed)
+      )
+
+def get_moved(+at: U32, shift: Shift) -> U32:
+  match shift:
+    case Shift{added, removed}:
+      U32.sub(U32.add(at, added), removed)
+
+# `text` with the code points from `beg` to `end` replaced by `put`.
+def get_spliced(+text: String, beg: U32, end: U32, put: String) -> String:
+  String.take(text, U32.to_nat(beg)) ++ put ++ String.drop(text, U32.to_nat(end))
+
+def get_file_edited(
+  texts: List<&2, FileText>,
+  +path: String,
+  +beg: U32,
+  +end: U32,
+  +put: String
+) -> List<&2, FileText>:
+  match texts:
+    case Nil{}:
+      []
+    case Con{FileText{+p, +text, changed}, +t}:
+      Bool.pick(
+        List<&2, FileText>,
+        String.eq(p, path),
+        FileText{p, get_spliced(text, beg, end, put), True{}} <> t,
+        FileText{p, text, changed} <> get_file_edited(t, path, beg, end, put)
+      )
+
+def get_span_beg(span: BendSourceSpan) -> U32:
+  match span:
+    case BendSourceSpan{p, b, e}:
+      b
+
+# The texts with a fix's edits applied, in order, each on the result before; `applied` moves their offsets past the
+# fixes taken before.
+def get_fix_applied(
+  edits: List<&2, FixEdit>,
+  +all: List<&2, FixEdit>,
+  +applied: List<&2, FixApplied>,
+  texts: List<&2, FileText>
+) -> List<&2, FileText>:
+  match edits:
+    case Nil{}:
+      texts
+    case Con{ReplaceText{BendSourceSpan{+p, +b, +e}, +put}, t}:
+      +shift = get_shift(applied, p, get_span_beg(get_hull(all, p, 4294967295, 0)), 0, 0)
+      get_fix_applied(
+        t,
+        all,
+        applied,
+        get_file_edited(texts, p, get_moved(b, shift), get_moved(e, shift), put)
+      )
+    case Con{x, t}:
+      get_fix_applied(t, all, applied, texts)
+
+def get_edit_paths(edits: List<&2, FixEdit>, +done: List<&2, String>) -> List<&2, String>:
+  match edits:
+    case Nil{}:
+      done
+    case Con{ReplaceText{BendSourceSpan{+p, b, e}, put}, t}:
+      get_edit_paths(t, get_kept(String, Bool.not(get_has_text(done, p)), p, done))
+    case Con{x, t}:
+      get_edit_paths(t, done)
+
+# What a fix adds and removes in `path`.
+def get_fix_size(edits: List<&2, FixEdit>, +path: String, +added: U32, +removed: U32) -> Shift:
+  match edits:
+    case Nil{}:
+      Shift{added, removed}
+    case Con{ReplaceText{BendSourceSpan{p, +b, +e}, put}, t}:
+      +here = String.eq(p, path)
+      get_fix_size(
+        t,
+        path,
+        Bool.pick(U32, here, U32.add(added, U32.from_nat(String.length(put))), added),
+        Bool.pick(U32, here, U32.add(removed, U32.sub(e, b)), removed)
+      )
+    case Con{x, t}:
+      get_fix_size(t, path, added, removed)
+
+def get_fix_record(hull: BendSourceSpan, size: Shift) -> FixApplied:
+  match hull size:
+    case BendSourceSpan{p, b, e} Shift{added, removed}:
+      FixApplied{p, b, e, added, removed}
+
+# The fix as taken, per file it edits: where, and how much it adds and removes.
+def get_fix_records(paths: List<&2, String>, +edits: List<&2, FixEdit>) -> List<&2, FixApplied>:
+  match paths:
+    case Nil{}:
+      []
+    case Con{+p, t}:
+      get_fix_record(
+        get_hull(edits, p, 4294967295, 0),
+        get_fix_size(edits, p, 0, 0)
+      )
+        <> get_fix_records(t, edits)
+
+# The edits of a fix that are not text: they create, rename or delete files.
+def get_file_ops(edits: List<&2, FixEdit>) -> List<&2, FixEdit>:
+  match edits:
+    case Nil{}:
+      []
+    case Con{ReplaceText{s, put}, t}:
+      get_file_ops(t)
+    case Con{x, t}:
+      x <> get_file_ops(t)
+
+def get_fixed.take(
+  fits: Bool,
+  +edits: List<&2, FixEdit>,
+  +state: FixState,
+  +found: RuleFinding
+) -> FixState:
+  match fits state:
+    case True{} FixState{+texts, +applied, ops, skipped}:
+      FixState{
+        get_fix_applied(edits, edits, applied, texts),
+        List.append(&2, FixApplied, applied, get_fix_records(get_edit_paths(edits, []), edits)),
+        List.append(&2, FixEdit, ops, get_file_ops(edits)),
+        skipped
+      }
+    case False{} FixState{texts, applied, ops, skipped}:
+      FixState{
+        texts,
+        applied,
+        ops,
+        get_kept(RuleFinding, Bool.not(get_has_finding(skipped, found)), found, skipped)
+      }
+
+def get_fixed.when(
+  allowed: Bool,
+  +edits: List<&2, FixEdit>,
+  +found: RuleFinding,
+  +state: FixState
+) -> FixState:
+  match allowed state:
+    case True{} FixState{+texts, +applied, ops, skipped}:
+      get_fixed.take(
+        get_fix_fits(edits, edits, texts, applied),
+        edits,
+        FixState{texts, applied, ops, skipped},
+        found
+      )
+    case False{} _:
+      state
+
+# Takes the fixes of `fixes` that `level` allows, of the finding `found`.
+def get_fixed.fixes(
+  fixes: List<&2, Fix>,
+  +level: FixApplicability,
+  +found: RuleFinding,
+  state: FixState
+) -> FixState:
+  match fixes:
+    case Nil{}:
+      state
+    case Con{Fix{title, +a, +edits}, t}:
+      get_fixed.fixes(
+        t,
+        level,
+        found,
+        get_fixed.when(get_fix_allowed(level, a), edits, found, state)
+      )
+
+def get_fixed(
+  findings: List<&2, RuleFinding>,
+  +level: FixApplicability,
+  state: FixState
+) -> FixState:
+  match findings:
+    case Nil{}:
+      state
+    case Con{RuleFinding{+id, Finding{+severity, +message, +span, +fixes}}, t}:
+      get_fixed(
+        t,
+        level,
+        get_fixed.fixes(
+          fixes,
+          level,
+          RuleFinding{id, Finding{severity, message, span, fixes}},
+          state
+        )
+      )
+
+def get_file_texts(sources: List<&2, BendSource>) -> List<&2, FileText>:
+  match sources:
+    case Nil{}:
+      []
+    case Con{BendSource{path, text, lines}, t}:
+      FileText{path, text, False{}} <> get_file_texts(t)
+
+def get_changed_files(texts: List<&2, FileText>) -> List<&2, FixEdit>:
+  match texts:
+    case Nil{}:
+      []
+    case Con{FileText{path, text, True{}}, t}:
+      CreateOrWriteFile{path, text} <> get_changed_files(t)
+    case Con{FileText{path, text, False{}}, t}:
+      get_changed_files(t)
+
+def get_fix_outcome.of(state: FixState) -> FixOutcome:
+  match state:
+    case FixState{texts, applied, ops, skipped}:
+      FixOutcome{
+        List.append(&2, FixEdit, get_changed_files(texts), ops),
+        List.reverse(&2, RuleFinding, skipped)
+      }
+
+# What the fixes `level` allows make of the linted files: each changed file whole, then the files the fixes create,
+# rename or delete, in order. A fix that edits a file that is not linted, or clashes with a fix taken before it, is
+# skipped, and its finding listed.
 def get_fix_outcome(report: LintReport, level: Maybe<&2, FixApplicability>) -> FixOutcome:
-  FixOutcome{[], []}
+  match report level:
+    case LintReport{findings, suppressed, linted, sources} Some{l}:
+      get_fix_outcome.of(get_fixed(findings, l, FixState{get_file_texts(linted), [], [], []}))
+    case _ None{}:
+      FixOutcome{[], []}
 
 def get_linter_source(source: BendSource) -> BendSource:
   match source:
@@ -3323,18 +3664,10 @@ def get_globbed(patterns: List<&2, String>, done: List<&2, String>) -> IO(List<&
       )
 
 def get_usage() -> String:
-  "usage: bun BEND-REWRITE/host.ts <glob>... [--imports | --no-imports] [--rules <rule.bend>]... [--config <bend-lint.json>]"
+  "usage: bun BEND-REWRITE/host.ts <glob>... [--imports | --no-imports] [--rules <rule.bend>]... [--config <bend-lint.json>] [--fix | --fix-dangerously] [--json] [--show-suppressed]"
 
-def get_flag_error(+flag: String) -> String:
-  Bool.pick(
-    String,
-    get_has_text(
-      ["--fix", "--fix-dangerously", "--json", "--no-fix", "--no-fix-dangerously", "--no-json"],
-      flag
-    ),
-    flag ++ " is not supported yet",
-    "unknown option " ++ flag
-  )
+def get_flag_error(flag: String) -> String:
+  "unknown option " ++ flag
 
 def get_shown_suppressed(show: Bool, output: CliOutput) -> CliOutput:
   match output:
@@ -3379,6 +3712,18 @@ def get_cli_command.go(args: List<String>, acc: CliCommand) -> Result<&1, &1, St
         t,
         CliLint{files, rules, config, imports, fix, get_shown_suppressed(False{}, output)}
       )
+    case Con{"--json", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, fix, CliJsonOutput{}})
+    case Con{"--no-json", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, fix, CliTextOutput{False{}}})
+    case Con{"--fix", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, Some{Safe{}}, output})
+    case Con{"--fix-dangerously", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, Some{Dangerous{}}, output})
+    case Con{"--no-fix", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, None{}, output})
+    case Con{"--no-fix-dangerously", t} CliLint{files, rules, config, imports, fix, output}:
+      get_cli_command.go(t, CliLint{files, rules, config, imports, None{}, output})
     case Con{"--help", t} c:
       Done{CliHelp{}}
     case Con{"-h", t} c:
@@ -3431,10 +3776,197 @@ def get_fix_lines(fixes: List<&2, Fix>) -> String:
     case Con{Fix{title, Dangerous{}, edits}, t}:
       "\n  fix: " ++ title ++ " [dangerous]" ++ get_fix_lines(t)
 
-def get_finding_text(f: RuleFinding) -> String:
+# How many UTF-16 units `s` takes: a code point past U+FFFF takes two.
+def get_utf16_length(s: String, +n: U32) -> U32:
+  match s:
+    case SNil{}:
+      n
+    case SCon{c, rest}:
+      get_utf16_length(rest, U32.add(n, Bool.pick(U32, U32.is_lt(get_code(c), 65536), 1, 2)))
+
+# The line (from 0) and character (UTF-16 units) of offset `at` of a file with `lines`; `beg` is where the first of
+# them starts.
+def get_position(lines: List<&2, String>, +at: U32, +beg: U32, +row: U32) -> U32 & U32:
+  match lines:
+    case Nil{}:
+      (row, 0)
+    case Con{+h, +t}:
+      +next = U32.add(U32.add(beg, U32.from_nat(String.length(h))), 1)
+      Bool.pick(
+        U32 & U32,
+        U32.is_lt(at, next) || List.is_empty(&2, String, t),
+        (row, get_utf16_length(String.take(h, U32.to_nat(U32.sub(at, beg))), 0)),
+        get_position(t, at, next, U32.inc(row))
+      )
+
+def get_source_lines(m: Maybe<&2, BendSource>) -> Maybe<&2, List<&2, String>>:
+  match m:
+    case Some{BendSource{path, text, lines}}:
+      Some{lines}
+    case None{}:
+      None{}
+
+def get_hex_digit(+x: U32) -> String:
+  String.take(String.drop("0123456789abcdef", U32.to_nat(x)), 1n)
+
+def get_hex2(+x: U32) -> String:
+  get_hex_digit(U32.div(x, 16)) ++ get_hex_digit(U32.mod(x, 16))
+
+# A character as a JSON string holds it: a control character escaped.
+def get_json_char(+c: Char) -> String:
+  Bool.pick(String, U32.is_lt(get_code(c), 32), "\\u00" ++ get_hex2(get_code(c)), SCon{c, ""})
+
+def get_json_escaped(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{'"', rest}:
+      "\\\"" ++ get_json_escaped(rest)
+    case SCon{'\\', rest}:
+      "\\\\" ++ get_json_escaped(rest)
+    case SCon{'\n', rest}:
+      "\\n" ++ get_json_escaped(rest)
+    case SCon{'\r', rest}:
+      "\\r" ++ get_json_escaped(rest)
+    case SCon{'\t', rest}:
+      "\\t" ++ get_json_escaped(rest)
+    case SCon{c, rest}:
+      get_json_char(c) ++ get_json_escaped(rest)
+
+def get_json_string(s: String) -> String:
+  "\"" ++ get_json_escaped(s) ++ "\""
+
+def get_json_point(p: U32 & U32) -> String:
+  match p:
+    case (line, character):
+      "{\"line\":" ++ U32.show(line) ++ ",\"character\":" ++ U32.show(character) ++ "}"
+
+# `,"range":{...}` for a span of a file with `lines`, or nothing when its text is unknown.
+def get_json_range(m: Maybe<&2, List<&2, String>>, +beg: U32, +end: U32) -> String:
+  match m:
+    case None{}:
+      ""
+    case Some{+lines}:
+      ",\"range\":{\"start\":"
+        ++ get_json_point(get_position(lines, beg, 0, 0))
+        ++ ",\"end\":"
+        ++ get_json_point(get_position(lines, end, 0, 0))
+        ++ "}"
+
+def get_json_edit(edit: FixEdit, +sources: List<&2, BendSource>) -> String:
+  match edit:
+    case ReplaceText{BendSourceSpan{+path, beg, end}, text}:
+      "{\"path\":"
+        ++ get_json_string(path)
+        ++ get_json_range(get_source_lines(get_source_at(sources, path)), beg, end)
+        ++ ",\"text\":"
+        ++ get_json_string(text)
+        ++ "}"
+    case CreateOrWriteFile{path, text}:
+      "{\"path\":" ++ get_json_string(path) ++ ",\"text\":" ++ get_json_string(text) ++ "}"
+    case RenameFile{from, to}:
+      "{\"path\":" ++ get_json_string(from) ++ ",\"rename\":" ++ get_json_string(to) ++ "}"
+    case DeleteFile{path}:
+      "{\"path\":" ++ get_json_string(path) ++ ",\"delete\":true}"
+
+def get_json_edits(edits: List<&2, FixEdit>, +sources: List<&2, BendSource>) -> List<&2, String>:
+  match edits:
+    case Nil{}:
+      []
+    case Con{e, t}:
+      get_json_edit(e, sources) <> get_json_edits(t, sources)
+
+def get_applicability_name(a: FixApplicability) -> String:
+  match a:
+    case Safe{}:
+      "safe"
+    case Dangerous{}:
+      "dangerous"
+
+def get_json_fixes(fixes: List<&2, Fix>, +sources: List<&2, BendSource>) -> List<&2, String>:
+  match fixes:
+    case Nil{}:
+      []
+    case Con{Fix{title, a, edits}, t}:
+      (
+        "{\"title\":"
+          ++ get_json_string(title)
+          ++ ",\"applicability\":"
+          ++ get_json_string(get_applicability_name(a))
+          ++ ",\"edits\":["
+          ++ String.join(get_json_edits(edits, sources), ",")
+          ++ "]}"
+      )
+        <> get_json_fixes(t, sources)
+
+def get_json_finding(f: RuleFinding, +sources: List<&2, BendSource>) -> String:
   match f:
-    case RuleFinding{rule_id, Finding{severity, message, BendSourceSpan{path, beg, end}, fixes}}:
-      path ++ ":" ++ U32.show(beg) ++ ": " ++ rule_id ++ ": " ++ message ++ get_fix_lines(fixes)
+    case RuleFinding{rule_id, Finding{severity, message, BendSourceSpan{+path, beg, end}, fixes}}:
+      "{\"code\":"
+        ++ get_json_string(rule_id)
+        ++ ",\"severity\":"
+        ++ get_json_string(get_severity_name(severity))
+        ++ ",\"message\":"
+        ++ get_json_string(message)
+        ++ ",\"path\":"
+        ++ get_json_string(path)
+        ++ get_json_range(get_source_lines(get_source_at(sources, path)), beg, end)
+        ++ ",\"fixes\":["
+        ++ String.join(get_json_fixes(fixes, sources), ",")
+        ++ "]}"
+
+def get_json_findings(
+  fs: List<&2, RuleFinding>,
+  +sources: List<&2, BendSource>
+) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      []
+    case Con{f, t}:
+      get_json_finding(f, sources) <> get_json_findings(t, sources)
+
+# What the CLI prints with --json: one object for every linted file.
+def get_json_output(
+  failed: Bool,
+  found: List<&2, RuleFinding>,
+  suppressed: List<&2, RuleFinding>,
+  +sources: List<&2, BendSource>
+) -> String:
+  "{\"ok\":"
+    ++ Bool.pick(String, failed, "false", "true")
+    ++ ",\"findings\":["
+    ++ String.join(get_json_findings(found, sources), ",")
+    ++ "],\"suppressed\":["
+    ++ String.join(get_json_findings(suppressed, sources), ",")
+    ++ "]}"
+
+def get_text_where.at(+path: String, p: U32 & U32) -> String:
+  match p:
+    case (line, character):
+      path ++ ":" ++ U32.show(U32.inc(line)) ++ ":" ++ U32.show(U32.inc(character))
+
+def get_text_where(m: Maybe<&2, List<&2, String>>, +path: String, +beg: U32) -> String:
+  match m:
+    case None{}:
+      path
+    case Some{lines}:
+      get_text_where.at(path, get_position(lines, beg, 0, 0))
+
+def get_finding_text(f: RuleFinding, +sources: List<&2, BendSource>) -> String:
+  match f:
+    case RuleFinding{rule_id, Finding{severity, message, BendSourceSpan{+path, beg, end}, fixes}}:
+      get_text_where(
+        get_source_lines(get_source_at(sources, path)),
+        path,
+        beg
+      )
+        ++ ": "
+        ++ get_severity_name(severity)
+        ++ " "
+        ++ rule_id
+        ++ ": "
+        ++ message
+        ++ get_fix_lines(fixes)
 
 def print_lines(lines: List<&2, String>) -> IO(Unit):
   match lines:
@@ -3443,12 +3975,15 @@ def print_lines(lines: List<&2, String>) -> IO(Unit):
     case Con{h, t}:
       IO.bind(Unit, Unit, IO.print(h), u => print_lines(t))
 
-def get_finding_texts(fs: List<&2, RuleFinding>) -> List<&2, String>:
+def get_finding_texts(
+  fs: List<&2, RuleFinding>,
+  +sources: List<&2, BendSource>
+) -> List<&2, String>:
   match fs:
     case Nil{}:
       []
     case Con{f, t}:
-      get_finding_text(f) <> get_finding_texts(t)
+      get_finding_text(f, sources) <> get_finding_texts(t, sources)
 
 def get_has_error(fs: List<&2, RuleFinding>) -> Bool:
   match fs:
@@ -3458,11 +3993,6 @@ def get_has_error(fs: List<&2, RuleFinding>) -> Bool:
       True{}
     case Con{f, t}:
       get_has_error(t)
-
-def get_report_findings(report: LintReport) -> List<&2, RuleFinding>:
-  match report:
-    case LintReport{findings, suppressed, linted}:
-      findings
 
 def get_is_checkable(edits: List<&2, FixEdit>, +path: String) -> Bool:
   match edits:
@@ -3616,12 +4146,12 @@ def get_checked_findings(
 
 def get_checked_report(report: LintReport) -> IO(LintReport):
   match report:
-    case LintReport{findings, suppressed, +linted}:
+    case LintReport{findings, suppressed, +linted, sources}:
       IO.bind(
         List<&2, RuleFinding>,
         LintReport,
         get_checked_findings(findings, linted),
-        checked => IO.pure(LintReport, LintReport{checked, suppressed, linted})
+        checked => IO.pure(LintReport, LintReport{checked, suppressed, linted, sources})
       )
 
 def get_is_choice(+choices: List<&2, String>, +t: String) -> Bool:
@@ -4083,6 +4613,7 @@ def lint_job(~rules: Unit -> List<&1, Rule>, job: LintJob, +needs: CheckNeeds) -
         LintReport{
           [RuleFinding{"bend-lint/path", Finding{Error{}, why, BendSourceSpan{path, 0, 0}, []}}],
           [],
+          [],
           []
         }
       )
@@ -4102,10 +4633,14 @@ def get_summary(failed: Bool, +found: Nat, +suppressed: Nat) -> String:
           ", " ++ Nat.show(suppressed) ++ " suppressed"
         )
 
-def get_suppressed_lines(show: Bool, fs: List<&2, RuleFinding>) -> List<&2, String>:
+def get_suppressed_lines(
+  show: Bool,
+  fs: List<&2, RuleFinding>,
+  +sources: List<&2, BendSource>
+) -> List<&2, String>:
   match show fs:
     case True{} Con{h, t}:
-      "bend-lint: suppressed" <> get_finding_texts(h <> t)
+      "bend-lint: suppressed" <> get_finding_texts(h <> t, sources)
     case _ _:
       []
 
@@ -4123,62 +4658,184 @@ def lint_jobs.exit(failed: Bool) -> IO(Unit):
     case False{}:
       IO.pure(Unit, Unit{})
 
+def get_output_lines(
+  output: CliOutput,
+  +failed: Bool,
+  +found: List<&2, RuleFinding>,
+  +hidden: List<&2, RuleFinding>,
+  +sources: List<&2, BendSource>
+) -> List<&2, String>:
+  match output:
+    case CliJsonOutput{}:
+      [get_json_output(failed, found, hidden, sources)]
+    case CliTextOutput{show}:
+      List.append(
+        &2,
+        String,
+        List.append(
+          &2,
+          String,
+          get_finding_texts(found, sources),
+          get_suppressed_lines(show, hidden, sources)
+        ),
+        [
+          get_summary(
+            failed,
+            List.length(&2, RuleFinding, found),
+            List.length(&2, RuleFinding, hidden)
+          )
+        ]
+      )
+
 # Prints what every report found, and fails when a finding is an error.
 def lint_jobs.finish(output: CliOutput, tally: LintTally) -> IO(Unit):
   match tally:
-    case LintTally{found, suppressed}:
+    case LintTally{found, suppressed, sources}:
       +all = List.reverse(&2, RuleFinding, found)
-      +hidden = List.reverse(&2, RuleFinding, suppressed)
       +failed = get_has_error(all)
       IO.bind(
         Unit,
         Unit,
         print_lines(
-          List.append(
-            &2,
-            String,
-            List.append(
-              &2,
-              String,
-              get_finding_texts(all),
-              get_suppressed_lines(get_shows_suppressed(output), hidden)
-            ),
-            [
-              get_summary(
-                failed,
-                List.length(&2, RuleFinding, all),
-                List.length(&2, RuleFinding, hidden)
-              )
-            ]
-          )
+          get_output_lines(output, failed, all, List.reverse(&2, RuleFinding, suppressed), sources)
         ),
         u => lint_jobs.exit(failed)
       )
 
 def get_tallied(report: LintReport, tally: LintTally) -> LintTally:
   match report tally:
-    case LintReport{findings, suppressed, linted} LintTally{f, s}:
+    case LintReport{findings, suppressed, linted, sources} LintTally{f, s, known}:
       LintTally{
         List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, findings), f),
-        List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, suppressed), s)
+        List.append(&2, RuleFinding, List.reverse(&2, RuleFinding, suppressed), s),
+        List.append(&2, BendSource, sources, known)
       }
+
+def rename_file(from: String, to: String) -> IO(Unit):
+  import "./effs/host.js"
+
+def delete_file(path: String) -> IO(Unit):
+  import "./effs/host.js"
+
+def write_file.failed(path: String, error: U32 & String) -> IO(Unit):
+  match error:
+    case (code, why):
+      IO.die(Unit, 2, "bend-lint: " ++ path ++ ": " ++ why)
+
+def write_file.written(
+  +path: String,
+  written: File & Result<&1, &1, U32 & String, Unit>
+) -> IO(Unit):
+  match written:
+    case (f, Done{u}):
+      IO.bind(Unit, Unit, File.close(f), v => IO.print_err("bend-lint: fixed " ++ path))
+    case (f, Fail{error}):
+      IO.bind(Unit, Unit, File.close(f), v => write_file.failed(path, error))
+
+def write_file.opened(
+  r: Result<&1, &1, U32 & String, File>,
+  +path: String,
+  text: String
+) -> IO(Unit):
+  match r:
+    case Done{f}:
+      IO.bind(
+        File & Result<&1, &1, U32 & String, Unit>,
+        Unit,
+        File.write(f, text),
+        w => write_file.written(path, w)
+      )
+    case Fail{error}:
+      write_file.failed(path, error)
+
+# Writes `text` to the file at `path`.
+def write_file(+path: String, text: String) -> IO(Unit):
+  IO.bind(
+    Result<&1, &1, U32 & String, File>,
+    Unit,
+    File.open(path, "w"),
+    r => write_file.opened(r, path, text)
+  )
+
+def apply_edit(edit: FixEdit) -> IO(Unit):
+  match edit:
+    case CreateOrWriteFile{path, text}:
+      write_file(path, text)
+    case RenameFile{+from, +to}:
+      IO.bind(
+        Unit,
+        Unit,
+        rename_file(from, to),
+        u => IO.print_err("bend-lint: renamed " ++ from ++ " to " ++ to)
+      )
+    case DeleteFile{+path}:
+      IO.bind(Unit, Unit, delete_file(path), u => IO.print_err("bend-lint: deleted " ++ path))
+    case ReplaceText{span, text}:
+      IO.pure(Unit, Unit{})
+
+def apply_edits(edits: List<&2, FixEdit>) -> IO(Unit):
+  match edits:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case Con{e, t}:
+      IO.bind(Unit, Unit, apply_edit(e), u => apply_edits(t))
+
+def apply_skipped(skipped: List<&2, RuleFinding>) -> IO(Unit):
+  match skipped:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case Con{h, t}:
+      IO.print_err(
+        "bend-lint: skipped "
+          ++ Nat.show(List.length(&2, RuleFinding, h <> t))
+          ++ " fix(es) that clash with earlier ones, or edit a file that is not linted; run the fix again to apply them"
+      )
+
+# Writes what the fixes make of the files.
+def apply_outcome(outcome: FixOutcome) -> IO(Unit):
+  match outcome:
+    case FixOutcome{edits, skipped}:
+      IO.bind(Unit, Unit, apply_edits(edits), u => apply_skipped(skipped))
+
+def apply_fixes(+report: LintReport, level: Maybe<&2, FixApplicability>) -> IO(LintReport):
+  IO.bind(
+    Unit,
+    LintReport,
+    apply_outcome(get_fix_outcome(report, level)),
+    u => IO.pure(LintReport, report)
+  )
+
+def get_run_output(run: CliRun) -> CliOutput:
+  match run:
+    case CliRun{fix, output}:
+      output
+
+def get_run_fix(run: CliRun) -> Maybe<&2, FixApplicability>:
+  match run:
+    case CliRun{fix, output}:
+      fix
 
 def lint_jobs(
   ~rules: Unit -> List<&1, Rule>,
   jobs: List<&2, LintJob>,
   +needs: CheckNeeds,
-  output: CliOutput,
+  +run: CliRun,
   tally: LintTally
 ) -> IO(Unit):
   match jobs:
     case Nil{}:
-      lint_jobs.finish(output, tally)
+      lint_jobs.finish(get_run_output(run), tally)
     case Con{j, t}:
       IO.bind(
         LintReport,
         Unit,
-        IO.bind(LintReport, LintReport, lint_job(~rules, j, needs), get_checked_report),
-        report => lint_jobs(~rules, t, needs, output, get_tallied(report, tally))
+        IO.bind(
+          LintReport,
+          LintReport,
+          IO.bind(LintReport, LintReport, lint_job(~rules, j, needs), get_checked_report),
+          report => apply_fixes(report, get_run_fix(run))
+        ),
+        report => lint_jobs(~rules, t, needs, run, get_tallied(report, tally))
       )
 
 def serve.problems(problems: List<&2, String>) -> IO(Unit):
@@ -4211,11 +4868,7 @@ def get_order_lines(problems: List<&2, String>) -> List<&2, String>:
     case Con{h, t}:
       ["the order of the rules is broken:\n" ++ String.join(h <> t, "\n")]
 
-def serve.jobs(
-  ~rules: Unit -> List<&1, Rule>,
-  +jobs: List<&2, LintJob>,
-  output: CliOutput
-) -> IO(Unit):
+def serve.jobs(~rules: Unit -> List<&1, Rule>, +jobs: List<&2, LintJob>, run: CliRun) -> IO(Unit):
   +heads = get_rule_heads(rules(Unit{}))
   IO.bind(
     Unit,
@@ -4241,8 +4894,8 @@ def serve.jobs(
         get_heads_need(heads, BodiesNeed{}),
         get_heads_need(heads, FactsNeed{})
       },
-      output,
-      LintTally{[], []}
+      run,
+      LintTally{[], [], []}
     )
   )
 
@@ -4253,7 +4906,7 @@ def serve.compiled(
   +configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
   +compiled: List<&2, RuleFile>,
-  output: CliOutput
+  run: CliRun
 ) -> IO(Unit):
   IO.bind(
     Unit,
@@ -4270,7 +4923,7 @@ def serve.compiled(
       List<&2, LintJob>,
       Unit,
       get_jobs(targets, configs, given, imports, compiled, []),
-      jobs => serve.jobs(~rules, jobs, output)
+      jobs => serve.jobs(~rules, jobs, run)
     )
   )
 
@@ -4284,11 +4937,11 @@ def serve.choose(
   configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
   compiled: List<&2, RuleFile>,
-  output: CliOutput
+  run: CliRun
 ) -> IO(Unit):
   match same:
     case True{}:
-      serve.compiled(~rules, targets, given, configs, imports, compiled, output)
+      serve.compiled(~rules, targets, given, configs, imports, compiled, run)
     case False{}:
       restart_with_rules(wanted)
 
@@ -4299,7 +4952,7 @@ def serve.configured(
   +configs: List<&2, ConfigFile>,
   imports: Maybe<&2, Bool>,
   +compiled: List<&2, RuleFile>,
-  output: CliOutput
+  run: CliRun
 ) -> IO(Unit):
   +wanted = get_unique_texts(List.append(&2, String, given, get_config_loads(configs)), [])
   serve.choose(
@@ -4311,7 +4964,7 @@ def serve.configured(
     configs,
     imports,
     compiled,
-    output
+    run
   )
 
 def serve.targets(
@@ -4321,7 +4974,7 @@ def serve.targets(
   config: Maybe<&2, String>,
   imports: Maybe<&2, Bool>,
   compiled: List<&2, RuleFile>,
-  output: CliOutput
+  run: CliRun
 ) -> IO(Unit):
   IO.bind(
     List<&2, ConfigFile>,
@@ -4332,7 +4985,7 @@ def serve.targets(
       get_file_configs(config, get_target_paths(targets), []),
       configs => get_configs_resolved(configs, [])
     ),
-    configs => serve.configured(~rules, targets, given, configs, imports, compiled, output)
+    configs => serve.configured(~rules, targets, given, configs, imports, compiled, run)
   )
 
 def serve.command(
@@ -4360,7 +5013,7 @@ def serve.command(
               Maybe<&2, String>,
               Unit,
               get_config_given(config),
-              c => serve.targets(~rules, targets, given, c, imports, compiled, output)
+              c => serve.targets(~rules, targets, given, c, imports, compiled, CliRun{fix, output})
             )
           )
         )

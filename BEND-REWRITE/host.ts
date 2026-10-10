@@ -82,6 +82,8 @@ type Ask =
   | ({ op: "check"; path: string } & Want)
   | { op: "restart"; files: string[] }
   | { op: "glob"; pattern: string }
+  | { op: "rename"; from: string; to: string }
+  | { op: "delete"; path: string }
   | { op: "same"; path: string; text: string };
 
 // A declaration's or import's name, as bend's parser read it.
@@ -1738,6 +1740,12 @@ const run = async (m: Loaded, files: string[], args: string[], again: boolean): 
       if ("exit" in msg) {
         port1.close();
         done(msg);
+      } else if (msg.op === "rename") {
+        nodeFs.renameSync(msg.from, msg.to);
+        reply({ $: "Unit" });
+      } else if (msg.op === "delete") {
+        nodeFs.rmSync(msg.path);
+        reply({ $: "Unit" });
       } else if (msg.op === "glob") {
         reply(globbed(msg.pattern));
       } else if (msg.op === "same") {

@@ -29,10 +29,18 @@ const file = (...defs: string[]): string =>
   "import Base\n\ntype T is Data:\n  Leaf{}\n  Node{l: T, r: T}\n\n" + defs.join("\n");
 
 // The findings of the rule on `text`, which must pass Bend's check.
-const reported = (text: string): Found[] => {
+const reported = (
+  text: string,
+): Array<Pick<Found, "code" | "file" | "text" | "message" | "fixes">> => {
   const out = lintIn(dir, { "main.bend": text }, "main.bend", ["--rules", RULE]);
   expect(out.filter((f) => f.code !== CODE)).toEqual([]);
-  return out;
+  return out.map(({ code, file, text: at, message, fixes }) => ({
+    code,
+    file,
+    text: at,
+    message,
+    fixes,
+  }));
 };
 
 // Side effects
@@ -87,7 +95,7 @@ describe("performance/missed-fork", () => {
       {
         code: CODE,
         file: "main.bend",
-        text: "+l = f(p)",
+        text: "+l = f(p)\n      r = f(p)",
         message:
           "These 2 calls to f run one after another. Bend forks only the values of a parallel let: `+l r = f(..) f(..)`.",
         fixes: ["Merge into a parallel let [dangerous]"],
@@ -143,5 +151,74 @@ describe("performance/missed-fork", () => {
         file(def("f", "      IO.bind(Unit, Unit, f(p), u => f(p))", "IO(Unit)", 'IO.print("x")')),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("performance/missed-fork fixes", () => {
+  // The file `text` becomes when the fixes are applied, dangerous ones included.
+  const fixed = (text: string): string => {
+    lintIn(dir, { "main.bend": text }, "main.bend", ["--rules", RULE, "--fix-dangerously"]);
+    return fs.readFileSync(path.join(dir, "main.bend"), "utf8");
+  };
+  // The fixed file passes Bend's check, and the rule finds nothing in it.
+  const settled = (text: string): void => {
+    expect(lintIn(dir, { "main.bend": text }, "main.bend", ["--rules", RULE])).toEqual([]);
+  };
+  const cases: Array<[string, string, string, string?, string?]> = [
+    [
+      "two calls in one call's arguments are forked",
+      "      U32.add(f(p), f(p))",
+      "      a b = f(p) f(p)\n      U32.add(a, b)",
+    ],
+    [
+      "two calls in a constructor are forked",
+      "      Node{f(p), f(p)}",
+      "      a b = f(p) f(p)\n      Node{a, b}",
+      "T",
+      "Leaf{}",
+    ],
+    [
+      "two calls under an operator are forked",
+      "      (f(p) + f(p) : U32)",
+      "      a b = f(p) f(p)\n      (a + b : U32)",
+    ],
+    [
+      "calls nested in other calls of one expression are forked",
+      "      U32.add(U32.mul(2, f(p)), f(p))",
+      "      a b = f(p) f(p)\n      U32.add(U32.mul(2, a), b)",
+    ],
+    [
+      "a let's value is forked on a line before the let",
+      "      x = U32.add(f(p), f(p))\n      x",
+      "      a b = f(p) f(p)\n      x = U32.add(a, b)\n      x",
+    ],
+    [
+      "the new names avoid the def's own names",
+      "      +a = p\n      U32.add(f(a), f(p))",
+      "      +a = p\n      b c = f(a) f(p)\n      U32.add(b, c)",
+    ],
+    [
+      "lets that follow each other are merged",
+      "      +l = f(p)\n      r = f(p)\n      (l + r + l : U32)",
+      "      +l r = f(p) f(p)\n      (l + r + l : U32)",
+    ],
+    [
+      "three lets that follow each other are merged into one",
+      "      x = f(p)\n      y = f(p)\n      z = f(p)\n      (x + y + z : U32)",
+      "      x y z = f(p) f(p) f(p)\n      (x + y + z : U32)",
+    ],
+  ];
+  for (const [name, step, want, returns, leaf] of cases) {
+    test(name, () => {
+      const out = fixed(file(def("f", step, returns, leaf)));
+      expect(out).toBe(file(def("f", want, returns, leaf)));
+      settled(out);
+    });
+  }
+
+  test("--fix alone leaves the dangerous fixes", () => {
+    const text = file(def("f", "      U32.add(f(p), f(p))"));
+    lintIn(dir, { "main.bend": text }, "main.bend", ["--rules", RULE, "--fix"]);
+    expect(fs.readFileSync(path.join(dir, "main.bend"), "utf8")).toBe(text);
   });
 });

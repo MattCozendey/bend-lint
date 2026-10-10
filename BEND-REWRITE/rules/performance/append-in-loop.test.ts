@@ -44,7 +44,7 @@ describe("performance/append-in-loop", () => {
   test("List.append to the accumulator of a loop is reported", () => {
     expect(reported(loop("List<&2, U32>", "      f(p, List.append(&2, U32, acc, [1]))"))).toEqual([
       {
-        text: "List.append(&2, U32, acc, [1]))",
+        text: "List.append(&2, U32, acc, [1])",
         message:
           "List.append copies acc on each call of f, so building it is O(n²). Build it at its head with `x <> acc`, and reverse it once when the loop ends: `List.reverse(&2, U32, acc)`.",
       },
@@ -54,7 +54,7 @@ describe("performance/append-in-loop", () => {
   test("++ to the accumulator of a loop is reported", () => {
     expect(reported(loop("String", '      f(p, acc ++ "x")'))).toEqual([
       {
-        text: 'acc ++ "x")',
+        text: 'acc ++ "x"',
         message:
           "++ copies acc on each call of f, so building it is O(n²). Collect the pieces in a list with `piece <> acc`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, acc))`.",
       },

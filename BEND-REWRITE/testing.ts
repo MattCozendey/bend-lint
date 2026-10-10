@@ -11,70 +11,103 @@ import { fileURLToPath } from "node:url";
 // Types
 // =====
 
-// A finding as the host prints it: its code, the name of its file, its text
-// from where it starts to the end of that line, its message, and its fixes.
-export type Found = { code: string; file: string; text: string; message: string; fixes: string[] };
+// A finding as the host reports it: its code, severity, the name of its file,
+// the text of its span, the text of its line from where it starts, its
+// message, and its fixes as `title [applicability]`.
+export type Found = {
+  code: string;
+  severity: string;
+  file: string;
+  text: string;
+  line: string;
+  message: string;
+  fixes: string[];
+};
 
-// What a run of the host gives: its findings, those directives suppressed
-// (shown with --show-suppressed), its exit code, and its stderr.
+// What a run of the host gives: its findings, those directives suppressed,
+// its exit code, and its stderr.
 export type Run = { found: Found[]; suppressed: Found[]; code: number; stderr: string };
+
+// A position and a finding as --json prints them.
+type Point = { line: number; character: number };
+type Reported = {
+  code: string;
+  severity: string;
+  message: string;
+  path: string;
+  range?: { start: Point; end: Point };
+  fixes: Array<{ title: string; applicability: string }>;
+};
 
 // Constants
 // =========
 
 const HOST = fileURLToPath(new URL("./host.ts", import.meta.url));
-const LINE = /^(.+):(\d+): ([\w/-]+): (.*)$/;
-const FIX = /^ {2}fix: (.*)$/;
-const SUPPRESSED = "bend-lint: suppressed";
 
 // Functions
 // =========
 
-// The findings `lines` print, each with the text of its file at its start.
-const read = (lines: string[], texts: Map<string, string>): Found[] =>
-  lines.reduce<Found[]>((done, line) => {
-    const fix = FIX.exec(line);
-    const last = done[done.length - 1];
-    if (fix !== null && last !== undefined) {
-      return [...done.slice(0, -1), { ...last, fixes: [...last.fixes, fix[1]] }];
-    }
-    const m = LINE.exec(line);
-    if (m === null) {
-      return done;
-    }
-    const file = path.basename(m[1]);
-    const points = (texts.get(file) ?? "").match(/./gsu) ?? [];
-    return [
-      ...done,
-      {
-        code: m[3],
-        file,
-        text: points.slice(Number(m[2])).join("").split("\n")[0],
-        message: m[4],
-        fixes: [],
-      },
-    ];
-  }, []);
+// The offset (UTF-16 units) of a point in `text`.
+const offset = (text: string, p: Point): number =>
+  text
+    .split("\n")
+    .slice(0, p.line)
+    .reduce((n, l) => n + l.length + 1, 0) + p.character;
 
-// Writes `files` (names, maybe with folders, to text) into `dir`, lints
-// `named` there with `args`, and gives what the host reports.
+const found = (r: Reported, texts: Map<string, string>): Found => {
+  const file = path.basename(r.path);
+  const text = texts.get(file) ?? "";
+  const beg = r.range === undefined ? 0 : offset(text, r.range.start);
+  const end = r.range === undefined ? 0 : offset(text, r.range.end);
+  return {
+    code: r.code,
+    severity: r.severity,
+    file,
+    text: text.slice(beg, end),
+    line: text.slice(beg).split("\n")[0],
+    message: r.message,
+    fixes: r.fixes.map((f) => `${f.title} [${f.applicability}]`),
+  };
+};
+
+// Writes `files` (names, maybe with folders, to text) into `dir`, and runs
+// the host on `named` there with `args`.
+const host = (dir: string, files: Record<string, string>, named: string, args: string[]) => {
+  Object.entries(files).forEach(([name, text]) => {
+    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    fs.writeFileSync(path.join(dir, name), text);
+  });
+  return Bun.spawnSync(["bun", HOST, path.join(dir, named), ...args]);
+};
+
+// What the host prints as text, as `host` runs it.
+export const lintText = (
+  dir: string,
+  files: Record<string, string>,
+  named: string,
+  args: string[],
+): { stdout: string; stderr: string } => {
+  const run = host(dir, files, named, args);
+  return { stdout: run.stdout.toString(), stderr: run.stderr.toString() };
+};
+
+// What the host reports with --json, as `host` runs it.
 export const lintRun = (
   dir: string,
   files: Record<string, string>,
   named: string,
   args: string[],
 ): Run => {
-  Object.entries(files).forEach(([name, text]) => {
-    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
-    fs.writeFileSync(path.join(dir, name), text);
-  });
-  const run = Bun.spawnSync(["bun", HOST, path.join(dir, named), ...args]);
+  const run = host(dir, files, named, [...args, "--json"]);
   const texts = new Map(Object.entries(files).map(([name, text]) => [path.basename(name), text]));
-  const lines = run.stdout.toString().split(/\r?\n/);
-  const cut = lines.indexOf(SUPPRESSED);
+  const out = run.stdout.toString().trim();
+  const json = (out.startsWith("{") ? JSON.parse(out) : { findings: [], suppressed: [] }) as {
+    findings: Reported[];
+    suppressed: Reported[];
+  };
   return {
-    found: read(cut < 0 ? lines : lines.slice(0, cut), texts),
-    suppressed: cut < 0 ? [] : read(lines.slice(cut + 1), texts),
+    found: json.findings.map((r) => found(r, texts)),
+    suppressed: json.suppressed.map((r) => found(r, texts)),
     code: run.exitCode,
     stderr: run.stderr.toString(),
   };

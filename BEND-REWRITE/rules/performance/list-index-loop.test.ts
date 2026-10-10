@@ -58,7 +58,7 @@ describe("performance/list-index-loop", () => {
       ),
     ).toEqual([
       {
-        text: "List.get(&2, U32, xs, i))))",
+        text: "List.get(&2, U32, xs, i)",
         message:
           "List.get walks xs from its head, and f passes xs unchanged to each call of itself: the loop is O(n²). Walk it instead: match it, use its head, and pass its tail to the next call.",
       },
@@ -85,7 +85,7 @@ describe("performance/list-index-loop", () => {
       ),
     ).toEqual([
       {
-        text: "at(xs, i)))",
+        text: "at(xs, i)",
         message:
           "at walks xs from its head (through List.get), and f passes xs unchanged to each call of itself: the loop is O(n²). Walk it instead: match it, use its head, and pass its tail to the next call.",
       },

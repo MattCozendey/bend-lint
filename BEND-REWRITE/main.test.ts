@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { lintIn, lintRun } from "./testing.ts";
+import { lintIn, lintRun, lintText } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
@@ -203,7 +203,10 @@ const PROGRAM = {
 // =========
 
 // What the rewrite reports for main.bend with the rule files `rules`.
-const found = (rules: string[], ...flags: string[]): Array<Omit<Found, "text">> =>
+const found = (
+  rules: string[],
+  ...flags: string[]
+): Array<Pick<Found, "code" | "file" | "message" | "fixes">> =>
   lintIn(dir, { ...RULES, ...PROGRAM }, "main.bend", [
     ...rules.flatMap((r) => ["--rules", path.isAbsolute(r) ? r : path.join(dir, r)]),
     ...flags,
@@ -440,7 +443,7 @@ describe("directives", () => {
       path.join(dir, "mark.bend"),
       "--show-suppressed",
     ]);
-    const brief = (fs: Found[]) => fs.map(({ code, text, fixes }) => ({ code, text, fixes }));
+    const brief = (fs: Found[]) => fs.map(({ code, line, fixes }) => ({ code, text: line, fixes }));
     return { found: brief(out.found), suppressed: brief(out.suppressed), code: out.code };
   };
   const zap = (name: string): string => `def ${name}() -> U32:\n  1\n`;
@@ -522,5 +525,55 @@ describe("directives", () => {
         fixes: ["Sort the directives [safe]"],
       },
     ]);
+  });
+});
+
+describe("fixes and output", () => {
+  const FORMAT = fileURLToPath(new URL("./rules/layout/format.bend", import.meta.url));
+  const unused = "import Base\nimport ./other.bend as O\n\ndef z() -> U32:\n  0\n";
+  const files = (text: string) => ({
+    "fixes/other.bend": PROGRAM["other.bend"],
+    "fixes/a.bend": text,
+  });
+  const read = () => fs.readFileSync(path.join(dir, "fixes/a.bend"), "utf8");
+
+  test("--fix writes the safe fixes to the file", () => {
+    lintRun(dir, files(unused), "fixes/a.bend", ["--rules", UNUSED, "--fix"]);
+    expect(read()).toBe("import Base\n\ndef z() -> U32:\n  0\n");
+  });
+
+  test("a fix that clashes with one taken before is skipped, and taken on the next run", () => {
+    const messy = "import Base\nimport ./other.bend as O\n\ndef z() -> U32:\n    0\n";
+    const first = lintText(dir, files(messy), "fixes/a.bend", [
+      "--rules",
+      FORMAT,
+      "--rules",
+      UNUSED,
+      "--fix",
+    ]);
+    expect(first.stderr).toContain("skipped 1 fix(es)");
+    expect(read()).toBe(unused);
+    lintText(dir, {}, "fixes/a.bend", ["--rules", FORMAT, "--rules", UNUSED, "--fix"]);
+    expect(read()).toBe("import Base\n\ndef z() -> U32:\n  0\n");
+  });
+
+  test("the text output gives each finding's line, column, severity and code, and its fixes", () => {
+    const out = lintText(dir, files(unused), "fixes/a.bend", ["--rules", UNUSED]);
+    expect(out.stdout.replaceAll("\r", "").split("\n").slice(0, 3)).toEqual([
+      expect.stringMatching(
+        /a\.bend:2:24: warning no-unused\/imports: Remove the import O: nothing uses it\.$/,
+      ),
+      "  fix: Remove the import [safe]",
+      "bend-lint: 1 finding(s)",
+    ]);
+  });
+
+  test("--json says ok only when no finding is an error", () => {
+    const run = (text: string) =>
+      JSON.parse(
+        lintText(dir, files(text), "fixes/a.bend", ["--rules", UNUSED, "--json"]).stdout,
+      ) as { ok: boolean };
+    expect(run(unused).ok).toBe(true);
+    expect(run("import Base\n\ndef z() -> U32:\n  nothing\n").ok).toBe(false);
   });
 });

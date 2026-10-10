@@ -24,7 +24,17 @@ function bendlint_get_glob(pattern) {
   return globalThis.BEND_HOST.ask({ op: "glob", pattern });
 }
 
+function bendlint_rename_file(from, to) {
+  return globalThis.BEND_HOST.ask({ op: "rename", from, to });
+}
+
+function bendlint_delete_file(path) {
+  return globalThis.BEND_HOST.ask({ op: "delete", path });
+}
+
 io_eff(CID(get_check), bendlint_get_check);
+io_eff(CID(rename_file), bendlint_rename_file);
+io_eff(CID(delete_file), bendlint_delete_file);
 io_eff(CID(get_glob), bendlint_get_glob);
 io_eff(CID(get_keeps_declarations), bendlint_get_keeps_declarations);
 io_eff(CID(restart_with_rules), bendlint_restart_with_rules);
