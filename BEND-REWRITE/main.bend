@@ -34,6 +34,8 @@
 # | The config get_lint_report takes is resolved: no missing    | It never guesses. The caller decides defaults and flags      |
 # | fields.                                                     | first, so it takes no separate imports.                      |
 # | Per-rule config is a list of settings, not a map.           | Base has no map. RuleOff cannot carry a severity or options. |
+# | The config file is bend-lint.json only: no bend-lint.js or  | Bend cannot run JS or TS code.                               |
+# | bend-lint.ts.                                               |                                                              |
 # | get_lint_report returns findings, suppressed findings and   | Callers need little else. Other failures stop the program    |
 # | the linted files; errors use IO.die, not a Result.          | with a message.                                              |
 # | EVERY path the linter touches is a normalized POSIX path,   | One spelling per file, on every system.                      |
