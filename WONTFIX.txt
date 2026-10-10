@@ -20,3 +20,4 @@ Bend rules run on the JS lane only; there is no C lane
   Bend's C target keeps a String as a list of cells and has no native
   string operations, so text-heavy rules gain least from it. Revisit this
   if a rule is heavy on numbers or memory, not text.
+  CAVEAT: This may no longer apply on the bend rewrite refactor.
