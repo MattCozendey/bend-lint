@@ -828,7 +828,47 @@ def Wrong.found(saids: List<&2, Said>, +path: String, out: List<&2, Lint.Found>)
 # Directives
 # ==========
 
-def done(a: Applied, +coverings: List<&2, Covering>, unpaired: List<&2, Said>, +saids: List<&2, Said>, +path: String) ->
+# A linted file: its path and text, the ids of the rules there are, and those of the rules that ran on it. A rule
+# turned off did not run, so its directives are never unused.
+type Linted is Data:
+  Linted{path: String, text: String, known: List<&2, String>, ran: List<&2, String>}
+
+def Linted.path(linted: Linted) -> String:
+  match linted:
+    case Linted{path, text, known, ran}:
+      path
+
+def Linted.text(linted: Linted) -> String:
+  match linted:
+    case Linted{path, text, known, ran}:
+      text
+
+def Linted.known(linted: Linted) -> List<&2, String>:
+  match linted:
+    case Linted{path, text, known, ran}:
+      known
+
+def Linted.ran(linted: Linted) -> List<&2, String>:
+  match linted:
+    case Linted{path, text, known, ran}:
+      ran
+
+def Covering.keep(ran: Bool, c: Covering, out: List<&2, Covering>) -> List<&2, Covering>:
+  match ran:
+    case True{}:
+      c <> out
+    case False{}:
+      out
+
+# The coverings of the rules that ran, in order.
+def Covering.ran(coverings: List<&2, Covering>, +ran: List<&2, String>, out: List<&2, Covering>) -> List<&2, Covering>:
+  match coverings:
+    case Nil{}:
+      List.reverse(&2, Covering, out)
+    case Con{Covering{Directive{a, s, +r, sev, c, i}, from, to}, rest}:
+      Covering.ran(rest, ran, Covering.keep(List.contains(~String, ~String.eq, ran, r), Covering{Directive{a, s, r, sev, c, i}, from, to}, out))
+
+def done(a: Applied, +coverings: List<&2, Covering>, unpaired: List<&2, Said>, +saids: List<&2, Said>, +linted: Linted) ->
   Suppressed:
   match a:
     case Applied{kept, suppressed, used}:
@@ -838,10 +878,10 @@ def done(a: Applied, +coverings: List<&2, Covering>, unpaired: List<&2, Said>, +
           Lint.Found,
           [
             List.reverse(&2, Lint.Found, kept),
-            Wrong.found(saids, path, []),
-            Wrong.found(List.reverse(&2, Said, unpaired), path, []),
-            Runs.go(saids, path, Runs{None{}, []}),
-            Unmet.go(coverings, used, path, [])
+            Wrong.found(saids, Linted.path(linted), []),
+            Wrong.found(List.reverse(&2, Said, unpaired), Linted.path(linted), []),
+            Runs.go(saids, Linted.path(linted), Runs{None{}, []}),
+            Unmet.go(Covering.ran(coverings, Linted.ran(linted), []), used, Linted.path(linted), [])
           ]
         ),
         List.reverse(&2, Lint.Found, suppressed)
@@ -851,48 +891,38 @@ def covered(
   +coverings: List<&2, Covering>,
   unpaired: List<&2, Said>,
   +saids: List<&2, Said>,
-  +path: String,
-  +text: String,
+  +linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Suppressed:
-  done(Applied.go(founds, coverings, text, Applied{[], [], []}), coverings, unpaired, saids, path)
+  done(Applied.go(founds, coverings, Linted.text(linted), Applied{[], [], []}), coverings, unpaired, saids, linted)
 
-def paired(
-  p: Pairing,
-  +saids: List<&2, Said>,
-  +lines: List<&2, Bool>,
-  +path: String,
-  +text: String,
-  founds: List<&2, Lint.Found>
-) -> Suppressed:
+def paired(p: Pairing, +saids: List<&2, Said>, +lines: List<&2, Bool>, +linted: Linted, founds: List<&2, Lint.Found>) ->
+  Suppressed:
   match p:
     case Pairing{open, closed, wrong}:
       covered(
         Covering.all(saids, lines, closed, (U32.from_nat(List.length(&2, Bool, lines)) - 1 : U32), []),
         Pairing.unclosed(open, wrong),
         saids,
-        path,
-        text,
+        linted,
         founds
       )
 
-def said(+saids: List<&2, Said>, +lines: List<&2, Bool>, +path: String, +text: String, founds: List<&2, Lint.Found>) ->
-  Suppressed:
-  paired(Pairing.go(saids, Pairing{[], [], []}), saids, lines, path, text, founds)
+def said(+saids: List<&2, Said>, +lines: List<&2, Bool>, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
+  paired(Pairing.go(saids, Pairing{[], [], []}), saids, lines, linted, founds)
 
-def scanned(scanned: Scanned, +known: List<&2, String>, +path: String, +text: String, founds: List<&2, Lint.Found>) ->
-  Suppressed:
+def scanned(scanned: Scanned, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
   match scanned:
     case Scanned{comments, +lines}:
-      said(Said.all(comments, known, 0, []), lines, path, text, founds)
+      said(Said.all(comments, Linted.known(linted), 0, []), lines, linted, founds)
 
-def when(has: Bool, +known: List<&2, String>, +path: String, +text: String, founds: List<&2, Lint.Found>) -> Suppressed:
+def when(has: Bool, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
   match has:
     case True{}:
-      scanned(Scan.of(text), known, path, text, founds)
+      scanned(Scan.of(Linted.text(linted)), linted, founds)
     case False{}:
       Suppressed{founds, []}
 
-# A file's findings after the directives of its text: `known` are the ids of the rules there are.
-def apply(+known: List<&2, String>, +path: String, +text: String, founds: List<&2, Lint.Found>) -> Suppressed:
-  when(String.contains(text, "bend-lint:"), known, path, text, founds)
+# A linted file's findings, after the directives of its text.
+def apply(+linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
+  when(String.contains(Linted.text(linted), "bend-lint:"), linted, founds)

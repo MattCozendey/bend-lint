@@ -529,11 +529,28 @@ const check = async ({ Bend, base }: Checker, path: string): Promise<string> => 
     .join("");
 };
 
+// The answer to `real <path>`: the path, absolute, with links resolved if it
+// exists, and "/" between its parts.
+const realPath = (path: string): string => {
+  const absolute = nodePath.resolve(path);
+  return record([
+    "real",
+    (nodeFs.existsSync(absolute) ? nodeFs.realpathSync.native(absolute) : absolute).replaceAll(
+      "\\",
+      "/",
+    ),
+  ]);
+};
+
 const answer = (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
-  return op === "check" && args.length === 1
-    ? check(checker, args[0])
-    : Promise.resolve(record(["fail", "unknown request: " + line]));
+  return args.length !== 1
+    ? Promise.resolve(record(["fail", "unknown request: " + line]))
+    : op === "check"
+      ? check(checker, args[0])
+      : op === "real"
+        ? Promise.resolve(realPath(args[0]))
+        : Promise.resolve(record(["fail", "unknown request: " + line]));
 };
 
 // One request: read its line, write the whole answer, close.
