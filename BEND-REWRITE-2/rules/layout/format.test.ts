@@ -52,7 +52,7 @@ setDefaultTimeout(120_000);
       "def main() -> U32:",
       ...levels.map((indent) => indent + "("),
       "  ".repeat(depth + 1) + "1",
-      ...levels.toReversed().map((indent) => indent + ")"),
+      ...[...levels].reverse().map((indent) => indent + ")"),
     ];
     expect(found(nested.join("\n") + "\n")).toEqual([]);
   });
