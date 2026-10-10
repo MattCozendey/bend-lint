@@ -126,7 +126,7 @@ type Checked = {
   imports: Imported[];
   placed: WeakMap<object, Placed | null>;
   types: Scoped[];
-  declared?: string;
+  declared: Map<string, string | undefined>;
   aliases?: Map<string, Record<Name, Name>>;
   order?: Order;
 };
@@ -1202,27 +1202,35 @@ const declaredBy = (m: Loaded, c: Checked, file: string, text: string): string |
 };
 
 // Whether `text` declares what `file` declares, by the last check of `file`
-// that passed; false when there is none.
+// that passed, else by one that read it; false when there is none.
 const keepsDeclarations = (m: Loaded, file: string, text: string): boolean => {
   const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
-  const c = CHECKS.get(real);
+  const c = CHECKS.get(real) ?? [...CHECKS.values()].find((k) => k.seen.has(real));
   if (c === undefined) {
     return false;
   }
-  c.declared ??= declaredBy(m, c, real, fs.readFileSync(real, "utf8"));
-  return c.declared !== undefined && declaredBy(m, c, real, text) === c.declared;
+  const known = c.declared.has(real)
+    ? c.declared.get(real)
+    : declaredBy(m, c, real, fs.readFileSync(real, "utf8"));
+  c.declared.set(real, known);
+  return known !== undefined && declaredBy(m, c, real, text) === known;
 };
 
-// The declarations of every file the check read, Base and hub packages
-// aside; each def with its checked body if `bodies`.
-const declarationsOf = (m: Loaded, c: Checked, bodies: boolean): Plain[] =>
-  [...c.seen]
+// The files of the program a check read: every one but Base and hub
+// packages.
+const programFiles = (m: Loaded, seen: Map<string, string | null>): string[] =>
+  [...seen]
     .filter(([file, ns]) => file !== m.Bend.BASE_BEND && !/^0x[0-9a-f]+\//.test(ns ?? ""))
-    .map(([file]) => ({
-      $: "SourceDeclarations",
-      path: file,
-      declarations: declarationsIn(m, c, file, bodies),
-    }));
+    .map(([file]) => file);
+
+// The declarations of every file of the program; each def with its checked
+// body if `bodies`.
+const declarationsOf = (m: Loaded, c: Checked, bodies: boolean): Plain[] =>
+  programFiles(m, c.seen).map((file) => ({
+    $: "SourceDeclarations",
+    path: file,
+    declarations: declarationsIn(m, c, file, bodies),
+  }));
 
 const sourceOf = (file: string, text: string): Plain => ({
   $: "BendSource",
@@ -1232,9 +1240,9 @@ const sourceOf = (file: string, text: string): Plain => ({
 });
 
 // The check of `file` as plain data: its root, every file it read, its
-// bend/check finding if it fails, and, if it passes and they are wanted, the
-// declarations of every file it read but Base and hub packages, with the
-// defs' bodies if those are wanted.
+// bend/check finding if it fails, the files of its program, and, if it
+// passes and they are wanted, their declarations, with the defs' bodies if
+// those are wanted.
 const check = async (
   m: Loaded,
   file: string,
@@ -1259,7 +1267,16 @@ const check = async (
   const text = (f: string): string => fs.readFileSync(f, "utf8");
   const placed = new WeakMap<object, Placed | null>();
   if ("book" in read) {
-    CHECKS.set(real, { book: read.book, root: real, seen, headings, imports, placed, types: [] });
+    CHECKS.set(real, {
+      book: read.book,
+      root: real,
+      seen,
+      headings,
+      imports,
+      placed,
+      types: [],
+      declared: new Map(),
+    });
   }
   const failed = "e" in read ? read : undefined;
   const span =
@@ -1275,6 +1292,7 @@ const check = async (
       "book" in read && (wanted.declarations || wanted.bodies)
         ? declarationsOf(m, CHECKS.get(real)!, wanted.bodies)
         : [],
+    program_paths: programFiles(m, seen),
     failure:
       failed === undefined
         ? { $: "None" }

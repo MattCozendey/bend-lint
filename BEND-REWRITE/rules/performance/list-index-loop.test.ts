@@ -7,22 +7,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Types
-// =====
-
-type Found = { code: string; text: string; message: string };
+import { lintIn } from "../../testing.ts";
+import type { Found } from "../../testing.ts";
 
 // Constants
 // =========
 
-const HOST = fileURLToPath(new URL("../../host.ts", import.meta.url));
 const RULE = fileURLToPath(new URL("./list-index-loop.bend", import.meta.url));
 const CODE = "performance/list-index-loop";
-const LINE = /^(.+):(\d+): ([\w/-]+): (.*)$/;
 
-const dir = fs.realpathSync
-  .native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-rewrite-list-loop-")))
-  .replaceAll("\\", "/");
+const dir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "bend-rewrite-list-loop-")),
+);
 
 // Functions
 // =========
@@ -35,32 +31,11 @@ const file = (...defs: string[]): string =>
 const loop = (step: string): string =>
   `def f(n: Nat, +xs: List<&2, U32>, +i: Nat, acc: U32) -> U32:\n  match n:\n    case 0n:\n      acc\n    case 1n+p:\n${step}\n`;
 
-// Each finding of the rewrite on `text`: its code, the text from where it
-// starts to the end of that line, and its message.
-const found = (text: string): Found[] => {
-  const at = path.posix.join(dir, "main.bend");
-  fs.writeFileSync(at, text);
-  const run = Bun.spawnSync(["bun", HOST, at, "--rules", RULE]);
-  const points = text.match(/./gsu) ?? [];
-  return run.stdout
-    .toString()
-    .split(/\r?\n/)
-    .flatMap((line): Found[] => {
-      const m = LINE.exec(line);
-      return m === null
-        ? []
-        : [
-            {
-              code: m[3],
-              text: points.slice(Number(m[2])).join("").split("\n")[0],
-              message: m[4],
-            },
-          ];
-    });
-};
+const found = (text: string): Found[] =>
+  lintIn(dir, { "main.bend": text }, "main.bend", ["--rules", RULE]);
 
 // The findings of the rule on `text`, which must pass Bend's check.
-const reported = (text: string): Array<Omit<Found, "code">> => {
+const reported = (text: string): Array<Pick<Found, "text" | "message">> => {
   const out = found(text);
   expect(out.filter((f) => f.code !== CODE)).toEqual([]);
   return out.map(({ text: at, message }) => ({ text: at, message }));
