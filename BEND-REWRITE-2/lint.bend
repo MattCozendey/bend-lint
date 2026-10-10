@@ -22,9 +22,11 @@ import ./shared.bend as Shared
 # Program
 # =======
 
-# What a syntax node is: a declaration, a part of one, a term, or a pattern, as Bend's parser reads it.
+# What a syntax node is: a declaration, a part of one, a term, or a pattern, as Bend's parser reads it. An import's
+# written path is an ImportPath under it; `import Base` writes none.
 type Syntax is Data:
   Import{}
+  ImportPath{}
   Definition{}
   Datatype{}
   Constructor{}

@@ -38,6 +38,7 @@ def Syntax.names() -> List<&2, Shared.Named<Lint.Syntax>>:
     Shared.Named{"Constructor", Lint.Constructor{}},
     Shared.Named{"Law", Lint.Law{}},
     Shared.Named{"Import", Lint.Import{}},
+    Shared.Named{"ImportPath", Lint.ImportPath{}},
     Shared.Named{"Substitution", Lint.Substitution{}},
     Shared.Named{"Sort", Lint.Sort{}},
     Shared.Named{"QuantityType", Lint.QuantityType{}},

@@ -535,7 +535,8 @@ const declarationsOf = (parsed: Parsed): Tree[] => {
   }));
 };
 
-// The trees of a file's imports: each alias (or Base) and the file it loads.
+// The trees of a file's imports: each alias (or Base) and the file it loads,
+// with the path it writes (Base writes none).
 const importsOf = (
   file: SeenFile,
   imports: SeenImport[],
@@ -548,7 +549,17 @@ const importsOf = (
     const beg =
       i.at + (i.alias === undefined ? from : i.line.indexOf(i.alias, from + i.path.length));
     const name = i.alias ?? "Base";
-    return tree("Import", [], {
+    const path = i.at + from;
+    const written =
+      i.alias === undefined
+        ? []
+        : [
+            tree("ImportPath", [], {
+              name: i.path,
+              range: [points(path), points(path + i.path.length)],
+            }),
+          ];
+    return tree("Import", written, {
       name,
       target: i.alias === undefined ? base : real(file.al[i.alias]),
       range: [points(beg), points(beg + name.length)],
