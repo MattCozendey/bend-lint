@@ -1,5 +1,8 @@
 # This file's goal is to become a bend version of the bend-lint tool.
-# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects), even if it contains laws and/or proofs.
+# This file must remain self-contained for the time-being(aside from base or bendhub, and aside from effects, and aside from the host), even if it contains laws and/or proofs.
+# The host (host.ts) is the one TS file of the rewrite, and its entry point: `bun host.ts <args>`. It finds Bend, loads
+# its checker and compiler into its own process and patches the checker (the seam), compiles this file with the
+# --rules files, runs it, and answers its effects. It holds no linting logic: only what only TS can do.
 # An expected consequence of self-contained: `bend main.bend --check-only` always reports the defs that rely on our
 # effects ("N defs rely on unsafe or foreign code"). Only other errors are real proof failures.
 # Every comment on this file stays here.
