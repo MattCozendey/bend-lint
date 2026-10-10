@@ -484,8 +484,8 @@ const parsedOf = (seen: Seen[]): Parsed[] => {
 };
 
 // The answer to `check <path>`: each file the check parsed (path, namespace,
-// text), then its syntax nodes; or why the check failed. The probe is
-// global, so checks must not overlap.
+// text), then its syntax nodes; or, if the check failed, the files it read,
+// then why. The probe is global, so checks must not overlap.
 const check = async ({ Bend, base }: Checker, path: string): Promise<string> => {
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
@@ -496,7 +496,10 @@ const check = async ({ Bend, base }: Checker, path: string): Promise<string> => 
     await Bend.book_load(book, nodePath.resolve(path).replaceAll("\\", "/"), "", seen);
     Bend.book_valid(book, base.order.length);
   } catch (e) {
-    return record(["fail", isErr(e) ? Bend.err_show(e) : message(e)]);
+    return [
+      ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
+      record(["fail", isErr(e) ? Bend.err_show(e) : message(e)]),
+    ].join("");
   } finally {
     hook.BEND_LINT_SEE = undefined;
   }

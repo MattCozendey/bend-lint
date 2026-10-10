@@ -156,12 +156,18 @@ type Here is Data:
 type Whole is Data:
   Whole{program: Program, declarations: List<&2, Declaration>}
 
+# Which of a program rule's findings stay when several entries check the named file: those some check finds, or those
+# every check finds. If an entry that reads the named file fails its check, an every rule does not run.
+type Entries is Data:
+  SomeEntry{}
+  EveryEntry{}
+
 # A rule: its id (`namespace/.../name`), and what it finds. A file rule runs once per linted file, and may report only
 # in it. A program rule runs once per check, and may report in any file; what it finds in a file that is not linted
 # is dropped.
 type Rule is Type:
   FileRule{id: String, run: @+here: Here -> List<&2, Finding>}
-  ProgramRule{id: String, run: @+whole: Whole -> List<&2, Finding>}
+  ProgramRule{id: String, entries: Entries, run: @+whole: Whole -> List<&2, Finding>}
 
 # The nodes of the file a rule runs on, parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:

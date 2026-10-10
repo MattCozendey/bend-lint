@@ -4,10 +4,10 @@ import ./lint.bend as Lint
 import ./shared.bend as Shared
 import ./wire.bend as Wire
 
-# What checking a file gives: its program, or why the check failed.
+# What checking a file gives: its program, or why the check failed and the files it read.
 type Check is Data:
   Passed{program: Lint.Program}
-  Failed{message: String}
+  Failed{message: String, read: List<&2, String>}
 
 # Decoding
 # ========
@@ -132,24 +132,38 @@ def Check.read(program: Maybe<&2, Lint.Program>) -> IO(Check):
     case None{}:
       Check.malformed(Check)
 
-def Check.failed(fail: Bool, message: String) -> IO(Check):
+# The files a failed check read: the paths of its `read` records, in order.
+def Check.reads(records: List<&2, List<&2, String>>, out: List<&2, String>) -> List<&2, String>:
+  match records:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{Con{tag, Con{path, Nil{}}}, rest}:
+      Check.reads(rest, path <> out)
+    case Con{r, rest}:
+      Check.reads(rest, out)
+
+def Check.failed(fail: Bool, message: String, read: List<&2, String>) -> IO(Check):
   match fail:
     case True{}:
-      IO.pure(Check, Failed{message})
+      IO.pure(Check, Failed{message, read})
     case False{}:
       Check.malformed(Check)
 
-# What an answer says: one `fail` record, or the program.
-def Check.of(records: List<&2, List<&2, String>>) -> IO(Check):
-  match records:
-    case Con{Con{+tag, Con{message, Nil{}}}, Nil{}}:
-      Check.failed(String.eq(tag, "fail"), message)
+def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, String>>) -> IO(Check):
+  match last:
+    case Some{Con{+tag, Con{message, Nil{}}}}:
+      Check.failed(String.eq(tag, "fail"), message, Check.reads(records, []))
     case _:
       Check.read(Program.read(records, []))
 
+# What an answer says: the program; or, ending in a `fail` record, the files the check read (its `read` records) and
+# why it failed.
+def Check.of(+records: List<&2, List<&2, String>>) -> IO(Check):
+  Check.ended(List.last(&2, List<&2, String>, records), records)
+
 # Checks the file at `path`.
 def Check.run(path: String) -> IO(Check):
-  IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), Check.of)
+  IO.bind(List<&2, List<&2, String>>, Check, Wire.ask(["check", path]), records => Check.of(records))
 
 # Declarations
 # ============
