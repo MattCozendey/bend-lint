@@ -1,8 +1,20 @@
 // The rewrite's host: see the header of main.bend. The main thread loads and
-// patches bend2 and answers effects; main.bend runs in a worker, whose
+// patches bend2 and answers effects; the program runs in a worker, whose
 // effects ask the main thread and wait for the answer, because bend2's JS
 // runtime calls an effect and takes its result at once, and a check is
 // async.
+//
+// Rules are compiled in, because Bend cannot load code while it runs. The
+// program is main.bend with the rule files it was compiled with, and knows
+// them (compiled()). It parses argv and the config itself; when the rule
+// files it wants are not the ones it holds, it asks to restart with them
+// (restart_with_rules), and the host runs the program compiled with those,
+// with the same argv. That program holds what it wants, so it never asks
+// again. Once Bend is written in Bend, the same restart is Bend writing the
+// program to a file and running bend on it. A compiled program is kept in
+// <cache>/host, keyed by its text and checked against the text of every
+// file it was made from, so a run whose sources did not change checks and
+// compiles nothing.
 
 // Imports
 // =======
@@ -44,7 +56,8 @@ type Main = {
   Check_Fail: new (why: unknown) => { why: unknown };
 };
 
-type Loaded = { Bend: typeof BendModule; Comp: Comp; Main: Main; base: Book };
+// bend2 as load gives it, with Base checked and the compiler's hash.
+type Loaded = { Bend: typeof BendModule; Comp: Comp; Main: Main; base: Book; compiler: string };
 
 // A main.bend value as plain data: a String, U32 or Bool as itself, a List
 // as an array, a constructor as its name in main.bend or Base with its
@@ -54,18 +67,19 @@ type Plain = string | number | boolean | Plain[] | { $: string; [field: string]:
 // A constructor as compiled JS spells it: its key, and its fields in order.
 type Ctor = { key: string; fields: string[] };
 
-// What an effect asks the main thread.
-type Ask = { op: "check"; path: string };
+// A compiled program: its module, and the constructors its values use.
+type Program = { module: string; ctors: Record<string, Ctor> };
 
-// What the worker gets: the compiled program's file, its argv, the
-// constructors of main.bend and Base, and the channel to the main thread.
-type Start = {
-  file: string;
-  args: string[];
-  ctors: Record<string, Ctor>;
-  port: MessagePort;
-  flag: Int32Array;
-};
+// A compiled program as the cache keeps it: the compiler that made it, and
+// every file it was made from, with its text's hash.
+type Kept = Program & { compiler: string; files: Array<[string, string]> };
+
+// What an effect asks the main thread.
+type Ask = { op: "check"; path: string } | { op: "restart"; files: string[] };
+
+// What the worker gets: the program, its argv, and the channel to the main
+// thread.
+type Start = Program & { args: string[]; port: MessagePort; flag: Int32Array };
 
 type Host = { ask: (ask: Ask) => unknown };
 
@@ -89,7 +103,6 @@ const CACHE = nodePath.join(
   "bend-lint",
 );
 
-// Compiled programs, by their text.
 const COMPILED = nodePath.join(CACHE, "host");
 
 const SHIMMED: Array<[string, string]> = [
@@ -109,31 +122,22 @@ const PATCHES: Record<string, Patch> = {
 
 const PATCHED = Object.keys(PATCHES);
 
-// The program bend2 checks and compiles: main.bend, run with its rules. It
-// is never on disk; fs below serves it.
-const PROGRAM = nodePath.join(HERE, "program.bend").split(nodePath.sep).join("/");
-
-const PROGRAM_TEXT = `import Base
-import ./main.bend as Lint
-
-def main() -> IO(Unit):
-  Lint.run([])
-`;
+// The programs bend2 checks, by path: never on disk; fs below serves them.
+const PROGRAMS = new Map<string, string>();
 
 // fs and path for bend.ts and main.ts: real paths with "/", so imports
-// resolve on Windows, and the program served from memory.
+// resolve on Windows, and the programs served from memory.
 const fs = {
   ...nodeFs,
-  existsSync: (p: nodeFs.PathLike): boolean => p === PROGRAM || nodeFs.existsSync(p),
+  existsSync: (p: nodeFs.PathLike): boolean => PROGRAMS.has(String(p)) || nodeFs.existsSync(p),
   realpathSync: (p: nodeFs.PathLike): string =>
-    p === PROGRAM ? PROGRAM : slash(nodeFs.realpathSync(p)),
+    PROGRAMS.has(String(p)) ? String(p) : slash(nodeFs.realpathSync(p)),
   readFileSync: ((p: nodeFs.PathOrFileDescriptor, ...rest: unknown[]) =>
-    p === PROGRAM
-      ? PROGRAM_TEXT
-      : (nodeFs.readFileSync as (...a: unknown[]) => unknown)(
-          p,
-          ...rest,
-        )) as typeof nodeFs.readFileSync,
+    PROGRAMS.get(String(p)) ??
+    (nodeFs.readFileSync as (...a: unknown[]) => unknown)(
+      p,
+      ...rest,
+    )) as typeof nodeFs.readFileSync,
 };
 
 const path = {
@@ -167,6 +171,17 @@ const resolve = (cwd: string, ...ps: string[]): string => {
 const drift = (text: string): Error => Object.assign(new Error(text), { name: "DriftError" });
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+const digest = (text: string): string => Bun.hash(text).toString(16);
+
+// A file's text's hash, or "" if it cannot be read.
+const hashed = (file: string): string => {
+  try {
+    return digest(nodeFs.readFileSync(file, "utf8"));
+  } catch {
+    return "";
+  }
+};
 
 // `file` is one of PATCHED. Its line ends become LF, so an edit can span
 // lines in a CRLF checkout.
@@ -320,7 +335,12 @@ const load = async (): Promise<Loaded> => {
   }
   const [Bend, Comp, Main] = modules as [typeof BendModule, Comp, Main];
   guardMain(Main);
-  return { Bend, Comp, Main, base: await Main.book_read(Bend.BASE_BEND) };
+  const compiler = digest(
+    [...PATCHED.map((f) => path.join(dir, f)), url.fileURLToPath(import.meta.url)]
+      .map(hashed)
+      .join("\0"),
+  );
+  return { Bend, Comp, Main, base: await Main.book_read(Bend.BASE_BEND), compiler };
 };
 
 const isErr = (e: unknown): e is Err =>
@@ -354,6 +374,8 @@ const starts = (text: string): number[] => [
 // How many characters (code points) `text` holds, as Bend counts them.
 const points = (text: string): number => text.match(/./gsu)?.length ?? 0;
 
+const bare = (line: string): string => line.replace(/\r$/, "");
+
 // bend.ts parses a copy of each file with its import lines blanked, so a
 // span moves to the file on disk by line and column. The copy's namespace
 // and folder, and its lines, pick the file among those the check read.
@@ -362,16 +384,16 @@ const located = (
   s: BendSpan,
 ): { path: string; beg: number; end: number } | undefined => {
   const copy: BendSpan["file"] & { dir?: string } = s.file;
-  const lines = copy.str.split("\n");
+  const lines = copy.str.split("\n").map(bare);
   const found = [...seen]
     .filter(
       ([real, ns]) =>
         (ns ?? "") === copy.ns &&
         (copy.dir === undefined || copy.dir === real.slice(0, real.lastIndexOf("/") + 1)),
     )
-    .map(([real]) => ({ real, text: fs.readFileSync(real, "utf8").replace(/\r\n/g, "\n") }))
+    .map(([real]) => ({ real, text: fs.readFileSync(real, "utf8") }))
     .filter(({ text }) => {
-      const theirs = text.split("\n");
+      const theirs = text.split("\n").map(bare);
       return (
         theirs.length === lines.length &&
         lines.every(
@@ -393,36 +415,53 @@ const located = (
   return { path: real, beg: at(s.beg), end: at(s.end) };
 };
 
-// The bend/check finding of `file` as plain data, or None when it checks.
-const checkFailure = async (m: Loaded, file: string): Promise<Plain> => {
+const sourceOf = (file: string, text: string): Plain => ({
+  $: "BendSource",
+  path: file,
+  text,
+  lines: text.split("\n"),
+});
+
+// The check of `file` as plain data: its root, every file it read, and its
+// bend/check finding if it fails.
+const check = async (m: Loaded, file: string): Promise<Plain> => {
   const seen = new Map<string, string | null>();
   const failed = await m.Main.book_read(file, m.base, seen).then(
     () => undefined,
     (e: unknown) => ({ e: why(m, e) }),
   );
-  if (failed === undefined) {
-    return { $: "None" };
-  }
+  const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  const text = (f: string): string => fs.readFileSync(f, "utf8");
   const at =
-    isErr(failed.e) && failed.e.spn !== undefined ? located(seen, failed.e.spn) : undefined;
+    failed !== undefined && isErr(failed.e) && failed.e.spn !== undefined
+      ? located(seen, failed.e.spn)
+      : undefined;
   return {
-    $: "Some",
-    value: {
-      $: "RuleFinding",
-      rule_id: "bend/check",
-      finding: {
-        $: "Finding",
-        severity: { $: "Error" },
-        message: failure(m, failed.e),
-        span: {
-          $: "BendSourceSpan",
-          path: at?.path ?? file,
-          beg: at?.beg ?? 0,
-          end: at?.end ?? 0,
-        },
-        fixes: [],
-      },
-    },
+    $: "BendCheck",
+    root: seen.has(real) ? sourceOf(real, text(real)) : sourceOf(file, ""),
+    sources: [...seen.keys()].map((f) => sourceOf(f, text(f))),
+    failure:
+      failed === undefined
+        ? { $: "None" }
+        : {
+            $: "Some",
+            value: {
+              $: "RuleFinding",
+              rule_id: "bend/check",
+              finding: {
+                $: "Finding",
+                severity: { $: "Error" },
+                message: failure(m, failed.e),
+                span: {
+                  $: "BendSourceSpan",
+                  path: at?.path ?? file,
+                  beg: at?.beg ?? 0,
+                  end: at?.end ?? 0,
+                },
+                fixes: [],
+              },
+            },
+          },
   };
 };
 
@@ -447,10 +486,89 @@ const ctorsOf = (m: Loaded, book: Book, seen: Map<string, string | null>): Recor
   );
 };
 
-// The program as a module, run as comp.ts io_run runs it, kept in COMPILED
-// by its text, so the same program is written once. A file is written whole
-// or not at all.
-const compiled = (m: Loaded, book: Book): string => {
+// The .js files of a book's foreign defs: comp.ts copies them into the JS.
+const effectsOf = (book: Book): string[] => [
+  ...new Set(
+    Object.values(book.tlds).flatMap((t) =>
+      t.$ === "Def" && t.i !== undefined
+        ? t.i.filter((x) => x.endsWith(".js")).map((x) => slash(nodeFs.realpathSync(x)))
+        : [],
+    ),
+  ),
+];
+
+// The program: main.bend with the rule files `files` (paths as main.bend
+// spells them), each defining rules().
+const programText = (files: string[]): string => {
+  const here = slash(nodeFs.realpathSync(HERE));
+  const far = files.find(
+    (f) =>
+      (f.match(DRIVE)?.[0] ?? "").toLowerCase() !== (here.match(DRIVE)?.[0] ?? "").toLowerCase(),
+  );
+  if (far !== undefined) {
+    throw new Error(`${far} is on another drive than BEND-REWRITE, so main.bend cannot import it`);
+  }
+  const rel = (f: string): string => {
+    const r = path.posix.relative(here, f);
+    return r.startsWith(".") ? r : "./" + r;
+  };
+  return [
+    "import Base",
+    "import ./main.bend as Lint",
+    ...files.map((f, i) => `import ${rel(f)} as R${i}`),
+    "",
+    "def rules(u: Unit) -> List<&1, Lint.Rule>:",
+    `  List.concat(&1, Lint.Rule, [${files.map((_, i) => `R${i}.rules()`).join(", ")}])`,
+    "",
+    "def compiled() -> List<&2, String>:",
+    `  [${files.map((f) => JSON.stringify(f)).join(", ")}]`,
+    "",
+    "def main() -> IO(Unit):",
+    "  Lint.serve(~rules, compiled())",
+    "",
+  ].join("\n");
+};
+
+const keptAt = (key: string): string => nodePath.join(COMPILED, key + ".json");
+
+// The program kept for `key`, if its compiler and every file it was made
+// from are unchanged.
+const cached = (m: Loaded, key: string): Program | undefined => {
+  try {
+    const kept = JSON.parse(nodeFs.readFileSync(keptAt(key), "utf8")) as Kept;
+    return kept.compiler === m.compiler &&
+      nodeFs.existsSync(kept.module) &&
+      kept.files.every(([f, h]) => hashed(f) === h)
+      ? { module: kept.module, ctors: kept.ctors }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// Writes `text` to `file` whole or not at all.
+const written = (file: string, text: string): void => {
+  nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}`;
+  nodeFs.writeFileSync(temp, text);
+  nodeFs.renameSync(temp, file);
+};
+
+// The program with the rule files `files`: kept, or checked, compiled as
+// comp.ts io_run runs it, and kept.
+const program = async (m: Loaded, files: string[]): Promise<Program> => {
+  const text = programText(files);
+  const key = digest(text);
+  const known = cached(m, key);
+  if (known !== undefined) {
+    return known;
+  }
+  const at = slash(nodePath.join(nodeFs.realpathSync(HERE), `program-${key}.bend`));
+  PROGRAMS.set(at, text);
+  const seen = new Map<string, string | null>();
+  const book = await m.Main.book_read(at, m.base, seen).catch((e: unknown) => {
+    throw new Error("the program does not check:\n" + failure(m, why(m, e)));
+  });
   const js = [
     'import { createRequire } from "node:module";',
     `const require = createRequire(${JSON.stringify(import.meta.url)});`,
@@ -458,30 +576,29 @@ const compiled = (m: Loaded, book: Book): string => {
     m.Comp.RUNTIME_MAIN,
     `export default (args) => { cli_args = args; return io_run(${m.Comp.js_sat("main")}); };`,
   ].join("\n");
-  const file = nodePath.join(COMPILED, Bun.hash(js).toString(16) + ".mjs");
-  if (!nodeFs.existsSync(file)) {
-    nodeFs.mkdirSync(COMPILED, { recursive: true });
-    const temp = `${file}.${process.pid}`;
-    nodeFs.writeFileSync(temp, js);
-    nodeFs.renameSync(temp, file);
-  }
-  return file;
+  const module = nodePath.join(COMPILED, digest(js) + ".mjs");
+  written(module, js);
+  const kept: Kept = {
+    module,
+    ctors: ctorsOf(m, book, seen),
+    compiler: m.compiler,
+    files: [...seen.keys(), m.Bend.BASE_BEND, ...effectsOf(book)]
+      .filter((f) => !PROGRAMS.has(f))
+      .map((f): [string, string] => [f, hashed(f)]),
+  };
+  written(keptAt(key), JSON.stringify(kept));
+  return { module, ctors: kept.ctors };
 };
 
-// Runs main.bend in a worker, with `args`, and answers its effects; settles
-// with its exit code.
-const host = async (args: string[]): Promise<number> => {
-  const m = await load();
-  const seen = new Map<string, string | null>();
-  const book = await m.Main.book_read(PROGRAM, m.base, seen).catch((e: unknown) => {
-    throw new Error("main.bend does not check:\n" + failure(m, why(m, e)));
-  });
+// Runs the program with the rule files `files` in a worker, with `args`,
+// and answers its effects; settles with its exit code. A program that asks
+// to restart is run again with the files it asks for, once.
+const run = async (m: Loaded, files: string[], args: string[], again: boolean): Promise<number> => {
   const { port1, port2 } = new MessageChannel();
   const flag = new Int32Array(new SharedArrayBuffer(4));
   const start: Start = {
-    file: compiled(m, book),
-    args: [PROGRAM, ...args],
-    ctors: ctorsOf(m, book, seen),
+    ...(await program(m, files)),
+    args: ["program.bend", ...args],
     port: port2,
     flag,
   };
@@ -489,20 +606,34 @@ const host = async (args: string[]): Promise<number> => {
     workerData: start,
     transferList: [port2],
   });
-  return new Promise((done, fail) => {
+  const reply = (answer: Plain): void => {
+    port1.postMessage(answer);
+    Atomics.store(flag, 0, 1);
+    Atomics.notify(flag, 0);
+  };
+  return new Promise<{ exit: number } | { restart: string[] }>((done, fail) => {
     worker.on("error", fail);
     port1.on("message", (msg: Ask | { exit: number }) => {
       if ("exit" in msg) {
         port1.close();
-        done(msg.exit);
-        return;
+        done(msg);
+      } else if (msg.op === "restart") {
+        reply({ $: "Unit" });
+        port1.close();
+        void worker.terminate();
+        done({ restart: msg.files });
+      } else {
+        void check(m, msg.path).then(reply, fail);
       }
-      void checkFailure(m, msg.path).then((reply) => {
-        port1.postMessage(reply);
-        Atomics.store(flag, 0, 1);
-        Atomics.notify(flag, 0);
-      }, fail);
     });
+  }).then((end) => {
+    if ("exit" in end) {
+      return end.exit;
+    }
+    if (again) {
+      throw drift("the program asked to restart with the rule files it was compiled with");
+    }
+    return run(m, end.restart, args, true);
   });
 };
 
@@ -536,10 +667,10 @@ const valueOf = (ctors: Record<string, Ctor>, x: Plain): unknown => {
   ]);
 };
 
-// The worker: runs the compiled program; an effect asks the main thread and
-// waits for its answer.
+// The worker: runs the program; an effect asks the main thread and waits
+// for its answer.
 const work = async (start: Start): Promise<void> => {
-  const { file, args, ctors, port, flag } = start;
+  const { module, ctors, args, port, flag } = start;
   const ask = (q: Ask): unknown => {
     Atomics.store(flag, 0, 0);
     port.postMessage(q);
@@ -547,20 +678,22 @@ const work = async (start: Start): Promise<void> => {
     return valueOf(ctors, receiveMessageOnPort(port)?.message as Plain);
   };
   (globalThis as typeof globalThis & { BEND_HOST?: Host }).BEND_HOST = { ask };
-  const program = (await import(url.pathToFileURL(file).href)) as {
+  const loaded = (await import(url.pathToFileURL(module).href)) as {
     default: (a: string[]) => number;
   };
-  port.postMessage({ exit: program.default(args) });
+  port.postMessage({ exit: loaded.default(args) });
 };
 
 // Side effects
 // ============
 
 if (isMainThread) {
-  process.exitCode = await host(process.argv.slice(2)).catch((e: unknown) => {
-    console.error("bend-lint: " + message(e));
-    return 1;
-  });
+  process.exitCode = await load()
+    .then((m) => run(m, [], process.argv.slice(2), false))
+    .catch((e: unknown) => {
+      console.error("bend-lint: " + message(e));
+      return 1;
+    });
 } else {
   await work(workerData as Start);
 }

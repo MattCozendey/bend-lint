@@ -63,6 +63,18 @@
 # |                                                             | Unsaved text is for editors and can wait.                    |
 # | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
 # |                                                             | ones.                                                        |
+#
+# TODO
+# - performance/missed-fork crashes (machine stack overflow) and performance/append-in-loop hangs on this file.
+#   Both are bugs of those rules, not of this file; bend-lint.json turns them off for this folder until they are
+#   fixed.
+# - A law: when get_order_problems finds none, get_lint_findings runs every rule; its fuel never runs out first.
+#   Write it once the pure code has a file of its own, so --check-only means something.
+# - For rules with autofixes only:
+#   - Idempotence: applying a rule's fixes twice equals applying them once.
+#   - Compatibility: no rule's fix undoes another's, so the rules reach a common fixed point.
+#   - Linter idempotence: a second --fix run changes nothing. The two above make it hold.
+#   - Confluence, ideally: the order fixes are applied in does not change the result.
 import Base
 import ./path.bend as Path
 
@@ -71,7 +83,7 @@ type FixApplicability is Data:
   Dangerous{}
 
 type BendSource is Data:
-  BendSource{path: String, text: String}
+  BendSource{path: String, text: String, lines: List<&2, String>}
 
 type BendSourceSpan is Data:
   BendSourceSpan{path: String, beg: U32, end: U32}
@@ -173,66 +185,588 @@ type CliCommand is Data:
     output: CliOutput
   }
 
-def get_check_failure(path: String) -> IO(Maybe<&2, RuleFinding>):
+type BendCheck is Data:
+  BendCheck{root: BendSource, sources: List<&2, BendSource>, failure: Maybe<&2, RuleFinding>}
+
+type RuleHead is Data:
+  RuleHead{id: String, after: List<&2, String>}
+
+type LintTally is Data:
+  LintTally{count: Nat, failed: Bool}
+
+def get_check(path: String) -> IO(BendCheck):
   import "./effs/host.js"
 
-def get_lint_report(file: BendSource, rules: List<&1, Rule>, config: LintConfig) -> IO(LintReport):
-  IO.pure(LintReport, LintReport{[], [], [file]})
+def restart_with_rules(files: List<&2, String>) -> IO(Unit):
+  import "./effs/host.js"
+
+def get_kept(-A: Data, keep: Bool, x: A, xs: List<&2, A>) -> List<&2, A>:
+  match keep:
+    case True{}:
+      x <> xs
+    case False{}:
+      xs
+
+def get_has_text(xs: List<&2, String>, +x: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      String.eq(h, x) || get_has_text(t, x)
+
+def get_has_texts(xs: List<&2, String>, +all: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{h, t}:
+      get_has_text(all, h) && get_has_texts(t, all)
+
+def get_same_texts(a: List<&2, String>, b: List<&2, String>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case Con{h, t} Con{g, u}:
+      String.eq(h, g) && get_same_texts(t, u)
+    case _ _:
+      False{}
+
+def get_rule_heads(rules: List<&1, Rule>) -> List<&2, RuleHead>:
+  match rules:
+    case Nil{}:
+      []
+    case Con{r, rest}:
+      match r:
+        case Rule{id, scope, options, after, run}:
+          RuleHead{id, after} <> get_rule_heads(rest)
+
+def get_head_ids(heads: List<&2, RuleHead>) -> List<&2, String>:
+  match heads:
+    case Nil{}:
+      []
+    case Con{h, t}:
+      match h:
+        case RuleHead{id, after}:
+          id <> get_head_ids(t)
+
+def get_ready_ids(heads: List<&2, RuleHead>, +done: List<&2, String>) -> List<&2, String>:
+  match heads:
+    case Nil{}:
+      []
+    case Con{h, t}:
+      match h:
+        case RuleHead{+id, after}:
+          get_kept(
+            String,
+            Bool.not(get_has_text(done, id)) && get_has_texts(after, done),
+            id,
+            get_ready_ids(t, done)
+          )
+
+def get_rule_id(found: RuleFinding) -> String:
+  match found:
+    case RuleFinding{rule_id, finding}:
+      rule_id
+
+def get_prior(found: List<&2, RuleFinding>, +after: List<&2, String>) -> List<&2, RuleFinding>:
+  match found:
+    case Nil{}:
+      []
+    case Con{+f, t}:
+      get_kept(RuleFinding, get_has_text(after, get_rule_id(f)), f, get_prior(t, after))
+
+def get_tagged(+id: String, findings: List<&2, Finding>) -> List<&2, RuleFinding>:
+  match findings:
+    case Nil{}:
+      []
+    case Con{f, t}:
+      RuleFinding{id, f} <> get_tagged(id, t)
+
+def get_rule_run(
+  hit: Bool,
+  id: String,
+  run: RuleInput -> List<&2, Finding>,
+  input: RuleInput
+) -> List<&2, RuleFinding>:
+  match hit:
+    case True{}:
+      get_tagged(id, run(input))
+    case False{}:
+      []
+
+def get_level_finding(
+  r: Rule,
+  +ready: List<&2, String>,
+  +found: List<&2, RuleFinding>,
+  +root: BendSource,
+  +sources: List<&2, BendSource>
+) -> List<&2, RuleFinding>:
+  match r:
+    case Rule{+id, scope, options, after, run}:
+      get_rule_run(
+        get_has_text(ready, id),
+        id,
+        run,
+        RuleInput{root, sources, [], get_prior(found, after)}
+      )
+
+def get_level_findings(
+  rules: List<&1, Rule>,
+  +ready: List<&2, String>,
+  +found: List<&2, RuleFinding>,
+  +root: BendSource,
+  +sources: List<&2, BendSource>
+) -> List<&2, RuleFinding>:
+  match rules:
+    case Nil{}:
+      []
+    case Con{r, rest}:
+      a b = get_level_finding(
+        r,
+        ready,
+        found,
+        root,
+        sources
+      ) get_level_findings(rest, ready, found, root, sources)
+      List.append(&2, RuleFinding, a, b)
+
+def get_texts_where(
+  +inside: Bool,
+  xs: List<&2, String>,
+  +set: List<&2, String>
+) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      []
+    case Con{+h, t}:
+      get_kept(
+        String,
+        (inside && get_has_text(set, h)) || (Bool.not(inside) && Bool.not(get_has_text(set, h))),
+        h,
+        get_texts_where(inside, t, set)
+      )
+
+def get_done_ids(
+  fuel: Nat,
+  ready: List<&2, String>,
+  +heads: List<&2, RuleHead>,
+  +done: List<&2, String>
+) -> List<&2, String>:
+  match fuel ready:
+    case 0n _:
+      done
+    case 1n+k Nil{}:
+      done
+    case 1n+k Con{+h, +t}:
+      +now = List.append(&2, String, done, h <> t)
+      get_done_ids(k, get_ready_ids(heads, now), heads, now)
+
+def get_unknown_lines(+id: String, unknown: List<&2, String>) -> List<&2, String>:
+  match unknown:
+    case Nil{}:
+      []
+    case Con{x, t}:
+      (id ++ " waits on " ++ x ++ ", which no loaded rule has") <> get_unknown_lines(id, t)
+
+def get_stuck_lines(done: Bool, id: String, waiting: List<&2, String>) -> List<&2, String>:
+  match done waiting:
+    case False{} Con{h, t}:
+      [id ++ " waits on " ++ String.join(h <> t, ", ")]
+    case _ _:
+      []
+
+def get_order_problems.of(
+  +all: List<&2, String>,
+  +done: List<&2, String>,
+  heads: List<&2, RuleHead>
+) -> List<&2, String>:
+  match heads:
+    case Nil{}:
+      []
+    case Con{h, t}:
+      match h:
+        case RuleHead{+id, +after}:
+          List.append(
+            &2,
+            String,
+            List.append(
+              &2,
+              String,
+              get_unknown_lines(id, get_texts_where(False{}, after, all)),
+              get_stuck_lines(
+                get_has_text(done, id),
+                id,
+                get_texts_where(False{}, get_texts_where(True{}, after, all), done)
+              )
+            ),
+            get_order_problems.of(all, done, t)
+          )
+
+def get_order_problems(+heads: List<&2, RuleHead>) -> List<&2, String>:
+  get_order_problems.of(
+    get_head_ids(heads),
+    get_done_ids((1n + List.length(&2, RuleHead, heads): Nat), get_ready_ids(heads, []), heads, []),
+    heads
+  )
+
+def get_lint_findings(
+  ~rules: Unit -> List<&1, Rule>,
+  fuel: Nat,
+  ready: List<&2, String>,
+  +heads: List<&2, RuleHead>,
+  +done: List<&2, String>,
+  +found: List<&2, RuleFinding>,
+  +root: BendSource,
+  +sources: List<&2, BendSource>
+) -> List<&2, RuleFinding>:
+  match fuel ready:
+    case 0n _:
+      found
+    case 1n+k Nil{}:
+      found
+    case 1n+k Con{+h, +t}:
+      +now = List.append(&2, String, done, h <> t)
+      get_lint_findings(
+        ~rules,
+        k,
+        get_ready_ids(heads, now),
+        heads,
+        now,
+        List.append(
+          &2,
+          RuleFinding,
+          found,
+          get_level_findings(rules(Unit{}), h <> t, found, root, sources)
+        ),
+        root,
+        sources
+      )
+
+def get_lint_report(
+  ~rules: Unit -> List<&1, Rule>,
+  check: BendCheck,
+  config: LintConfig
+) -> LintReport:
+  match check:
+    case BendCheck{+root, +sources, failure}:
+      match failure:
+        case Some{value}:
+          LintReport{[value], [], [root]}
+        case None{}:
+          +heads = get_rule_heads(rules(Unit{}))
+          LintReport{
+            get_lint_findings(
+              ~rules,
+              (1n + List.length(&2, RuleHead, heads): Nat),
+              get_ready_ids(heads, []),
+              heads,
+              [],
+              [],
+              root,
+              sources
+            ),
+            [],
+            [root]
+          }
 
 def get_fix_outcome(report: LintReport, level: Maybe<&2, FixApplicability>) -> FixOutcome:
   FixOutcome{[], []}
 
-def run.print(found: RuleFinding) -> IO(Unit):
+def get_linter_source(source: BendSource) -> BendSource:
+  match source:
+    case BendSource{path, text, lines}:
+      BendSource{Path.get_posix_path(path), text, lines}
+
+def get_linter_sources(sources: List<&2, BendSource>) -> List<&2, BendSource>:
+  match sources:
+    case Nil{}:
+      []
+    case Con{s, t}:
+      get_linter_source(s) <> get_linter_sources(t)
+
+def get_linter_finding(found: RuleFinding) -> RuleFinding:
   match found:
     case RuleFinding{rule_id, finding}:
       match finding:
         case Finding{severity, message, span, fixes}:
           match span:
             case BendSourceSpan{path, beg, end}:
-              at = Path.get_posix_path(path) ++ ":" ++ U32.show(beg)
-              IO.print(at ++ ": " ++ rule_id ++ ": " ++ message)
+              RuleFinding{
+                rule_id,
+                Finding{
+                  severity,
+                  message,
+                  BendSourceSpan{Path.get_posix_path(path), beg, end},
+                  fixes
+                }
+              }
 
-def run.reported(found: Maybe<&2, RuleFinding>) -> IO(Bool):
-  match found:
+def get_linter_failure(failure: Maybe<&2, RuleFinding>) -> Maybe<&2, RuleFinding>:
+  match failure:
     case None{}:
-      IO.pure(Bool, False{})
+      None{}
     case Some{value}:
-      IO.bind(Unit, Bool, run.print(value), u => IO.pure(Bool, True{}))
+      Some{get_linter_finding(value)}
 
-def run.resolved(r: Result<&1, &1, U32 & String, String>) -> IO(Bool):
+def get_linter_check(check: BendCheck) -> BendCheck:
+  match check:
+    case BendCheck{root, sources, failure}:
+      BendCheck{get_linter_source(root), get_linter_sources(sources), get_linter_failure(failure)}
+
+def get_usage() -> String:
+  "usage: bun BEND-REWRITE/host.ts <file>... [--rules <rule.bend>]..."
+
+def get_flag_error(+flag: String) -> String:
+  Bool.pick(
+    String,
+    get_has_text(
+      [
+        "--fix",
+        "--fix-dangerously",
+        "--json",
+        "--imports",
+        "--show-suppressed",
+        "--config",
+        "--no-fix",
+        "--no-fix-dangerously",
+        "--no-json",
+        "--no-imports",
+        "--no-show-suppressed"
+      ],
+      flag
+    ),
+    flag ++ " is not supported yet",
+    "unknown option " ++ flag
+  )
+
+def get_cli_command.go(
+  args: List<String>,
+  files: List<&2, String>,
+  rules: List<&2, String>
+) -> Result<&1, &1, String, CliCommand>:
+  match args:
+    case Nil{}:
+      Done{
+        CliLint{
+          List.reverse(&2, String, files),
+          List.reverse(&2, String, rules),
+          None{},
+          None{},
+          None{},
+          CliTextOutput{False{}}
+        }
+      }
+    case Con{"--rules", Con{x, t}}:
+      get_cli_command.go(t, files, x <> rules)
+    case Con{"--rules", Nil{}}:
+      Fail{"--rules needs a rule file"}
+    case Con{"--help", t}:
+      Done{CliHelp{}}
+    case Con{"-h", t}:
+      Done{CliHelp{}}
+    case Con{+h, t}:
+      Bool.pick(
+        Result<&1, &1, String, CliCommand>,
+        String.starts_with(h, "-"),
+        Fail{get_flag_error(h)},
+        get_cli_command.go(t, h <> files, rules)
+      )
+
+def get_cli_command(args: List<String>) -> Result<&1, &1, String, CliCommand>:
+  get_cli_command.go(args, [], [])
+
+def get_linter_paths.one(r: Result<&1, &1, U32 & String, String>) -> IO(String):
   match r:
     case Done{value}:
-      IO.bind(Maybe<&2, RuleFinding>, Bool, get_check_failure(value), run.reported)
+      IO.pure(String, value)
     case Fail{error}:
       match error:
         case (code, text):
-          IO.bind(Unit, Bool, IO.print("bend-lint: " ++ text), u => IO.pure(Bool, True{}))
+          IO.die(String, 2, "bend-lint: " ++ text)
 
-def run.each(files: List<String>, failed: Bool) -> IO(Bool):
-  match files:
+def get_linter_paths(paths: List<&2, String>, done: List<&2, String>) -> IO(List<&2, String>):
+  match paths:
     case Nil{}:
-      IO.pure(Bool, failed)
+      IO.pure(List<&2, String>, List.reverse(&2, String, done))
     case Con{h, t}:
       IO.bind(
-        Bool,
-        Bool,
-        IO.bind(Result<&1, &1, U32 & String, String>, Bool, Path.get_linter_path(h), run.resolved),
-        one => run.each(t, failed || one)
+        String,
+        List<&2, String>,
+        IO.bind(
+          Result<&1, &1, U32 & String, String>,
+          String,
+          Path.get_linter_path(h),
+          get_linter_paths.one
+        ),
+        path => get_linter_paths(t, path <> done)
       )
 
-def run.finish(failed: Bool) -> IO(Unit):
-  match failed:
-    case True{}:
-      IO.die(Unit, 1, "bend-lint: FAIL")
-    case False{}:
-      IO.print("bend-lint: 0 finding(s)")
+def get_tally(tally: LintTally, severity: FindingSeverity) -> LintTally:
+  match tally severity:
+    case LintTally{count, failed} Error{}:
+      LintTally{(1n + count: Nat), True{}}
+    case LintTally{count, failed} _:
+      LintTally{(1n + count: Nat), failed}
 
-def run.args(args: List<String>) -> IO(Unit):
+def print_findings(findings: List<&2, RuleFinding>, tally: LintTally) -> IO(LintTally):
+  match findings:
+    case Nil{}:
+      IO.pure(LintTally, tally)
+    case Con{f, t}:
+      match f:
+        case RuleFinding{rule_id, finding}:
+          match finding:
+            case Finding{severity, message, span, fixes}:
+              match span:
+                case BendSourceSpan{path, beg, end}:
+                  IO.bind(
+                    Unit,
+                    LintTally,
+                    IO.print(path ++ ":" ++ U32.show(beg) ++ ": " ++ rule_id ++ ": " ++ message),
+                    u => print_findings(t, get_tally(tally, severity))
+                  )
+
+def get_report_findings(report: LintReport) -> List<&2, RuleFinding>:
+  match report:
+    case LintReport{findings, suppressed, linted}:
+      findings
+
+def lint_file.resolved(
+  ~rules: Unit -> List<&1, Rule>,
+  r: Result<&1, &1, U32 & String, String>,
+  path: String
+) -> IO(LintReport):
+  match r:
+    case Done{value}:
+      IO.bind(
+        BendCheck,
+        LintReport,
+        get_check(value),
+        check => IO.pure(
+          LintReport,
+          get_lint_report(~rules, get_linter_check(check), LintConfig{[], [], False{}, []})
+        )
+      )
+    case Fail{error}:
+      match error:
+        case (code, text):
+          IO.pure(
+            LintReport,
+            LintReport{
+              [
+                RuleFinding{
+                  "bend-lint/path",
+                  Finding{Error{}, text, BendSourceSpan{path, 0, 0}, []}
+                }
+              ],
+              [],
+              []
+            }
+          )
+
+def lint_file(~rules: Unit -> List<&1, Rule>, +path: String) -> IO(LintReport):
+  IO.bind(
+    Result<&1, &1, U32 & String, String>,
+    LintReport,
+    Path.get_linter_path(path),
+    r => lint_file.resolved(~rules, r, path)
+  )
+
+def lint_files.finish(tally: LintTally) -> IO(Unit):
+  match tally:
+    case LintTally{count, True{}}:
+      IO.die(Unit, 1, "bend-lint: FAIL")
+    case LintTally{count, False{}}:
+      IO.print("bend-lint: " ++ Nat.show(count) ++ " finding(s)")
+
+def lint_files(
+  ~rules: Unit -> List<&1, Rule>,
+  files: List<&2, String>,
+  tally: LintTally
+) -> IO(Unit):
+  match files:
+    case Nil{}:
+      lint_files.finish(tally)
+    case Con{h, t}:
+      IO.bind(
+        LintTally,
+        Unit,
+        IO.bind(
+          LintReport,
+          LintTally,
+          lint_file(~rules, h),
+          report => print_findings(get_report_findings(report), tally)
+        ),
+        next => lint_files(~rules, t, next)
+      )
+
+def serve.ordered(
+  ~rules: Unit -> List<&1, Rule>,
+  problems: List<&2, String>,
+  files: List<&2, String>
+) -> IO(Unit):
+  match problems:
+    case Nil{}:
+      lint_files(~rules, files, LintTally{0n, False{}})
+    case Con{h, t}:
+      IO.die(Unit, 2, "bend-lint: the rules' order is broken:\n" ++ String.join(h <> t, "\n"))
+
+def serve.choose(
+  ~rules: Unit -> List<&1, Rule>,
+  same: Bool,
+  wanted: List<&2, String>,
+  files: List<&2, String>
+) -> IO(Unit):
+  match same:
+    case True{}:
+      serve.ordered(~rules, get_order_problems(get_rule_heads(rules(Unit{}))), files)
+    case False{}:
+      restart_with_rules(wanted)
+
+def serve.wanted(
+  ~rules: Unit -> List<&1, Rule>,
+  +wanted: List<&2, String>,
+  compiled: List<&2, String>,
+  files: List<&2, String>
+) -> IO(Unit):
+  serve.choose(~rules, get_same_texts(wanted, compiled), wanted, files)
+
+def serve.command(
+  ~rules: Unit -> List<&1, Rule>,
+  command: CliCommand,
+  +compiled: List<&2, String>
+) -> IO(Unit):
+  match command:
+    case CliHelp{}:
+      IO.print(get_usage())
+    case CliLint{files, rule_files, config, imports, fix, output}:
+      IO.bind(
+        List<&2, String>,
+        Unit,
+        get_linter_paths(rule_files, []),
+        wanted => serve.wanted(~rules, wanted, compiled, files)
+      )
+
+def serve.parsed(
+  ~rules: Unit -> List<&1, Rule>,
+  parsed: Result<&1, &1, String, CliCommand>,
+  +compiled: List<&2, String>
+) -> IO(Unit):
+  match parsed:
+    case Done{value}:
+      serve.command(~rules, value, compiled)
+    case Fail{error}:
+      IO.die(Unit, 2, "bend-lint: " ++ error ++ "\n" ++ get_usage())
+
+def serve.args(
+  ~rules: Unit -> List<&1, Rule>,
+  args: List<String>,
+  +compiled: List<&2, String>
+) -> IO(Unit):
   match args:
     case Nil{}:
-      run.finish(False{})
+      serve.parsed(~rules, get_cli_command([]), compiled)
     case Con{h, t}:
-      IO.bind(Bool, Unit, run.each(t, False{}), run.finish)
+      serve.parsed(~rules, get_cli_command(t), compiled)
 
-def run(rules: List<&1, Rule>) -> IO(Unit):
-  IO.bind(List<String>, Unit, IO.args(), run.args)
+def serve(~rules: Unit -> List<&1, Rule>, +compiled: List<&2, String>) -> IO(Unit):
+  IO.bind(List<String>, Unit, IO.args(), args => serve.args(~rules, args, compiled))
