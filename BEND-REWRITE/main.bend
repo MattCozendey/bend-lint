@@ -33,3 +33,26 @@ type Diag is Data:
 # id: namespace/name, the code of its findings.
 type Rule is Type:
   Rule{id: String, run: Source -> List<&2, Diag>}
+
+# An option's value: a whole number, a boolean, or text.
+type Value is Data:
+  Num{value: U32}
+  Flag{value: Bool}
+  Text{value: String}
+
+type Option is Data:
+  Option{key: String, value: Value}
+
+# How the config sets one rule. severity: None{} keeps the rule's own.
+type Setting is Data:
+  Off{id: String}
+  On{id: String, severity: Maybe<&2, Severity>, options: List<&2, Option>}
+
+# load: rule files to run after the given ones. entries: files whose checks
+# lint the files they import. imports: also lint every file the check reads.
+type Config is Data:
+  Config{load: List<&2, String>, entries: List<&2, String>, imports: Bool, rules: List<&2, Setting>}
+
+# The findings of rules in file, set up by config. Does nothing yet.
+def lint(file: Source, rules: List<&1, Rule>, config: Config) -> IO(List<&2, Diag>):
+  IO.pure(List<&2, Diag>, [])
