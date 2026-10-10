@@ -27,9 +27,9 @@
 # |                                                             | will state this later.                                       |
 # | A program rule's fix may touch many files.                  | Only a program rule sees who imports what. TS skips such a   |
 # |                                                             | fix.                                                         |
-# | The runner checks every Safe fix: one whose text declares   | A Safe fix must keep what the program does. Rules are pure,  |
-# | something else is not offered, and its finding says why.    | so they cannot ask; the runner enforces it for every rule,   |
-# |                                                             | and no author has to remember it.                            |
+# | The runner checks every Safe fix: one not shown to keep     | A Safe fix must keep what the program does. Rules are pure,  |
+# | what the file declares is not offered, and its finding says | so they cannot ask; the runner enforces it for every rule,   |
+# | why.                                                        | and no author has to remember it.                            |
 # | get_fix_outcome takes the LintReport and never writes: it   | One shape for the CLI and the library. An editor or agent    |
 # | returns the edits to make.                                  | can show the edits, or make them itself.                     |
 # | Skipped fixes come back as a list of findings.              | The caller can tell which fixes to run again. TS gives only  |
@@ -338,6 +338,22 @@ def get_given_declarations(
     case False{}:
       []
 
+def get_option_defaults(declared: List<&2, OptionDeclared>) -> List<&2, OptionGiven>:
+  match declared:
+    case Nil{}:
+      []
+    case Con{OptionDeclared{key, default, spec}, t}:
+      OptionGiven{key, default} <> get_option_defaults(t)
+
+def get_needless_heads(heads: List<&2, RuleHead>) -> List<&2, RuleHead>:
+  match heads:
+    case Nil{}:
+      []
+    case Con{RuleHead{id, after, Nil{}}, t}:
+      RuleHead{id, after, []} <> get_needless_heads(t)
+    case Con{x, t}:
+      get_needless_heads(t)
+
 def get_rule_id(found: RuleFinding) -> String:
   match found:
     case RuleFinding{rule_id, finding}:
@@ -379,6 +395,7 @@ def get_level_finding(
 ) -> List<&2, RuleFinding>:
   match r:
     case Rule{+id, scope, options, after, needs, run}:
+      +given = get_option_defaults(options)
       get_rule_run(
         get_has_text(ready, id),
         id,
@@ -386,7 +403,7 @@ def get_level_finding(
         RuleInput{
           root,
           sources,
-          [],
+          given,
           get_prior(found, after),
           get_given_declarations(get_needs_declarations(needs), declarations)
         }
@@ -537,7 +554,23 @@ def get_lint_report(
     case BendCheck{+root, +sources, failure, +declarations}:
       match failure:
         case Some{value}:
-          LintReport{[value], [], [root]}
+          +needless = get_needless_heads(get_rule_heads(rules(Unit{})))
+          LintReport{
+            value
+              <> get_lint_findings(
+                ~rules,
+                (1n + List.length(&2, RuleHead, needless): Nat),
+                get_ready_ids(needless, []),
+                needless,
+                [],
+                [],
+                root,
+                sources,
+                []
+              ),
+            [],
+            [root]
+          }
         case None{}:
           +heads = get_rule_heads(rules(Unit{}))
           LintReport{
@@ -825,7 +858,7 @@ def get_fix_note(all_kept: Bool, message: String) -> String:
     case True{}:
       message
     case False{}:
-      message ++ " The fix was not offered: it would change what the file declares."
+      message ++ " The fix was not offered: it could not be shown to keep what the file declares."
 
 def get_checked_finding.made(
   rule_id: String,

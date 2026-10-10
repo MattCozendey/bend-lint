@@ -65,3 +65,41 @@ def get_span_text(+lines: List<&2, String>, span: Lint.BendSourceSpan) -> String
   match span:
     case Lint.BendSourceSpan{path, +beg, end}:
       get_span_text.go(lines, U32.is_lt(beg, U32.add(get_head_size(lines), 1)), 0, beg, end)
+
+def get_option.pick(
+  hit: Bool,
+  value: Lint.OptionValue,
+  later: Maybe<&2, Lint.OptionValue>
+) -> Maybe<&2, Lint.OptionValue>:
+  match hit:
+    case True{}:
+      Some{value}
+    case False{}:
+      later
+
+def get_option(options: List<&2, Lint.OptionGiven>, +key: String) -> Maybe<&2, Lint.OptionValue>:
+  match options:
+    case Nil{}:
+      None{}
+    case Con{Lint.OptionGiven{k, value}, t}:
+      get_option.pick(String.eq(k, key), value, get_option(t, key))
+
+def get_option_number.of(m: Maybe<&2, Lint.OptionValue>) -> U32:
+  match m:
+    case Some{Lint.NumberValue{n}}:
+      n
+    case _:
+      0
+
+def get_option_number(options: List<&2, Lint.OptionGiven>, +key: String) -> U32:
+  get_option_number.of(get_option(options, key))
+
+def get_option_text.of(m: Maybe<&2, Lint.OptionValue>) -> String:
+  match m:
+    case Some{Lint.TextValue{s}}:
+      s
+    case _:
+      ""
+
+def get_option_text(options: List<&2, Lint.OptionGiven>, +key: String) -> String:
+  get_option_text.of(get_option(options, key))
