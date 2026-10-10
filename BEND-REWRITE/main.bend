@@ -52,8 +52,13 @@
 # |                                                             | the list again where it is needed.                           |
 # | Only Bend rules: no TS rules.                               | A Bend program cannot call TS code.                          |
 # | A rule file defines def rules() -> List<&1, Rule>.          | One function, and a file can hold several rules.             |
-# | --rules files are imported by a program written for the     | Bend cannot load code while it runs. The program is cached,  |
-# | run, which bend then runs.                                  | keyed by the rule files and their text.                      |
+# | --rules files are compiled into the program: when the rule  | Bend cannot load code while it runs. The program is cached,  |
+# | files it wants are not the ones it holds, it restarts       | keyed by its sources.                                        |
+# | itself with them.                                           |                                                              |
+# | A rule's run is pure: no IO. It gets the data it declared   | Bend's parallel calls split only pure code, so rules can run |
+# | up front, in its input.                                     | in parallel where Bend runs parallel calls.                  |
+# | A rule names the rules it needs (after). prior holds only   | Only real dependencies make a rule wait. TS's prior is every |
+# | their findings.                                             | earlier rule's, which makes each rule wait for all before.   |
 # | No abort signal and no unsaved text yet.                    | Bend cannot hold an abort signal; it will be an effect.      |
 # |                                                             | Unsaved text is for editors and can wait.                    |
 # | Names carry their family as a prefix (FixEdit, RuleScope).  | Long names that say what they are read better than short     |
@@ -127,7 +132,8 @@ type Rule is Type:
     id: String,
     scope: RuleScope,
     options: List<&2, OptionDeclared>,
-    run: RuleInput -> IO(List<&2, Finding>)
+    after: List<&2, String>,
+    run: RuleInput -> List<&2, Finding>
   }
 
 type RuleSetting is Data:
