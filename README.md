@@ -9,8 +9,8 @@ bun src/lint.ts main.bend --rules rules/layout/format.bend --fix
 ## What it does
 
 1. It checks each file with Bend's own type checker.
-2. It runs the rules you load. A rule sees the source text and what the
-   checker found: types, scope, and how often each variable is used.
+2. It runs the rules you load. A rule sees the source text and what the checker found: types, scope,
+   and how often each variable is used.
 3. It prints the findings. With a fix flag, it also writes the fixes.
 
 No rule runs by default. Load rules with `--rules` or with the config.
@@ -18,8 +18,7 @@ No rule runs by default. Load rules with `--rules` or with the config.
 ## Setup
 
 1. Install Bun 1.4.3.
-2. On Windows, run Bend itself only through WSL, not natively (as of
-   2026-10-09). See
+2. On Windows, run Bend itself only through WSL, not natively (as of 2026-10-09). See
    [Bend's platform limitations](https://github.com/bendlang/bend#limitations).
 3. Run:
 
@@ -58,36 +57,31 @@ The `samples/` folder holds `.bend` files to try bend-lint on, for example
 Findings appear only in the **linted files**:
 
 - Without `--imports`: each file you name.
-- With `--imports`: the one file you name, and every file it imports, except
-  Base and hub packages. `--imports` takes one file, and ignores `entries`.
-- `"imports": true` in the config turns `--imports` on. `--no-imports` turns
-  it off.
+- With `--imports`: the one file you name, and every file it imports, except Base and hub packages.
+  `--imports` takes one file, and ignores `entries`.
+- `"imports": true` in the config turns `--imports` on. `--no-imports` turns it off.
 
-A rule can read more than the linted files. It still shows findings only in
-them.
+A rule can read more than the linted files. It still shows findings only in them.
 
 ### Entries: lint one file, read the whole program
 
-Some rules look at the whole program, for example "this def is never used".
-When you lint `lib.bend` alone, such a rule cannot see `main.bend`, which
-uses lib. So list your program's entry files in the config:
+Some rules look at the whole program, for example "this def is never used". When you lint `lib.bend`
+alone, such a rule cannot see `main.bend`, which uses lib. So list your program's entry files in the
+config:
 
 ```json
 { "entries": ["main.bend", "tests/*.bend"] }
 ```
 
-- When you lint a file that an entry imports, bend-lint checks the program
-  from that entry. Findings still appear only in the file you named.
+- When you lint a file that an entry imports, bend-lint checks the program from that entry. Findings
+  still appear only in the file you named.
 - A file that no entry imports is checked alone.
-- With several entries that import the file, each entry's check runs. The
-  rule decides whether a finding needs one entry (`some`, the default) or
-  every entry (`every`).
+- With several entries that import the file, each entry's check runs. The rule decides whether a
+  finding needs one entry (`some`, the default) or every entry (`every`).
 - An entry that fails Bend's check is reported. Then:
   - an `every` rule does not run, since its answer would be incomplete;
-  - a `some` rule reads the entries that passed, or, if none did, the file
-    checked alone.
-- An entry's check is reused for the next file while no file it read has
-  changed.
+  - a `some` rule reads the entries that passed, or, if none did, the file checked alone.
+- An entry's check is reused for the next file while no file it read has changed.
 
 ### Fixes
 
@@ -120,15 +114,13 @@ Each fix is `safe`, `suggested` or `dangerous`.
 bend-lint reads one config file:
 
 1. the file `--config` names, or else
-2. the nearest `bend-lint.json`, `bend-lint.js` or `bend-lint.ts`, from the
-   linted file's folder up. In one folder, JSON wins, then JS, then TS.
+2. the nearest `bend-lint.json`, `bend-lint.js` or `bend-lint.ts`, from the linted file's folder up.
+   In one folder, JSON wins, then JS, then TS.
 
 ```json
 {
   "load": ["./rules/layout/format.bend"],
-  "rules": {
-    "layout/format": { "tabWidth": 2, "wrapAtWidth": 100, "severity": "warning" }
-  }
+  "rules": { "layout/format": { "tabWidth": 2, "wrapAtWidth": 100, "severity": "warning" } }
 }
 ```
 
@@ -152,8 +144,8 @@ export const config = { rules: { "layout/format": { tabWidth: 4 } } };
 
 ### `layout/format` (`rules/layout/format.bend`)
 
-The formatter. It fixes indentation, spacing, comments, blank lines between
-declarations, line wrapping and the final newline. Its fix is `safe`.
+The formatter. It fixes indentation, spacing, comments, blank lines between declarations, line
+wrapping and the final newline. Its fix is `safe`.
 
 | Option        | Default | Values                           |
 | ------------- | ------- | -------------------------------- |
@@ -162,18 +154,17 @@ declarations, line wrapping and the final newline. Its fix is `safe`.
 | `endOfLine`   | `"lf"`  | `"lf"`, `"crlf"`, `"preserve"`   |
 
 - `wrapAtWidth` is a target. Long literals and comments can go past it.
-- Width counts code points. An emoji, a CJK character and a combining mark
-  each count as 1.
+- Width counts code points. An emoji, a CJK character and a combining mark each count as 1.
 - `"preserve"` keeps the first line ending, or LF if there is none.
-- It keeps literals, comments and declaration order. The only change in a
-  comment is a space after a `#` that has none.
-- It parses its own output and compares it with the original. If they
-  differ, you get a warning and no fix.
+- It keeps literals, comments and declaration order. The only change in a comment is a space after a
+  `#` that has none.
+- It parses its own output and compares it with the original. If they differ, you get a warning and
+  no fix.
 
 ### `layout/canon-import-path` (`rules/layout/canon-import-path.bend`)
 
-Each import path must be the shortest path from the importing file to the
-file it names, and start with `./` or `../`. Its fix is `safe`.
+Each import path must be the shortest path from the importing file to the file it names, and start
+with `./` or `../`. Its fix is `safe`.
 
 | Import, in `src/main.bend`   | Fix             |
 | ---------------------------- | --------------- |
@@ -183,42 +174,38 @@ file it names, and start with `./` or `../`. Its fix is `safe`.
 | `/home/me/app/src/util.bend` | `./util.bend`   |
 
 - `import Base` and hub imports are skipped.
-- The shortest path goes between real paths, with symlinks resolved. An
-  import through a symlinked folder gets the real folder's path.
+- The shortest path goes between real paths, with symlinks resolved. An import through a symlinked
+  folder gets the real folder's path.
 - A file that fails Bend's check gets no findings from this rule.
 
 ### `layout/imports` (`rules/layout/imports.bend`)
 
 The import block. Its fix is `safe`.
 
-- `import Base` comes first. The other imports follow, sorted by written
-  path, then by alias, by code point, so `../` comes before `./`.
-- Each file is imported once. The fix removes a later import of the same
-  file, and renames the uses of its alias to the alias that stays. If a use
-  cannot be renamed, there is no fix.
-- A comment line moves with the import below it, and a comment at the end
-  of an import line stays on it. Blank lines between imports go. Comments
-  above the first import stay where they are.
+- `import Base` comes first. The other imports follow, sorted by written path, then by alias, by
+  code point, so `../` comes before `./`.
+- Each file is imported once. The fix removes a later import of the same file, and renames the uses
+  of its alias to the alias that stays. If a use cannot be renamed, there is no fix.
+- A comment line moves with the import below it, and a comment at the end of an import line stays on
+  it. Blank lines between imports go. Comments above the first import stay where they are.
 - A file that fails Bend's check gets no findings from this rule.
 
 ### `no-unused/imports` (`rules/no-unused/imports.bend`)
 
-Each import must be used. Its fix, `safe`, removes the import's line, with
-a comment on that line.
+Each import must be used. Its fix, `safe`, removes the import's line, with a comment on that line.
 
 An import is used when:
 
-- the file names something through its alias (`L.one()`); for
-  `import Base`, when it uses anything of Base, literals included; or
-- the file it loads, or a file that file imports, fills a law of another
-  file (`def B.L(x):`). Removing it would leave the law unfilled.
+- the file names something through its alias (`L.one()`); for `import Base`, when it uses anything
+  of Base, literals included; or
+- the file it loads, or a file that file imports, fills a law of another file (`def B.L(x):`).
+  Removing it would leave the law unfilled.
 
 A file that fails Bend's check gets no findings from this rule.
 
 ## Suppress findings
 
-A directive comment can silence a rule (`disable`) or require a finding
-(`expect`):
+A directive comment can silence a rule (`disable`) or require a finding (`expect`):
 
 ```
 # bend-lint: disable-file layout/format -- generated tables
@@ -241,12 +228,10 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`
 - `expect` names the severity the finding must have. `disable` names none.
 - A finding is covered when it starts on a covered line of its own file.
 - Only the directives of linted files count.
-- `layout/format` reports on line 1. Use `file`, or a region that starts on
-  line 1.
-- Directives on consecutive comment lines must be sorted: by rule, then
-  severity, then keyword. The `safe` fix sorts them.
-- Findings of the checker (`bend/...`) and of bend-lint (`bend-lint/...`)
-  cannot be suppressed.
+- `layout/format` reports on line 1. Use `file`, or a region that starts on line 1.
+- Directives on consecutive comment lines must be sorted: by rule, then severity, then keyword. The
+  `safe` fix sorts them.
+- Findings of the checker (`bend/...`) and of bend-lint (`bend-lint/...`) cannot be suppressed.
 
 bend-lint reports problems with the directives:
 
@@ -256,8 +241,8 @@ bend-lint reports problems with the directives:
 | `bend-lint/unmet-expectation` | error    | an `expect` got no finding           |
 | `bend-lint/unused-disable`    | warning  | a `disable` covered nothing          |
 
-A rule that crashed reports neither of the last two for its directives,
-because its findings are unknown.
+A rule that crashed reports neither of the last two for its directives, because its findings are
+unknown.
 
 ## What can go wrong
 
@@ -268,16 +253,15 @@ because its findings are unknown.
 
 ## Where Bend comes from
 
-bend-lint loads Bend's TypeScript source and patches it in memory. It does not
-run the `bend` binary. It looks, in this order:
+bend-lint loads Bend's TypeScript source and patches it in memory. It does not run the `bend`
+binary. It looks, in this order:
 
 1. `--bend <dir>`, or `$BEND_DIR`: a Bend checkout or its `bend2` folder.
-2. A release from GitHub: the one `bend version` names, or else the one this
-   bend-lint is tested with.
+2. A release from GitHub: the one `bend version` names, or else the one this bend-lint is tested
+   with.
 
-Downloads and compiled Bend rules go to `~/.cache/bend-lint/`
-(`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%` on Windows), and are reused. You can
-delete this folder at any time.
+Downloads and compiled Bend rules go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or
+`%LOCALAPPDATA%` on Windows), and are reused. You can delete this folder at any time.
 
 ## Write a rule
 
@@ -306,9 +290,9 @@ Run it:
 bun src/lint.ts file.bend --rules no-tabs.ts
 ```
 
-This rule reads raw text, so it also finds tabs in literals and comments. To
-read types and scope, a rule asks for the checker's facts. Rules can also be
-written in Bend. [AGENTS.md](AGENTS.md#writing-rules) explains both.
+This rule reads raw text, so it also finds tabs in literals and comments. To read types and scope, a
+rule asks for the checker's facts. Rules can also be written in Bend.
+[AGENTS.md](AGENTS.md#writing-rules) explains both.
 
 ## Work on bend-lint
 

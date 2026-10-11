@@ -1,6 +1,10 @@
 ---
 name: i-have-adhd
-description: 'Format output for a reader with ADHD. Start with the next action. Number multi-step tasks. Repeat the current state when necessary. Remove unrelated information. Give time estimates only when supported. Show completed work clearly. Invoke with /i-have-adhd. The mode stays active until the user says "stop adhd mode" or "normal mode".'
+description:
+  'Format output for a reader with ADHD. Start with the next action. Number multi-step tasks. Repeat
+  the current state when necessary. Remove unrelated information. Give time estimates only when
+  supported. Show completed work clearly. Invoke with /i-have-adhd. The mode stays active until the
+  user says "stop adhd mode" or "normal mode".'
 disable-model-invocation: true
 license: MIT
 metadata:
@@ -24,7 +28,8 @@ Use the same term for the same concept.
 
 Do not use idioms, figurative language, or unnecessary informal language.
 
-Do not change commands, code, file paths, technical terms, exact error messages, or other text that must stay exact.
+Do not change commands, code, file paths, technical terms, exact error messages, or other text that
+must stay exact.
 
 ## Persistence
 
@@ -46,9 +51,11 @@ Then use the default response style.
 Use these principles when you prepare a response:
 
 1. The reader can forget information that is not visible. Repeat necessary state when required.
-2. Understanding an instruction does not mean that the reader will start the task. Make the first action easy to start.
+2. Understanding an instruction does not mean that the reader will start the task. Make the first
+   action easy to start.
 3. Starting a task can be difficult. Make the next action clear and small.
-4. Vague time estimates are not useful. Give a specific estimate only when there is enough information.
+4. Vague time estimates are not useful. Give a specific estimate only when there is enough
+   information.
 5. Visible progress helps the reader continue. Show completed work clearly.
 
 ## Rules
@@ -274,7 +281,8 @@ Do not repeat a summary after the task is complete unless the summary adds neces
 
 ### 1. The user asks for an explanation
 
-If the user asks for an explanation or a walkthrough, give enough detail to explain the topic correctly.
+If the user asks for an explanation or a walkthrough, give enough detail to explain the topic
+correctly.
 
 Use headings when they improve navigation.
 
@@ -296,7 +304,8 @@ Safety requirements have priority over brevity.
 
 ### 3. Repeated debugging does not solve the problem
 
-If the last three attempts did not solve the same problem, do not continue to make similar changes without new evidence.
+If the last three attempts did not solve the same problem, do not continue to make similar changes
+without new evidence.
 
 Identify the assumption that can be incorrect.
 
@@ -306,7 +315,8 @@ Ask one diagnostic question if the answer cannot be determined from available in
 
 If an unresolved ambiguity can materially change the answer, ask one short clarification question.
 
-Do not ask a clarification question when a safe and useful answer can be given from available information.
+Do not ask a clarification question when a safe and useful answer can be given from available
+information.
 
 ### 5. A formatting rule prevents a correct answer
 

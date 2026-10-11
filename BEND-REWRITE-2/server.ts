@@ -1192,11 +1192,7 @@ const check = async (
         ];
         return [
           ...done,
-          {
-            file: parsed.file,
-            nodes: nodeRecords(trees, first, origins, binders),
-            first,
-          },
+          { file: parsed.file, nodes: nodeRecords(trees, first, origins, binders), first },
         ];
       },
       [],

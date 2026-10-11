@@ -1067,10 +1067,7 @@ describe("lint", () => {
         expect(cx.fact(x.node)).toBe(x);
         expect(cx.shape(x.node).kind).toBe("Ann");
         expect(cx.shape(cx.strip(x.node))).toEqual(cx.shape(cx.shape(x.node).children[0]));
-        expect(cx.shape(cx.shape(x.node).children[0])).toMatchObject({
-          kind: "Var",
-          name: "x",
-        });
+        expect(cx.shape(cx.shape(x.node).children[0])).toMatchObject({ kind: "Var", name: "x" });
         const theirs = all.map((n) => cx.fact(n)).filter((f) => f !== undefined);
         expect(theirs.length).toBeGreaterThan(0);
         expect(theirs.every((f) => cx.shape(cx.strip(f.node)).kind === "Var")).toBe(true);
@@ -1651,10 +1648,7 @@ describe("review fixes", () => {
       id: "test/where",
       facts: true,
       run: (cx) => [
-        cx.diag({
-          message: [...new Set(cx.facts.map((f) => f.owner))].join(),
-          severity: "hint",
-        }),
+        cx.diag({ message: [...new Set(cx.facts.map((f) => f.owner))].join(), severity: "hint" }),
       ],
     };
     const got = await Promise.all(
@@ -1968,9 +1962,7 @@ describe("entry points return a Result", () => {
     const config = (rules: object) => ({ config: { rules } as api.Config });
     expect(
       await failure(linter.lint(userland, [echo], config({ "test/echo": { nope: 1 } }))),
-    ).toMatchObject({
-      type: "config",
-    });
+    ).toMatchObject({ type: "config" });
     expect(await failure(linter.lint(userland, [{ id: "bad", run: () => [] }]))).toMatchObject({
       type: "rule-module",
     });

@@ -26,10 +26,7 @@ const SHAPE = "import Base\n\ntype Shape is Data:\n  Circle{r: U32}\n  Rect{w: U
 
 const found = (program: string, main: string): Array<Pick<Found, "at" | "message">> =>
   lint(program, { "main.bend": main, "util.bend": UTIL, "law.bend": LAW }, "main.bend").map(
-    ({ at, message }) => ({
-      at,
-      message,
-    }),
+    ({ at, message }) => ({ at, message }),
   );
 
 // Side effects

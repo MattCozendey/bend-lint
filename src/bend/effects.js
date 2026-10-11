@@ -163,11 +163,7 @@ function lint_declarations(path) {
         owner: lint_maybe(d.owner),
         span: lint_span(d.span),
         references: lint_list(
-          d.references.map((r) => ({
-            $: CID(Reference),
-            owner: r.owner,
-            span: lint_span(r.span),
-          })),
+          d.references.map((r) => ({ $: CID(Reference), owner: r.owner, span: lint_span(r.span) })),
         ),
         loads: lint_maybe(d.loads),
         fills: d.fills === true,

@@ -266,7 +266,9 @@ type Channel = {
   next(): Wire | undefined;
   report(diags: Array<Reported<number>>): void;
   text(span: Spot): string;
-  declarations(path?: string): Array<
+  declarations(
+    path?: string,
+  ): Array<
     Omit<Declaration, "span" | "references" | "loads" | "type"> & {
       span: Spot;
       references: Array<{ owner: string; span: Spot }>;
@@ -1036,13 +1038,15 @@ const bendRuleFrom = async (
           const file = path === undefined ? undefined : cx.sources.find((s) => s.path === path);
           return path !== undefined && file === undefined
             ? []
-            : cx.declarations(file).map((d) => ({
-                ...d,
-                span: spotOf(d.span),
-                references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
-                loads: d.loads?.path,
-                type: d.type && keep(d.type),
-              }));
+            : cx
+                .declarations(file)
+                .map((d) => ({
+                  ...d,
+                  span: spotOf(d.span),
+                  references: d.references.map((r) => ({ ...r, span: spotOf(r.span) })),
+                  loads: d.loads?.path,
+                  type: d.type && keep(d.type),
+                }));
         },
         body: (name) => {
           const n = cx.body(name);

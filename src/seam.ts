@@ -1027,11 +1027,7 @@ type Shared = {
 const SHARED = new WeakMap<Checked, Shared>();
 
 const sharedOf = (run: Checked): Shared => {
-  const known = SHARED.get(run) ?? {
-    walked: new Map(),
-    spellings: new Map(),
-    declares: new Map(),
-  };
+  const known = SHARED.get(run) ?? { walked: new Map(), spellings: new Map(), declares: new Map() };
   SHARED.set(run, known);
   return known;
 };

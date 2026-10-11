@@ -1,19 +1,16 @@
 # Writing rules (Bend rewrite)
 
-How to write, run and test a rule for the Bend rewrite in this folder. The
-design notes are in [lint.bend](lint.bend), at the top.
+How to write, run and test a rule for the Bend rewrite in this folder. The design notes are in
+[lint.bend](lint.bend), at the top.
 
 - A rule is a Bend file. There are no TypeScript rules here.
-- A rules program puts rules together. [main.bend](main.bend) is the default
-  one.
-- [server.ts](server.ts) runs the program on files, and answers its
-  questions about Bend files. It goes when Bend's checker is Bend; the rules
-  stay.
+- A rules program puts rules together. [main.bend](main.bend) is the default one.
+- [server.ts](server.ts) runs the program on files, and answers its questions about Bend files. It
+  goes when Bend's checker is Bend; the rules stay.
 
 ## A rule
 
-A rule file imports [lint.bend](lint.bend) and defines `rule()`. Saved as
-`rules/demo/no-foo.bend`:
+A rule file imports [lint.bend](lint.bend) and defines `rule()`. Saved as `rules/demo/no-foo.bend`:
 
 ```python
 # demo/no-foo: no parameter is named foo. The fix renames it to bar, with its uses.
@@ -50,15 +47,13 @@ A rule is one of two kinds:
 
 - The id is `namespace/.../name`, each part kebab-case. The rule file is
   `rules/namespace/.../name.bend`. The id is the code of its findings.
-- `needs` is `Needs{facts, declarations}`: whether the rule reads the
-  checker's facts (see [Facts](#facts-and-questions)), and the declarations
-  with their uses (see [Declarations](#declarations)). Each costs time and
-  memory, so a rule gets them only if it asks.
+- `needs` is `Needs{facts, declarations}`: whether the rule reads the checker's facts (see
+  [Facts](#facts-and-questions)), and the declarations with their uses (see
+  [Declarations](#declarations)). Each costs time and memory, so a rule gets them only if it asks.
 - `options` lists the options the rule declares. See [Options](#options).
 - A program rule's finding in a file that is not linted is dropped.
-- `entries` matters when several entries of the config check the named
-  file: `SomeEntry{}` keeps what one check finds, `EveryEntry{}` what all
-  find.
+- `entries` matters when several entries of the config check the named file: `SomeEntry{}` keeps
+  what one check finds, `EveryEntry{}` what all find.
 - Make a rule idempotent: its fixes make its findings go.
 
 ## Running rules
@@ -90,12 +85,11 @@ bun server.ts ./lint <file or glob>... [--imports | --no-imports] [--fix | --fix
 | `--json`            | print one JSON object on stdout; the summary goes to stderr                      |
 
 - Globs use `/` between parts. Each file is linted once, in turn.
-- The run exits 1 if a finding is an error (a failed check is one), 2 on a
-  usage or config error, else 0.
-- The server caches each passed check, by root, in
-  `~/.cache/bend-lint/server/checks` (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%`
-  on Windows). A later run whose files are unchanged skips Bend's check. An
-  entry unused for a week is deleted.
+- The run exits 1 if a finding is an error (a failed check is one), 2 on a usage or config error,
+  else 0.
+- The server caches each passed check, by root, in `~/.cache/bend-lint/server/checks`
+  (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%` on Windows). A later run whose files are unchanged skips
+  Bend's check. An entry unused for a week is deleted.
 
 The config, `bend-lint.json`, is the nearest one up from the named file:
 
@@ -107,12 +101,11 @@ The config, `bend-lint.json`, is the nearest one up from the named file:
 }
 ```
 
-A rule's setting is `"off"`, a severity, or an object of an optional
-`"severity"` and option values.
+A rule's setting is `"off"`, a severity, or an object of an optional `"severity"` and option values.
 
 Users silence or demand findings with directives:
-`# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`.
-See [directives.bend](directives.bend), at the top.
+`# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`. See
+[directives.bend](directives.bend), at the top.
 
 ## What a rule sees
 
@@ -129,55 +122,47 @@ A file rule reads `Lint.Here`:
 | `Here.facts(here)`        | the checker's facts on its nodes, if the rule needs them           |
 | `Here.option(here, name)` | an option's value                                                  |
 
-A program rule reads `Lint.Whole`: `Whole.sources` (each file of the check,
-hub packages aside), `Whole.declarations` (with their uses in all of them,
-if the rule needs them) and `Whole.option`.
+A program rule reads `Lint.Whole`: `Whole.sources` (each file of the check, hub packages aside),
+`Whole.declarations` (with their uses in all of them, if the rule needs them) and `Whole.option`.
 
 ### Nodes
 
 A node is a piece of the source as Bend's parser reads it:
 `Node{id, parent, owner, syntax, name, binder, quantity, span, target}`.
 
-- `syntax` says what it is: a declaration (`Definition`, `Datatype`,
-  `Constructor`, `Law`, `Import`), a part of one (`Parameter`, `Field`,
-  `Returns`, `Body`, `ImportPath`), a term or a pattern. The full list is
-  `Syntax` in [lint.bend](lint.bend).
-- `parent` is the parent's id, 0 for none. `owner` is the top-level
-  declaration's.
-- `name` is as written. `target` is the global name it declares or uses, as
-  the check names it; an import's is the path of the file it loads.
-- `binder` numbers the binder it declares or uses, per top-level
-  declaration.
-- `span` is `Some` where the source writes the node. The parser also makes
-  nodes of its own (a do-block's binds); those have none.
-- A span counts code points. Output columns count UTF-16 units, as editors
-  do.
+- `syntax` says what it is: a declaration (`Definition`, `Datatype`, `Constructor`, `Law`,
+  `Import`), a part of one (`Parameter`, `Field`, `Returns`, `Body`, `ImportPath`), a term or a
+  pattern. The full list is `Syntax` in [lint.bend](lint.bend).
+- `parent` is the parent's id, 0 for none. `owner` is the top-level declaration's.
+- `name` is as written. `target` is the global name it declares or uses, as the check names it; an
+  import's is the path of the file it loads.
+- `binder` numbers the binder it declares or uses, per top-level declaration.
+- `span` is `Some` where the source writes the node. The parser also makes nodes of its own (a
+  do-block's binds); those have none.
+- A span counts code points. Output columns count UTF-16 units, as editors do.
 
 ### Declarations
 
-`Declaration{node, references}`: a node that declares a name, and the nodes
-that use it, in order. A global name (def, type, constructor, law) is used
-by name; a binder by its number; an import by its alias's prefix (`U.two`).
-A rule gets them if it sets `Needs{facts, True{}}`; else the list is empty.
+`Declaration{node, references}`: a node that declares a name, and the nodes that use it, in order. A
+global name (def, type, constructor, law) is used by name; a binder by its number; an import by its
+alias's prefix (`U.two`). A rule gets them if it sets `Needs{facts, True{}}`; else the list is
+empty.
 
 ## Facts and questions
 
-A rule that sets `Needs{True{}, declarations}` gets facts:
-`Fact{node, role, quantity, checked}`.
+A rule that sets `Needs{True{}, declarations}` gets facts: `Fact{node, role, quantity, checked}`.
 
-- `role` is `OfTerm{}` (the type of the term the node is) or `OfBinder{}`
-  (the type its binder declares).
+- `role` is `OfTerm{}` (the type of the term the node is) or `OfBinder{}` (the type its binder
+  declares).
 - `quantity` is how often the term is demanded, or the binder's.
 - `checked` is a `TypeRef`, a handle to a type the checker holds.
 - A node can have no fact: the checker rewrote its term into another.
 - A rule that needs facts does not run on a file whose check fails.
 
-A rule asks about types in a `do Lint.Ask<A>:` block, with `Lint.show`,
-`Lint.same`, `Lint.normal`, and `Lint.show_all` for many types at once.
-Each question waits for a round; the runner answers every rule's questions
-of a round together. A rule may ask 64 rounds; past that, it fails with
-`bend-lint/rule-crash`. So ask for all at once. Saved as
-`rules/demo/param-types.bend`:
+A rule asks about types in a `do Lint.Ask<A>:` block, with `Lint.show`, `Lint.same`, `Lint.normal`,
+and `Lint.show_all` for many types at once. Each question waits for a round; the runner answers
+every rule's questions of a round together. A rule may ask 64 rounds; past that, it fails with
+`bend-lint/rule-crash`. So ask for all at once. Saved as `rules/demo/param-types.bend`:
 
 ```python
 # demo/param-types: says each parameter's type, as its file writes it. It asks the checker once, for all of them.
@@ -225,12 +210,10 @@ Facts cost time and memory: ask for them only in a rule that reads them.
 
 ## Findings and fixes
 
-A finding is `Finding{severity, span, message, fixes}`. The severity is
-`Error{}`, `Warning{}`, `Information{}` or `Hint{}`; the config can change
-it. An error fails the run.
+A finding is `Finding{severity, span, message, fixes}`. The severity is `Error{}`, `Warning{}`,
+`Information{}` or `Hint{}`; the config can change it. An error fails the run.
 
-A fix is `Fix{title, operations}`, in any of the program's own files (not
-Base, nor a hub package):
+A fix is `Fix{title, operations}`, in any of the program's own files (not Base, nor a hub package):
 
 | Operation              | Does                                                                        |
 | ---------------------- | --------------------------------------------------------------------------- |
@@ -238,25 +221,22 @@ Base, nor a hub package):
 | `Rename{node, to}`     | renames what the declaration `node` (an id) declares, with each use         |
 | `RenameUses{node, to}` | renames only its uses, to point them at a name the program declares already |
 
-- A rename changes an import's alias (`U` of `U.two`), and any other name's
-  last part.
-- The linter drops a Rename of a global name (def, type, constructor, law):
-  files the check did not read can use it. It also drops one whose new name
-  is taken in its file.
+- A rename changes an import's alias (`U` of `U.two`), and any other name's last part.
+- The linter drops a Rename of a global name (def, type, constructor, law): files the check did not
+  read can use it. It also drops one whose new name is taken in its file.
 - It drops a fix if the text does not write the name where a use is.
-- It makes each finding's first fix, whole or not at all. A fix whose edits
-  touch an earlier fix's waits for the next run.
-- `--fix` makes the fixes the linter proves safe: those whose edits each
-  write one comment (a `#` and no line end) over exactly one comment. A
-  comment cannot change what the program does. Until Bend's checker is Bend,
-  every other fix needs `--fix-dangerously`.
+- It makes each finding's first fix, whole or not at all. A fix whose edits touch an earlier fix's
+  waits for the next run.
+- `--fix` makes the fixes the linter proves safe: those whose edits each write one comment (a `#`
+  and no line end) over exactly one comment. A comment cannot change what the program does. Until
+  Bend's checker is Bend, every other fix needs `--fix-dangerously`.
 - `--json` shows every fix the linter can make, with its edits.
 
 ## Options
 
-A rule declares each option with its name, its default and what it accepts.
-The config gives values; the runner checks them before any rule runs (exit
-2), and fills in the defaults. Saved as `rules/demo/max-lines.bend`:
+A rule declares each option with its name, its default and what it accepts. The config gives values;
+the runner checks them before any rule runs (exit 2), and fills in the defaults. Saved as
+`rules/demo/max-lines.bend`:
 
 ```python
 # demo/max-lines: a file has at most `max` lines, an option (500 by default).
@@ -298,8 +278,8 @@ Read a value with `Value.number`, `Value.flag` or `Value.text`.
 
 ## Tests
 
-A rule's behavior tests go in `rules/namespace/.../name.test.ts`. Test what
-a user sees, never how the rule works. [testing.ts](testing.ts) helps:
+A rule's behavior tests go in `rules/namespace/.../name.test.ts`. Test what a user sees, never how
+the rule works. [testing.ts](testing.ts) helps:
 
 ```ts
 import { expect, setDefaultTimeout, test } from "bun:test";
@@ -320,17 +300,16 @@ test("a parameter named foo is reported, and renamed with --fix-dangerously", ()
 ```
 
 - `build(rule)` builds a program with that rule alone, once.
-- `lint(program, files, named)` writes the files to a fresh folder and gives
-  the findings.
-- `run(program, files, named, args, dir)` also gives the exit code, the
-  output and the files after the run.
+- `lint(program, files, named)` writes the files to a fresh folder and gives the findings.
+- `run(program, files, named, args, dir)` also gives the exit code, the output and the files after
+  the run.
 - Tests need `BEND_DIR`; without it they skip.
 
 ## Bend for rule authors
 
-- Recurse in tail position over long lists and text: the JS lane's stack is
-  small. [shared.bend](shared.bend) has tail-recursive `append`, `concat`,
-  `length`, `any` and `sort`; Base's own are not.
+- Recurse in tail position over long lists and text: the JS lane's stack is small.
+  [shared.bend](shared.bend) has tail-recursive `append`, `concat`, `length`, `any` and `sort`;
+  Base's own are not.
 - `match` works on a parameter only: pass a computed value to a helper.
 - `Bool.pick`, `&&` and `||` compute both sides.
 - A template argument (`~f`) must be closed: no local variables.
