@@ -113,16 +113,18 @@ Users silence or demand findings with directives:
 
 A file rule reads `Lint.Here`:
 
-| Accessor                  | Gives                                                              |
-| ------------------------- | ------------------------------------------------------------------ |
-| `Here.path(here)`         | the file's real path, with `/`                                     |
-| `Here.namespace(here)`    | its namespace in the check: `""` for the checked file              |
-| `Here.text(here)`         | its text, as on disk                                               |
-| `Here.nodes(here)`        | its syntax nodes, parents first                                    |
-| `Here.node(here, id)`     | its node `id`, if there is one (a parent, say)                     |
-| `Here.declarations(here)` | each name it declares, with its uses in it, if the rule needs them |
-| `Here.facts(here)`        | the checker's facts on its nodes, if the rule needs them           |
-| `Here.option(here, name)` | an option's value                                                  |
+| Accessor                               | Gives                                                              |
+| -------------------------------------- | ------------------------------------------------------------------ |
+| `Here.path(here)`                      | the file's real path, with `/`                                     |
+| `Here.namespace(here)`                 | its namespace in the check: `""` for the checked file              |
+| `Here.text(here)`                      | its text, as on disk                                               |
+| `Here.nodes(here)`                     | its syntax nodes, parents first                                    |
+| `Here.node(here, id)`                  | its node `id`, if there is one (a parent, say)                     |
+| `Here.ancestors(here, id)`             | node `id`, then each node above it, innermost first                |
+| `Here.recursive(here, children, node)` | whether `node` is a call of the definition it is in                |
+| `Here.declarations(here)`              | each name it declares, with its uses in it, if the rule needs them |
+| `Here.facts(here)`                     | the checker's facts on its nodes, if the rule needs them           |
+| `Here.option(here, name)`              | an option's value                                                  |
 
 A program rule reads `Lint.Whole`: `Whole.sources` (each file of the check, hub packages aside),
 `Whole.declarations` (with their uses in all of them, if the rule needs them) and `Whole.option`.
@@ -142,6 +144,11 @@ A node is a piece of the source as Bend's parser reads it:
 - `span` is `Some` where the source writes the node. The parser also makes nodes of its own (a
   do-block's binds); those have none.
 - A span counts code points. Output columns count UTF-16 units, as editors do.
+- `Children.of(nodes)` indexes the nodes under each node; `Children.get(children, id)` gives them in
+  order: an application's function, then its arguments; a block's binders, values, then its rest.
+  `Children.last(children, id)` is the last one's id. Build it once per run.
+- `Node.name`, `Node.target` and `Node.span` read a `Maybe<Node>` (as `Here.node` gives);
+  `Span.text(source, span)` is the text at a span.
 
 ### Declarations
 

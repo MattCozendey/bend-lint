@@ -200,6 +200,18 @@ fix writes them in that order, over the same comments, so `--fix` makes it.
 Each import must be used: a name written through its alias, or, for `import Base`, a name that only
 Base declares. The fix removes the import.
 
+### `performance/...`
+
+These four report only; they have no fixes. Each finding says why the code is slow and what to write
+instead.
+
+| Rule                | Reports                                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `append-in-loop`    | a loop that passes `List.append(.., acc, ..)` or `acc ++ ..` to its own call: O(n²). `++` copies only on the C lane                                                                 |
+| `list-index-loop`   | a loop that passes a list unchanged to its own call and reads it with `List.get`, `drop`, `take`, `last` or `length` (or a helper of the file that does), in the same branch: O(n²) |
+| `deep-call-in-fork` | a parallel let, or a let just before it, that calls a definition that calls itself outside a tail position                                                                          |
+| `missed-fork`       | calls of a definition to itself that run one after the other, in one expression or in lets that follow each other                                                                   |
+
 ## Suppress findings
 
 A directive comment can silence a rule (`disable`) or require a finding (`expect`):
