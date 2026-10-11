@@ -7,12 +7,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { bendDir } from "../src/legacy/seam.ts";
+import { bendDir } from "../legacy/seam.ts";
 
 // Constants
 // =========
 
-const LINK = path.resolve(import.meta.dir, "..", ".bend2");
+const LINK = path.resolve(import.meta.dir, "..", "..", ".bend2");
 
 // Side effects
 // ============

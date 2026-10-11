@@ -12,10 +12,10 @@
   "scripts": {
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
-    "lint": "bun ./scripts/link-bend.ts && oxlint .",
+    "lint": "bun ./src/meta/link-bend.ts && oxlint .",
     "sync-bend": "bun ./scripts/sync-bend.ts",
     "test": "bun test",
-    "typecheck": "bun ./scripts/link-bend.ts && bun ./src/meta/typecheck.ts"
+    "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "dependencies": {
     "@oxlint/plugins": "1.87.0",
