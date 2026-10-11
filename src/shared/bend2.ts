@@ -12,7 +12,7 @@ import * as nodePath from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import { error, ok } from "./result.ts";
 import type { Result } from "./result.ts";
-import { getUrlFromFolder, getErrorMessageFromUnknown } from "./utils.ts";
+import { getErrorMessageFromUnknown, getUrlFromFolder } from "./utils.ts";
 
 // Types
 // =====
