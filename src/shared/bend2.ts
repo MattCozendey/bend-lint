@@ -14,17 +14,6 @@ import { error } from "./result.ts";
 import type { Result } from "./result.ts";
 import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
-// Types
-// =====
-
-// The bend2 folder or checkout to use, else BEND_DIR. Tests replace
-// `bend version` and the download folder.
-export type FindOptions = {
-  bendDir?: string;
-  readBendVersion?: () => string | undefined;
-  downloadDir?: string;
-};
-
 // Constants
 // =========
 
@@ -121,7 +110,11 @@ export const tryGetBend2SourceUrl = async ({
   bendDir = process.env.BEND_DIR,
   readBendVersion,
   downloadDir,
-}: FindOptions = {}): Promise<Result<URL, string>> => {
+}: {
+  bendDir?: string;
+  readBendVersion?: () => string | undefined;
+  downloadDir?: string;
+} = {}): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
     const tag = installedTag(readBendVersion) ?? PIN;
     return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>

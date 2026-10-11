@@ -8,7 +8,6 @@ import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
 import { fetchBend, installedTag, PIN, tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import type { FindOptions } from "../shared/bend2.ts";
 import { relative, resolve } from "../shared/paths.ts";
 import { ERROR, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
@@ -634,7 +633,10 @@ async function readConfig(file: string) {
 }
 
 // The href of the bend2 folder found from `bendDir`; a failure rejects.
-async function bend2Url(bendDir: string | undefined, options?: FindOptions): Promise<string> {
+async function bend2Url(
+  bendDir: string | undefined,
+  options?: Parameters<typeof tryGetBend2SourceUrl>[0],
+): Promise<string> {
   return unwrap(await tryGetBend2SourceUrl({ ...options, bendDir })).href;
 }
 
