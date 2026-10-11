@@ -10,10 +10,11 @@ import type { Found } from "./testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const TYPES = BUILDS ? build("tests/types.bend") : "";
-const BUDGET = BUILDS ? build("tests/budget.bend") : "";
-const BINDERS = BUILDS ? build("tests/binders.bend") : "";
-const TERMS = BUILDS ? build("tests/terms.bend") : "";
+const [TYPES, BUDGET, BINDERS, TERMS] = BUILDS
+  ? await Promise.all(
+      ["types", "budget", "binders", "terms"].map((name) => build(`tests/${name}.bend`)),
+    )
+  : ["", "", "", ""];
 
 const UTIL = "import Base\n\ntype T is Data:\n  A{}\n  B{}\n";
 

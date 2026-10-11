@@ -9,7 +9,7 @@ import { build, BUILDS, lint, run } from "../../testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? build("rules/layout/format.bend") : "";
+const PROGRAM = BUILDS ? await build("rules/layout/format.bend") : "";
 
 const MESSAGE = "Apply canonical formatting.";
 

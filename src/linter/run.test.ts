@@ -9,12 +9,13 @@ import { build, BUILDS, lint, run } from "./testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const PARENTS = BUILDS ? build("tests/parents.bend") : "";
-const WRITTEN = BUILDS ? build("tests/written.bend") : "";
-const SOME = BUILDS ? build("tests/some.bend") : "";
-const EVERY = BUILDS ? build("tests/every.bend") : "";
-const ACROSS = BUILDS ? build("tests/across.bend") : "";
-const RENAME = BUILDS ? build("tests/rename.bend") : "";
+const [PARENTS, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
+  ? await Promise.all(
+      ["parents", "written", "some", "every", "across", "rename"].map((name) =>
+        build(`tests/${name}.bend`),
+      ),
+    )
+  : ["", "", "", "", "", ""];
 
 // A file with sugar the parser expands: a do-block, `A & B`, an operator.
 const SUGARED =
