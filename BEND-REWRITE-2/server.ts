@@ -329,7 +329,7 @@ const pointsOf = (text: string): ((off: number) => number) =>
 // reads the file with its import lines blanked, so a span moves by line.
 const placerOf = (
   file: SeenFile,
-  read: Parse | undefined,
+  read: Span["file"] | undefined,
 ): ((s: Span | undefined) => Range | undefined) => {
   const disk = starts(file.text);
   const lines = starts(read?.str ?? file.text);
@@ -1067,12 +1067,48 @@ const nodesWithFacts = (
   return out;
 };
 
+// Where a failed check's error is, if Bend's error says: its file's real
+// path and text, and its range there. A load that fails is in the last file
+// it opened and did not finish; a later failure, in a file it parsed.
+const located = (
+  e: unknown,
+  seen: Map<string, string | null>,
+  reported: Seen[],
+): { path: string; text: string; range: Range } | undefined => {
+  const s = isErr(e) ? e.spn : undefined;
+  if (s === undefined) {
+    return undefined;
+  }
+  const parsed = parsedOf(reported).find((f) =>
+    f.seen.some((x) => x.$ === "declared" && x.p === s.file),
+  );
+  const path = parsed?.file.real ?? [...seen].filter(([, ns]) => ns === null).pop()?.[0];
+  if (path === undefined) {
+    return undefined;
+  }
+  const text = parsed?.file.text ?? nodeFs.readFileSync(path, "utf8");
+  const range = placerOf({ $: "file", real: path, text, ns: "", al: {} }, s.file)(s);
+  return range === undefined ? undefined : { path, text, range };
+};
+
+// Bend's message for a failed check, without its location if the finding is
+// `placed` there.
+const failure = (Bend: Bend, e: unknown, placed: boolean): string => {
+  if (!isErr(e)) {
+    return message(e);
+  }
+  const shown = Bend.err_show(e);
+  const at = shown.indexOf("\nLocation:");
+  return !placed || at < 0 ? shown : shown.slice(0, at) + (e.nte === undefined ? "" : "\n" + e.nte);
+};
+
 // The answer to `check <path> <facts|syntax>`: the check's number (for
 // `ask` and `forget`), then each file it parsed (path, namespace, text),
 // then its syntax nodes, each followed, with facts, by the checker's facts on
 // it; or, if the check failed, the files it parsed with their nodes (if it
-// got that far), the files it read, then why. The probes are global, so
-// checks must not overlap.
+// got that far), the files it read, then why, and, if Bend's error says,
+// where: the file's path, the range, and the file's text. The probes are
+// global, so checks must not overlap.
 const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
@@ -1130,10 +1166,15 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
       ]),
     ].join("");
   } catch (e) {
+    const at = located(e, seen, reported);
     return [
       ...syntax,
       ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
-      record(["fail", isErr(e) ? Bend.err_show(e) : message(e)]),
+      record([
+        "fail",
+        failure(Bend, e, at !== undefined),
+        ...(at === undefined ? [] : [at.path, String(at.range[0]), String(at.range[1]), at.text]),
+      ]),
     ].join("");
   } finally {
     hook.BEND_LINT_SEE = undefined;

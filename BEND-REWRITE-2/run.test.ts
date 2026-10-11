@@ -120,7 +120,7 @@ setDefaultTimeout(120_000);
     );
     expect([
       ran.code,
-      ran.out.includes("bad.bend: error bend/check: "),
+      ran.out.includes("bad.bend:4:1: error bend/check: "),
       ran.out.includes("util.bend:1:1: hint tests/parents: every parent is found"),
     ]).toEqual([1, true, true]);
   });

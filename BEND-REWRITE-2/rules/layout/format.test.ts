@@ -71,10 +71,14 @@ setDefaultTimeout(120_000);
 
   test("long files and deep nesting format", () => {
     const cases = Array.from({ length: 1000 }, (_, i) => `    case ${i}n: ${i}\n`).join("");
-    expect(found("import Base\n\ndef pick(n: Nat) -> U32:\n  match n:\n" + cases)).toEqual([]);
+    expect(
+      found("import Base\n\ndef pick(n: Nat) -> U32:\n  match n:\n" + cases + "    case _: 1000\n"),
+    ).toEqual([]);
     const depth = 300;
     const levels = Array.from({ length: depth }, (_, i) => "  ".repeat(i + 1));
     const nested = [
+      "import Base",
+      "",
       "def main() -> U32:",
       ...levels.map((indent) => indent + "("),
       "  ".repeat(depth + 1) + "1",
@@ -84,8 +88,11 @@ setDefaultTimeout(120_000);
   });
 
   test("a file with a type error is formatted too, but not one that does not parse", () => {
-    expect(found('import Base\n\ndef main() -> U32:\n    "text"\n')).toEqual(["4:3 " + MESSAGE]);
-    expect(found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual([]);
+    expect(found('import Base\n\ndef main() -> U32:\n    "text"\n')).toEqual([
+      "4:5 error Error:",
+      "4:3 " + MESSAGE,
+    ]);
+    expect(found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual(["3:12 error Error:"]);
   });
 
   test("tabWidth sets the indentation", () => {

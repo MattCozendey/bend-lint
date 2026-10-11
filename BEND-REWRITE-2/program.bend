@@ -4,11 +4,15 @@ import ./lint.bend as Lint
 import ./shared.bend as Shared
 import ./wire.bend as Wire
 
+# Why a check failed: Bend's message, and where, if Bend says: the span, and the text of its file.
+type Failure is Data:
+  Failure{message: String, at: Maybe<&2, Lint.Span>, text: String}
+
 # What checking a file gives: its program, and the check's number on the server; or why the check failed, the files it
 # read, and, if it parsed them, the program they make, without facts.
 type Check is Data:
   Passed{program: Lint.Program, check: U32}
-  Failed{message: String, read: List<&2, String>, parsed: Maybe<&2, Lint.Program>}
+  Failed{failure: Failure, read: List<&2, String>, parsed: Maybe<&2, Lint.Program>}
 
 # Decoding
 # ========
@@ -216,22 +220,24 @@ def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
     case _:
       Program.read(syntax, [])
 
-def Check.failed(fail: Bool, message: String, +records: List<&2, List<&2, String>>) -> IO(Check):
+def Check.failed(fail: Bool, failure: Failure, +records: List<&2, List<&2, String>>) -> IO(Check):
   match fail:
     case True{}:
-      IO.pure(Check, Failed{message, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
+      IO.pure(Check, Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
     case False{}:
       Check.malformed(Check)
 
 def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, String>>) -> IO(Check):
   match last:
     case Some{Con{+tag, Con{message, Nil{}}}}:
-      Check.failed(String.eq(tag, "fail"), message, records)
+      Check.failed(String.eq(tag, "fail"), Failure{message, None{}, ""}, records)
+    case Some{Con{+tag, Con{message, Con{path, Con{beg, Con{end, Con{text, Nil{}}}}}}}}:
+      Check.failed(String.eq(tag, "fail"), Failure{message, Span.read(path, beg, end), text}, records)
     case _:
       Check.read(records)
 
-# What an answer says: the check's number and the program; or, ending in a `fail` record, why the check failed, the files it read (its `read`
-# records), and what it parsed (its `file` and `node` records).
+# What an answer says: the check's number and the program; or, ending in a `fail` record, why and where the check
+# failed, the files it read (its `read` records), and what it parsed (its `file` and `node` records).
 def Check.of(+records: List<&2, List<&2, String>>) -> IO(Check):
   Check.ended(List.last(&2, List<&2, String>, records), records)
 
