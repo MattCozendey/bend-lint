@@ -4,13 +4,13 @@
 // Imports
 // =======
 
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 
 import pkg from "../../package.json" with { type: "json" };
-import { error } from "./result.ts";
+import { ERROR, error, ok } from "./result.ts";
 import type { Result } from "./result.ts";
 import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
@@ -19,6 +19,9 @@ import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
 // What a download holds besides base.bend and the effs/ files Base imports.
 const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
+
+// How long `bend version` may run, in ms.
+const VERSION_TIMEOUT = 10_000;
 
 // How to name a bend2 folder, for a caller that takes only BEND_DIR.
 export const GIVE = "set BEND_DIR to a bend checkout";
@@ -40,17 +43,38 @@ export const CACHE: string = nodePath.join(
 // Functions
 // =========
 
-export const getInstalledBendTagOrUndefined = (
-  readBendVersion = (): string | undefined => {
-    const r = spawnSync("bend", ["version"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+// What `bend version` printed: undefined if bend is not installed, an error
+// if it failed or ran too long.
+const runBendVersion = (): Promise<Result<string | undefined, string>> =>
+  new Promise((resolve) => {
+    execFile("bend", ["version"], { encoding: "utf8", timeout: VERSION_TIMEOUT }, (e, stdout) => {
+      resolve(
+        e === null
+          ? ok(stdout)
+          : e.code === "ENOENT"
+            ? ok(undefined)
+            : error(
+                e.killed
+                  ? `bend version ran over ${VERSION_TIMEOUT / 1000} s`
+                  : `bend version failed (${e.message})`,
+              ),
+      );
     });
-    return r.status === 0 ? r.stdout : undefined;
-  },
-): string | undefined => {
-  const version = readBendVersion()?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
-  return version === undefined ? undefined : "v" + version;
+  });
+
+// The installed bend's release ("v2.0.36"), or undefined if bend is not
+// installed. An error if bend runs but names no release.
+export const tryGetInstalledBendTagFromCliOrUndefined = async (
+  readBendVersion: () => Promise<Result<string | undefined, string>> = runBendVersion,
+): Promise<Result<string | undefined, string>> => {
+  const read = await readBendVersion();
+  if (ERROR in read || read.OK === undefined) {
+    return read;
+  }
+  const version = /^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(read.OK)?.[1];
+  return version === undefined
+    ? error(`bend version printed ${JSON.stringify(read.OK.split("\n")[0])}, not a release`)
+    : ok("v" + version);
 };
 
 // bend2 at a release, kept in <downloadDir>/<tag>/bend2.
@@ -110,11 +134,15 @@ export const tryGetBend2SourceUrl = async ({
   downloadDir,
 }: {
   bendDir?: string;
-  readBendVersion?: () => string | undefined;
+  readBendVersion?: () => Promise<Result<string | undefined, string>>;
   downloadDir?: string;
 } = {}): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
-    const tag = getInstalledBendTagOrUndefined(readBendVersion) ?? PIN;
+    const installed = await tryGetInstalledBendTagFromCliOrUndefined(readBendVersion);
+    if (ERROR in installed) {
+      return error(`could not read the installed bend's release (${installed[ERROR]})`);
+    }
+    const tag = installed.OK ?? PIN;
     return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>
       error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );

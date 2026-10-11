@@ -9,12 +9,12 @@ import type * as BendModule from "bend2/bend.ts";
 
 import {
   fetchBend,
-  getInstalledBendTagOrUndefined,
   PIN,
   tryGetBend2SourceUrl,
+  tryGetInstalledBendTagFromCliOrUndefined,
 } from "../shared/bend2.ts";
 import { relative, resolve } from "../shared/paths.ts";
-import { ERROR, unwrap } from "../shared/result.ts";
+import { ERROR, error, ok, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import * as api from "./lint.ts";
 import { applyFixes, createLinter } from "./lint.ts";
@@ -905,13 +905,20 @@ describe("downloading bend", () => {
 
   afterEach(() => mock.restore());
 
-  test("the installed bend's version is read from bend version", () => {
-    expect([
-      getInstalledBendTagOrUndefined(() => "bend 1.2.3\n"),
-      getInstalledBendTagOrUndefined(() => "bend 1.2.3\nA newer bend is out.\n"),
-      getInstalledBendTagOrUndefined(() => undefined),
-      getInstalledBendTagOrUndefined(() => "nope"),
-    ]).toEqual(["v1.2.3", "v1.2.3", undefined, undefined]);
+  test("the installed bend's release is read from bend version", async () => {
+    const tag = (read: Result<string | undefined, string>) =>
+      tryGetInstalledBendTagFromCliOrUndefined(() => Promise.resolve(read));
+    expect(
+      await Promise.all([
+        tag(ok("bend 1.2.3\n")),
+        tag(ok("bend 1.2.3\r\nA newer bend is out.\n")),
+        tag(ok(undefined)),
+        tag(error("bend version failed")),
+      ]),
+    ).toEqual([ok("v1.2.3"), ok("v1.2.3"), ok(undefined), error("bend version failed")]);
+    expect(
+      (await Promise.all([tag(ok("nope")), tag(ok("bend 1.2.3-rc1\n"))])).map((r) => ERROR in r),
+    ).toEqual([true, true]);
   });
 
   test("a release downloads once and whole, and bend-lint runs on it", async () => {
@@ -951,23 +958,45 @@ describe("downloading bend", () => {
       const got = (tag: string) =>
         pathToFileURL(fs.realpathSync(path.join(at, tag, "bend2")) + path.sep).href;
       expect(
-        await bend2Url(undefined, { downloadDir: at, readBendVersion: () => "bend 1.2.3\n" }),
+        await bend2Url(undefined, {
+          downloadDir: at,
+          readBendVersion: () => Promise.resolve(ok("bend 1.2.3\n")),
+        }),
       ).toBe(got("v1.2.3"));
-      expect(await bend2Url(undefined, { downloadDir: at, readBendVersion: () => undefined })).toBe(
-        got(PIN),
-      );
+      expect(
+        await bend2Url(undefined, {
+          downloadDir: at,
+          readBendVersion: () => Promise.resolve(ok(undefined)),
+        }),
+      ).toBe(got(PIN));
       mock.restore();
       offline();
-      expect(await bend2Url(undefined, { downloadDir: at, readBendVersion: () => undefined })).toBe(
-        got(PIN),
-      );
+      expect(
+        await bend2Url(undefined, {
+          downloadDir: at,
+          readBendVersion: () => Promise.resolve(ok(undefined)),
+        }),
+      ).toBe(got(PIN));
       expect(
         (
           await rejection(
-            bend2Url(undefined, { downloadDir: at, readBendVersion: () => "bend 1.2.4\n" }),
+            bend2Url(undefined, {
+              downloadDir: at,
+              readBendVersion: () => Promise.resolve(ok("bend 1.2.4\n")),
+            }),
           )
         ).message,
       ).toMatch(/could not download bend v1\.2\.4 \(offline\)/);
+      expect(
+        (
+          await rejection(
+            bend2Url(undefined, {
+              downloadDir: at,
+              readBendVersion: () => Promise.resolve(error("bend version failed")),
+            }),
+          )
+        ).message,
+      ).toMatch(/could not read the installed bend's release \(bend version failed\)/);
     } finally {
       if (saved !== undefined) {
         process.env.BEND_DIR = saved;

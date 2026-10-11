@@ -9,7 +9,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getInstalledBendTagOrUndefined } from "../src/shared/bend2.ts";
+import { tryGetInstalledBendTagFromCliOrUndefined } from "../src/shared/bend2.ts";
+import { OK } from "../src/shared/result.ts";
 
 // Types
 // =====
@@ -42,7 +43,9 @@ const LINE = /^(.*):(\d+:\d+): (\w+) (\S+): (.*)$/;
 
 // Whether the bend that build runs is installed. The server finds its
 // release too, if BEND_DIR is not set.
-export const BUILDS: boolean = getInstalledBendTagOrUndefined() !== undefined;
+export const BUILDS: boolean = await tryGetInstalledBendTagFromCliOrUndefined().then(
+  (installed) => OK in installed && installed.OK !== undefined,
+);
 
 // Functions
 // =========
