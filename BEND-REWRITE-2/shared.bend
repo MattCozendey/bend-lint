@@ -137,16 +137,27 @@ def push(-A: Data, x: Maybe<&2, A>, out: List<&2, A>) -> List<&2, A>:
     case None{}:
       out
 
-def before.of(parts: List<&2, String>) -> String:
-  match parts:
-    case Con{first, Con{second, rest}}:
-      first
-    case _:
+# Whether `s` starts with `c`.
+def starts(s: String, c: Char) -> Bool:
+  match s:
+    case SCon{h, t}:
+      Char.is_eq(h, c)
+    case SNil{}:
+      False{}
+
+# What comes before the first `sep` of `s`, after `acc` (last first); `at` says whether `s` starts with it.
+def before.go(s: String, +sep: Char, acc: String, at: Bool) -> String:
+  match s at:
+    case SNil{} _:
       ""
+    case _ True{}:
+      String.reverse(acc)
+    case SCon{c, +rest} False{}:
+      before.go(rest, sep, SCon{c, acc}, starts(rest, sep))
 
 # What comes before the first `sep` of `s`, or "" if there is none.
-def before(s: String, sep: Char) -> String:
-  before.of(String.split(s, sep))
+def before(+s: String, +sep: Char) -> String:
+  before.go(s, sep, "", starts(s, sep))
 
 def sort.runs(-A: Data, xs: List<&2, A>, out: List<&2, List<&2, A>>) -> List<&2, List<&2, A>>:
   match xs:

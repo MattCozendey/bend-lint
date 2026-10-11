@@ -366,11 +366,11 @@ def Imports.own(nodes: List<&2, Lint.Node>, out: Map<&2, Unit>) -> Map<&2, Unit>
     case Con{n, rest}:
       Imports.own(rest, out)
 
-# What uses an import: a name written with its alias's prefix (`U.two`, a fill `def U.law(x):`), or, for Base, a
-# global name with no namespace that the file does not declare.
-type Importer is Data:
-  ByAlias{prefix: String}
-  ByBase{own: Map<&2, Unit>}
+# What uses a file's imports, found in one pass over its nodes: the nodes written with an alias's prefix (`U.two`, a
+# fill `def U.law(x):`), by alias; and those that use Base: a global name with no namespace that the file does not
+# declare (last first).
+type ImportUses is Data:
+  ImportUses{aliases: Map<&2, List<&2, Lint.Node>>, base: List<&2, Lint.Node>}
 
 def Imports.not_own(got: Map<&2, Unit> & Bool) -> Bool:
   match got:
@@ -391,40 +391,51 @@ def Imports.base_uses(+own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
     case None{}:
       False{}
 
-def Imports.uses(+importer: Importer, +node: Lint.Node) -> Bool:
-  match importer node:
-    case ByAlias{+prefix} Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target}:
-      String.starts_with(name, prefix)
-    case ByBase{+own} _:
-      Imports.base_uses(own, Lint.Node.used(node))
+# `aliases` with `node`, under `prefix`, the part of its name before the first `.`, if any.
+def Imports.alias(prefix: String, node: Lint.Node, aliases: Map<&2, List<&2, Lint.Node>>) -> Map<&2, List<&2, Lint.Node>>:
+  match prefix:
+    case SNil{}:
+      aliases
+    case SCon{h, t}:
+      Shared.Group.add(Lint.Node, aliases, SCon{h, t}, node)
 
-def Imports.keep(hit: Bool, n: Lint.Node, out: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
+def Imports.base(hit: Bool, node: Lint.Node, base: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
   match hit:
     case True{}:
-      n <> out
+      node <> base
     case False{}:
-      out
+      base
 
-# The nodes of `nodes` that use an import, in order; `out` holds those so far, last first.
-def Imports.references(nodes: List<&2, Lint.Node>, +importer: Importer, out: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
+def Imports.add(+own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> ImportUses:
+  match node uses:
+    case Lint.Node{id, parent, owner, syntax, +name, binder, quantity, span, target} ImportUses{aliases, base}:
+      +n = {Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target} : Lint.Node}
+      ImportUses{Imports.alias(Shared.before(name, '.'), n, aliases), Imports.base(Imports.base_uses(own, Lint.Node.used(n)), n, base)}
+
+def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUses) -> ImportUses:
   match nodes:
     case Nil{}:
-      List.reverse(&2, Lint.Node, out)
-    case Con{+n, rest}:
-      Imports.references(rest, importer, Imports.keep(Imports.uses(importer, n), n, out))
+      uses
+    case Con{n, rest}:
+      Imports.scan(rest, own, Imports.add(own, n, uses))
 
-def Imports.importer(base: Bool, alias: String, +nodes: List<&2, Lint.Node>) -> Importer:
-  match base:
-    case True{}:
-      ByBase{Imports.own(nodes, Map.new(&2, Unit))}
-    case False{}:
-      ByAlias{alias ++ "."}
+# What uses each import of a file with `nodes`.
+def Imports.uses_of(+nodes: List<&2, Lint.Node>) -> ImportUses:
+  Imports.scan(nodes, Imports.own(nodes, Map.new(&2, Unit)), ImportUses{Map.new(&2, List<&2, Lint.Node>), []})
 
-# A node's declaration, if it declares a name, with its uses among `nodes`: `uses` indexes them, `sources` says which
-# import loads Base.
+# The uses of an import, in order: of Base (`base`), or of the alias `alias`.
+def Imports.of(base: Bool, alias: String, imports: ImportUses) -> List<&2, Lint.Node>:
+  match base imports:
+    case True{} ImportUses{aliases, uses}:
+      List.reverse(&2, Lint.Node, uses)
+    case False{} ImportUses{aliases, uses}:
+      Shared.Group.get(Lint.Node, aliases, alias)
+
+# A node's declaration, if it declares a name, with its uses: `uses` indexes them, and `imports` the uses of the file's
+# imports; `sources` says which import loads Base.
 def Declarations.of.node(
   +sources: List<&2, Lint.Source>,
-  +nodes: List<&2, Lint.Node>,
+  +imports: ImportUses,
   +uses: Map<&2, List<&2, Lint.Node>>,
   node: Lint.Node
 ) -> Maybe<&2, Lint.Declaration>:
@@ -433,11 +444,7 @@ def Declarations.of.node(
       Some{
         Lint.Declaration{
           Lint.Node{id, parent, owner, Lint.Import{}, name, binder, quantity, span, target},
-          Imports.references(
-            nodes,
-            Imports.importer(String.is_empty(Imports.namespace(sources, target)), name, nodes),
-            []
-          )
+          Imports.of(String.is_empty(Imports.namespace(sources, target)), name, imports)
         }
       }
     case +n:
@@ -446,7 +453,7 @@ def Declarations.of.node(
 def Declarations.of.go(
   rest: List<&2, Lint.Node>,
   +sources: List<&2, Lint.Source>,
-  +nodes: List<&2, Lint.Node>,
+  +imports: ImportUses,
   +uses: Map<&2, List<&2, Lint.Node>>,
   out: List<&2, Lint.Declaration>
 ) -> List<&2, Lint.Declaration>:
@@ -457,15 +464,15 @@ def Declarations.of.go(
       Declarations.of.go(
         more,
         sources,
-        nodes,
+        imports,
         uses,
-        Shared.push(Lint.Declaration, Declarations.of.node(sources, nodes, uses, n), out)
+        Shared.push(Lint.Declaration, Declarations.of.node(sources, imports, uses, n), out)
       )
 
 # The declarations of a file's nodes, in order, with their uses that `uses` indexes.
 def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>, +uses: Map<&2, List<&2, Lint.Node>>) ->
   List<&2, Lint.Declaration>:
-  Declarations.of.go(nodes, sources, nodes, uses, [])
+  Declarations.of.go(nodes, sources, Imports.uses_of(nodes), uses, [])
 
 def Index.first(nodes: List<&2, Lint.Node>) -> U32:
   match nodes:
