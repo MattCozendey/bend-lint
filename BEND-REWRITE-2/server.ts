@@ -30,7 +30,7 @@ import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "be
 import type * as BendModule from "bend2/bend.ts";
 
 import { CACHE, findBend2 } from "../src/shared/bend2.ts";
-import { message } from "../src/shared/result.ts";
+import { getErrorMessageFromUnknown } from "../src/shared/result.ts";
 
 // Types
 // =====
@@ -1118,7 +1118,7 @@ const located = (
 // `placed` there.
 const failure = (Bend: Bend, e: unknown, placed: boolean): string => {
   if (!isErr(e)) {
-    return message(e);
+    return getErrorMessageFromUnknown(e);
   }
   const shown = Bend.err_show(e);
   const at = shown.indexOf("\nLocation:");
@@ -1400,7 +1400,7 @@ const ask = async (checker: Checker, questions: string[]): Promise<string> => {
     const loaded = await checker.loaded();
     return questions.map((q) => question(loaded, q)).join("");
   } catch (e) {
-    return record(["fail", message(e)]);
+    return record(["fail", getErrorMessageFromUnknown(e)]);
   }
 };
 
@@ -1455,7 +1455,11 @@ const serve = async (checker: Checker, socket: net.Socket): Promise<void> => {
   const lines = readline.createInterface({ input: socket });
   const [line] = (await once(lines, "line")) as [string];
   lines.close();
-  socket.end(await answer(checker, line).catch((e: unknown) => record(["fail", message(e)])));
+  socket.end(
+    await answer(checker, line).catch((e: unknown) =>
+      record(["fail", getErrorMessageFromUnknown(e)]),
+    ),
+  );
 };
 
 // Side effects
@@ -1468,7 +1472,7 @@ if (program === undefined) {
 }
 
 const checker = await load().catch((e: unknown) => {
-  console.error("bend-lint: " + message(e));
+  console.error("bend-lint: " + getErrorMessageFromUnknown(e));
   return process.exit(2);
 });
 

@@ -13,7 +13,14 @@ import * as util from "node:util";
 import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
-import { ERROR, error, ERROR_METADATA, message, ok, unwrap } from "../shared/result.ts";
+import {
+  ERROR,
+  error,
+  ERROR_METADATA,
+  getErrorMessageFromUnknown,
+  ok,
+  unwrap,
+} from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import {
   cachedRule,
@@ -413,7 +420,7 @@ const settle = (fallback: LintError["type"], e: unknown, signal?: AbortSignal): 
   const drifted = (e as { [DRIFT]?: boolean } | null)?.[DRIFT] === true;
   return {
     type: signal?.aborted ? "aborted" : drifted ? "drift" : (known ?? fallback),
-    [ERROR_METADATA]: { message: message(e), cause: e },
+    [ERROR_METADATA]: { message: getErrorMessageFromUnknown(e), cause: e },
   };
 };
 
@@ -444,7 +451,7 @@ const configAt = (file: string): Config => {
     const absolute = (ps: string[] | undefined) => ps?.map((p) => path.resolve(at, p));
     return { ...config, load: absolute(config.load), entries: absolute(config.entries) };
   } catch (e) {
-    throw fault("config", file + ": " + message(e));
+    throw fault("config", file + ": " + getErrorMessageFromUnknown(e));
   }
 };
 
@@ -723,7 +730,7 @@ const lintWith = async (
             {
               code: CRASH,
               severity: "error",
-              message: plan.rule.id + ": " + message(e),
+              message: plan.rule.id + ": " + getErrorMessageFromUnknown(e),
               span,
               fixes: [],
             },
@@ -1229,7 +1236,7 @@ const cli = async (argv: string[]): Promise<number> => {
 };
 
 const fail = (e: unknown): never => {
-  console.error("bend-lint: " + message(e));
+  console.error("bend-lint: " + getErrorMessageFromUnknown(e));
   process.exit(2);
 };
 

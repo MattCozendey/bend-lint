@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 
 import pkg from "../../package.json" with { type: "json" };
-import { message } from "./result.ts";
+import { getErrorMessageFromUnknown } from "./result.ts";
 
 // Types
 // =====
@@ -153,7 +153,7 @@ export const findBend2 = async (
   const tag = installedTag(run) ?? PIN;
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
   const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
-    throw new Error(`could not download bend ${tag} (${message(e)}); ${give}`);
+    throw new Error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`);
   });
   if (fresh) {
     console.error("bend-lint: downloaded bend " + tag + " to " + got);
