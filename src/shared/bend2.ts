@@ -22,10 +22,6 @@ export type FindOptions = { bend?: string; run?: () => string | undefined; cache
 // Constants
 // =========
 
-const RAW = "https://raw.githubusercontent.com/bendlang/bend/";
-const RELEASE = /^v\d+\.\d+\.\d+$/;
-const EFF = /^effs\/[\w.-]+$/;
-
 // What a download holds besides base.bend and the effs/ files Base imports.
 const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
 
@@ -65,7 +61,7 @@ export const installedTag = (
 // A download goes to a temporary folder first, so the cache never holds a
 // partial one.
 export const fetchBend = async (tag: string, cache: string = CACHE): Promise<string> => {
-  if (!RELEASE.test(tag)) {
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
   const dir = nodePath.join(cache, tag, "bend2");
@@ -75,7 +71,10 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
     return dir;
   }
   const fetched = async (file: string): Promise<[string, string]> => {
-    const res = await fetch(`${RAW}${tag}/bend2/${file}`, { signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(
+      `"https://raw.githubusercontent.com/bendlang/bend/"${tag}/bend2/${file}`,
+      { signal: AbortSignal.timeout(30_000) },
+    );
     if (!res.ok) {
       throw new Error(`GitHub answered ${res.status} for bend2/${file}`);
     }
@@ -83,7 +82,7 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
   };
   const base = await fetched("base.bend");
   const effs = new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1]));
-  const odd = [...effs].find((f) => !EFF.test(f));
+  const odd = [...effs].find((f) => !/^effs\/[\w.-]+$/.test(f));
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
