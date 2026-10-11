@@ -125,6 +125,39 @@ setDefaultTimeout(120_000);
     ]).toEqual([1, true, true]);
   });
 
+  test("--json prints one object: the findings with their fixes' edits, and those suppressed", () => {
+    const util = "# bend-lint: disable-file tests/across -- kept\n" + ENTRIES["util.bend"];
+    const ran = run(ACROSS, { "main.bend": ENTRIES["a.bend"], "util.bend": util }, "main.bend", [
+      "util.bend",
+      "--json",
+    ]);
+    const named = (key: string, value: unknown): unknown =>
+      key === "path" && typeof value === "string" ? value.replace(/^.*\//, "") : value;
+    const at = (line: number, character: number) => ({ line, character });
+    const insert = (path: string) => ({
+      path,
+      range: { start: at(0, 0), end: at(0, 0) },
+      text: "# fixed\n",
+    });
+    const mark = (path: string, edits: string[]) => ({
+      code: "tests/across",
+      severity: "hint",
+      message: "at 0",
+      path,
+      range: { start: at(0, 0), end: at(0, 1) },
+      fixes: [{ title: "Mark every file", applicability: "dangerous", edits: edits.map(insert) }],
+    });
+    expect([ran.code, JSON.parse(ran.out, named), ran.err.trim()]).toEqual([
+      0,
+      {
+        ok: true,
+        findings: [mark("main.bend", ["main.bend", "util.bend"])],
+        suppressed: [mark("util.bend", ["util.bend"])],
+      },
+      "bend-lint: 1 finding(s), 1 suppressed",
+    ]);
+  });
+
   test("--fix-dangerously makes a fix whole, in each file it edits", () => {
     const ran = run(
       ACROSS,

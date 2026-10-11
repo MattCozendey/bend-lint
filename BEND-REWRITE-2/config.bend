@@ -3,238 +3,11 @@
 #   {"entries": ["src/main.bend"], "imports": true, "rules": {"layout/case": "off", "no-unused/imports": "error"}}
 # - entries: files that check the program the named file belongs to, relative to the config's folder.
 # - imports: whether to lint the files the named file imports too. The command line's flag wins.
-# - rules: a rule's setting, "off" or a severity.
+# - rules: a rule's setting: "off", a severity, or {"severity"?: <severity>, <option>: <value>, ...}.
 import Base
+import ./json.bend as Json
 import ./lint.bend as Lint
 import ./shared.bend as Shared
-
-# JSON
-# ====
-
-type Json is Data:
-  JNull{}
-  JTrue{}
-  JFalse{}
-  JNumber{text: String}
-  JString{text: String}
-  JArray{items: List<&2, Json>}
-  JObject{fields: List<&2, JField>}
-
-type JField is Data:
-  JField{key: String, value: Json}
-
-type Token is Data:
-  TOpen{}
-  TClose{}
-  TList{}
-  TEnd{}
-  TString{text: String}
-  TWord{text: String}
-  TSkip{}
-
-# What a character is to the lexer.
-type JGlyph is Data:
-  GOpen{}
-  GClose{}
-  GList{}
-  GEnd{}
-  GQuote{}
-  GBackslash{}
-  GSeparator{}
-  GBlank{}
-  GOther{}
-
-# Where the lexer is: between tokens, in a string, after a \ in one, or in a word; the text so far (last first); and
-# the tokens so far (last first).
-type LexMode is Data:
-  Between{}
-  InText{}
-  InEscape{}
-  InWord{}
-
-type Lex is Data:
-  Lex{mode: LexMode, text: String, tokens: List<&2, Token>}
-
-def JGlyph.of(+c: Char) -> JGlyph:
-  Bool.pick(
-    JGlyph,
-    Char.is_eq(c, '{'),
-    GOpen{},
-    Bool.pick(
-      JGlyph,
-      Char.is_eq(c, '}'),
-      GClose{},
-      Bool.pick(
-        JGlyph,
-        Char.is_eq(c, '['),
-        GList{},
-        Bool.pick(
-          JGlyph,
-          Char.is_eq(c, ']'),
-          GEnd{},
-          Bool.pick(
-            JGlyph,
-            Char.is_eq(c, '"'),
-            GQuote{},
-            Bool.pick(
-              JGlyph,
-              Char.is_eq(c, '\\'),
-              GBackslash{},
-              Bool.pick(
-                JGlyph,
-                Char.is_eq(c, ':') || Char.is_eq(c, ','),
-                GSeparator{},
-                Bool.pick(JGlyph, Char.is_space(c), GBlank{}, GOther{})
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-
-# The token a structural glyph is, between tokens.
-def Token.of(glyph: JGlyph) -> Token:
-  match glyph:
-    case GOpen{}:
-      TOpen{}
-    case GClose{}:
-      TClose{}
-    case GList{}:
-      TList{}
-    case GEnd{}:
-      TEnd{}
-    case _:
-      TSkip{}
-
-# A character after a \ in a string.
-def Json.unescaped(+c: Char) -> Char:
-  Bool.pick(
-    Char,
-    Char.is_eq(c, 'n'),
-    '\n',
-    Bool.pick(Char, Char.is_eq(c, 't'), '\t', Bool.pick(Char, Char.is_eq(c, 'r'), '\r', c))
-  )
-
-# A step between tokens: a quote opens a string, a blank or separator is skipped, another character starts a word.
-def Lex.between(glyph: JGlyph, c: Char, tokens: List<&2, Token>) -> Lex:
-  match glyph:
-    case GQuote{}:
-      Lex{InText{}, "", tokens}
-    case GBlank{}:
-      Lex{Between{}, "", tokens}
-    case GSeparator{}:
-      Lex{Between{}, "", tokens}
-    case GOther{}:
-      Lex{InWord{}, SCon{c, SNil{}}, tokens}
-    case GBackslash{}:
-      Lex{InWord{}, SCon{c, SNil{}}, tokens}
-    case _:
-      Lex{Between{}, "", Token.of(glyph) <> tokens}
-
-def Lex.step(lex: Lex, glyph: JGlyph, +c: Char) -> Lex:
-  match lex glyph:
-    case Lex{Between{}, text, tokens} _:
-      Lex.between(glyph, c, tokens)
-    case Lex{InText{}, text, tokens} GQuote{}:
-      Lex{Between{}, "", TString{String.reverse(text)} <> tokens}
-    case Lex{InText{}, text, tokens} GBackslash{}:
-      Lex{InEscape{}, text, tokens}
-    case Lex{InText{}, text, tokens} _:
-      Lex{InText{}, SCon{c, text}, tokens}
-    case Lex{InEscape{}, text, tokens} _:
-      Lex{InText{}, SCon{Json.unescaped(c), text}, tokens}
-    case Lex{InWord{}, text, tokens} GOther{}:
-      Lex{InWord{}, SCon{c, text}, tokens}
-    case Lex{InWord{}, text, tokens} _:
-      Lex.between(glyph, c, TWord{String.reverse(text)} <> tokens)
-
-def Lex.go(s: String, lex: Lex) -> Lex:
-  match s:
-    case SNil{}:
-      lex
-    case SCon{+c, t}:
-      Lex.go(t, Lex.step(lex, JGlyph.of(c), c))
-
-# The tokens of a text, in order.
-def Lex.done(lex: Lex) -> List<&2, Token>:
-  match lex:
-    case Lex{InWord{}, text, tokens}:
-      List.reverse(&2, Token, TWord{String.reverse(text)} <> tokens)
-    case Lex{mode, text, tokens}:
-      List.reverse(&2, Token, tokens)
-
-# A list or an object being read: its items, or its fields and the key read for the next one (all last first).
-type Frame is Data:
-  InList{items: List<&2, Json>}
-  InObject{fields: List<&2, JField>, key: Maybe<&2, String>}
-
-# What is read so far: the open lists and objects (innermost first), and the value read whole, if any; None if the
-# text is not JSON.
-type Read is Data:
-  Read{stack: List<&2, Frame>, value: Maybe<&2, Json>}
-  Unreadable{}
-
-def Json.word(+w: String) -> Json:
-  Maybe.default(
-    &2,
-    Json,
-    Shared.lookup(Json, w, [Shared.Named{"true", JTrue{}}, Shared.Named{"false", JFalse{}}, Shared.Named{"null", JNull{}}]),
-    JNumber{w}
-  )
-
-# A value read whole: into the innermost list or object, or as the text's value.
-def Read.value(v: Json, stack: List<&2, Frame>, value: Maybe<&2, Json>) -> Read:
-  match stack value:
-    case Nil{} None{}:
-      Read{[], Some{v}}
-    case Con{InList{items}, rest} _:
-      Read{InList{v <> items} <> rest, value}
-    case Con{InObject{fields, Some{k}}, rest} _:
-      Read{InObject{JField{k, v} <> fields, None{}} <> rest, value}
-    case _ _:
-      Unreadable{}
-
-def Read.step(token: Token, r: Read) -> Read:
-  match token r:
-    case _ Unreadable{}:
-      Unreadable{}
-    case TSkip{} _:
-      r
-    case TOpen{} Read{stack, value}:
-      Read{InObject{[], None{}} <> stack, value}
-    case TList{} Read{stack, value}:
-      Read{InList{[]} <> stack, value}
-    case TEnd{} Read{Con{InList{items}, rest}, value}:
-      Read.value(JArray{List.reverse(&2, Json, items)}, rest, value)
-    case TClose{} Read{Con{InObject{fields, None{}}, rest}, value}:
-      Read.value(JObject{List.reverse(&2, JField, fields)}, rest, value)
-    case TString{text} Read{Con{InObject{fields, None{}}, rest}, value}:
-      Read{InObject{fields, Some{text}} <> rest, value}
-    case TString{text} Read{stack, value}:
-      Read.value(JString{text}, stack, value)
-    case TWord{w} Read{stack, value}:
-      Read.value(Json.word(w), stack, value)
-    case _ _:
-      Unreadable{}
-
-def Read.go(tokens: List<&2, Token>, r: Read) -> Read:
-  match tokens:
-    case Nil{}:
-      r
-    case Con{t, rest}:
-      Read.go(rest, Read.step(t, r))
-
-def Read.done(r: Read) -> Maybe<&2, Json>:
-  match r:
-    case Read{Nil{}, value}:
-      value
-    case _:
-      None{}
-
-# The JSON value of a text, if it is JSON.
-def Json.read(text: String) -> Maybe<&2, Json>:
-  Read.done(Read.go(Lex.done(Lex.go(text, Lex{Between{}, "", []})), Read{[], None{}}))
 
 # Config
 # ======
@@ -271,14 +44,14 @@ type Parsed is Data:
   Parsed{config: Project}
   Invalid{why: String}
 
-def Parsed.entry(+folder: String, item: Json) -> Maybe<&2, String>:
+def Parsed.entry(+folder: String, item: Json.Json) -> Maybe<&2, String>:
   match item:
-    case JString{path}:
+    case Json.JString{path}:
       Some{folder ++ "/" ++ path}
     case _:
       None{}
 
-def Parsed.entries(+folder: String, items: List<&2, Json>, out: List<&2, String>) -> Maybe<&2, List<&2, String>>:
+def Parsed.entries(+folder: String, items: List<&2, Json.Json>, out: List<&2, String>) -> Maybe<&2, List<&2, String>>:
   match items:
     case Nil{}:
       Some{List.reverse(&2, String, out)}
@@ -288,20 +61,20 @@ def Parsed.entries(+folder: String, items: List<&2, Json>, out: List<&2, String>
         Parsed.entries(folder, rest, e <> out)
 
 # An option's value: a whole number, a flag or text.
-def Parsed.value(value: Json) -> Maybe<&2, Lint.Value>:
+def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
   match value:
-    case JNumber{text}:
+    case Json.JNumber{text}:
       Maybe.map(&2, U32, Lint.Value, n => Lint.Num{n}, U32.read(text))
-    case JTrue{}:
+    case Json.JTrue{}:
       Some{Lint.Flag{True{}}}
-    case JFalse{}:
+    case Json.JFalse{}:
       Some{Lint.Flag{False{}}}
-    case JString{text}:
+    case Json.JString{text}:
       Some{Lint.Text{text}}
     case _:
       None{}
 
-def Parsed.option(severity: Bool, +key: String, value: Json, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
+def Parsed.option(severity: Bool, +key: String, value: Json.Json, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
   Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
   match severity:
     case True{}:
@@ -313,18 +86,18 @@ def Parsed.option(severity: Bool, +key: String, value: Json, out: Maybe<&2, List
         return Shared.Named{key, v} <> values
 
 # The option values of a rule's object, last first: every field but "severity".
-def Parsed.options(fields: List<&2, JField>, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
+def Parsed.options(fields: List<&2, Json.JField>, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
   Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
   match fields:
     case Nil{}:
       out
-    case Con{JField{+key, value}, rest}:
+    case Con{Json.JField{+key, value}, rest}:
       Parsed.options(rest, Parsed.option(String.eq(key, "severity"), key, value, out))
 
-def Parsed.severity.of(here: Bool, value: Json, found: Maybe<&2, Maybe<&2, Lint.Severity>>) ->
+def Parsed.severity.of(here: Bool, value: Json.Json, found: Maybe<&2, Maybe<&2, Lint.Severity>>) ->
   Maybe<&2, Maybe<&2, Lint.Severity>>:
   match here value:
-    case True{} JString{+s}:
+    case True{} Json.JString{+s}:
       Maybe.map(&2, Lint.Severity, Maybe<&2, Lint.Severity>, sev => Some{sev}, Shared.lookup(Lint.Severity, s, Severity.names()))
     case True{} _:
       None{}
@@ -332,19 +105,19 @@ def Parsed.severity.of(here: Bool, value: Json, found: Maybe<&2, Maybe<&2, Lint.
       found
 
 # The severity a rule's object gives in "severity": none if it gives none (Some{None{}}), or None{} if it is not one.
-def Parsed.severity(fields: List<&2, JField>, found: Maybe<&2, Maybe<&2, Lint.Severity>>) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
+def Parsed.severity(fields: List<&2, Json.JField>, found: Maybe<&2, Maybe<&2, Lint.Severity>>) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
   match fields:
     case Nil{}:
       found
-    case Con{JField{+key, value}, rest}:
+    case Con{Json.JField{+key, value}, rest}:
       Parsed.severity(rest, Parsed.severity.of(String.eq(key, "severity"), value, found))
 
 # A rule's setting: "off", a severity, or an object of a severity (if any) and option values.
-def Parsed.rule(field: JField) -> Maybe<&2, Shared.Named<Setting>>:
+def Parsed.rule(field: Json.JField) -> Maybe<&2, Shared.Named<Setting>>:
   match field:
-    case JField{+id, JString{+s}}:
+    case Json.JField{+id, Json.JString{+s}}:
       Maybe.map(&2, Setting, Shared.Named<Setting>, setting => Shared.Named{id, setting}, Shared.lookup(Setting, s, Setting.names()))
-    case JField{+id, JObject{+fields}}:
+    case Json.JField{+id, Json.JObject{+fields}}:
       do Maybe<&2, Shared.Named<Setting>>:
         severity : Maybe<&2, Lint.Severity> <- Parsed.severity(fields, Some{None{}})
         options : List<&2, Shared.Named<Lint.Value>> <- Parsed.options(fields, Some{[]})
@@ -352,7 +125,7 @@ def Parsed.rule(field: JField) -> Maybe<&2, Shared.Named<Setting>>:
     case _:
       None{}
 
-def Parsed.rules(fields: List<&2, JField>, out: List<&2, Shared.Named<Setting>>) -> Maybe<&2, List<&2, Shared.Named<Setting>>>:
+def Parsed.rules(fields: List<&2, Json.JField>, out: List<&2, Shared.Named<Setting>>) -> Maybe<&2, List<&2, Shared.Named<Setting>>>:
   match fields:
     case Nil{}:
       Some{List.reverse(&2, Shared.Named<Setting>, out)}
@@ -377,15 +150,15 @@ type Key is Data:
 def Key.names() -> List<&2, Shared.Named<Key>>:
   [Shared.Named{"entries", Entries{}}, Shared.Named{"imports", Imports{}}, Shared.Named{"rules", Rules{}}]
 
-def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json, config: Project) -> Parsed:
+def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json.Json, config: Project) -> Parsed:
   match which value config:
-    case Some{Entries{}} JArray{items} Project{entries, imports, rules}:
+    case Some{Entries{}} Json.JArray{items} Project{entries, imports, rules}:
       Maybe.default(&2, Parsed, Maybe.map(&2, List<&2, String>, Parsed, es => Parsed{Project{es, imports, rules}}, Parsed.entries(folder, items, [])), Invalid{"entries must be a list of paths"})
-    case Some{Imports{}} JTrue{} Project{entries, imports, rules}:
+    case Some{Imports{}} Json.JTrue{} Project{entries, imports, rules}:
       Parsed{Project{entries, Some{True{}}, rules}}
-    case Some{Imports{}} JFalse{} Project{entries, imports, rules}:
+    case Some{Imports{}} Json.JFalse{} Project{entries, imports, rules}:
       Parsed{Project{entries, Some{False{}}, rules}}
-    case Some{Rules{}} JObject{fields} Project{entries, imports, rules}:
+    case Some{Rules{}} Json.JObject{fields} Project{entries, imports, rules}:
       Maybe.default(&2, Parsed, Maybe.map(&2, List<&2, Shared.Named<Setting>>, Parsed, rs => Parsed{Project{entries, imports, rs}}, Parsed.rules(fields, [])), Invalid{"a rule's setting is \"off\", a severity, or an object of a severity and option values"})
     case Some{Entries{}} _ _:
       Invalid{"entries must be a list of paths"}
@@ -397,14 +170,14 @@ def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json,
       Invalid{"unknown key " ++ key}
 
 # A config with one field more: `key` set to `value`.
-def Parsed.field(+folder: String, field: JField, parsed: Parsed) -> Parsed:
+def Parsed.field(+folder: String, field: Json.JField, parsed: Parsed) -> Parsed:
   match field parsed:
     case _ Invalid{why}:
       Invalid{why}
-    case JField{+key, value} Parsed{Project{entries, imports, rules}}:
+    case Json.JField{+key, value} Parsed{Project{entries, imports, rules}}:
       Parsed.set(Shared.lookup(Key, key, Key.names()), key, folder, value, Project{entries, imports, rules})
 
-def Parsed.fields(+folder: String, fields: List<&2, JField>, parsed: Parsed) -> Parsed:
+def Parsed.fields(+folder: String, fields: List<&2, Json.JField>, parsed: Parsed) -> Parsed:
   match fields:
     case Nil{}:
       parsed
@@ -412,9 +185,9 @@ def Parsed.fields(+folder: String, fields: List<&2, JField>, parsed: Parsed) -> 
       Parsed.fields(folder, rest, Parsed.field(folder, f, parsed))
 
 # The config a JSON value says, in the folder `folder`.
-def Parsed.of(+folder: String, json: Maybe<&2, Json>) -> Parsed:
+def Parsed.of(+folder: String, json: Maybe<&2, Json.Json>) -> Parsed:
   match json:
-    case Some{JObject{fields}}:
+    case Some{Json.JObject{fields}}:
       Parsed.fields(folder, fields, Parsed{Project{[], None{}, []}})
     case _:
       Invalid{"not a JSON object"}

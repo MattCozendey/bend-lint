@@ -391,55 +391,30 @@ def Plan.allowed(fixing: Fixing, fix: Lint.Fix) -> Bool:
     case DangerousFixes{}:
       True{}
 
-def Plan.allow(allowed: Bool, fix: Lint.Fix) -> Maybe<&2, List<&2, Lint.Operation>>:
-  match allowed fix:
-    case True{} Lint.Fix{title, ops}:
-      Some{ops}
-    case False{} _:
-      None{}
-
-# The operations of the first of `fixes`, if `fixing` allows it.
-def Plan.pick(fixing: Fixing, fixes: List<&2, Lint.Fix>) -> Maybe<&2, List<&2, Lint.Operation>>:
-  match fixes:
-    case Con{+fix, rest}:
-      Plan.allow(Plan.allowed(fixing, fix), fix)
+# The fixes of `founds` that `fixing` allows, in order: each finding's first, if it allows it; onto `out`.
+def Plan.picked(founds: List<&2, Lint.Found>, +fixing: Fixing, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
+  match founds:
     case Nil{}:
-      None{}
+      List.reverse(&2, Lint.Fix, out)
+    case Con{Lint.Found{rule, Lint.Finding{s, span, message, Con{+fix, more}}}, rest}:
+      Plan.picked(rest, fixing, Shared.push(Lint.Fix, Shared.when(Lint.Fix, Plan.allowed(fixing, fix), fix), out))
+    case Con{found, rest}:
+      Plan.picked(rest, fixing, out)
 
-def Plan.work(
-  ops: Maybe<&2, List<&2, Lint.Operation>>,
-  fix: U32,
-  declarations: List<&2, Lint.Declaration>,
-  sources: List<&2, Lint.Source>
-) -> Maybe<&2, List<&2, Change>>:
-  match ops:
-    case Some{os}:
-      Fix.changes(os, fix, declarations, sources, Some{[]})
-    case None{}:
-      None{}
-
-# What each finding's first fix that `fixing` allows asks for, in order, the fixes numbered from `fix`; None for a
-# finding without one, or a fix with an operation the linter cannot make.
-def Plan.works(
-  founds: List<&2, Lint.Found>,
-  +fixing: Fixing,
+# What each of `fixes` asks for, in order, numbered from `fix`; None for a fix with an operation the linter cannot
+# make.
+def Fix.works(
+  fixes: List<&2, Lint.Fix>,
   +declarations: List<&2, Lint.Declaration>,
   +sources: List<&2, Lint.Source>,
   +fix: U32,
   out: List<&2, Maybe<&2, List<&2, Change>>>
 ) -> List<&2, Maybe<&2, List<&2, Change>>>:
-  match founds:
+  match fixes:
     case Nil{}:
       List.reverse(&2, Maybe<&2, List<&2, Change>>, out)
-    case Con{Lint.Found{rule, Lint.Finding{s, span, message, fixes}}, rest}:
-      Plan.works(
-        rest,
-        fixing,
-        declarations,
-        sources,
-        (fix + 1 : U32),
-        Plan.work(Plan.pick(fixing, fixes), fix, declarations, sources) <> out
-      )
+    case Con{Lint.Fix{title, ops}, rest}:
+      Fix.works(rest, declarations, sources, (fix + 1 : U32), Fix.changes(ops, fix, declarations, sources, Some{[]}) <> out)
 
 def Change.spots(changes: List<&2, Change>, out: List<&2, Spot>) -> List<&2, Spot>:
   match changes:
@@ -451,14 +426,14 @@ def Change.spots(changes: List<&2, Change>, out: List<&2, Spot>) -> List<&2, Spo
       Change.spots(rest, out)
 
 # The spots of every fix.
-def Plan.spots(works: List<&2, Maybe<&2, List<&2, Change>>>, out: List<&2, Spot>) -> List<&2, Spot>:
+def Fix.spots(works: List<&2, Maybe<&2, List<&2, Change>>>, out: List<&2, Spot>) -> List<&2, Spot>:
   match works:
     case Nil{}:
       out
     case Con{Some{changes}, rest}:
-      Plan.spots(rest, Change.spots(changes, out))
+      Fix.spots(rest, Change.spots(changes, out))
     case Con{None{}, rest}:
-      Plan.spots(rest, out)
+      Fix.spots(rest, out)
 
 def Change.given(may: Bool, edit: Edit, out: Maybe<&2, List<&2, Edit>>) -> Maybe<&2, List<&2, Edit>>:
   match may out:
@@ -542,59 +517,72 @@ def Plan.fix(edits: Maybe<&2, List<&2, Edit>>, +plan: Plan) -> Plan:
     case None{} _:
       plan
 
-def Plan.step(
+def Edits.step(
   work: Maybe<&2, List<&2, Change>>,
   texts: Map<&2, String>,
   taken: Maybe<&2, List<&2, Edit>> & List<&2, Spotted>,
-  plan: Plan
-) -> List<&2, Spotted> & Plan:
+  out: List<&2, Maybe<&2, List<&2, Edit>>>
+) -> List<&2, Spotted> & List<&2, Maybe<&2, List<&2, Edit>>>:
   match work taken:
     case Some{changes} Tuple{found, rest}:
-      (rest, Plan.fix(Change.edits(changes, texts, found), plan))
+      (rest, Change.edits(changes, texts, found) <> out)
     case None{} Tuple{found, rest}:
-      (rest, plan)
+      (rest, None{} <> out)
 
-# The plan of `works`, the fixes numbered from `fix`, in order; `state` holds the spots read (sorted by fix) and the
-# plan so far. A fix joins whole, if its edits are in files a fix may edit (`texts`), the text writes each name where
-# its spots are, and its edits touch no earlier fix's.
-def Plan.go(works: List<&2, Maybe<&2, List<&2, Change>>>, +fix: U32, +texts: Map<&2, String>, state: List<&2, Spotted> & Plan) ->
-  Plan:
+# The edits of `works`, the fixes numbered from `fix`, in order; `state` holds the spots read (sorted by fix) and the
+# edits so far (last first).
+def Edits.go(
+  works: List<&2, Maybe<&2, List<&2, Change>>>,
+  +fix: U32,
+  +texts: Map<&2, String>,
+  state: List<&2, Spotted> & List<&2, Maybe<&2, List<&2, Edit>>>
+) -> List<&2, Maybe<&2, List<&2, Edit>>>:
   match works state:
-    case Nil{} Tuple{spotted, plan}:
-      plan
-    case Con{w, rest} Tuple{+spotted, plan}:
-      Plan.go(
-        rest,
-        (fix + 1 : U32),
-        texts,
-        Plan.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), plan)
-      )
+    case Nil{} Tuple{spotted, out}:
+      List.reverse(&2, Maybe<&2, List<&2, Edit>>, out)
+    case Con{w, rest} Tuple{+spotted, out}:
+      Edits.go(rest, (fix + 1 : U32), texts, Edits.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), out))
 
-# The text of each file, by path, onto `out`.
-def Plan.texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
+# The text of each of `sources`, by path, onto `out`.
+def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
   match sources:
     case Nil{}:
       out
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
-      Plan.texts(rest, Map.set(&2, String, out, path, text))
+      texts(rest, Map.set(&2, String, out, path, text))
+
+# The edits of each of `fixes`, in order; None for a fix the linter cannot make: an operation it refuses, an edit in a
+# file a fix may not edit, or a rename of a name the text does not write where a use is. Each file a rename changes is
+# read once, for all the fixes.
+def edits(fixes: List<&2, Lint.Fix>, declarations: List<&2, Lint.Declaration>, +sources: List<&2, Lint.Source>) ->
+  List<&2, Maybe<&2, List<&2, Edit>>>:
+  +works = Fix.works(fixes, declarations, sources, 0, [])
+  +own = texts(Program.Program.own(sources), Map.new(&2, String))
+  +groups = Shared.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
+  Edits.go(
+    works,
+    0,
+    own,
+    (Shared.sort(~Spotted, ~Spotted.le, Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, own, [])), [])
+  )
+
+# The plan of `edits`, in order: each fix the linter can make, whose edits touch no earlier fix's.
+def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Edit>>>, plan: Plan) -> Plan:
+  match edits:
+    case Nil{}:
+      plan
+    case Con{e, rest}:
+      Plan.fold(rest, Plan.fix(e, plan))
 
 # The edits of each finding's first fix that `fixing` allows, in order, but those the linter cannot make, and those that
-# touch an earlier one's. Each file a rename changes is read once, for all the fixes.
+# touch an earlier one's.
 def Plan.of(
   founds: List<&2, Lint.Found>,
   fixing: Fixing,
   declarations: List<&2, Lint.Declaration>,
-  +sources: List<&2, Lint.Source>
+  sources: List<&2, Lint.Source>
 ) -> Plan:
-  +works = Plan.works(founds, fixing, declarations, sources, 0, [])
-  +texts = Plan.texts(Program.Program.own(sources), Map.new(&2, String))
-  +groups = Shared.Group.of(~Spot, ~Spot.path, Plan.spots(works, []), Map.new(&2, List<&2, Spot>))
-  Plan.go(
-    works,
-    0,
-    texts,
-    (Shared.sort(~Spotted, ~Spotted.le, Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, texts, [])), Plan{[], 0})
-  )
+  Plan.fold(edits(Plan.picked(founds, fixing, []), declarations, sources), Plan{[], 0})
 
 # Writing
 # -------
@@ -663,18 +651,12 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
         write.all(sources, Shared.Group.of(~Edit, ~Edit.path, edits, Map.new(&2, List<&2, Edit>)))
         return n
 
-def apply.to(fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(U32):
-  match program:
-    case Lint.Program{+sources}:
-      made(
-        sources,
-        Plan.of(founds, fixing, Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources})), sources)
-      )
-
-# Makes the fixes `fixing` allows, of `founds` (in order), in the files of `program`; how many.
-def apply(+fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(U32):
+# Makes the fixes `fixing` allows, of `founds` (in order), in the program's files (`sources`, whose declarations are
+# `declarations`); how many.
+def apply(+fixing: Fixing, founds: List<&2, Lint.Found>, declarations: List<&2, Lint.Declaration>, +sources: List<&2, Lint.Source>) ->
+  IO(U32):
   match fixing:
     case NoFixes{}:
       IO.pure(U32, 0)
     case _:
-      apply.to(fixing, founds, program)
+      made(sources, Plan.of(founds, fixing, declarations, sources))

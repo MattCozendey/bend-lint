@@ -17,7 +17,7 @@
 #
 # Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (the server), program.bend (the
 # program a check gives, and its declarations), directives.bend (bend-lint: comments), config.bend (bend-lint.json),
-# fixes.bend (planning and making fixes), cli.bend (running and output).
+# json.bend (reading and writing JSON), fixes.bend (planning and making fixes), cli.bend (running and output).
 import Base
 import ./shared.bend as Shared
 

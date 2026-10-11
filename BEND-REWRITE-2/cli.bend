@@ -3,6 +3,7 @@ import Base
 import ./config.bend as Config
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
+import ./json.bend as Json
 import ./lint.bend as Lint
 import ./program.bend as Program
 import ./shared.bend as Shared
@@ -690,25 +691,24 @@ def Merge.program(
 # Output
 # ======
 
-# What the run found so far: the lines to print, the findings that stay, and the lines of those directives suppressed
-# (all last first).
+# How the run shows what it finds: as lines of text, or as one JSON object.
+type Format is Data:
+  TextFormat{}
+  JsonFormat{}
+
+# What linting the named file found: the findings that stay and those directives suppressed (both last first), and the
+# texts of files outside its program (where its check failed), by path.
 type Report is Data:
-  Report{lines: List<&2, String>, kept: List<&2, Lint.Found>, suppressed: List<&2, String>}
+  Report{kept: List<&2, Lint.Found>, suppressed: List<&2, Lint.Found>, texts: Map<&2, String>}
 
-# A finding as a line: path:line:column: severity rule: message.
-def Found.show(found: Lint.Found, at: Shared.Position) -> String:
-  match found at:
-    case Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message, fixes}} Shared.Position{line, column}:
-      path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ Lint.Severity.show(severity) ++ " " ++ rule ++ ": "
-        ++ message
+# A finding with the edits of each of its fixes: None for a fix the linter cannot make.
+type Resolved is Data:
+  Resolved{found: Lint.Found, edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>}
 
-# The findings as lines, each with where it starts (`at`, in order), onto `out` (last first).
-def Found.lines(founds: List<&2, Lint.Found>, at: List<&2, Shared.Position>, out: List<&2, String>) -> List<&2, String>:
-  match founds at:
-    case Con{f, rest} Con{p, more}:
-      Found.lines(rest, more, Found.show(f, p) <> out)
-    case _ _:
-      out
+# A finding as the run shows it: a line of text, or a JSON object.
+type Shown is Data:
+  Line{text: String}
+  Object{value: Json.Json}
 
 def Found.is_error(found: Lint.Found) -> Bool:
   match found:
@@ -725,25 +725,269 @@ def Found.in(founds: List<&2, Lint.Found>, +path: String, out: List<&2, Lint.Fou
     case Con{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+p, beg, end}, message, fixes}}, rest}:
       Found.in(rest, path, Found.keep(String.eq(p, path), Lint.Found{rule, Lint.Finding{severity, Lint.Span{p, beg, end}, message, fixes}}, out))
 
+# The fixes of each of `founds`, in order, onto `out` (last first).
+def Found.fixes(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
+  match founds:
+    case Nil{}:
+      List.reverse(&2, Lint.Fix, out)
+    case Con{Lint.Found{rule, Lint.Finding{severity, span, message, fixes}}, rest}:
+      Found.fixes(rest, Shared.onto(&2, Lint.Fix, fixes, out))
+
 # A linted file's findings, after its directives, added to the report.
-def Report.add(+text: String, found: Directives.Suppressed, report: Report) -> Report:
+def Report.add(found: Directives.Suppressed, report: Report) -> Report:
   match found report:
-    case Directives.Suppressed{+kept, +suppressed} Report{lines, k, s}:
+    case Directives.Suppressed{kept, suppressed} Report{k, s, texts}:
+      Report{Shared.onto(&2, Lint.Found, kept, k), Shared.onto(&2, Lint.Found, suppressed, s), texts}
+
+def Report.failure(span: Lint.Span, message: String, text: String) -> Report:
+  match span:
+    case Lint.Span{+path, beg, end}:
       Report{
-        Found.lines(kept, Shared.positions(text, Lint.Found.offsets(kept, [])), lines),
-        Shared.onto(&2, Lint.Found, kept, k),
-        Found.lines(suppressed, Shared.positions(text, Lint.Found.offsets(suppressed, [])), s)
+        [Lint.Found{"bend/check", Lint.Finding{Lint.Error{}, Lint.Span{path, beg, end}, message, []}}],
+        [],
+        Map.set(&2, String, Map.new(&2, String), path, text)
       }
 
-# What linting named files gave: how many findings stay, the lines of those directives suppressed (last first), whether
-# a file fails the run, and how many fixes the run made.
+# The report of the named file (at `path`) so far: Bend's message as its first finding, at the failure, if its own
+# check failed.
+def Report.failed(path: String, failure: Maybe<&2, Program.Failure>) -> Report:
+  match failure:
+    case Some{Program.Failure{message, at, text}}:
+      Report.failure(Maybe.default(&2, Lint.Span, at, Lint.Span{path, 0, 0}), message, text)
+    case None{}:
+      Report{[], [], Map.new(&2, String)}
+
+# Each linted file's findings, after `out`: those of the file rules, then those of the program rules, after its
+# directives.
+def report(
+  linted: List<&2, Lint.Source>,
+  +files: List<&2, Lint.Found>,
+  +program: List<&2, Lint.Found>,
+  +known: List<&2, String>,
+  +ran: List<&2, String>,
+  out: Report
+) -> Report:
+  match linted:
+    case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+      report(
+        rest,
+        files,
+        program,
+        known,
+        ran,
+        Report.add(
+          Directives.apply(
+            Directives.Linted{path, text, known, ran},
+            Shared.append(&2, Lint.Found, Found.in(files, path, []), Found.in(program, path, []))
+          ),
+          out
+        )
+      )
+    case Nil{}:
+      out
+
+# Rendering
+# ---------
+
+# Each finding with the edits of its fixes, taken in order from `edits` (empty: none resolved).
+def Resolved.of(founds: List<&2, Lint.Found>, +edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>, out: List<&2, Resolved>) ->
+  List<&2, Resolved>:
+  match founds:
+    case Nil{}:
+      List.reverse(&2, Resolved, out)
+    case Con{Lint.Found{rule, Lint.Finding{severity, span, message, +fixes}}, rest}:
+      +n = Shared.length(&2, Lint.Fix, fixes)
+      Resolved.of(
+        rest,
+        List.drop(&2, Maybe<&2, List<&2, Fixes.Edit>>, edits, n),
+        Resolved{Lint.Found{rule, Lint.Finding{severity, span, message, fixes}}, List.take(&2, Maybe<&2, List<&2, Fixes.Edit>>, edits, n)}
+          <> out
+      )
+
+# The places of `edits`, onto `out` (last first): where each starts and ends.
+def Edit.places(edits: List<&2, Fixes.Edit>, out: List<&2, Shared.Place>) -> List<&2, Shared.Place>:
+  match edits:
+    case Nil{}:
+      out
+    case Con{Fixes.Edit{+path, beg, end, text}, rest}:
+      Edit.places(rest, Shared.Place{path, end} <> Shared.Place{path, beg} <> out)
+
+def Edits.places(edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>, out: List<&2, Shared.Place>) -> List<&2, Shared.Place>:
+  match edits:
+    case Nil{}:
+      out
+    case Con{Some{es}, rest}:
+      Edits.places(rest, Edit.places(es, out))
+    case Con{None{}, rest}:
+      Edits.places(rest, out)
+
+# The places a finding shows besides its start, onto `out`: in JSON, its end and its fixes' edits'.
+def Shown.more(format: Format, +path: String, end: U32, edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>, out: List<&2, Shared.Place>) ->
+  List<&2, Shared.Place>:
+  match format:
+    case TextFormat{}:
+      out
+    case JsonFormat{}:
+      Edits.places(edits, Shared.Place{path, end} <> out)
+
+# The places the findings show in `format`, onto `out`.
+def Shown.places(+format: Format, resolved: List<&2, Resolved>, out: List<&2, Shared.Place>) -> List<&2, Shared.Place>:
+  match resolved:
+    case Nil{}:
+      out
+    case Con{Resolved{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}, edits}, rest}:
+      Shown.places(format, rest, Shown.more(format, path, end, edits, Shared.Place{path, beg} <> out))
+
+def Found.line.at(path: String, at: Shared.Position, said: String) -> String:
+  match at:
+    case Shared.Position{line, column}:
+      path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ said
+
+# A finding as a line: path:line:column: severity rule: message.
+def Found.line(found: Lint.Found, +places: Map<&2, Shared.Position>) -> String:
+  match found:
+    case Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}:
+      Found.line.at(path, Shared.Place.at(places, path, beg), Lint.Severity.show(severity) ++ " " ++ rule ++ ": " ++ message)
+
+# A position as JSON: its line and character, from 0.
+def Object.position(at: Shared.Position) -> Json.Json:
+  match at:
+    case Shared.Position{line, column}:
+      Json.JObject{
+        [
+          Json.JField{"line", Json.JNumber{U32.show((line - 1 : U32))}},
+          Json.JField{"character", Json.JNumber{U32.show((column - 1 : U32))}}
+        ]
+      }
+
+def Object.range(+places: Map<&2, Shared.Position>, +path: String, beg: U32, end: U32) -> Json.Json:
+  Json.JObject{
+    [
+      Json.JField{"start", Object.position(Shared.Place.at(places, path, beg))},
+      Json.JField{"end", Object.position(Shared.Place.at(places, path, end))}
+    ]
+  }
+
+def Object.edits(edits: List<&2, Fixes.Edit>, +places: Map<&2, Shared.Position>, out: List<&2, Json.Json>) -> List<&2, Json.Json>:
+  match edits:
+    case Nil{}:
+      List.reverse(&2, Json.Json, out)
+    case Con{Fixes.Edit{+path, beg, end, text}, rest}:
+      Object.edits(
+        rest,
+        places,
+        Json.JObject{
+          [
+            Json.JField{"path", Json.JString{path}},
+            Json.JField{"range", Object.range(places, path, beg, end)},
+            Json.JField{"text", Json.JString{text}}
+          ]
+        } <> out
+      )
+
+def Object.fix(safe: Bool, fix: Lint.Fix, edits: List<&2, Fixes.Edit>, +places: Map<&2, Shared.Position>) -> Json.Json:
+  match fix:
+    case Lint.Fix{title, ops}:
+      Json.JObject{
+        [
+          Json.JField{"title", Json.JString{title}},
+          Json.JField{"applicability", Json.JString{Bool.pick(String, safe, "safe", "dangerous")}},
+          Json.JField{"edits", Json.JArray{Object.edits(edits, places, [])}}
+        ]
+      }
+
+# The fixes the linter can make, as JSON, onto `out`: `edits` says each one's edits.
+def Object.fixes(fixes: List<&2, Lint.Fix>, edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>, +places: Map<&2, Shared.Position>, out: List<&2, Json.Json>) ->
+  List<&2, Json.Json>:
+  match fixes edits:
+    case Con{+fix, rest} Con{Some{es}, more}:
+      Object.fixes(rest, more, places, Object.fix(Fixes.Fix.safe(fix), fix, es, places) <> out)
+    case Con{fix, rest} Con{None{}, more}:
+      Object.fixes(rest, more, places, out)
+    case _ _:
+      List.reverse(&2, Json.Json, out)
+
+# A finding as JSON: what the TS version's --json shows, but `def`.
+def Object.finding(resolved: Resolved, +places: Map<&2, Shared.Position>) -> Json.Json:
+  match resolved:
+    case Resolved{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}, edits}:
+      Json.JObject{
+        [
+          Json.JField{"code", Json.JString{rule}},
+          Json.JField{"severity", Json.JString{Lint.Severity.show(severity)}},
+          Json.JField{"message", Json.JString{message}},
+          Json.JField{"path", Json.JString{path}},
+          Json.JField{"range", Object.range(places, path, beg, end)},
+          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, [])}}
+        ]
+      }
+
+def Shown.one(format: Format, resolved: Resolved, +places: Map<&2, Shared.Position>) -> Shown:
+  match format resolved:
+    case TextFormat{} Resolved{found, edits}:
+      Line{Found.line(found, places)}
+    case JsonFormat{} _:
+      Object{Object.finding(resolved, places)}
+
+# The findings as the run shows them in `format`, onto `out` (last first): `places` holds where they are.
+def Shown.of(+format: Format, resolved: List<&2, Resolved>, +places: Map<&2, Shared.Position>, out: List<&2, Shown>) ->
+  List<&2, Shown>:
+  match resolved:
+    case Nil{}:
+      out
+    case Con{r, rest}:
+      Shown.of(format, rest, places, Shown.one(format, r, places) <> out)
+
+def Shown.text(shown: Shown) -> String:
+  match shown:
+    case Line{text}:
+      text
+    case Object{value}:
+      Json.show(value)
+
+def Shown.json(shown: Shown) -> Json.Json:
+  match shown:
+    case Object{value}:
+      value
+    case Line{text}:
+      Json.JString{text}
+
+# The edits of the fixes of `founds`, in order, if `format` shows them.
+def Shown.edits(format: Format, founds: List<&2, Lint.Found>, declarations: List<&2, Lint.Declaration>, sources: List<&2, Lint.Source>) ->
+  List<&2, Maybe<&2, List<&2, Fixes.Edit>>>:
+  match format:
+    case TextFormat{}:
+      []
+    case JsonFormat{}:
+      Fixes.edits(Found.fixes(founds, []), declarations, sources)
+
+# The declarations of the program's files (`sources`), if the run needs them: to show fixes, or to make them.
+def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
+  match need:
+    case True{}:
+      Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources}))
+    case False{}:
+      []
+
+def Declarations.needed(format: Format, fixing: Fixes.Fixing) -> Bool:
+  match format fixing:
+    case TextFormat{} Fixes.NoFixes{}:
+      False{}
+    case _ _:
+      True{}
+
+# Ending
+# ------
+
+# What linting named files gave: how many findings stay; those to show at the end, and those directives suppressed
+# (both last first); whether a file fails the run; and how many fixes the run made.
 type Outcome is Data:
-  Outcome{findings: Nat, suppressed: List<&2, String>, failed: Bool, fixed: U32}
+  Outcome{count: Nat, findings: List<&2, Shown>, suppressed: List<&2, Shown>, failed: Bool, fixed: U32}
 
 def Outcome.add(a: Outcome, b: Outcome) -> Outcome:
   match a b:
-    case Outcome{n, s, f, x} Outcome{m, t, g, y}:
-      Outcome{Nat.add(n, m), Shared.append(&2, String, t, s), f || g, (x + y : U32)}
+    case Outcome{n, f, s, e, x} Outcome{m, g, t, d, y}:
+      Outcome{Nat.add(n, m), Shared.append(&2, Shown, g, f), Shared.append(&2, Shown, t, s), e || d, (x + y : U32)}
 
 # How many fixes the run made, if it fixes.
 def summary.fixed(fixing: Fixes.Fixing, fixed: U32) -> String:
@@ -769,85 +1013,100 @@ def say(lines: List<&2, String>) -> IO(Unit):
     case Con{h, t}:
       IO.print(String.join(h <> t, "\n"))
 
-# The lines of the findings directives suppressed, if the run shows them (`shown`) and there are some.
-def shown(shown: Bool, lines: List<&2, String>) -> List<&2, String>:
-  match shown lines:
-    case True{} Con{l, ls}:
-      "bend-lint: suppressed" <> List.reverse(&2, String, Con{l, ls})
+def Shown.texts(shown: List<&2, Shown>, out: List<&2, String>) -> List<&2, String>:
+  match shown:
+    case Nil{}:
+      out
+    case Con{s, rest}:
+      Shown.texts(rest, Shown.text(s) <> out)
+
+def Shown.values(shown: List<&2, Shown>, out: List<&2, Json.Json>) -> List<&2, Json.Json>:
+  match shown:
+    case Nil{}:
+      out
+    case Con{s, rest}:
+      Shown.values(rest, Shown.json(s) <> out)
+
+# The lines of the findings directives suppressed (last first), if the run shows them and there are some.
+def suppressed.lines(show: Bool, shown: List<&2, Shown>) -> List<&2, String>:
+  match show shown:
+    case True{} Con{s, ss}:
+      "bend-lint: suppressed" <> Shown.texts(Con{s, ss}, [])
     case _ _:
       []
 
-# Ends the run: it fails if a named file fails, else it says what it found.
-def end(outcome: Outcome, show: Bool, fixing: Fixes.Fixing) -> IO(Unit):
-  match outcome:
-    case Outcome{n, s, True{}, x}:
-      do IO<Unit>:
-        say(shown(show, s))
-        IO.die(Unit, 1, "bend-lint: FAIL")
-    case Outcome{n, +s, False{}, x}:
-      do IO<Unit>:
-        say(shown(show, s))
-        IO.print(summary(n, Shared.length(&2, String, s), summary.fixed(fixing, x)))
+# Ends a JSON run: it fails, or says its summary on stderr.
+def end.json(failed: Bool, summary: String) -> IO(Unit):
+  match failed:
+    case True{}:
+      IO.die(Unit, 1, "bend-lint: FAIL")
+    case False{}:
+      IO.print_err(summary)
 
-# Prints the report, then makes the fixes `fixing` allows in `program`'s files: what linting the named file gave. It
-# fails if a finding that stays is an error.
-def outcome(report: Report, +fixing: Fixes.Fixing, program: Lint.Program) -> IO(Outcome):
-  match report:
-    case Report{lines, +kept, suppressed}:
+# Ends the run in `format`: it fails if a named file fails, else it says what it found. In JSON, the one object is all
+# it prints on stdout; the summary goes to stderr.
+def end(format: Format, total: Outcome, show: Bool, fixing: Fixes.Fixing) -> IO(Unit):
+  match format total:
+    case TextFormat{} Outcome{n, f, s, True{}, x}:
+      do IO<Unit>:
+        say(suppressed.lines(show, s))
+        IO.die(Unit, 1, "bend-lint: FAIL")
+    case TextFormat{} Outcome{n, f, +s, False{}, x}:
+      do IO<Unit>:
+        say(suppressed.lines(show, s))
+        IO.print(summary(n, Shared.length(&2, Shown, s), summary.fixed(fixing, x)))
+    case JsonFormat{} Outcome{n, f, +s, +failed, x}:
+      do IO<Unit>:
+        IO.print(
+          Json.show(
+            Json.JObject{
+              [
+                Json.JField{"ok", Bool.pick(Json.Json, failed, Json.JFalse{}, Json.JTrue{})},
+                Json.JField{"findings", Json.JArray{Shown.values(f, [])}},
+                Json.JField{"suppressed", Json.JArray{Shown.values(s, [])}}
+              ]
+            }
+          )
+        )
+        end.json(failed, summary(n, Shared.length(&2, Shown, s), summary.fixed(fixing, x)))
+
+# The findings to keep for the end of the run: in JSON, all of them; in text, none, as they are printed already.
+def Shown.kept(format: Format, shown: List<&2, Shown>) -> List<&2, Shown>:
+  match format:
+    case TextFormat{}:
+      []
+    case JsonFormat{}:
+      shown
+
+# The lines the run prints for a named file as it goes: in text, its findings; in JSON, none.
+def Shown.printed(format: Format, shown: List<&2, Shown>) -> List<&2, String>:
+  match format:
+    case TextFormat{}:
+      List.reverse(&2, String, Shown.texts(shown, []))
+    case JsonFormat{}:
+      []
+
+# Prints the report in text, then makes the fixes `fixing` allows in `program`'s files: what linting the named file
+# gave. It fails if a finding that stays is an error.
+def outcome(report: Report, +format: Format, +fixing: Fixes.Fixing, program: Lint.Program) -> IO(Outcome):
+  match report program:
+    case Report{kept, suppressed, extra} Lint.Program{+sources}:
+      +founds = List.reverse(&2, Lint.Found, kept)
+      +all = Shared.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
+      +declarations = Declarations.of(Declarations.needed(format, fixing), sources)
+      +resolved = Resolved.of(all, Shown.edits(format, all, declarations, sources), [])
+      +n = Shared.length(&2, Lint.Found, founds)
+      +shown = List.reverse(&2, Shown, Shown.of(format, resolved, Shared.places(Fixes.texts(sources, extra), Shown.places(format, resolved, [])), []))
       do IO<Outcome>:
-        say(List.reverse(&2, String, lines))
-        fixed : U32 <- Fixes.apply(fixing, List.reverse(&2, Lint.Found, kept), program)
+        say(Shown.printed(format, List.take(&2, Shown, shown, n)))
+        fixed : U32 <- Fixes.apply(fixing, founds, declarations, sources)
         return Outcome{
-          Shared.length(&2, Lint.Found, kept),
-          suppressed,
-          Shared.any(~Lint.Found, ~Found.is_error, kept),
+          n,
+          List.reverse(&2, Shown, Shown.kept(format, List.take(&2, Shown, shown, n))),
+          List.reverse(&2, Shown, List.drop(&2, Shown, shown, n)),
+          Shared.any(~Lint.Found, ~Found.is_error, founds),
           fixed
         }
-
-def Report.failure(+found: Lint.Found, text: String) -> Report:
-  Report{Found.lines([found], Shared.positions(text, Lint.Found.offsets([found], [])), []), [found], []}
-
-# The report of the named file (at `path`) so far: Bend's message as its first finding, at the failure, if its own
-# check failed.
-def Report.failed(+path: String, failure: Maybe<&2, Program.Failure>) -> Report:
-  match failure:
-    case Some{Program.Failure{message, at, text}}:
-      Report.failure(
-        Lint.Found{"bend/check", Lint.Finding{Lint.Error{}, Maybe.default(&2, Lint.Span, at, Lint.Span{path, 0, 0}), message, []}},
-        text
-      )
-    case None{}:
-      Report{[], [], []}
-
-# Each linted file's findings, after `out`: those of the file rules, then those of the program rules, after its
-# directives.
-def report(
-  linted: List<&2, Lint.Source>,
-  +files: List<&2, Lint.Found>,
-  +program: List<&2, Lint.Found>,
-  +known: List<&2, String>,
-  +ran: List<&2, String>,
-  out: Report
-) -> Report:
-  match linted:
-    case Con{Lint.Source{+path, namespace, +text, nodes, facts}, rest}:
-      report(
-        rest,
-        files,
-        program,
-        known,
-        ran,
-        Report.add(
-          text,
-          Directives.apply(
-            Directives.Linted{path, text, known, ran},
-            Shared.append(&2, Lint.Found, Found.in(files, path, []), Found.in(program, path, []))
-          ),
-          out
-        )
-      )
-    case Nil{}:
-      out
 
 # CLI
 # ===
@@ -866,12 +1125,14 @@ def finish(
   +partial: Bool,
   +known: List<&2, String>,
   +ran: List<&2, String>,
+  +format: Format,
   +fixing: Fixes.Fixing,
   program: Lint.Program,
   first: Report
 ) -> IO(Outcome):
   outcome(
     report(linted, Tagged.of(tagged, 0, []), Merge.program(tagged, checks, modes, partial), known, ran, first),
+    format,
     fixing,
     program
   )
@@ -894,6 +1155,7 @@ def lint(
   +programs: List<&2, Lint.Program>,
   +partial: Bool,
   +settings: List<&2, Shared.Named<Config.Setting>>,
+  +format: Format,
   +fixing: Fixes.Fixing,
   first: Report
 ) -> IO(Outcome):
@@ -928,6 +1190,7 @@ def lint(
         partial,
         Rule.ids(rules, []),
         Rule.ids(Rule.on(rules, settings, []), []),
+        format,
         fixing,
         Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]}),
         first
@@ -965,8 +1228,15 @@ def linted(imports: Bool, +path: String, +sources: List<&2, Lint.Source>) -> Lis
     case False{}:
       Maybe.default(&2, List<&2, Lint.Source>, Maybe.map(&2, Lint.Source, List<&2, Lint.Source>, s => [s], Source.at(sources, path)), [])
 
-def checked(~rules: List<&1, Lint.Rule>, +path: String, imports: Bool, +settings: List<&2, Shared.Named<Config.Setting>>, +fixing: Fixes.Fixing, checks: Checks) ->
-  IO(Outcome):
+def checked(
+  ~rules: List<&1, Lint.Rule>,
+  +path: String,
+  imports: Bool,
+  +settings: List<&2, Shared.Named<Config.Setting>>,
+  +format: Format,
+  +fixing: Fixes.Fixing,
+  checks: Checks
+) -> IO(Outcome):
   match checks:
     case Checks{Con{Lint.Program{+sources}, rest}, partial, +failure, forget}:
       IO.bind(
@@ -979,13 +1249,14 @@ def checked(~rules: List<&1, Lint.Rule>, +path: String, imports: Bool, +settings
           Lint.Program{sources} <> rest,
           partial,
           Rule.unchecked(Maybe.is_some(&2, Program.Failure, failure), rules, settings),
+          format,
           fixing,
           Report.failed(path, failure)
         ),
         outcome => forgotten(forget, outcome)
       )
     case Checks{Nil{}, partial, failure, forget}:
-      outcome(Report.failed(path, failure), fixing, Lint.Program{[]})
+      outcome(Report.failed(path, failure), format, fixing, Lint.Program{[]})
 
 # The named file's own check, as the checks to lint it in. If it fails, the failure is the first finding, and the rules
 # that need no facts run on what it parsed, if it parsed the files.
@@ -1067,9 +1338,9 @@ def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
       IO.pure(Unit, Unit{})
 
 # What the command line asks: the files to lint (paths or globs), whether to lint the files each imports too, if it
-# says, how to fix, and whether to show the findings directives suppressed.
+# says, how to fix, whether to show the findings directives suppressed, and how to show what the run finds.
 type Options is Data:
-  Options{inputs: List<&2, String>, imports: Maybe<&2, Bool>, fixing: Fixes.Fixing, shown: Bool}
+  Options{inputs: List<&2, String>, imports: Maybe<&2, Bool>, fixing: Fixes.Fixing, shown: Bool, format: Format}
 
 # Stops the run if it lints the imports of more than one file: a run with imports has one root.
 def Options.single(imports: Bool, many: Bool) -> IO(Unit):
@@ -1083,6 +1354,7 @@ def settled(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
   +imports: Bool,
+  +format: Format,
   +fixing: Fixes.Fixing,
   +entries: List<&2, String>,
   +settings: List<&2, Shared.Named<Config.Setting>>
@@ -1091,26 +1363,27 @@ def settled(
     Checks,
     Outcome,
     Check.of(imports, entries, path, Rule.need_facts(Rule.on(rules, settings, []))),
-    checks => checked(~rules, path, imports, settings, fixing, checks)
+    checks => checked(~rules, path, imports, settings, format, fixing, checks)
   )
 
 # Lints the file at `path` as its config says: `many` says whether the run lints more than one file.
 def configured(~rules: List<&1, Lint.Rule>, +path: String, +options: Options, +many: Bool, project: Config.Project) ->
   IO(Outcome):
   match options project:
-    case Options{inputs, flag, +fixing, shown} Config.Project{entries, from, +settings}:
+    case Options{inputs, flag, fixing, shown, format} Config.Project{entries, from, +settings}:
       +on = imports(flag, from)
       do IO<Outcome>:
         Options.checked(Rule.problem(rules, settings))
         Options.single(on, many)
-        settled(~rules, path, on, fixing, entries, Rule.settle(rules, settings, []))
+        settled(~rules, path, on, format, fixing, entries, Rule.settle(rules, settings, []))
 
-# What a flag sets: whether to lint the files the named file imports, how to fix, or whether to show the findings
-# directives suppressed.
+# What a flag sets: whether to lint the files the named file imports, how to fix, whether to show the findings
+# directives suppressed, or to show what the run finds as JSON.
 type Flag is Data:
   ImportsFlag{on: Bool}
   FixFlag{fixing: Fixes.Fixing}
   ShownFlag{}
+  JsonFlag{}
 
 def flags() -> List<&2, Shared.Named<Flag>>:
   [
@@ -1118,24 +1391,27 @@ def flags() -> List<&2, Shared.Named<Flag>>:
     Shared.Named{"--no-imports", ImportsFlag{False{}}},
     Shared.Named{"--fix", FixFlag{Fixes.SafeFixes{}}},
     Shared.Named{"--fix-dangerously", FixFlag{Fixes.DangerousFixes{}}},
-    Shared.Named{"--show-suppressed", ShownFlag{}}
+    Shared.Named{"--show-suppressed", ShownFlag{}},
+    Shared.Named{"--json", JsonFlag{}}
   ]
 
 def Options.set(flag: Maybe<&2, Flag>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match flag options:
-    case Some{ImportsFlag{on}} Some{Options{inputs, imports, fixing, shown}}:
-      Some{Options{inputs, Some{on}, fixing, shown}}
-    case Some{FixFlag{set}} Some{Options{inputs, imports, fixing, shown}}:
-      Some{Options{inputs, imports, set, shown}}
-    case Some{ShownFlag{}} Some{Options{inputs, imports, fixing, shown}}:
-      Some{Options{inputs, imports, fixing, True{}}}
+    case Some{ImportsFlag{on}} Some{Options{inputs, imports, fixing, shown, format}}:
+      Some{Options{inputs, Some{on}, fixing, shown, format}}
+    case Some{FixFlag{set}} Some{Options{inputs, imports, fixing, shown, format}}:
+      Some{Options{inputs, imports, set, shown, format}}
+    case Some{ShownFlag{}} Some{Options{inputs, imports, fixing, shown, format}}:
+      Some{Options{inputs, imports, fixing, True{}, format}}
+    case Some{JsonFlag{}} Some{Options{inputs, imports, fixing, shown, format}}:
+      Some{Options{inputs, imports, fixing, shown, JsonFormat{}}}
     case _ _:
       None{}
 
 def Options.input(input: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{inputs, imports, fixing, shown}}:
-      Some{Options{input <> inputs, imports, fixing, shown}}
+    case Some{Options{inputs, imports, fixing, shown, format}}:
+      Some{Options{input <> inputs, imports, fixing, shown, format}}
     case None{}:
       None{}
 
@@ -1150,8 +1426,8 @@ def Options.arg(flag: Bool, +arg: String, options: Maybe<&2, Options>) -> Maybe<
 # The options, once every argument is read: the files in order; none if there are none.
 def Options.done(options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{Con{first, more}, imports, fixing, shown}}:
-      Some{Options{List.reverse(&2, String, Con{first, more}), imports, fixing, shown}}
+    case Some{Options{Con{first, more}, imports, fixing, shown, format}}:
+      Some{Options{List.reverse(&2, String, Con{first, more}), imports, fixing, shown, format}}
     case _:
       None{}
 
@@ -1163,11 +1439,11 @@ def Options.read(args: List<String>, options: Maybe<&2, Options>) -> Maybe<&2, O
       Options.read(rest, Options.arg(String.starts_with(a, "--"), a, options))
 
 # The options of the command line, past the program's name: `<file or glob>... [--imports | --no-imports] [--fix |
-# --fix-dangerously] [--show-suppressed]`.
+# --fix-dangerously] [--show-suppressed] [--json]`.
 def options(args: List<String>) -> Maybe<&2, Options>:
   match args:
     case Con{program, rest}:
-      Options.read(rest, Some{Options{[], None{}, Fixes.NoFixes{}, False{}}})
+      Options.read(rest, Some{Options{[], None{}, Fixes.NoFixes{}, False{}, TextFormat{}}})
     case Nil{}:
       None{}
 
@@ -1176,20 +1452,25 @@ def File.lint(~rules: List<&1, Lint.Rule>, +path: String, +options: Options, +ma
 
 def Options.fixing(options: Options) -> Fixes.Fixing:
   match options:
-    case Options{inputs, imports, fixing, shown}:
+    case Options{inputs, imports, fixing, shown, format}:
       fixing
 
 def Options.shown(options: Options) -> Bool:
   match options:
-    case Options{inputs, imports, fixing, shown}:
+    case Options{inputs, imports, fixing, shown, format}:
       shown
+
+def Options.format(options: Options) -> Format:
+  match options:
+    case Options{inputs, imports, fixing, shown, format}:
+      format
 
 # Lints each file at `paths` in turn, then ends the run with what they gave, added to `total`.
 def Files.lint(~rules: List<&1, Lint.Rule>, paths: List<&2, String>, +options: Options, +many: Bool, total: Outcome) ->
   IO(Unit):
   match paths:
     case Nil{}:
-      end(total, Options.shown(options), Options.fixing(options))
+      end(Options.format(options), total, Options.shown(options), Options.fixing(options))
     case Con{path, rest}:
       IO.bind(Outcome, Unit, File.lint(~rules, path, options, many), o => Files.lint(~rules, rest, options, many, Outcome.add(total, o)))
 
@@ -1234,18 +1515,18 @@ def named(inputs: List<&2, String>) -> IO(List<&2, String>):
 
 def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+inputs, flag, fixing, shown}}:
+    case Some{Options{+inputs, flag, fixing, shown, format}}:
       IO.bind(
         List<&2, String>,
         Unit,
         named(inputs),
-        +paths => Files.lint(~rules, paths, Options{inputs, flag, fixing, shown}, Nat.is_gt(Shared.length(&2, String, paths), 1n), Outcome{0n, [], False{}, 0})
+        +paths => Files.lint(~rules, paths, Options{inputs, flag, fixing, shown, format}, Nat.is_gt(Shared.length(&2, String, paths), 1n), Outcome{0n, [], [], False{}, 0})
       )
     case None{}:
       IO.die(
         Unit,
         2,
-        "usage: bun server.ts <program> <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed]"
+        "usage: bun server.ts <program> <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]"
       )
 
 # The command line: lint the named files with `rules`.
