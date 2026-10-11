@@ -3,7 +3,8 @@
 #
 # Design
 # - Only Bend rules. The target is the C lane; the JS lane must work too.
-# - The rules program is an ordinary Bend program: `bend main.bend -o lint` builds it once. No restart, no rule cache.
+# - The rules program is an ordinary Bend program: server.ts builds it once, and keeps the build. No restart, no rule
+#   cache.
 # - Bend's checker is TS for now. server.ts runs the program and answers its questions about Bend files over local
 #   TCP (wire.bend). When the checker is Bend, the server goes, and these questions become calls.
 # - Rules are pure, so they run in parallel. A rule asks the checker about types through Ask (`do Lint.Ask<A>:`);

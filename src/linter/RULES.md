@@ -69,12 +69,14 @@ def main() -> IO(Unit):
   Cli.run(~[NoFoo.rule()])
 ```
 
-Build it, then run it through the server, from this folder:
+Run it through the server, which builds it on the first run and keeps the build:
 
 ```sh
-bend main.bend -o lint                # the C lane (lint.exe on Windows); -o lint.js for the JS lane
-bun server.ts ./lint <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]
+bend-lint --program main.bend <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]
 ```
+
+`--program` also takes a build: an executable (the C lane), or a `.js` build from
+`bend main.bend -o lint.js` (the JS lane).
 
 | Flag                | What                                                                             |
 | ------------------- | -------------------------------------------------------------------------------- |
@@ -89,7 +91,7 @@ bun server.ts ./lint <file or glob>... [--imports | --no-imports] [--fix | --fix
   else 0.
 - The server caches each passed check, by root, in `~/.cache/bend-lint/server/checks`
   (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%` on Windows). A later run whose files are unchanged skips
-  Bend's check. An entry unused for a week is deleted.
+  Bend's check. Builds go to `server/programs` beside it. An entry unused for a week is deleted.
 
 The config, `bend-lint.json`, is the nearest one up from the named file:
 

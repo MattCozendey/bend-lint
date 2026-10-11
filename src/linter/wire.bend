@@ -150,7 +150,7 @@ def port.of(port: Maybe<&2, U32>) -> IO(U32):
       IO.die(
         U32,
         2,
-        "bend-lint: BEND_LINT_PORT is not a port; run this program with `bun server.ts`"
+        "bend-lint: BEND_LINT_PORT is not a port; run this program with `bend-lint --program <it>`"
       )
 
 # The server's port, from BEND_LINT_PORT.

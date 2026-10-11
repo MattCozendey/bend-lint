@@ -9,8 +9,25 @@ import * as url from "node:url";
 import { error, ok } from "./result.ts";
 import type { Result } from "./result.ts";
 
+// Types
+// =====
+
+// How a command ended: its exit code, and what it printed.
+export type Outcome = { code: number; out: string; err: string };
+
 // Functions
 // =========
+
+// How `cmd` ends when it runs in `cwd`.
+export const getCommandOutcome = async (cmd: string[], cwd: string): Promise<Outcome> => {
+  const child = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  const [code, out, err] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, out, err };
+};
 
 export const getErrorMessageFromUnknown = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);

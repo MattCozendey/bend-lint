@@ -176,7 +176,7 @@ try {
     exe,
   ]);
   const raw = path.join(work, "program.profraw");
-  const ran = spawnSync(process.execPath, [SERVER, exe, ...args], {
+  const ran = spawnSync(process.execPath, [SERVER, "--program", exe, ...args], {
     env: { ...process.env, LLVM_PROFILE_FILE: raw },
     stdio: "inherit",
   });

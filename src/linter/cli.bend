@@ -1915,7 +1915,7 @@ def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Uni
       IO.die(
         Unit,
         2,
-        "usage: bun server.ts <program> <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]"
+        "usage: bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]"
       )
 
 # The command line: lint the named files with `rules`.

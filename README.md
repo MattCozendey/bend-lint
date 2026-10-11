@@ -3,8 +3,8 @@
 A linter and formatter for Bend 2.
 
 ```sh
-bend src/linter/main.bend -o lint
-bun src/linter/server.ts ./lint main.bend --fix
+bun add -g github:MattCozendey/bend-lint
+bend-lint main.bend --fix
 ```
 
 ## What it does
@@ -25,31 +25,27 @@ The default rules program, [src/linter/main.bend](src/linter/main.bend), runs ev
 3. Run:
 
 ```sh
-git clone https://github.com/MattCozendey/bend-lint.git
-cd bend-lint
-bun install
+bun add -g github:MattCozendey/bend-lint
 ```
 
 ## Run it
 
-Build a rules program once, and again when its rules change:
-
 ```sh
-bend src/linter/main.bend -o lint      # lint.exe on Windows; -o lint.js for the JS build
+bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports]
+          [--fix | --fix-dangerously] [--show-suppressed] [--json]
 ```
 
-Then run it through the server:
+| To lint         | Command                              |
+| --------------- | ------------------------------------ |
+| One file        | `bend-lint main.bend`                |
+| Many files      | `bend-lint "src/**/*.bend"`          |
+| A whole program | `bend-lint main.bend --imports`      |
+| With your rules | `bend-lint --program my.bend a.bend` |
 
-```sh
-bun src/linter/server.ts ./lint <file or glob>... [--imports | --no-imports]
-                         [--fix | --fix-dangerously] [--show-suppressed] [--json]
-```
-
-| To lint         | Command                                               |
-| --------------- | ----------------------------------------------------- |
-| One file        | `bun src/linter/server.ts ./lint main.bend`           |
-| Many files      | `bun src/linter/server.ts ./lint "src/**/*.bend"`     |
-| A whole program | `bun src/linter/server.ts ./lint main.bend --imports` |
+- Without `--program`, bend-lint runs the default rules program.
+- A `.bend` rules program is built on its first run, which takes about 20 seconds. The build is kept
+  until the program's files or Bend change.
+- An executable, or a `.js` build, runs as it is.
 
 ### Inputs
 
@@ -253,13 +249,14 @@ bend-lint reports problems with the directives:
 - Building a rules program uses the `bend` on your PATH.
 - The server loads Bend's TypeScript checker: from `$BEND_DIR` (a Bend checkout or its `bend2`
   folder), or else a release from GitHub, the one `bend version` names.
-- Downloads and cached checks go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or `%LOCALAPPDATA%` on
-  Windows). You can delete this folder at any time.
+- Downloads, builds and cached checks go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`, or
+  `%LOCALAPPDATA%` on Windows). You can delete this folder at any time.
 
 ## Write a rule
 
-A rule is a Bend file. Put it in a rules program next to the bundled ones, build it, and run it.
-[src/linter/RULES.md](src/linter/RULES.md) explains how.
+A rule is a Bend file. List it in a rules program, a copy of `src/linter/main.bend`, and run that
+program with `--program`. Bend imports files by relative path, so for now the program and its rules
+live in a clone of this repo. [src/linter/RULES.md](src/linter/RULES.md) explains how.
 
 ## Work on bend-lint
 

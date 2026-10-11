@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 // The checker server: see the header of lint.bend. It runs a rules program
 // (a build of a file that imports lint.bend), and answers its questions
 // about Bend files over local TCP, until the program exits. It is all the
@@ -5,9 +6,12 @@
 // checker is Bend, so any optimization is fair here, mutation included
 // (AGENTS.md).
 //
-// Usage: bun server.ts <program> <args...>
-// Node 24 or later works too, but Bend's checker can need more than its
-// default heap: pass --max-old-space-size=8192 for a large program.
+// Usage: bend-lint [--program <rules program>] <args...>
+// The program is main.bend unless named. A .bend program is built with the
+// `bend` on PATH, and the build is kept; an executable, or a .js or .mjs
+// build, runs as it is. Node 24.2 or later runs a built program too, but
+// Bend's checker can need more than its default heap: pass
+// --max-old-space-size=8192 for a large program.
 //
 // It loads a copy of bend.ts in which each TRACED function reports its calls:
 // Bend's parser reads a file with some, and the checker judges terms with the
@@ -75,6 +79,7 @@ import {
   getTextWithLfLineEnds,
 } from "../shared/text.ts";
 import {
+  getCommandOutcome,
   getErrorMessageFromUnknown,
   getPathWithForwardSlashes,
   getSha256Hex,
@@ -211,6 +216,15 @@ const SERVER_CACHE_DIR = new URL("server/", getBendLintCacheDir());
 // Where the cache keeps checks' answers.
 const CHECKS_DIR = url.fileURLToPath(new URL("checks/", SERVER_CACHE_DIR));
 
+// Where the cache keeps the rules programs it builds.
+const PROGRAMS_DIR = url.fileURLToPath(new URL("programs/", SERVER_CACHE_DIR));
+
+// The rules program that runs when the command line names none.
+const MAIN = url.fileURLToPath(new URL("main.bend", import.meta.url));
+
+// An import of a .bend file by a relative path.
+const IMPORT = /^\s*import\s+(\.\.?\/\S+)/gm;
+
 // A drive letter that starts a path with `/`.
 const DRIVE = /^[A-Za-z]:(?=\/)/;
 
@@ -328,8 +342,8 @@ const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}":
 // What makes an input of `files` a glob.
 const GLOB = /[*?[{]/;
 
-// How long a cached check stays unused before the cache deletes it: a week,
-// in milliseconds.
+// How long a cached check or build stays unused before the cache deletes it:
+// a week, in milliseconds.
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
 // Functions
@@ -427,10 +441,10 @@ const shared = (): Shared => ({
   },
 });
 
-// The checker. The patched bend.ts is written now, so a drift stops the run
-// at once; Bend loads, and checks Base, once, when first needed.
-const load = async (): Promise<Checker> => {
-  const dir = unwrap(await tryGetBend2SourceUrl());
+// The checker of the bend2 sources in `dir`. The patched bend.ts is written
+// now, so a drift stops the run at once; Bend loads, and checks Base, once,
+// when first needed.
+const load = (dir: URL): Checker => {
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {
@@ -1513,6 +1527,83 @@ const prune = (dir: string): void => {
   );
 };
 
+// The .bend file at `file` and every .bend file it imports by a relative
+// path, at any depth, each once.
+const closure = (file: string, seen: Set<string> = new Set()): string[] => {
+  if (seen.has(file)) {
+    return [];
+  }
+  seen.add(file);
+  return [
+    file,
+    ...[...nodeFs.readFileSync(file, "utf8").matchAll(IMPORT)].flatMap((m) =>
+      closure(nodePath.resolve(nodePath.dirname(file), m[1]), seen),
+    ),
+  ];
+};
+
+// What a build depends on besides the program's files: the `bend` on PATH
+// (its path, size and time: a compiled bend is large), and the paths and
+// texts of the bend2 sources in `dir`, which hold Base and the compiler when
+// that `bend` runs a checkout.
+const builder = (dir: URL): string => {
+  const bend = Bun.which("bend");
+  const stat = bend === null ? undefined : nodeFs.statSync(bend);
+  const sources = url.fileURLToPath(dir);
+  return [
+    stat === undefined ? "" : [bend, stat.size, stat.mtimeMs].join(" "),
+    ...nodeFs
+      .readdirSync(sources, { recursive: true, encoding: "utf8" })
+      .filter((f) => [".ts", ".bend"].includes(nodePath.extname(f)))
+      .sort()
+      .flatMap((f) => [f, nodeFs.readFileSync(nodePath.join(sources, f), "latin1")]),
+  ].join("\0");
+};
+
+// The executable of the rules program `source`, built by the `bend` on PATH
+// with the bend2 sources in `dir`. A build is kept, and used again until a
+// file the program imports, or the bend that builds it, changes; each use
+// keeps it from prune. It goes to a folder of its own first, so a kept
+// executable is never partial, and runs that build one program at once
+// share one executable.
+export const built = async (source: string, dir: URL): Promise<string> => {
+  const from = nodePath.dirname(nodePath.resolve(source));
+  const key = getSha256Hex(
+    [
+      builder(dir),
+      ...closure(nodePath.resolve(source)).flatMap((f) => [
+        nodePath.relative(from, f),
+        nodeFs.readFileSync(f, "utf8"),
+      ]),
+    ].join("\0"),
+  ).slice(0, 16);
+  const name = `${nodePath.basename(source, ".bend")}.${key}`;
+  const exe = nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
+  if (nodeFs.existsSync(exe)) {
+    nodeFs.utimesSync(exe, new Date(), new Date());
+    return exe;
+  }
+  nodeFs.mkdirSync(PROGRAMS_DIR, { recursive: true });
+  const part = nodeFs.mkdtempSync(nodePath.join(PROGRAMS_DIR, ".part-"));
+  try {
+    const out = nodePath.join(part, nodePath.basename(exe));
+    const ran = await getCommandOutcome(["bend", source, "-o", out], from);
+    if (ran.code !== 0) {
+      throw new Error(`could not build ${source}:\n${ran.out}${ran.err}`);
+    }
+    try {
+      nodeFs.renameSync(out, exe);
+    } catch (e) {
+      if (!nodeFs.existsSync(exe)) {
+        throw e;
+      }
+    }
+  } finally {
+    nodeFs.rmSync(part, { recursive: true, force: true });
+  }
+  return exe;
+};
+
 // Keeps `entry` at `file`, whole or not at all. A cache that cannot be
 // written is skipped: the next run checks again.
 const keep = (file: string, entry: Entry): void => {
@@ -1654,33 +1745,47 @@ const serve = async (checker: Checker, socket: net.Socket): Promise<void> => {
   );
 };
 
+// The checker, and the rules program `named`: built first if it is a .bend
+// file. The checker comes first, so a drift stops the run before a build.
+const started = async (named: string): Promise<[Checker, string]> => {
+  const dir = unwrap(await tryGetBend2SourceUrl());
+  const checker = load(dir);
+  return [checker, named.endsWith(".bend") ? await built(named, dir) : named];
+};
+
 // Side effects
 // ============
 
-const [program, ...args] = process.argv.slice(2);
-if (program === undefined) {
-  console.error("usage: bun server.ts <program> <args...>");
-  process.exit(2);
+if (import.meta.main) {
+  const argv = process.argv.slice(2);
+  const at = argv.indexOf("--program");
+  const named = at === -1 ? MAIN : argv[at + 1];
+  if (named === undefined) {
+    console.error("usage: bend-lint [--program <rules program>] <args...>");
+    process.exit(2);
+  }
+  const args = argv.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+
+  const [checker, program] = await started(named).catch((e: unknown) => {
+    console.error("bend-lint: " + getErrorMessageFromUnknown(e));
+    return process.exit(2);
+  });
+
+  const server = net.createServer((socket) => void serve(checker, socket));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  // A JS build of the program runs on this runtime; a native one, as itself.
+  const [command, commandArgs] = /\.m?js$/.test(program)
+    ? [process.execPath, [program, ...args]]
+    : [program, args];
+  const child = spawn(command, commandArgs, {
+    env: { ...process.env, BEND_LINT_PORT: String((server.address() as net.AddressInfo).port) },
+    stdio: "inherit",
+  });
+  const [code] = (await once(child, "exit")) as [number | null];
+  server.close();
+  prune(CHECKS_DIR);
+  prune(PROGRAMS_DIR);
+  process.exit(code ?? 1);
 }
-
-const checker = await load().catch((e: unknown) => {
-  console.error("bend-lint: " + getErrorMessageFromUnknown(e));
-  return process.exit(2);
-});
-
-const server = net.createServer((socket) => void serve(checker, socket));
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-
-// A JS build of the program runs on this runtime; a native one, as itself.
-const [command, commandArgs] = /\.m?js$/.test(program)
-  ? [process.execPath, [program, ...args]]
-  : [program, args];
-const child = spawn(command, commandArgs, {
-  env: { ...process.env, BEND_LINT_PORT: String((server.address() as net.AddressInfo).port) },
-  stdio: "inherit",
-});
-const [code] = (await once(child, "exit")) as [number | null];
-server.close();
-prune(CHECKS_DIR);
-process.exit(code ?? 1);
