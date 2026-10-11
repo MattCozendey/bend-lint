@@ -1,6 +1,6 @@
-import { RuleTester } from "oxlint/plugins-dev";
+import type { Rule } from "oxlint/plugins-dev";
 
-export const noTypeSynonyms = {
+export const noTypeSynonyms: Record<string, Rule> = {
   "no-type-synonyms": {
     meta: {
       type: "suggestion",
@@ -14,5 +14,5 @@ export const noTypeSynonyms = {
         }
       },
     }),
-  } satisfies Parameters<RuleTester["run"]>[1],
+  },
 };
