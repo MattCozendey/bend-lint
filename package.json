@@ -5,17 +5,17 @@
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "Apache-2.0",
   "bin": {
-    "bend-lint": "src/legacy/lint.ts"
+    "bend-lint": "./src/legacy/lint.ts"
   },
   "type": "module",
   "exports": "./src/legacy/lint.ts",
   "scripts": {
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
-    "lint": "bun scripts/link-bend.ts && oxlint .",
-    "sync-bend": "bun scripts/sync-bend.ts",
+    "lint": "bun ./scripts/link-bend.ts && oxlint .",
+    "sync-bend": "bun ./scripts/sync-bend.ts",
     "test": "bun test",
-    "typecheck": "bun scripts/link-bend.ts && bun ./src/meta/typecheck.ts"
+    "typecheck": "bun ./scripts/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "dependencies": {
     "@oxlint/plugins": "1.87.0",
