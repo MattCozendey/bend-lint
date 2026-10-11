@@ -285,24 +285,30 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 
 import { build, lint, run } from "../../testing.ts";
 
-const PROGRAM = build("rules/demo/no-foo.bend");
+const PROGRAM = await build("rules/demo/no-foo.bend");
 
 setDefaultTimeout(120_000);
 
-test("a parameter named foo is reported, and renamed with --fix-dangerously", () => {
+test("a parameter named foo is reported, and renamed with --fix-dangerously", async () => {
   const text = "import Base\n\ndef twice(+foo: U32) -> U32:\n  (foo + foo : U32)\n";
-  expect(lint(PROGRAM, { "main.bend": text }, "main.bend").map(({ at }) => at)).toEqual(["3:12"]);
+  expect((await lint(PROGRAM, { "main.bend": text }, "main.bend")).map(({ at }) => at)).toEqual([
+    "3:12",
+  ]);
   expect(
-    run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"]).files["main.bend"],
+    (await run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"])).files[
+      "main.bend"
+    ],
   ).toBe("import Base\n\ndef twice(+bar: U32) -> U32:\n  (bar + bar : U32)\n");
 });
 ```
 
-- `build(rule)` builds a program with that rule alone, once.
+- `build(rule)` builds a program with that rule alone, and keeps it until the rule, a file it
+  imports or Bend changes.
 - `lint(program, files, named)` writes the files to a fresh folder and gives the findings.
 - `run(program, files, named, args, dir)` also gives the exit code, the output and the files after
   the run.
 - Tests build with the `bend` on PATH; without it they skip.
+- Tests in a file run at the same time, so no test may depend on another.
 
 ## Bend for rule authors
 
