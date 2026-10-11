@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "./testing.ts";
+import { build, lint, run } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
@@ -40,6 +40,29 @@ const finding = (at: string, severity: string, code: string, message: string): F
 setDefaultTimeout(120_000);
 
 (process.env.BEND_DIR === undefined ? describe.skip : describe)("directives", () => {
+  test("--show-suppressed lists the findings directives suppressed, before the summary", () => {
+    const text = [
+      "import Base",
+      "# bend-lint: disable-next no-unused/imports -- kept on purpose",
+      "import ./util.bend as V",
+      "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept",
+    ].join("\n");
+    const ran = run(PROGRAM, { "main.bend": text + "\n" + TAIL, "util.bend": UTIL }, "main.bend", [
+      "--show-suppressed",
+    ]);
+    expect(
+      ran.out
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, "")),
+    ).toEqual([
+      "bend-lint: suppressed",
+      "main.bend:3:23: warning no-unused/imports: Remove the import V: nothing uses it.",
+      "main.bend:4:23: warning no-unused/imports: Remove the import W: nothing uses it.",
+      "bend-lint: 0 finding(s), 2 suppressed",
+    ]);
+  });
+
   test("disable-next and disable-line cover their lines; a disable that covers nothing is reported", () => {
     expect(
       found([
