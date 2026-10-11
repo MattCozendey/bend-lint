@@ -167,8 +167,9 @@ def Severity.show(s: Severity) -> String:
 # An edit a fix asks for: replace a span's text; rename what a declaration declares (its node, by id), with each of
 # its uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
 # say). A rename changes an import's alias, the first part of each use (`U` of `U.two`), and any other name's last
-# part. The linter finds the uses, and drops the fix if the text does not write the name where one of them is, or if a
-# Rename's new name is taken where the declaration is.
+# part. The linter finds the uses, and drops the fix if the text does not write the name where one of them is. It drops
+# a Rename of a global name (a def, type, constructor or law), as files the check did not read can use it, and one whose
+# new name is taken where the declaration is.
 type Operation is Data:
   Replace{span: Span, text: String}
   Rename{node: U32, to: String}

@@ -149,15 +149,33 @@ def Rename.file(sources: List<&2, Lint.Source>, +path: String, found: Maybe<&2, 
     case Con{Lint.Source{p, namespace, text, nodes, facts}, rest} None{}:
       Rename.file(rest, path, Shared.when(List<&2, Lint.Node>, String.eq(p, path), nodes))
 
-# Whether a rename may write `to`: a Rename (`whole`) if no node of the declaration's file takes it already. RenameUses
-# points the uses at a name the program declares.
-def Rename.allowed(whole: Bool, alias: Bool, to: String, span: Maybe<&2, Lint.Span>, sources: List<&2, Lint.Source>) -> Bool:
-  match whole span:
-    case False{} _:
+# Whether a declaration of this kind declares a global name: a def, type, constructor or law.
+def Declares.global(declares: Program.Declares) -> Bool:
+  match declares:
+    case Program.DeclaresGlobal{}:
       True{}
-    case True{} Some{Lint.Span{path, beg, end}}:
+    case _:
+      False{}
+
+# Whether a rename may write `to`. A Rename (`whole`) may, of a name no file but its own can use (not a `global` one),
+# if no node of its file takes `to` already. RenameUses points the uses at a name the program declares, and leaves the
+# declaration as it is.
+def Rename.allowed(
+  whole: Bool,
+  global: Bool,
+  alias: Bool,
+  to: String,
+  span: Maybe<&2, Lint.Span>,
+  sources: List<&2, Lint.Source>
+) -> Bool:
+  match whole global span:
+    case False{} _ _:
+      True{}
+    case True{} True{} _:
+      False{}
+    case True{} False{} Some{Lint.Span{path, beg, end}}:
       Rename.free(Rename.file(sources, path, None{}), alias, to, True{})
-    case True{} None{}:
+    case True{} False{} None{}:
       False{}
 
 def Rename.checked(allowed: Bool, changes: Maybe<&2, List<&2, Change>>) -> Maybe<&2, List<&2, Change>>:
@@ -187,7 +205,7 @@ def Rename.plan(
     case Some{Lint.Declaration{Lint.Node{id, p, o, +s, +name, b, q, +span, t}, uses}}:
       +alias = Syntax.alias(s)
       Rename.checked(
-        Rename.allowed(whole, alias, to, span, sources),
+        Rename.allowed(whole, Declares.global(Program.Syntax.declares(s)), alias, to, span, sources),
         Rename.spots(
           Rename.nodes(whole, Lint.Node{id, p, o, s, name, b, q, span, t}, uses),
           fix,

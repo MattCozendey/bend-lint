@@ -15,6 +15,7 @@ const WRITTEN = given ? build("tests/written.bend") : "";
 const SOME = given ? build("tests/some.bend") : "";
 const EVERY = given ? build("tests/every.bend") : "";
 const ACROSS = given ? build("tests/across.bend") : "";
+const RENAME = given ? build("tests/rename.bend") : "";
 
 // A file with sugar the parser expands: a do-block, `A & B`, an operator.
 const SUGARED =
@@ -155,6 +156,19 @@ setDefaultTimeout(120_000);
         suppressed: [mark("util.bend", ["util.bend"])],
       },
       "bend-lint: 1 finding(s), 1 suppressed",
+    ]);
+  });
+
+  test("--fix-dangerously renames a local name, but no global one: files the check did not read can use it", () => {
+    const ran = run(
+      RENAME,
+      { "main.bend": "import Base\n\ndef foo(foo: U32) -> U32:\n  foo\n" },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect([ran.files["main.bend"], ran.out.trim().split("\n").at(-1)]).toEqual([
+      "import Base\n\ndef foo(bar: U32) -> U32:\n  bar\n",
+      "bend-lint: 2 finding(s), 1 fixed",
     ]);
   });
 
