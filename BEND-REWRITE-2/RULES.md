@@ -79,13 +79,13 @@ bend main.bend -o lint                # the C lane (lint.exe on Windows); -o lin
 bun server.ts ./lint <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]
 ```
 
-| Flag                | What                                                                  |
-| ------------------- | --------------------------------------------------------------------- |
-| `--imports`         | also lint the files the named file imports (one named file only)      |
-| `--fix`             | make the fixes the linter proves safe: none until the checker is Bend |
-| `--fix-dangerously` | make every fix it can                                                 |
-| `--show-suppressed` | also print the findings directives suppressed                         |
-| `--json`            | print one JSON object on stdout; the summary goes to stderr           |
+| Flag                | What                                                                             |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `--imports`         | also lint the files the named file imports (one named file only)                 |
+| `--fix`             | make the fixes the linter proves safe: for now, those that only rewrite comments |
+| `--fix-dangerously` | make every fix it can                                                            |
+| `--show-suppressed` | also print the findings directives suppressed                                    |
+| `--json`            | print one JSON object on stdout; the summary goes to stderr                      |
 
 - Globs use `/` between parts. Each file is linted once, in turn.
 - The run exits 1 if a finding is an error (a failed check is one), 2 on a
@@ -243,8 +243,10 @@ Base, nor a hub package):
 - It drops a fix if the text does not write the name where a use is.
 - It makes each finding's first fix, whole or not at all. A fix whose edits
   touch an earlier fix's waits for the next run.
-- `--fix` makes the fixes the linter proves safe. Until Bend's checker is
-  Bend, it proves none: every fix needs `--fix-dangerously`.
+- `--fix` makes the fixes the linter proves safe: those whose edits each
+  write one comment (a `#` and no line end) over exactly one comment. A
+  comment cannot change what the program does. Until Bend's checker is Bend,
+  every other fix needs `--fix-dangerously`.
 - `--json` shows every fix the linter can make, with its edits.
 
 ## Options
