@@ -10,9 +10,9 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 
 import pkg from "../../package.json" with { type: "json" };
-import { error, ok } from "./result.ts";
+import { error } from "./result.ts";
 import type { Result } from "./result.ts";
-import { getErrorMessageFromUnknown, getUrlFromFolder } from "./utils.ts";
+import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
 // Types
 // =====
@@ -120,9 +120,8 @@ export const tryGetBend2SourceUrl = async ({
 }: FindOptions = {}): Promise<Result<URL, string>> => {
   if (bend === undefined) {
     const tag = installedTag(run) ?? PIN;
-    return fetchBend(tag, cache).then(
-      (got) => ok(getUrlFromFolder(got)),
-      (e: unknown) => error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
+    return fetchBend(tag, cache).then(tryGetUrlFromFolder, (e: unknown) =>
+      error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
   }
   const dir = nodePath.resolve(bend);
@@ -131,5 +130,5 @@ export const tryGetBend2SourceUrl = async ({
   );
   return found === undefined
     ? error(`no bend2 at ${dir} (it needs bend.ts)`)
-    : ok(getUrlFromFolder(found));
+    : tryGetUrlFromFolder(found);
 };
