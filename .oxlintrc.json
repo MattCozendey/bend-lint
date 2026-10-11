@@ -3,7 +3,7 @@
   "options": { "typeAware": true },
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
   "ignorePatterns": ["**/*.bend", "**/effects/**"],
-  "jsPlugins": ["./src/oxlint-plugins/bend-lint.ts"],
+  "jsPlugins": ["./src/meta/oxlint-plugins/custom-oxlint-plugins.ts"],
   "rules": {
     "typescript/consistent-type-definitions": ["error", "type"],
     "eslint/max-classes-per-file": ["error", 0],

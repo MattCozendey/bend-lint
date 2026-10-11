@@ -1,7 +1,7 @@
 import type { RuleTester } from "oxlint/plugins-dev";
 
 export default {
-  meta: { name: "bend-lint" },
+  meta: { name: "custom-oxlint-plugins" },
   rules: {
     "no-type-synonyms": {
       meta: {
