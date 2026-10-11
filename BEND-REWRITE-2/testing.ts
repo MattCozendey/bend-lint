@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tryGetInstalledBendTagFromCliOrUndefined } from "../src/shared/bend2.ts";
+import { getPathWithForwardSlashes } from "../src/shared/paths.ts";
 import { OK } from "../src/shared/result.ts";
 
 // Types
@@ -55,7 +56,7 @@ export const BUILDS: boolean = await tryGetInstalledBendTagFromCliOrUndefined().
 export const build = (rule: string): string => {
   const name = path.basename(rule, ".bend").replace(/[^\w]/g, "_");
   const source = path.join(BUILD, name + ".bend");
-  const relative = path.relative(BUILD, path.join(HERE, rule)).replaceAll(path.sep, "/");
+  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(HERE, rule)));
   fs.mkdirSync(BUILD, { recursive: true });
   fs.writeFileSync(
     source,

@@ -25,9 +25,15 @@ import type * as CompModule from "bend2/comp.ts";
 
 import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
-import { resolve, slash } from "../shared/paths.ts";
+import { resolve } from "../shared/paths.ts";
 import { mapError, unwrap } from "../shared/result.ts";
-import { digest } from "../shared/utils.ts";
+import {
+  getLineIndexAtOffset,
+  getLineStartOffsets,
+  getTextWithEachEditAppliedOnce,
+  getTextWithLfLineEnds,
+} from "../shared/text.ts";
+import { getSha256Hex, tryGetOrUndefined, writeFileAtomically } from "../shared/utils.ts";
 import type {
   Declaration,
   Diag,
@@ -326,7 +332,7 @@ const CHILDREN: { [K in LTerm["$"]]: (tm: Extract<LTerm, { $: K }>) => LTerm[] }
 
 const held = (p: nodeFs.PathOrFileDescriptor): string | undefined =>
   typeof p === "string" && unsaved.size > 0 && nodeFs.existsSync(p)
-    ? unsaved.get(slash(nodeFs.realpathSync(p)))
+    ? unsaved.get(Paths.fs.realpathSync(p))
     : undefined;
 
 // fs for bend.ts and main.ts: it also serves unsaved text, and records reads.
@@ -338,7 +344,7 @@ export const fs = {
       reads !== undefined && kept === undefined && typeof p === "string" ? stampOf(p) : undefined;
     const out = kept ?? (nodeFs.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
     if (reads !== undefined && typeof p === "string" && typeof out === "string") {
-      reads.set(slash(nodeFs.realpathSync(p)), { text: out, stamp });
+      reads.set(Paths.fs.realpathSync(p), { text: out, stamp });
     }
     return out;
   }) as typeof nodeFs.readFileSync,
@@ -347,7 +353,7 @@ export const fs = {
 // A file's stamp, taken now, or undefined if it cannot be.
 const stampOf = (p: string): Stamp | undefined => {
   const at = Date.now();
-  const st = tried(() => nodeFs.statSync(p));
+  const st = tryGetOrUndefined(() => nodeFs.statSync(p));
   return st && { at, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino };
 };
 
@@ -450,12 +456,10 @@ export const patch = (file: string, src: string): string => {
       `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in src/legacy/seam.ts.`,
     );
   };
-  const edited = [...edits, ...needs.map((t): [string, string] => [t, t])].reduce(
-    (out, [at, to]) => {
-      const n = out.split(at).length - 1;
-      return n === 1 ? out.replace(at, () => to) : mismatch(JSON.stringify(at), n);
-    },
-    src.replace(/\r\n/g, "\n"),
+  const edited = getTextWithEachEditAppliedOnce(
+    getTextWithLfLineEnds(src),
+    [...edits, ...needs.map((t): [string, string] => [t, t])],
+    (at, n) => mismatch(JSON.stringify(at), n),
   );
   const declared = (name: string, exported: string): RegExp =>
     new RegExp(`^${exported}(?:async function|function|class|const|let) ${name}\\b`, "gm");
@@ -495,29 +499,14 @@ const children = (t: LTerm): LTerm[] => {
 };
 
 // Where each line of `text` starts, computed once per owner of the text.
-export const starts = (owner: object, text: string): number[] => {
+export const getCachedLineStartOffsets = (owner: object, text: string): number[] => {
   const known = STARTS.get(owner);
   if (known !== undefined) {
     return known;
   }
-  const out = [0, ...[...text.matchAll(/\n/g)].map((m) => m.index! + 1)];
+  const out = getLineStartOffsets(text);
   STARTS.set(owner, out);
   return out;
-};
-
-// The index of the line that holds `off`, given each line's start.
-export const line = (starts: number[], off: number): number => {
-  let lo = 0;
-  let hi = starts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (starts[mid] <= off) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return lo;
 };
 
 // bend.ts parses a copy of each file with its import lines blanked, so a
@@ -557,8 +546,12 @@ export const mapper = (files: File[]): Mapper => {
       );
     }
     Object.assign(found[0].al, f.al);
-    const to = starts(found[0], found[0].str);
-    const known = { file: found[0], from: f.str === found[0].str ? to : starts(f, f.str), to };
+    const to = getCachedLineStartOffsets(found[0], found[0].str);
+    const known = {
+      file: found[0],
+      from: f.str === found[0].str ? to : getCachedLineStartOffsets(f, f.str),
+      to,
+    };
     memo.set(f, known);
     return known;
   };
@@ -571,7 +564,7 @@ export const mapper = (files: File[]): Mapper => {
       return { file, beg: s.beg, end: s.end };
     }
     const at = (off: number): number => {
-      const i = line(from, off);
+      const i = getLineIndexAtOffset(from, off);
       return to[i] + off - from[i];
     };
     return { file, beg: at(s.beg), end: at(s.end) };
@@ -611,15 +604,6 @@ const demand = (checks: Array<[string, boolean]>, say: (wrong: string) => string
   const wrong = checks.flatMap(([what, ok]) => (ok ? [] : [what]));
   if (wrong.length > 0) {
     throw drift(say(wrong.join(", ")));
-  }
-};
-
-// f's value, or undefined if it throws.
-const tried = <T>(f: () => T): T | undefined => {
-  try {
-    return f();
-  } catch {
-    return undefined;
   }
 };
 
@@ -786,7 +770,7 @@ const checked = async (
       code: "bend/check",
       severity: "error",
       message: failure(m, read.e),
-      span: tried(() => toSpan(map(err?.spn))),
+      span: tryGetOrUndefined(() => toSpan(map(err?.spn))),
       def: err?.def,
       fixes: [],
       core: read.e,
@@ -807,7 +791,7 @@ const fresh = (run: Checked, text: ReadonlyMap<string, string>): boolean =>
     if (holds(STAMPS.get(s), now)) {
       return true;
     }
-    const same = tried(() => nodeFs.readFileSync(s.path, "utf8")) === s.text;
+    const same = tryGetOrUndefined(() => nodeFs.readFileSync(s.path, "utf8")) === s.text;
     if (same && now !== undefined) {
       STAMPS.set(s, now);
     }
@@ -1116,8 +1100,8 @@ const sameDeclarations = (
       (k, v) => (k === "s" ? undefined : v),
     );
   };
-  const original = tried(() => snapshot(file.text));
-  return (text) => original !== undefined && tried(() => snapshot(text)) === original;
+  const original = tryGetOrUndefined(() => snapshot(file.text));
+  return (text) => original !== undefined && tryGetOrUndefined(() => snapshot(text)) === original;
 };
 
 const syntaxOf = (m: Loaded, run: Checked, shared: Shared, file: Source): Syntax => {
@@ -1447,15 +1431,15 @@ export const layout = (m: Loaded, d: Diag, head: string): string => {
 };
 
 const hashed = (p: string): string | undefined => {
-  const text = tried(() => nodeFs.readFileSync(p, "utf8"));
-  return text === undefined ? undefined : digest(text);
+  const text = tryGetOrUndefined(() => nodeFs.readFileSync(p, "utf8"));
+  return text === undefined ? undefined : getSha256Hex(text);
 };
 
 // The compiler's hash: bend2's sources, and this file, which patches them.
 const compilerOf = (m: Loaded): string => {
   const known =
     COMPILERS.get(m) ??
-    digest(
+    getSha256Hex(
       [...["bend.ts", "comp.ts", "main.ts"].map((f) => nodePath.join(m.BEND2, f)), import.meta.path]
         .map((p) => hashed(p) ?? "")
         .join("\0"),
@@ -1469,14 +1453,14 @@ const effectsOf = (book: Book): string[] => [
   ...new Set(
     Object.values(book.tlds).flatMap((t) =>
       t.$ === "Def" && t.i !== undefined
-        ? t.i.filter((x) => x.endsWith(".js")).map((x) => slash(nodeFs.realpathSync(x)))
+        ? t.i.filter((x) => x.endsWith(".js")).map(Paths.fs.realpathSync)
         : [],
     ),
   ),
 ];
 
 const keptPath = (file: string): URL =>
-  new URL(digest(slash(nodePath.resolve(file))) + ".json", RULES_CACHE_DIR);
+  new URL(getSha256Hex(Paths.path.resolve(file)) + ".json", RULES_CACHE_DIR);
 
 const unchanged = (m: Loaded, kept: Kept): boolean =>
   kept.compiler === compilerOf(m) && kept.files.every(([p, h]) => hashed(p) === h);
@@ -1495,17 +1479,15 @@ const made = (m: Loaded, kept: Kept): Compiled => {
 // Writes `kept` whole or not at all, and drops the entries of rule files
 // that are gone. A cache that cannot be written is skipped.
 const keep = (kept: Kept): void => {
-  tried(() => {
+  tryGetOrUndefined(() => {
     nodeFs.mkdirSync(RULES_CACHE_DIR, { recursive: true });
     for (const name of nodeFs.readdirSync(RULES_CACHE_DIR)) {
       const at = new URL(name, RULES_CACHE_DIR);
-      const old = tried(() => JSON.parse(nodeFs.readFileSync(at, "utf8")) as Kept);
-      if (old === undefined || !nodeFs.existsSync(old.file)) tried(() => nodeFs.rmSync(at));
+      const old = tryGetOrUndefined(() => JSON.parse(nodeFs.readFileSync(at, "utf8")) as Kept);
+      if (old === undefined || !nodeFs.existsSync(old.file))
+        tryGetOrUndefined(() => nodeFs.rmSync(at));
     }
-    const to = keptPath(kept.file);
-    const temp = new URL(`${to.href}.${process.pid}.${Date.now()}`);
-    nodeFs.writeFileSync(temp, JSON.stringify(kept));
-    nodeFs.renameSync(temp, to);
+    writeFileAtomically(url.fileURLToPath(keptPath(kept.file)), JSON.stringify(kept));
   });
 };
 
@@ -1613,10 +1595,10 @@ export const compile = (m: Loaded, checked: Checked, file: string): Compiled => 
     );
   }
   const kept: Kept = {
-    file: slash(nodePath.resolve(file)),
+    file: Paths.path.resolve(file),
     compiler: compilerOf(m),
     files: [
-      ...checked.sources.map((s): [string, string] => [s.path, digest(s.text)]),
+      ...checked.sources.map((s): [string, string] => [s.path, getSha256Hex(s.text)]),
       ...effectsOf(book).map((p): [string, string] => [p, hashed(p) ?? ""]),
     ],
     rule: {
@@ -1634,7 +1616,7 @@ export const compile = (m: Loaded, checked: Checked, file: string): Compiled => 
 // The rule kept on disk for `file`, if its compiler and every file it was
 // made from are unchanged.
 export const cachedRule = (m: Loaded, file: string): Compiled | undefined =>
-  tried(() => {
+  tryGetOrUndefined(() => {
     const kept = JSON.parse(nodeFs.readFileSync(keptPath(file), "utf8")) as Kept;
     return unchanged(m, kept) ? made(m, kept) : undefined;
   });
@@ -1710,7 +1692,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
   const dirUrl = unwrap(
     mapError(await tryGetBend2SourceUrl({ bendDir: given }), (e) => e + ", or pass --bend <dir>"),
   );
-  const dir = slash(nodePath.resolve(url.fileURLToPath(dirUrl)));
+  const dir = Paths.path.resolve(url.fileURLToPath(dirUrl));
   const patched = new Map(
     PATCHED.map((f): [string, string] => {
       const file = new URL(f, dirUrl);

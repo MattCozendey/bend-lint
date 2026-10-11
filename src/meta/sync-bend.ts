@@ -9,12 +9,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { PINNED_BEND_RELEASE_TAG } from "../src/shared/bend2.ts";
+import { PINNED_BEND_RELEASE_TAG } from "../shared/bend2.ts";
 
 // Constants
 // =========
 
-const ROOT = path.resolve(import.meta.dir, "..");
+const ROOT = path.resolve(import.meta.dir, "..", "..");
 const PACKAGE = path.join(ROOT, "package.json");
 const REPO = "https://github.com/bendlang/bend";
 

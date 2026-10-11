@@ -15,8 +15,26 @@ import type { Result } from "./result.ts";
 export const getErrorMessageFromUnknown = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+// f's value, or undefined if it throws.
+export const tryGetOrUndefined = <T>(f: () => T): T | undefined => {
+  try {
+    return f();
+  } catch {
+    return undefined;
+  }
+};
+
 // The text's sha256, in hex.
-export const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+export const getSha256Hex = (text: string): string =>
+  createHash("sha256").update(text).digest("hex");
+
+// Writes `text` to `file` whole or not at all: to a file beside it, then
+// renamed over it.
+export const writeFileAtomically = (file: string, text: string): void => {
+  const temp = `${file}.${process.pid}.${Date.now()}`;
+  nodeFs.writeFileSync(temp, text);
+  nodeFs.renameSync(temp, file);
+};
 
 // The folder at its real path, as a file: URL that ends in `/`, so
 // `new URL("file", folder)` finds a file in it. An error if `dir` cannot be

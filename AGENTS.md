@@ -105,6 +105,8 @@ git diff --check
 | `src/shared/result.ts`               | the `Result` that entry points return                           |
 | `src/shared/bend2.ts`                | finding Bend (see [Finding Bend](#finding-bend))                |
 | `src/shared/paths.ts`                | the `/`-path `fs` and `path` that both versions give `bend.ts`  |
+| `src/shared/text.ts`                 | text helpers: line offsets, exact edits, line ends              |
+| `src/shared/utils.ts`                | other helpers that are not about Bend or linting                |
 | `src/legacy/bend/lint.bend`          | what a Bend rule imports                                        |
 | `src/legacy/bend/effects/effects.js` | the effects a Bend rule calls. oxlint skips `effects/` folders  |
 | `src/legacy/samples/`                | `.bend` files to lint by hand                                   |

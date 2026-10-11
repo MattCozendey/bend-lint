@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getPathWithForwardSlashes } from "../../../shared/paths.ts";
 import { unwrap } from "../../../shared/result.ts";
 import { createLinter } from "../../lint.ts";
 import type { LintResult } from "../../lint.ts";
@@ -12,9 +13,9 @@ const linter = unwrap(await createLinter());
 const rules = unwrap(
   await linter.loadRules([fileURLToPath(new URL("./list-index-loop.bend", import.meta.url))]),
 );
-const dir = fs.realpathSync
-  .native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-list-loop-")))
-  .replaceAll("\\", "/");
+const dir = getPathWithForwardSlashes(
+  fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-list-loop-"))),
+);
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const lint = async (text: string): Promise<LintResult> => {

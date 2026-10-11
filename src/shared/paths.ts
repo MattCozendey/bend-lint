@@ -16,11 +16,11 @@ const DRIVE = /^[A-Za-z]:(?=\/)/;
 // Functions
 // =========
 
-export const slash = (p: string): string => p.split(nodePath.sep).join("/");
+export const getPathWithForwardSlashes = (p: string): string => p.split(nodePath.sep).join("/");
 
 // path.posix.resolve from `cwd`, where a drive letter is a root.
 export const resolve = (cwd: string, ...ps: string[]): string => {
-  const all = [cwd, ...ps].map(slash);
+  const all = [cwd, ...ps].map(getPathWithForwardSlashes);
   const drive =
     all
       .filter((p) => DRIVE.test(p))
@@ -30,17 +30,20 @@ export const resolve = (cwd: string, ...ps: string[]): string => {
 };
 
 export const relative = (from: string, to: string): string =>
-  nodePath.posix.relative(slash(from).replace(DRIVE, ""), slash(to).replace(DRIVE, ""));
+  nodePath.posix.relative(
+    getPathWithForwardSlashes(from).replace(DRIVE, ""),
+    getPathWithForwardSlashes(to).replace(DRIVE, ""),
+  );
 
 export const fs = {
   ...nodeFs,
-  realpathSync: (p: nodeFs.PathLike): string => slash(nodeFs.realpathSync(p)),
+  realpathSync: (p: nodeFs.PathLike): string => getPathWithForwardSlashes(nodeFs.realpathSync(p)),
 };
 
 export const path = {
   ...nodePath,
-  join: (...ps: string[]): string => slash(nodePath.join(...ps)),
-  resolve: (...ps: string[]): string => slash(nodePath.resolve(...ps)),
+  join: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.join(...ps)),
+  resolve: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.resolve(...ps)),
   posix: {
     ...nodePath.posix,
     resolve: (...ps: string[]): string => resolve(process.cwd(), ...ps),

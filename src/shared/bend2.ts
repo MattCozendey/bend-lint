@@ -18,7 +18,7 @@ import { getErrorMessageFromUnknown, tryGetUrlFromFolderPathOrUrl } from "./util
 // Constants
 // =========
 
-// The newest bend release this repo's checks passed with; scripts/sync-bend.ts
+// The newest bend release this repo's checks passed with; src/meta/sync-bend.ts
 // moves it.
 export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
 

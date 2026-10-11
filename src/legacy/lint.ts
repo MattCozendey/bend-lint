@@ -16,6 +16,7 @@ import { Compile } from "typebox/schema";
 import { path } from "../shared/paths.ts";
 import { ERROR, error, ERROR_METADATA, ok, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
+import { getLineIndexAtOffset } from "../shared/text.ts";
 import { getErrorMessageFromUnknown } from "../shared/utils.ts";
 import {
   cachedRule,
@@ -24,12 +25,11 @@ import {
   DRIFT,
   foreign,
   fs,
+  getCachedLineStartOffsets,
   layout,
-  line,
   load,
   operations,
   select,
-  starts,
   unstable,
 } from "./seam.ts";
 import type { Checked, Compiled, Loaded, Operations, Unstable } from "./seam.ts";
@@ -780,11 +780,13 @@ const checksFor = async (
     .catch((e: unknown) => {
       throw blame("config", e);
     });
-  const tried: Checked[] = [];
+  const tryGetOrUndefined: Checked[] = [];
   for (const entry of entries) {
-    tried.push(await check(m, entry, filters, signal, { text: held, all: true, reuse: true }));
+    tryGetOrUndefined.push(
+      await check(m, entry, filters, signal, { text: held, all: true, reuse: true }),
+    );
   }
-  const reaching = tried.filter((c) => c.sources.some((s) => s.path === real));
+  const reaching = tryGetOrUndefined.filter((c) => c.sources.some((s) => s.path === real));
   const passed = reaching.filter((c) => c.failure === undefined);
   const checks =
     passed.length > 0
@@ -871,10 +873,12 @@ const renderWith = (m: Loaded, d: Diag): string => {
       [...new Set(fix.edits.map((e) => e.span.file))]
         .map((file) => {
           const mine = fix.edits.filter((e) => e.span.file === file);
-          const ls = starts(file, file.text);
-          const first = line(ls, Math.min(...mine.map((e) => e.span.beg)));
+          const ls = getCachedLineStartOffsets(file, file.text);
+          const first = getLineIndexAtOffset(ls, Math.min(...mine.map((e) => e.span.beg)));
           const from = ls[first];
-          const to = ls[line(ls, Math.max(...mine.map((e) => e.span.end))) + 1] ?? file.text.length;
+          const to =
+            ls[getLineIndexAtOffset(ls, Math.max(...mine.map((e) => e.span.end))) + 1] ??
+            file.text.length;
           const old = file.text.slice(from, to);
           const gone = old.match(LINE) ?? [];
           const came =
@@ -906,9 +910,9 @@ const renderWith = (m: Loaded, d: Diag): string => {
 
 // The LSP range of a span in a file on disk.
 export const position = (span: Span): { start: Position; end: Position } => {
-  const ss = starts(span.file, span.file.text);
+  const ss = getCachedLineStartOffsets(span.file, span.file.text);
   const at = (off: number): Position => {
-    const i = line(ss, off);
+    const i = getLineIndexAtOffset(ss, off);
     return { line: i, character: off - ss[i] };
   };
   return { start: at(span.beg), end: at(span.end) };

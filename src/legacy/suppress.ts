@@ -9,8 +9,9 @@
 // keyword. Only linted files' comments count. The checker's and bend-lint's
 // own findings cannot be suppressed.
 
+import { getLineIndexAtOffset } from "../shared/text.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
-import { line, SOURCE_TOKEN, starts } from "./seam.ts";
+import { getCachedLineStartOffsets, SOURCE_TOKEN } from "./seam.ts";
 
 // Types
 // =====
@@ -294,7 +295,13 @@ const read = (file: Source, ctx: Context) => {
     span: { file, beg: at.beg, end: at.end },
     fixes: [],
   }));
-  return { found, covering, wrong, by: index(covering), ss: starts(file, file.text) };
+  return {
+    found,
+    covering,
+    wrong,
+    by: index(covering),
+    ss: getCachedLineStartOffsets(file, file.text),
+  };
 };
 
 // Splits the findings into those that stay and those a directive covers, and
@@ -314,7 +321,8 @@ export const suppress = (
   const suppressed: Diag[] = [];
   for (const { diag: d, home } of found) {
     const mine = files.get(home);
-    const row = d.span === undefined || mine === undefined ? 0 : line(mine.ss, d.span.beg);
+    const row =
+      d.span === undefined || mine === undefined ? 0 : getLineIndexAtOffset(mine.ss, d.span.beg);
     const hits = mine === undefined ? [] : covers(mine.by, d.code, d.severity, row);
     hits.forEach((h) => used.add(h));
     (hits.length > 0 ? suppressed : kept).push(d);

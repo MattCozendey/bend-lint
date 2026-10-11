@@ -29,8 +29,20 @@ import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "be
 import type * as BendModule from "bend2/bend.ts";
 
 import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
+import { getPathWithForwardSlashes } from "../src/shared/paths.ts";
 import { unwrap } from "../src/shared/result.ts";
-import { digest, getErrorMessageFromUnknown } from "../src/shared/utils.ts";
+import {
+  getLineIndexAtOffset,
+  getLineStartOffsets,
+  getTextWithEachEditAppliedOnce,
+  getTextWithLfLineEnds,
+} from "../src/shared/text.ts";
+import {
+  getErrorMessageFromUnknown,
+  getSha256Hex,
+  tryGetOrUndefined,
+  writeFileAtomically,
+} from "../src/shared/utils.ts";
 
 // Types
 // =====
@@ -50,7 +62,7 @@ type Checker = { version: string; loaded: () => Promise<Loaded> };
 // read, each with the digest of the text it read, and the answer's digest.
 type Entry = { files: Array<[string, string]>; answer: string; digest: string };
 
-// A check this server answered: its root, its mode, and its answer's digest,
+// A check this server answered: its root, its mode, and its answer's getSha256Hex,
 // numbered 0. Enough to check it again with the same numbers.
 type Answered = { path: string; facts: boolean; digest: string };
 
@@ -278,27 +290,24 @@ const drift = (text: string): Error =>
 // Bend's own expression in a branch that never runs. Line ends become LF
 // first.
 const patched = (dir: string, src: string): string =>
-  [
-    ...EDITS,
-    ["export const BEND_DIR = ", `export const BEND_DIR = true ? ${JSON.stringify(dir)} : `],
-  ].reduce(
-    (out, [at, to]) => {
-      const n = out.split(at).length - 1;
-      if (n !== 1) {
-        throw drift(`bend.ts has ${n} of ${JSON.stringify(at)}, not 1`);
-      }
-      return out.replace(at, () => to);
+  getTextWithEachEditAppliedOnce(
+    getTextWithLfLineEnds(src),
+    [
+      ...EDITS,
+      ["export const BEND_DIR = ", `export const BEND_DIR = true ? ${JSON.stringify(dir)} : `],
+    ],
+    (at, n) => {
+      throw drift(`bend.ts has ${n} of ${JSON.stringify(at)}, not 1`);
     },
-    src.replace(/\r\n/g, "\n"),
   ) + PROBES;
 
 // The patched copy of the bend.ts in `dir`, written once to the cache.
 const copied = (dir: URL): URL => {
   const text = patched(
-    url.fileURLToPath(dir).replaceAll("\\", "/"),
+    getPathWithForwardSlashes(url.fileURLToPath(dir)),
     nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
-  const file = new URL(`${digest(text).slice(0, 16)}/bend.ts`, SERVER_CACHE_DIR);
+  const file = new URL(`${getSha256Hex(text).slice(0, 16)}/bend.ts`, SERVER_CACHE_DIR);
   if (!nodeFs.existsSync(file)) {
     nodeFs.mkdirSync(new URL(".", file), { recursive: true });
     nodeFs.writeFileSync(file, text);
@@ -322,7 +331,7 @@ const load = async (): Promise<Checker> => {
     })();
     return loading;
   };
-  const version = digest(
+  const version = getSha256Hex(
     [
       nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
       nodeFs.readFileSync(PATHS, "utf8"),
@@ -331,21 +340,6 @@ const load = async (): Promise<Checker> => {
     ].join("\n"),
   );
   return { version, loaded };
-};
-
-// Where each line of `text` starts.
-const starts = (text: string): number[] => [
-  0,
-  ...[...text.matchAll(/\n/g)].map((found) => found.index + 1),
-];
-
-// The last index in sorted `xs` whose value is at most `x`.
-const lastAtMost = (xs: number[], x: number, lo = 0, hi = xs.length - 1): number => {
-  if (lo >= hi) {
-    return lo;
-  }
-  const mid = Math.ceil((lo + hi) / 2);
-  return xs[mid] <= x ? lastAtMost(xs, x, mid, hi) : lastAtMost(xs, x, lo, mid - 1);
 };
 
 // A disk offset of `text` (UTF-16 units) in code points, as Bend counts.
@@ -360,11 +354,11 @@ const placerOf = (
   file: SeenFile,
   read: Span["file"] | undefined,
 ): ((s: Span | undefined) => Range | undefined) => {
-  const disk = starts(file.text);
-  const lines = starts(read?.str ?? file.text);
+  const disk = getLineStartOffsets(file.text);
+  const lines = getLineStartOffsets(read?.str ?? file.text);
   const points = pointsOf(file.text);
   const at = (off: number): number => {
-    const line = lastAtMost(lines, off);
+    const line = getLineIndexAtOffset(lines, off);
     return points(disk[line] + off - lines[line]);
   };
   return (s) => (s === undefined || s.file !== read ? undefined : [at(s.beg), at(s.end)]);
@@ -1155,7 +1149,7 @@ const check = async (
   hook.BEND_LINT_SEE = (s) => reported.push(s);
   let syntax: string[] = [];
   try {
-    await Bend.book_load(book, nodePath.resolve(path).replaceAll("\\", "/"), "", seen);
+    await Bend.book_load(book, getPathWithForwardSlashes(nodePath.resolve(path)), "", seen);
     hook.BEND_LINT_SEE = undefined;
     const real = (ns: string): string =>
       [...seen].find(([at, n]) => at !== Bend.BASE_BEND && n === ns)?.[0] ?? "";
@@ -1290,28 +1284,26 @@ const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
     url.fileURLToPath(SERVER_CACHE_DIR),
     "checks",
-    digest([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
+    getSha256Hex([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
   );
 
 // The cached answer at `file`, if each file it read still has the text it
 // read. A hit marks the entry used now.
-const cached = (file: string): Entry | undefined => {
-  try {
+const cached = (file: string): Entry | undefined =>
+  tryGetOrUndefined(() => {
     const entry = JSON.parse(nodeFs.readFileSync(file, "utf8")) as Entry;
-    if (!entry.files.every(([p, d]) => digest(nodeFs.readFileSync(p, "utf8")) === d)) {
+    if (!entry.files.every(([p, d]) => getSha256Hex(nodeFs.readFileSync(p, "utf8")) === d)) {
       return undefined;
     }
     nodeFs.utimesSync(file, new Date(), new Date());
     return entry;
-  } catch {
-    return undefined;
-  }
-};
+  });
 
 // Deletes the entries of the cache folder `dir` unused for longer than
-// STALE; one that another run deletes first is skipped.
+// STALE; one that another run deletes first is skipped. A folder that cannot
+// be read keeps its entries.
 const prune = (dir: string): void => {
-  try {
+  tryGetOrUndefined(() =>
     nodeFs
       .readdirSync(dir)
       .map((name) => nodePath.join(dir, name))
@@ -1320,24 +1312,19 @@ const prune = (dir: string): void => {
           Date.now() - (nodeFs.statSync(old, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) >
           STALE,
       )
-      .forEach((old) => nodeFs.rmSync(old, { force: true }));
-  } catch {
-    // A folder that cannot be read keeps its entries.
-  }
+      .forEach((old) => nodeFs.rmSync(old, { force: true })),
+  );
 };
 
 // Keeps `entry` at `file`, whole or not at all, after pruning its folder. A
-// cache that cannot be written is skipped.
+// cache that cannot be written is skipped: the next run checks again.
 const keep = (file: string, entry: Entry): void => {
-  try {
+  tryGetOrUndefined(() => {
     const dir = nodePath.dirname(file);
     nodeFs.mkdirSync(dir, { recursive: true });
     prune(dir);
-    nodeFs.writeFileSync(file + "." + process.pid, JSON.stringify(entry));
-    nodeFs.renameSync(file + "." + process.pid, file);
-  } catch {
-    // The next run checks again.
-  }
+    writeFileAtomically(file, JSON.stringify(entry));
+  });
 };
 
 // Notes the check numbered `number`, of the cache entry at `file`; `gone`
@@ -1369,9 +1356,13 @@ const checked = async (checker: Checker, path: string, facts: boolean): Promise<
   const made = await check(checker, path, facts);
   if (made.read !== undefined && made.number !== undefined) {
     const answer = numbered(made.answer, 0);
-    const sum = digest(answer);
+    const sum = getSha256Hex(answer);
     answered(file, { path, facts, digest: sum }, made.number, false);
-    keep(file, { files: made.read.map(([p, text]) => [p, digest(text)]), answer, digest: sum });
+    keep(file, {
+      files: made.read.map(([p, text]) => [p, getSha256Hex(text)]),
+      answer,
+      digest: sum,
+    });
   }
   return made.answer;
 };
@@ -1381,7 +1372,7 @@ const checked = async (checker: Checker, path: string, facts: boolean): Promise<
 const revive = async (checker: Checker, number: number): Promise<void> => {
   const { path, facts, digest: was } = ANSWERED[number - 1];
   const made = await check(checker, path, facts, number);
-  if (made.read === undefined || digest(numbered(made.answer, 0)) !== was) {
+  if (made.read === undefined || getSha256Hex(numbered(made.answer, 0)) !== was) {
     nodeFs.rmSync(entryOf(checker, path, facts), { force: true });
     throw new Error("a check changed since its answer; run again");
   }
@@ -1435,7 +1426,7 @@ const named = (inputs: string[]): string => {
         ...new Set(
           found
             .flat()
-            .map((f) => nodeFs.realpathSync.native(nodePath.resolve(f)).replaceAll("\\", "/")),
+            .map((f) => getPathWithForwardSlashes(nodeFs.realpathSync.native(nodePath.resolve(f)))),
         ),
       ]
         .map((f) => record(["file", f]))

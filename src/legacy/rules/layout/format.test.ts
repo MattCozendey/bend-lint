@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getPathWithForwardSlashes } from "../../../shared/paths.ts";
 import { unwrap } from "../../../shared/result.ts";
 import { applyFixes, createLinter } from "../../lint.ts";
 import type { LintOptions, LintResult, LintRule, Options } from "../../lint.ts";
@@ -45,7 +46,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-format-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 const opts = { tabWidth: 2, wrapAtWidth: 100, endOfLine: "lf" } as const;
 const fixture = (text: string, name = "main.bend") => {
-  const file = path.join(dir, name).replaceAll("\\", "/");
+  const file = getPathWithForwardSlashes(path.join(dir, name));
   fs.writeFileSync(file, text);
   return file;
 };
