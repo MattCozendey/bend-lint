@@ -23,10 +23,11 @@ import type {
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
-import { CACHE, findBend2 } from "../shared/bend2.ts";
-import type { FindOptions } from "../shared/bend2.ts";
+import { CACHE, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
 import { path, resolve, slash } from "../shared/paths.ts";
+import { unwrap } from "../shared/result.ts";
+import { digest } from "../shared/utils.ts";
 import type {
   Declaration,
   Diag,
@@ -472,10 +473,6 @@ export const patch = (file: string, src: string): string => {
 
 export const drift = (message: string): Error =>
   Object.assign(new Error(message), { name: "DriftError", [DRIFT]: true });
-
-// The bend2 folder to load: --bend's, else BEND_DIR's, else a download.
-export const bendDir = async (given?: string, options?: FindOptions): Promise<string> =>
-  slash(await findBend2(GIVE, { ...options, bend: given }));
 
 // Every sub-term, parents first, with an explicit stack: linear in the
 // size of the term, at any depth.
@@ -1451,8 +1448,6 @@ export const layout = (m: Loaded, d: Diag, head: string): string => {
   ).replace(/^Error:/, head);
 };
 
-const digest = (text: string): string => Bun.hash(text).toString(36);
-
 const hashed = (p: string): string | undefined => {
   const text = tried(() => nodeFs.readFileSync(p, "utf8"));
   return text === undefined ? undefined : digest(text);
@@ -1714,7 +1709,9 @@ const selfCheck = async (m: Loaded): Promise<void> => {
 // Finds bend2, patches its PATCHED files as Bun loads them, imports them,
 // and checks them (guardMain, selfCheck).
 export const load = async (given: string | undefined): Promise<Loaded> => {
-  const dir = await bendDir(given);
+  const dir = path.resolve(
+    url.fileURLToPath(unwrap(await tryGetBend2SourceUrl(GIVE, { bend: given }))),
+  );
   const patched = new Map(
     PATCHED.map((f) => [path.join(dir, f), patch(f, fs.readFileSync(path.join(dir, f), "utf8"))]),
   );

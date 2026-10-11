@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { fetchBend, installedTag, PIN } from "../shared/bend2.ts";
+import { fetchBend, installedTag, PIN, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import type { FindOptions } from "../shared/bend2.ts";
 import { relative, resolve } from "../shared/paths.ts";
 import { ERROR, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
@@ -26,7 +27,7 @@ import type {
   Severity,
   Source,
 } from "./lint.ts";
-import { bendDir, DRIFT, guardMain, mapper, patch, seeCheck, seeInfer, walk } from "./seam.ts";
+import { DRIFT, guardMain, mapper, patch, seeCheck, seeInfer, walk } from "./seam.ts";
 import type { Raw } from "./seam.ts";
 
 // Types
@@ -632,6 +633,11 @@ async function readConfig(file: string) {
   return unwrap(await api.readConfig(file));
 }
 
+// The href of the bend2 folder found from `bend`; a failure rejects.
+async function bend2Url(bend: string | undefined, options?: FindOptions): Promise<string> {
+  return unwrap(await tryGetBend2SourceUrl("", { ...options, bend })).href;
+}
+
 // The error `p` rejects with; a `p` that fulfills fails the test.
 async function rejection(p: Promise<unknown>): Promise<Error> {
   try {
@@ -867,12 +873,13 @@ describe("patch", () => {
 
   test("bend2 is found from a checkout, its bend2 folder, or the repo; a wrong dir fails", async () => {
     const repo = path.dirname(BEND2);
-    expect([await bendDir(repo), await bendDir(BEND2), await bendDir(undefined)]).toEqual([
-      BEND2,
-      BEND2,
-      BEND2,
+    const url = pathToFileURL(BEND2 + "/").href;
+    expect([await bend2Url(repo), await bend2Url(BEND2), await bend2Url(undefined)]).toEqual([
+      url,
+      url,
+      url,
     ]);
-    expect((await rejection(bendDir(DIR))).message).toMatch(/no bend2 at/);
+    expect((await rejection(bend2Url(DIR))).message).toMatch(/no bend2 at/);
   });
 
   test("paths: a drive letter is a root; POSIX paths are unchanged", () => {
@@ -928,23 +935,23 @@ describe("downloading bend", () => {
     expect((await rejection(fetchBend("../x", at))).message).toMatch(/not a bend release/);
   });
 
-  test("bendDir downloads only when no bend is given", async () => {
+  test("bend2 downloads only when no bend is given", async () => {
     const saved = process.env.BEND_DIR;
     delete process.env.BEND_DIR; // a given bend would win over all below
     try {
       github();
       const at = cache();
       const got = (tag: string) =>
-        fs.realpathSync(path.join(at, tag, "bend2")).replaceAll("\\", "/");
-      expect(await bendDir(undefined, { cache: at, run: () => "bend 1.2.3\n" })).toBe(
+        pathToFileURL(fs.realpathSync(path.join(at, tag, "bend2")) + path.sep).href;
+      expect(await bend2Url(undefined, { cache: at, run: () => "bend 1.2.3\n" })).toBe(
         got("v1.2.3"),
       );
-      expect(await bendDir(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
+      expect(await bend2Url(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
       mock.restore();
       offline();
-      expect(await bendDir(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
+      expect(await bend2Url(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
       expect(
-        (await rejection(bendDir(undefined, { cache: at, run: () => "bend 1.2.4\n" }))).message,
+        (await rejection(bend2Url(undefined, { cache: at, run: () => "bend 1.2.4\n" }))).message,
       ).toMatch(/could not download bend v1\.2\.4 \(offline\)/);
     } finally {
       if (saved !== undefined) {

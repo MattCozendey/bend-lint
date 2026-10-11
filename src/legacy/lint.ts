@@ -14,15 +14,9 @@ import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
 import { path } from "../shared/paths.ts";
-import {
-  ERROR,
-  error,
-  ERROR_METADATA,
-  getErrorMessageFromUnknown,
-  ok,
-  unwrap,
-} from "../shared/result.ts";
+import { ERROR, error, ERROR_METADATA, ok, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
+import { getErrorMessageFromUnknown } from "../shared/utils.ts";
 import {
   cachedRule,
   check,

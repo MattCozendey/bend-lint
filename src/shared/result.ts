@@ -32,9 +32,6 @@ export const ok = <T>(value: T): ResultOk<T> => ({ [OK]: value });
 
 export const error = <E extends ErrorShape>(value: E): ResultErr<E> => ({ [ERROR]: value });
 
-export const getErrorMessageFromUnknown = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e);
-
 // The value, or a throw: an Error as it is, a string as an Error's message,
 // and a typed error as an Error with its metadata's message (else its
 // type), caused by the typed error.

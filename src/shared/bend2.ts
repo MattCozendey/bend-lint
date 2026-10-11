@@ -10,7 +10,9 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 
 import pkg from "../../package.json" with { type: "json" };
-import { getErrorMessageFromUnknown } from "./result.ts";
+import { error, ok } from "./result.ts";
+import type { Result } from "./result.ts";
+import { getUrlFromFolder, getErrorMessageFromUnknown } from "./utils.ts";
 
 // Types
 // =====
@@ -24,6 +26,9 @@ export type FindOptions = { bend?: string; run?: () => string | undefined; cache
 
 // What a download holds besides base.bend and the effs/ files Base imports.
 const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
+
+// How to name a bend2 folder, for a caller that takes only BEND_DIR.
+export const GIVE = "set BEND_DIR to a bend checkout";
 
 // The newest bend release this repo's checks passed with; scripts/sync-bend.ts
 // moves it.
@@ -106,26 +111,25 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
   return dir;
 };
 
-// The real path of the bend2 folder to load: in `bend`, a checkout or its
-// bend2 folder, else a download. A throw ends with `give`, which tells how
-// to name one.
-export const findBend2 = async (
+// The bend2 folder to load: in `bend`, a checkout or its bend2 folder, else
+// a download. An error ends with `give`, which tells how to name one.
+export const tryGetBend2SourceUrl = async (
   give: string,
   { bend = process.env.BEND_DIR, run, cache }: FindOptions = {},
-): Promise<string> => {
+): Promise<Result<URL, string>> => {
   if (bend === undefined) {
     const tag = installedTag(run) ?? PIN;
-    const got = await fetchBend(tag, cache).catch((e: unknown) => {
-      throw new Error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`);
-    });
-    return nodeFs.realpathSync(got);
+    return fetchBend(tag, cache).then(
+      (got) => ok(getUrlFromFolder(got)),
+      (e: unknown) =>
+        error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`),
+    );
   }
   const dir = nodePath.resolve(bend);
   const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
     nodeFs.existsSync(nodePath.join(d, "bend.ts")),
   );
-  if (found === undefined) {
-    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${give}`);
-  }
-  return nodeFs.realpathSync(found);
+  return found === undefined
+    ? error(`no bend2 at ${dir} (it needs bend.ts); ${give}`)
+    : ok(getUrlFromFolder(found));
 };

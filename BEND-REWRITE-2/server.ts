@@ -18,7 +18,6 @@
 // =======
 
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { once } from "node:events";
 import * as nodeFs from "node:fs";
 import * as net from "node:net";
@@ -29,8 +28,9 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { CACHE, findBend2 } from "../src/shared/bend2.ts";
-import { getErrorMessageFromUnknown } from "../src/shared/result.ts";
+import { CACHE, GIVE, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
+import { unwrap } from "../src/shared/result.ts";
+import { digest, getErrorMessageFromUnknown } from "../src/shared/utils.ts";
 
 // Types
 // =====
@@ -116,8 +116,6 @@ type Tree = {
 
 // Constants
 // =========
-
-const GIVE = "set BEND_DIR to a bend checkout";
 
 const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n" };
 
@@ -295,16 +293,12 @@ const patched = (dir: string, src: string): string =>
   ) + PROBES;
 
 // The patched copy of the bend.ts in `dir`, written once to the cache.
-const copied = (dir: string): string => {
+const copied = (dir: URL): string => {
   const text = patched(
-    dir.replaceAll("\\", "/"),
-    nodeFs.readFileSync(nodePath.join(dir, "bend.ts"), "utf8"),
+    url.fileURLToPath(dir).replaceAll("\\", "/"),
+    nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
-  const file = nodePath.join(
-    KEPT,
-    createHash("sha256").update(text).digest("hex").slice(0, 16),
-    "bend.ts",
-  );
+  const file = nodePath.join(KEPT, digest(text).slice(0, 16), "bend.ts");
   if (!nodeFs.existsSync(file)) {
     nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
     nodeFs.writeFileSync(file, text);
@@ -312,12 +306,10 @@ const copied = (dir: string): string => {
   return file;
 };
 
-const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
-
 // The checker. The patched bend.ts is written now, so a drift stops the run
 // at once; Bend loads, and checks Base, once, when first needed.
 const load = async (): Promise<Checker> => {
-  const dir = await findBend2(GIVE);
+  const dir = unwrap(await tryGetBend2SourceUrl(GIVE));
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {
@@ -335,7 +327,7 @@ const load = async (): Promise<Checker> => {
       nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
       nodeFs.readFileSync(PATHS, "utf8"),
       bend,
-      nodeFs.readFileSync(nodePath.join(dir, "base.bend"), "utf8"),
+      nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
     ].join("\n"),
   );
   return { version, loaded };
