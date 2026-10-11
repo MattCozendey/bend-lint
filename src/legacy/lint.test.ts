@@ -7,7 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { fetchBend, installedTag, PIN, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import {
+  fetchBend,
+  getInstalledBendTagOrUndefined,
+  PIN,
+  tryGetBend2SourceUrl,
+} from "../shared/bend2.ts";
 import { relative, resolve } from "../shared/paths.ts";
 import { ERROR, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
@@ -902,10 +907,10 @@ describe("downloading bend", () => {
 
   test("the installed bend's version is read from bend version", () => {
     expect([
-      installedTag(() => "bend 1.2.3\n"),
-      installedTag(() => "bend 1.2.3\nA newer bend is out.\n"),
-      installedTag(() => undefined),
-      installedTag(() => "nope"),
+      getInstalledBendTagOrUndefined(() => "bend 1.2.3\n"),
+      getInstalledBendTagOrUndefined(() => "bend 1.2.3\nA newer bend is out.\n"),
+      getInstalledBendTagOrUndefined(() => undefined),
+      getInstalledBendTagOrUndefined(() => "nope"),
     ]).toEqual(["v1.2.3", "v1.2.3", undefined, undefined]);
   });
 

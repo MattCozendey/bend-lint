@@ -40,9 +40,7 @@ export const CACHE: string = nodePath.join(
 // Functions
 // =========
 
-// The installed bend's release ("v2.0.36"), or undefined if `bend version`
-// fails. `readBendVersion` gives its stdout.
-export const installedTag = (
+export const getInstalledBendTagOrUndefined = (
   readBendVersion = (): string | undefined => {
     const r = spawnSync("bend", ["version"], {
       encoding: "utf8",
@@ -116,7 +114,7 @@ export const tryGetBend2SourceUrl = async ({
   downloadDir?: string;
 } = {}): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
-    const tag = installedTag(readBendVersion) ?? PIN;
+    const tag = getInstalledBendTagOrUndefined(readBendVersion) ?? PIN;
     return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>
       error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
