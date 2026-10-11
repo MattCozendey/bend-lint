@@ -9,9 +9,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { tryGetInstalledBendTagFromCliOrUndefined } from "../src/shared/bend2.ts";
-import { getPathWithForwardSlashes } from "../src/shared/paths.ts";
-import { OK } from "../src/shared/result.ts";
+import { tryGetInstalledBendTagFromCliOrUndefined } from "../shared/bend2.ts";
+import { getPathWithForwardSlashes } from "../shared/paths.ts";
+import { OK } from "../shared/result.ts";
 
 // Types
 // =====

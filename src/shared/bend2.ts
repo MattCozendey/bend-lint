@@ -1,4 +1,4 @@
-// Finding bend2, for both versions: the folder the user names, else a
+// Finding bend2: the folder the user names, else a
 // downloaded release. The docs give the order.
 
 // Imports
@@ -25,8 +25,8 @@ export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
 // Functions
 // =========
 
-// bend-lint's cache: downloaded bends, one folder per release, and what each
-// version keeps.
+// bend-lint's cache: downloaded bends, one folder per release, and what the
+// server keeps.
 export const getBendLintCacheDir = (): URL =>
   url.pathToFileURL(
     nodePath.join(
@@ -77,7 +77,7 @@ export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
 // bend2 at a release, kept in <cache>/<tag>/bend2.
 // A download goes to a temporary folder first, so the cache never holds a
 // partial one.
-export const fetchBend = async (tag: string): Promise<URL> => {
+const fetchBend = async (tag: string): Promise<URL> => {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }

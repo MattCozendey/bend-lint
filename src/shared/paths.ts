@@ -1,4 +1,4 @@
-// fs and path that give real paths with `/`, for both versions' patched
+// fs and path that give real paths with `/`, for the patched
 // bend.ts: Bend resolves imports with path.posix, so on Windows it needs
 // them.
 

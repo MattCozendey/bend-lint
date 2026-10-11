@@ -1,4 +1,3 @@
 node_modules/
-src/legacy/.tmp/
 .bend2
-BEND-REWRITE-2/build/
+src/linter/build/

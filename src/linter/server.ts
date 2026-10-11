@@ -28,21 +28,21 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
-import { getPathWithForwardSlashes } from "../src/shared/paths.ts";
-import { unwrap } from "../src/shared/result.ts";
+import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { getPathWithForwardSlashes } from "../shared/paths.ts";
+import { unwrap } from "../shared/result.ts";
 import {
   getLineIndexAtOffset,
   getLineStartOffsets,
   getTextWithEachEditAppliedOnce,
   getTextWithLfLineEnds,
-} from "../src/shared/text.ts";
+} from "../shared/text.ts";
 import {
   getErrorMessageFromUnknown,
   getSha256Hex,
   tryGetOrUndefined,
   writeFileAtomically,
-} from "../src/shared/utils.ts";
+} from "../shared/utils.ts";
 
 // Types
 // =====
@@ -134,7 +134,7 @@ const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n"
 const SERVER_CACHE_DIR = new URL("server/", getBendLintCacheDir());
 
 // The fs and path that bend.ts gets instead of Node's.
-const PATHS = url.fileURLToPath(new URL("../src/shared/paths.ts", import.meta.url));
+const PATHS = url.fileURLToPath(new URL("../shared/paths.ts", import.meta.url));
 
 // The edits that make bend.ts use PATHS, and report what it parses to
 // PROBES.
@@ -281,9 +281,7 @@ const seeded = (Bend: Bend, base: Book): Book => ({
 });
 
 const drift = (text: string): Error =>
-  Object.assign(new Error(text + "; update EDITS in BEND-REWRITE-2/server.ts"), {
-    name: "DriftError",
-  });
+  Object.assign(new Error(text + "; update EDITS in src/linter/server.ts"), { name: "DriftError" });
 
 // bend.ts with EDITS made and PROBES appended, and BEND_DIR kept at `dir`, so
 // the copy finds base.bend where the original does: `true ? dir :` puts

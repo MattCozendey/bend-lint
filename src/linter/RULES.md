@@ -1,9 +1,8 @@
-# Writing rules (Bend rewrite)
+# Writing rules
 
-How to write, run and test a rule for the Bend rewrite in this folder. The design notes are in
-[lint.bend](lint.bend), at the top.
+How to write, run and test a rule. The design notes are in [lint.bend](lint.bend), at the top.
 
-- A rule is a Bend file. There are no TypeScript rules here.
+- A rule is a Bend file.
 - A rules program puts rules together. [main.bend](main.bend) is the default one.
 - [server.ts](server.ts) runs the program on files, and answers its questions about Bend files. It
   goes when Bend's checker is Bend; the rules stay.
@@ -303,7 +302,7 @@ test("a parameter named foo is reported, and renamed with --fix-dangerously", ()
 - `lint(program, files, named)` writes the files to a fresh folder and gives the findings.
 - `run(program, files, named, args, dir)` also gives the exit code, the output and the files after
   the run.
-- Tests need `BEND_DIR`; without it they skip.
+- Tests build with the `bend` on PATH; without it they skip.
 
 ## Bend for rule authors
 

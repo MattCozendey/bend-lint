@@ -1,4 +1,4 @@
-# AGENTS (Bend rewrite)
+# AGENTS: Bend code
 
 ## 2. Code
 
@@ -10,8 +10,6 @@
   counterexamples, before or after you write a law.
 - Do not run `--verdict` unless I ask.
 - Do not use `@unsafe`. Do not use foreign code unless I approve it.
-- Hard rule: Do not run the performance lint rules (`rules/performance/`). They are buggy for
-  now(read their intentions and make sure your code is fast tho!).
 - Hard rule: Windows runs Bend natively only with the fork in the sibling folder `../bend` (branch
   `feature/cuda-and-windows`, NVIDIA included). Outside that fork, run Bend only on WSL.
 
