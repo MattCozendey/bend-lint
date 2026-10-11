@@ -708,17 +708,18 @@ def Edit.le(a: Edit, b: Edit) -> Bool:
     case Edit{p, x, e, t} Edit{q, y, f, u}:
       U32.is_le(x, y)
 
-# `rest`, the text from `at` on, with `edits` (in order) made, after `out`.
-def Text.edited(edits: List<&2, Edit>, +rest: String, +at: U32, out: String) -> String:
+# `rest`, the text from `at` on, with `edits` (in order) made, after the pieces of `out` (last first). The pieces join
+# once, at the end, so the text is copied once, whatever the number of edits.
+def Text.edited(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, String>) -> String:
   match edits:
     case Nil{}:
-      out ++ rest
+      Shared.joined(rest <> out, "")
     case Con{Edit{p, beg, +end, text}, more}:
       Text.edited(
         more,
         String.drop(rest, U32.to_nat((end - at : U32))),
         end,
-        out ++ Shared.take(rest, U32.to_nat((beg - at : U32))) ++ text
+        text <> Shared.take(rest, U32.to_nat((beg - at : U32))) <> out
       )
 
 def write.closed(+path: String, written: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
@@ -745,7 +746,7 @@ def write.edited(+path: String, text: String, edits: List<&2, Edit>) -> IO(Unit)
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Con{e, rest}:
-      write(path, Text.edited(Shared.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, ""))
+      write(path, Text.edited(Shared.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, []))
 
 # Writes each of `sources` that the edits of `groups` (by file) change.
 def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) -> IO(Unit):
