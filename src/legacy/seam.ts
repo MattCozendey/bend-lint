@@ -23,7 +23,7 @@ import type {
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
-import { BEND_LINT_CACHE_DIR, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
 import { resolve, slash } from "../shared/paths.ts";
 import { mapError, unwrap } from "../shared/result.ts";
@@ -184,7 +184,7 @@ const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 export const MARK = "BEND_LINT_PATCH";
 
 // Compiled Bend rules.
-const RULES_CACHE_DIR = new URL("rules/", BEND_LINT_CACHE_DIR);
+const RULES_CACHE_DIR = new URL("rules/", getBendLintCacheDir());
 
 // Each loaded bend2's compiler hash, made once.
 const COMPILERS = new WeakMap<Loaded, string>();

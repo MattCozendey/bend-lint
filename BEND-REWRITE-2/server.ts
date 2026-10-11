@@ -28,7 +28,7 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { BEND_LINT_CACHE_DIR, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
+import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
 import { unwrap } from "../src/shared/result.ts";
 import { digest, getErrorMessageFromUnknown } from "../src/shared/utils.ts";
 
@@ -119,7 +119,7 @@ type Tree = {
 
 const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n" };
 
-const SERVER_CACHE_DIR = new URL("server/", BEND_LINT_CACHE_DIR);
+const SERVER_CACHE_DIR = new URL("server/", getBendLintCacheDir());
 
 // The fs and path that bend.ts gets instead of Node's.
 const PATHS = url.fileURLToPath(new URL("../src/shared/paths.ts", import.meta.url));

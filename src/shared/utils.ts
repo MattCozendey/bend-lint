@@ -19,14 +19,11 @@ export const getErrorMessageFromUnknown = (e: unknown): string =>
 export const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 // The folder at its real path, as a file: URL that ends in `/`, so
-// `new URL("file", folder)` finds a file in it. An error if `dir` is not a
-// folder, or cannot be resolved.
+// `new URL("file", folder)` finds a file in it. An error if `dir` cannot be
+// resolved.
 export const tryGetUrlFromFolderPathOrUrl = (dir: string | URL): Result<URL, string> => {
   try {
-    const real = nodeFs.realpathSync(dir);
-    return nodeFs.statSync(real).isDirectory()
-      ? ok(url.pathToFileURL(real + nodePath.sep))
-      : error(`${real} is not a folder`);
+    return ok(url.pathToFileURL(nodeFs.realpathSync(dir) + nodePath.sep));
   } catch (e) {
     return error(getErrorMessageFromUnknown(e));
   }
