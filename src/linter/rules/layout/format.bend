@@ -2414,13 +2414,22 @@ def first_newline(s: String) -> String:
     case SCon{c, rest}:
       first_newline(rest)
 
+def newline.preserve(preserve: Bool, source: String) -> String:
+  match preserve:
+    case True{}:
+      first_newline(source)
+    case False{}:
+      "\n"
+
+def newline.crlf(crlf: Bool, +eol: String, source: String) -> String:
+  match crlf:
+    case True{}:
+      "\r\n"
+    case False{}:
+      newline.preserve(String.eq(eol, "preserve"), source)
+
 def newline_of(+eol: String, source: String) -> String:
-  Bool.pick(
-    String,
-    String.eq(eol, "crlf"),
-    "\r\n",
-    Bool.pick(String, String.eq(eol, "preserve"), first_newline(source), "\n")
-  )
+  newline.crlf(String.eq(eol, "crlf"), eol, source)
 
 def width_of(value: Maybe<&2, Lint.Value>) -> Maybe<&2, U32>:
   match value:

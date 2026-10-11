@@ -11,6 +11,7 @@ import ./rules/layout/imports.bend as Imports
 import ./rules/no-unused/imports.bend as UnusedImports
 import ./rules/performance/append-in-loop.bend as AppendInLoop
 import ./rules/performance/deep-call-in-fork.bend as DeepCallInFork
+import ./rules/performance/eager-branch.bend as EagerBranch
 import ./rules/performance/list-index-loop.bend as ListIndexLoop
 import ./rules/performance/missed-fork.bend as MissedFork
 
@@ -28,6 +29,7 @@ def main() -> IO(Unit):
       UnusedImports.rule(),
       AppendInLoop.rule(),
       DeepCallInFork.rule(),
+      EagerBranch.rule(),
       ListIndexLoop.rule(),
       MissedFork.rule()
     ]

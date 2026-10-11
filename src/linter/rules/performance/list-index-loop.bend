@@ -33,17 +33,18 @@ def bases() -> List<&2, Walker>:
     Walker{"List.length", 2n, "List.length"}
   ]
 
-def Walker.find(walkers: List<&2, Walker>, +target: String) -> Maybe<&2, Walker>:
-  match walkers:
-    case Nil{}:
+def Walker.find(
+  walkers: List<&2, Walker>,
+  found: Maybe<&2, Walker>,
+  +target: String
+) -> Maybe<&2, Walker>:
+  match walkers found:
+    case _ Some{w}:
+      Some{w}
+    case Nil{} None{}:
       None{}
-    case Con{Walker{+t, at, through}, rest}:
-      Bool.pick(
-        Maybe<&2, Walker>,
-        String.eq(t, target),
-        Some{Walker{t, at, through}},
-        Walker.find(rest, target)
-      )
+    case Con{Walker{+t, at, through}, rest} None{}:
+      Walker.find(rest, Shared.when(Walker, String.eq(t, target), Walker{t, at, through}), target)
 
 # The binder of the variable `node` uses, if it is a variable.
 def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
@@ -55,14 +56,21 @@ def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
 
 # Where the parameter that declares `binder` is among `nodes`, a definition's children, counting from
 # `k`.
-def parameter(nodes: List<&2, Lint.Node>, +binder: U32, +k: Nat) -> Maybe<&2, Nat>:
-  match nodes:
-    case Nil{}:
+def parameter(
+  nodes: List<&2, Lint.Node>,
+  found: Maybe<&2, Nat>,
+  +binder: U32,
+  +k: Nat
+) -> Maybe<&2, Nat>:
+  match nodes found:
+    case _ Some{at}:
+      Some{at}
+    case Nil{} None{}:
       None{}
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{+b}, q, s, t}, rest}:
-      Bool.pick(Maybe<&2, Nat>, U32.is_eq(b, binder), Some{k}, parameter(rest, binder, 1n+k))
-    case Con{node, rest}:
-      parameter(rest, binder, k)
+    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{+b}, q, s, t}, rest} None{}:
+      parameter(rest, Shared.when(Nat, U32.is_eq(b, binder), k), binder, 1n+k)
+    case Con{node, rest} None{}:
+      parameter(rest, None{}, binder, k)
 
 def case_ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
   match nodes:
@@ -106,7 +114,7 @@ def passes(
           Pass,
           Shared.when(
             Pass,
-            Maybe.is_some(&2, Nat, parameter(params, b, 0n)),
+            Maybe.is_some(&2, Nat, parameter(params, None{}, b, 0n)),
             Pass{owner, b, cases}
           ),
           out
@@ -158,7 +166,7 @@ def Walker.helped(
   match walked:
     case Some{+b}:
       Walker.at(
-        parameter(Lint.Children.get(children, owner), b, 0n),
+        parameter(Lint.Children.get(children, owner), None{}, b, 0n),
         Lint.Node.target(Lint.Here.node(here, owner)),
         through,
         out
@@ -191,7 +199,7 @@ def Walker.call(
 ) -> List<&2, Walker>:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, +target}, +args}:
-      Walker.helper(Walker.find(bases(), target), args, owner, here, children, out)
+      Walker.helper(Walker.find(bases(), None{}, target), args, owner, here, children, out)
     case _:
       out
 
@@ -234,20 +242,25 @@ def Pass.all(
 
 # Whether a pass of `passes` passes `binder` of `owner` unchanged in a call inside the case `inner`
 # (0: anywhere).
-def Pass.covers(passes: List<&2, Pass>, +owner: U32, +binder: U32, +inner: U32) -> Bool:
-  match passes:
-    case Nil{}:
+def Pass.covers(passes: List<&2, Pass>, hit: Bool, +owner: U32, +binder: U32, +inner: U32) -> Bool:
+  match passes hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Pass{o, b, cs}, rest}:
-      (
+    case Con{Pass{o, b, cs}, rest} False{}:
+      Pass.covers(
+        rest,
         U32.is_eq(
           o,
           owner
         )
           && U32.is_eq(b, binder)
-          && (U32.is_eq(inner, 0) || List.contains(~U32, ~U32.is_eq, cs, inner))
+          && (U32.is_eq(inner, 0) || List.contains(~U32, ~U32.is_eq, cs, inner)),
+        owner,
+        binder,
+        inner
       )
-        || Pass.covers(rest, owner, binder, inner)
 
 def advice(+through: String, +list: String) -> String:
   Bool.pick(
@@ -291,7 +304,7 @@ def judged.list(
   match walked:
     case Some{+b}:
       finding(
-        Pass.covers(passes, owner, b, innermost(cases.of(here, id))),
+        Pass.covers(passes, False{}, owner, b, innermost(cases.of(here, id))),
         span,
         message(callee, through, list, Lint.Node.name(Lint.Here.node(here, owner)))
       )
@@ -337,7 +350,7 @@ def judge(
 ) -> List<&2, Lint.Finding>:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, +target}, +args}:
-      judged(Walker.find(walkers, target), args, callee, owner, id, span, here, passes)
+      judged(Walker.find(walkers, None{}, target), args, callee, owner, id, span, here, passes)
     case _:
       []
 

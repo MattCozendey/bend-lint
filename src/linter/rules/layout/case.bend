@@ -39,22 +39,38 @@ def no_underscore(s: String) -> Bool:
     case SCon{c, rest}:
       no_underscore(rest)
 
-def no_capital(s: String) -> Bool:
-  match s:
-    case SNil{}:
+def no_capital(s: String, ok: Bool) -> Bool:
+  match s ok:
+    case _ False{}:
+      False{}
+    case SNil{} True{}:
       True{}
-    case SCon{c, rest}:
-      Bool.and(Bool.not(Char.is_upper(c)), no_capital(rest))
+    case SCon{c, rest} True{}:
+      no_capital(rest, Bool.not(Char.is_upper(c)))
+
+def is_pascal.rest(upper: Bool, rest: String) -> Bool:
+  match upper:
+    case True{}:
+      no_underscore(rest)
+    case False{}:
+      False{}
 
 def is_pascal(s: String) -> Bool:
   match s:
     case SCon{c, rest}:
-      Bool.and(Char.is_upper(c), no_underscore(rest))
+      is_pascal.rest(Char.is_upper(c), rest)
     case SNil{}:
       False{}
 
+def is_snake.of(empty: Bool, s: String) -> Bool:
+  match empty:
+    case True{}:
+      False{}
+    case False{}:
+      no_capital(s, True{})
+
 def is_snake(+s: String) -> Bool:
-  Bool.and(Bool.not(String.is_empty(s)), no_capital(s))
+  is_snake.of(String.is_empty(s), s)
 
 def fits(want: Case, +s: String) -> Bool:
   match want:

@@ -411,27 +411,37 @@ def Use.all(nodes: List<&2, Lint.Node>, out: List<&2, Use>) -> List<&2, Use>:
       Use.all(rest, out)
 
 # Whether a variable of `us` uses a binder of `binders` from `beg` to `end`.
-def uses(us: List<&2, Use>, +binders: List<&2, U32>, +beg: U32, +end: U32) -> Bool:
-  match us:
-    case Nil{}:
+def uses(us: List<&2, Use>, hit: Bool, +binders: List<&2, U32>, +beg: U32, +end: U32) -> Bool:
+  match us hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Use{b, +at}, rest}:
-      (
-        List.contains(~U32, ~U32.is_eq, binders, b) && U32.is_ge(at, beg) && U32.is_lt(at, end)
+    case Con{Use{b, +at}, rest} False{}:
+      uses(
+        rest,
+        List.contains(~U32, ~U32.is_eq, binders, b) && U32.is_ge(at, beg) && U32.is_lt(at, end),
+        binders,
+        beg,
+        end
       )
-        || uses(rest, binders, beg, end)
 
-def Bound.find(bounds: List<&2, Bound>, +id: U32) -> Maybe<&2, Bound>:
-  match bounds:
-    case Nil{}:
+def Bound.find(bounds: List<&2, Bound>, found: Maybe<&2, Bound>, +id: U32) -> Maybe<&2, Bound>:
+  match bounds found:
+    case _ Some{bound}:
+      Some{bound}
+    case Nil{} None{}:
       None{}
-    case Con{Bound{+i, o, b, w, f, x, s, y}, rest}:
-      Bool.pick(
-        Maybe<&2, Bound>,
-        U32.is_eq(i, id),
-        Some{Bound{i, o, b, w, f, x, s, y}},
-        Bound.find(rest, id)
-      )
+    case Con{Bound{+i, o, b, w, f, x, s, y}, rest} None{}:
+      Bound.find(rest, Shared.when(Bound, U32.is_eq(i, id), Bound{i, o, b, w, f, x, s, y}), id)
+
+# The let after a let of a run, if the run goes on (`free`: its call uses no binder of the run).
+def Bound.next(free: Bool, +bounds: List<&2, Bound>, +body: U32) -> Maybe<&2, Bound>:
+  match free:
+    case True{}:
+      Bound.find(bounds, None{}, body)
+    case False{}:
+      None{}
 
 # A run of lets that follow each other, from `next`, last first: each next let is the rest of block of
 # the one before, while its call uses no binder of the run. `fuel` bounds the steps.
@@ -445,10 +455,10 @@ def run.go(
 ) -> List<&2, Bound>:
   match fuel next:
     case 1n+f Some{Bound{i, o, +b, w, fr, x, Lint.Span{+path, +beg, +end}, +body}}:
-      +free = Bool.not(uses(us, binders, beg, end))
+      +free = Bool.not(uses(us, False{}, binders, beg, end))
       run.go(
         f,
-        Bool.pick(Maybe<&2, Bound>, free, Bound.find(bounds, body), None{}),
+        Bound.next(free, bounds, body),
         bounds,
         us,
         b <> binders,
@@ -549,6 +559,19 @@ def Run.finding(run: List<&2, Bound>, +here: Lint.Here) -> List<&2, Lint.Finding
     case _:
       []
 
+# The run of lets from `bound`, unless an earlier run holds it.
+def run.from(
+  consumed: Bool,
+  bound: Bound,
+  +bounds: List<&2, Bound>,
+  +us: List<&2, Use>
+) -> List<&2, Bound>:
+  match consumed:
+    case True{}:
+      []
+    case False{}:
+      run.go(Shared.length(&2, Bound, bounds), Some{bound}, bounds, us, [], [])
+
 def runs(
   bs: List<&2, Bound>,
   +bounds: List<&2, Bound>,
@@ -561,18 +584,11 @@ def runs(
     case Nil{}:
       out
     case Con{Bound{+i, o, b, w, f, x, s, y}, rest}:
-      +run = Bool.pick(
-        List<&2, Bound>,
+      +run = run.from(
         List.contains(~U32, ~U32.is_eq, consumed, i),
-        [],
-        run.go(
-          Shared.length(&2, Bound, bounds),
-          Some{Bound{i, o, b, w, f, x, s, y}},
-          bounds,
-          us,
-          [],
-          []
-        )
+        Bound{i, o, b, w, f, x, s, y},
+        bounds,
+        us
       )
       runs(
         rest,

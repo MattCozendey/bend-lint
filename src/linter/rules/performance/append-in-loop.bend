@@ -78,14 +78,16 @@ def Append.message(
         ++ ", so a loop of n steps copies O(n²) characters (the JS lane joins strings natively). Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`."
 
 # Whether `nodes`, a definition's children, hold a parameter that declares the binder `binder`.
-def parameter(nodes: List<&2, Lint.Node>, +binder: U32) -> Bool:
-  match nodes:
-    case Nil{}:
+def parameter(nodes: List<&2, Lint.Node>, hit: Bool, +binder: U32) -> Bool:
+  match nodes hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest}:
-      U32.is_eq(b, binder) || parameter(rest, binder)
-    case Con{node, rest}:
-      parameter(rest, binder)
+    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest} False{}:
+      parameter(rest, U32.is_eq(b, binder), binder)
+    case Con{node, rest} False{}:
+      parameter(rest, False{}, binder)
 
 def Use.all(nodes: List<&2, Lint.Node>, out: List<&2, Use>) -> List<&2, Use>:
   match nodes:
@@ -111,20 +113,66 @@ def Span.holds(span: Lint.Span, +at: U32) -> Bool:
 
 # Whether the call of the loop uses `binder` outside the append: then it keeps each value the loop
 # builds, and the copies are needed.
-def kept(us: List<&2, Use>, +binder: U32, +loop: Loop, +span: Lint.Span) -> Bool:
-  match us:
-    case Nil{}:
+def kept(us: List<&2, Use>, hit: Bool, +binder: U32, +loop: Loop, +span: Lint.Span) -> Bool:
+  match us hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Use{b, +at}, rest}:
-      (
-        U32.is_eq(b, binder) && Loop.holds(loop, at) && Bool.not(Span.holds(span, at))
+    case Con{Use{b, +at}, rest} False{}:
+      kept(
+        rest,
+        U32.is_eq(b, binder) && Loop.holds(loop, at) && Bool.not(Span.holds(span, at)),
+        binder,
+        loop,
+        span
       )
-        || kept(rest, binder, loop, span)
 
 def Loop.name(loop: Loop) -> String:
   match loop:
     case Loop{name, beg, end}:
       name
+
+def reported.kept(
+  kept: Bool,
+  a: Append,
+  +loop: Loop,
+  +name: String,
+  span: Lint.Span,
+  +args: List<&2, Lint.Node>,
+  +here: Lint.Here
+) -> List<&2, Lint.Finding>:
+  match kept:
+    case True{}:
+      []
+    case False{}:
+      [
+        Lint.Finding{
+          Lint.Warning{},
+          span,
+          Append.message(a, Loop.name(loop), name, Lint.Here.text(here), args),
+          []
+        }
+      ]
+
+# The finding about an append to `b`, a parameter of the loop if `param`, unless the loop's call also
+# keeps it.
+def reported(
+  param: Bool,
+  +b: U32,
+  a: Append,
+  +loop: Loop,
+  +name: String,
+  +span: Lint.Span,
+  +args: List<&2, Lint.Node>,
+  +here: Lint.Here,
+  +us: List<&2, Use>
+) -> List<&2, Lint.Finding>:
+  match param:
+    case True{}:
+      reported.kept(kept(us, False{}, b, loop, span), a, loop, name, span, args, here)
+    case False{}:
+      []
 
 # The finding about `acc`, the argument an append copies, if it is a parameter of the loop that the
 # loop's call does not also keep.
@@ -141,18 +189,16 @@ def found(
 ) -> List<&2, Lint.Finding>:
   match acc:
     case Some{Lint.Node{i, p, o, Lint.Variable{}, +name, Some{+b}, q, s, t}}:
-      Bool.pick(
-        List<&2, Lint.Finding>,
-        parameter(Lint.Children.get(children, owner), b) && Bool.not(kept(us, b, loop, span)),
-        [
-          Lint.Finding{
-            Lint.Warning{},
-            span,
-            Append.message(a, Loop.name(loop), name, Lint.Here.text(here), args),
-            []
-          }
-        ],
-        []
+      reported(
+        parameter(Lint.Children.get(children, owner), False{}, b),
+        b,
+        a,
+        loop,
+        name,
+        span,
+        args,
+        here,
+        us
       )
     case _:
       []

@@ -825,12 +825,22 @@ def Spans.ends_after(last: Maybe<&2, U32>, +b: U32) -> Bool:
       False{}
 
 # Whether the span from `b` to `e` touches one of `t`: they share a character, or two insertions are at one place.
+def Spans.touch.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
+  match insertion:
+    case True{}:
+      Spans.has(t, b, e, Spans.cmp(t, b, e))
+    case False{}:
+      False{}
+
+def Spans.touch.of(shares: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
+  match shares:
+    case True{}:
+      True{}
+    case False{}:
+      Spans.touch.insertion(U32.is_eq(b, e), t, b, e)
+
 def Spans.touch(+t: Spans, +b: U32, +e: U32) -> Bool:
-  Spans.ends_after(
-    Spans.last(t, e, None{}, Spans.starts_before(t, e)),
-    b
-  )
-    || (U32.is_eq(b, e) && Spans.has(t, b, e, Spans.cmp(t, b, e)))
+  Spans.touch.of(Spans.ends_after(Spans.last(t, e, None{}, Spans.starts_before(t, e)), b), t, b, e)
 
 def Spans.of(+spans: Map<&2, Spans>, path: String) -> Spans:
   Pair.snd(Map<&2, Spans>, Spans, Map.get(Spans, SLeaf{}, spans, path))

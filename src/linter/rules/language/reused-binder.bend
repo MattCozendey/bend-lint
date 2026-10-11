@@ -143,16 +143,25 @@ def ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
 
 # The first node of `chain` (innermost first) whose id is in `others`: the two uses' nearest common
 # ancestor.
-def common(chain: List<&2, Lint.Node>, +others: List<&2, U32>) -> Maybe<&2, Lint.Node>:
-  match chain:
-    case Nil{}:
+def common(
+  chain: List<&2, Lint.Node>,
+  found: Maybe<&2, Lint.Node>,
+  +others: List<&2, U32>
+) -> Maybe<&2, Lint.Node>:
+  match chain found:
+    case _ Some{node}:
+      Some{node}
+    case Nil{} None{}:
       None{}
-    case Con{Lint.Node{+i, p, o, s, n, b, q, sp, t}, rest}:
-      Bool.pick(
-        Maybe<&2, Lint.Node>,
-        List.contains(~U32, ~U32.is_eq, others, i),
-        Some{Lint.Node{i, p, o, s, n, b, q, sp, t}},
-        common(rest, others)
+    case Con{Lint.Node{+i, p, o, s, n, b, q, sp, t}, rest} None{}:
+      common(
+        rest,
+        Shared.when(
+          Lint.Node,
+          List.contains(~U32, ~U32.is_eq, others, i),
+          Lint.Node{i, p, o, s, n, b, q, sp, t}
+        ),
+        others
       )
 
 # Whether two uses are on one path: their nearest common ancestor is not a match, whose cases part
@@ -164,32 +173,40 @@ def one_path(node: Maybe<&2, Lint.Node>) -> Bool:
     case _:
       True{}
 
-def twice.with(uses: List<&2, U32>, +first: U32, +here: Lint.Here) -> Maybe<&2, U32>:
-  match uses:
-    case Nil{}:
+def twice.with(
+  uses: List<&2, U32>,
+  found: Maybe<&2, U32>,
+  +first: U32,
+  +here: Lint.Here
+) -> Maybe<&2, U32>:
+  match uses found:
+    case _ Some{u}:
+      Some{u}
+    case Nil{} None{}:
       None{}
-    case Con{+u, rest}:
-      Bool.pick(
-        Maybe<&2, U32>,
-        one_path(common(Lint.Here.ancestors(here, first), ids(Lint.Here.ancestors(here, u), []))),
-        Some{u},
-        twice.with(rest, first, here)
+    case Con{+u, rest} None{}:
+      twice.with(
+        rest,
+        Shared.when(
+          U32,
+          one_path(
+            common(Lint.Here.ancestors(here, first), None{}, ids(Lint.Here.ancestors(here, u), []))
+          ),
+          u
+        ),
+        first,
+        here
       )
 
-def either(a: Maybe<&2, U32>, b: Maybe<&2, U32>) -> Maybe<&2, U32>:
-  match a:
-    case Some{x}:
-      Some{x}
-    case None{}:
-      b
-
 # The second of the first two uses of `uses` (in order) on one path, if there are two.
-def twice(uses: List<&2, U32>, +here: Lint.Here) -> Maybe<&2, U32>:
-  match uses:
-    case Nil{}:
+def twice(uses: List<&2, U32>, found: Maybe<&2, U32>, +here: Lint.Here) -> Maybe<&2, U32>:
+  match uses found:
+    case _ Some{u}:
+      Some{u}
+    case Nil{} None{}:
       None{}
-    case Con{+u, +rest}:
-      either(twice.with(rest, u, here), twice(rest, here))
+    case Con{+u, +rest} None{}:
+      twice(rest, twice.with(rest, None{}, u, here), here)
 
 def message(+name: String) -> String:
   name
@@ -211,6 +228,21 @@ def finding(second: Maybe<&2, U32>, +name: String, +here: Lint.Here) -> List<&2,
     case None{}:
       []
 
+# The finding about the binder `b` of `o`, unless a match takes it apart.
+def unmatched(
+  matched: Bool,
+  +b: U32,
+  +o: U32,
+  +n: String,
+  +uses: List<&2, Use>,
+  +here: Lint.Here
+) -> List<&2, Lint.Finding>:
+  match matched:
+    case True{}:
+      []
+    case False{}:
+      finding(twice(Use.of(uses, b, o, []), None{}, here), n, here)
+
 def judge(
   onces: List<&2, Once>,
   +uses: List<&2, Use>,
@@ -230,11 +262,13 @@ def judge(
         Shared.onto(
           &2,
           Lint.Finding,
-          Bool.pick(
-            List<&2, Lint.Finding>,
+          unmatched(
             Maybe.is_some(&2, U32, List.head(&2, U32, Use.of(matched, b, o, []))),
-            [],
-            finding(twice(Use.of(uses, b, o, []), here), n, here)
+            b,
+            o,
+            n,
+            uses,
+            here
           ),
           out
         )

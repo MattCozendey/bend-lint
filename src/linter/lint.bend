@@ -580,17 +580,47 @@ def Here.recursive(here: Here, +children: Children, node: Node) -> Bool:
     case _:
       False{}
 
-# Whether the line of `text` that starts at `start`, the one before the line that starts at `next`, starts with `@`.
-def Here.unsafe.above(+text: String, +start: U32, +next: U32) -> Bool:
-  U32.is_gt(next, 0) && Shared.starts(Shared.slice(text, start, next), '@')
+# Where `s` writes `@unsafe` and `?`, from offset `at`, last first, onto `ats` and `qs`.
+def Here.marks(
+  s: String,
+  +at: U32,
+  ats: List<&2, U32>,
+  qs: List<&2, U32>
+) -> List<&2, U32>
+  & List<&2, U32>:
+  match s:
+    case SNil{}:
+      (ats, qs)
+    case SCon{'@', SCon{'u', SCon{'n', SCon{'s', SCon{'a', SCon{'f', SCon{'e', rest}}}}}}}:
+      Here.marks(rest, (at + 7: U32), at <> ats, qs)
+    case SCon{'?', rest}:
+      Here.marks(rest, (at + 1: U32), ats, at <> qs)
+    case SCon{c, rest}:
+      Here.marks(rest, (at + 1: U32), ats, qs)
 
-# Whether a definition is @unsafe (`@unsafe def f`, with @unsafe on its line or the line above, or `def f?`): Bend's
-# checker trusts its body.
-def Here.unsafe(+here: Here, node: Maybe<&2, Node>) -> Bool:
-  match node:
-    case Some{
+# Whether one of `ats` (where `@unsafe` starts) is just before `beg`, where a definition's name starts: on its line
+# or the line above, `@unsafe def ` and `@unsafe\ndef ` are 12 characters.
+def Here.marked(ats: List<&2, U32>, hit: Bool, +beg: U32) -> Bool:
+  match ats hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{+a, rest} False{}:
+      Here.marked(rest, U32.is_lt(a, beg) && U32.is_le((beg - a: U32), 16), beg)
+
+def Here.unsafes.go(
+  nodes: List<&2, Node>,
+  +ats: List<&2, U32>,
+  +qs: List<&2, U32>,
+  out: List<&2, U32>
+) -> List<&2, U32>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{
       Node{
-        id,
+        +id,
         parent,
         owner,
         Definition{},
@@ -599,50 +629,78 @@ def Here.unsafe(+here: Here, node: Maybe<&2, Node>) -> Bool:
         quantity,
         Some{Span{path, +beg, +end}},
         target
-      }
+      },
+      rest
     }:
-      +text = Here.text(here)
-      +line = Shared.line_start(text, beg)
-      Shared.starts(
-        Shared.slice(text, line, beg),
-        '@'
+      Here.unsafes.go(
+        rest,
+        ats,
+        qs,
+        Shared.push(
+          U32,
+          Shared.when(
+            U32,
+            Here.marked(ats, False{}, beg) || List.contains(~U32, ~U32.is_eq, qs, end),
+            id
+          ),
+          out
+        )
       )
-        || Here.unsafe.above(text, Shared.line_start(text, (line - 1: U32)), line)
-        || String.eq(Shared.slice(text, end, (end + 1: U32)), "?")
-    case _:
-      False{}
+    case Con{node, rest}:
+      Here.unsafes.go(rest, ats, qs, out)
+
+def Here.unsafes.of(+here: Here, marks: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
+  match marks:
+    case Tuple{+ats, +qs}:
+      Here.unsafes.go(Here.nodes(here), ats, qs, [])
+
+# The ids of the file's @unsafe definitions (`@unsafe def f`, with @unsafe on its line or the line above, or `def f?`):
+# Bend's checker trusts their bodies. One walk over the text.
+def Here.unsafes(+here: Here) -> List<&2, U32>:
+  Here.unsafes.of(here, Here.marks(Here.text(here), 0, [], []))
 
 # Whether the node numbered `app`, an application, builds a pair type (`A & B`), whose parts are types.
 def Here.pair(+here: Here, +app: U32) -> Bool:
   String.eq(Node.target(Here.node(here, (app + 1: U32))), "Pair")
 
-def Here.live.go(chain: List<&2, Node>, prev: U32, +here: Here) -> Bool:
-  match chain:
-    case Con{Node{id, parent, owner, Body{}, name, binder, quantity, span, target}, rest}:
-      True{}
-    case Con{Node{+id, parent, owner, Annotation{}, name, binder, quantity, span, target}, rest}:
-      U32.is_eq(prev, (id + 1: U32)) && Here.live.go(rest, id, here)
-    case Con{Node{+id, parent, owner, Application{}, name, binder, quantity, span, target}, rest}:
-      Bool.not(Here.pair(here, id)) && Here.live.go(rest, id, here)
-    case Con{Node{id, parent, owner, Equality{}, name, binder, quantity, span, target}, rest}:
+def Here.live.go(chain: List<&2, Node>, ok: Bool, prev: U32, +here: Here) -> Bool:
+  match chain ok:
+    case _ False{}:
       False{}
-    case Con{Node{id, parent, owner, Forall{}, name, binder, quantity, span, target}, rest}:
+    case Con{Node{id, parent, owner, Body{}, name, binder, quantity, span, target}, rest} True{}:
+      True{}
+    case Con{
+      Node{+id, parent, owner, Annotation{}, name, binder, quantity, span, target},
+      rest
+    } True{}:
+      Here.live.go(rest, U32.is_eq(prev, (id + 1: U32)), id, here)
+    case Con{
+      Node{+id, parent, owner, Application{}, name, binder, quantity, span, target},
+      rest
+    } True{}:
+      Here.live.go(rest, Bool.not(Here.pair(here, id)), id, here)
+    case Con{
+      Node{id, parent, owner, Equality{}, name, binder, quantity, span, target},
+      rest
+    } True{}:
+      False{}
+    case Con{Node{id, parent, owner, Forall{}, name, binder, quantity, span, target}, rest} True{}:
       False{}
     case Con{
       Node{id, parent, owner, TypeApplication{}, name, binder, quantity, span, target},
       rest
-    }:
+    } True{}:
       False{}
-    case Con{Node{id, parent, owner, syntax, name, binder, quantity, span, target}, rest}:
-      Here.live.go(rest, id, here)
-    case Nil{}:
+    case Con{Node{id, parent, owner, syntax, name, binder, quantity, span, target}, rest} True{}:
+      Here.live.go(rest, True{}, id, here)
+    case Nil{} True{}:
       False{}
 
 # Whether the node numbered `id` is in live code: a definition's body, outside types: an annotation's type, an
 # equality, a function or pair type, a type's arguments. Types and equations are dead: the checker sees them, the
 # program does not run them.
 def Here.live(+here: Here, +id: U32) -> Bool:
-  Here.live.go(List.tail(&2, Node, Here.ancestors(here, id)), id, here)
+  Here.live.go(List.tail(&2, Node, Here.ancestors(here, id)), True{}, id, here)
 
 # The value of the rule's option `name`: the config's, or its default.
 def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:

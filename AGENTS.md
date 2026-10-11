@@ -29,8 +29,8 @@ and type check.
 
 ### Tools
 
-- You are rarely, if ever, smarter than the linter. Do not work around or suppress a lint rule
-  without asking me.
+- You are rarely, if ever, smarter than the linter. Do not work around a lint rule. Suppress a
+  finding only when that makes sense, with a directive whose reason says why (a measurement, say).
 - Deterministic tools always win over skill suggestions.
 - After every change, run these in order, and repeat until they find nothing more about your change:
   1. `thermo-nuclear-code-quality-review`. A file over 1000 lines can be fine. Ask me before you

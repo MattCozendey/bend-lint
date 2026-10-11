@@ -139,47 +139,68 @@ def known(
     case Con{node, rest}:
       known(rest, children, fuel, smaller)
 
-def is_smaller(smaller: List<&2, Smaller>, +root: U32, +field: U32) -> Bool:
-  match smaller:
-    case Nil{}:
+def is_smaller(smaller: List<&2, Smaller>, hit: Bool, +root: U32, +field: U32) -> Bool:
+  match smaller hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Smaller{r, f}, rest}:
-      (U32.is_eq(r, root) && U32.is_eq(f, field)) || is_smaller(rest, root, field)
+    case Con{Smaller{r, f}, rest} False{}:
+      is_smaller(rest, U32.is_eq(r, root) && U32.is_eq(f, field), root, field)
+
+# What one argument, a variable, says: none to read on (it is the parameter, unchanged), else the
+# verdict: it decreases (a field a match took apart), the rule cannot tell (a let's name), or it fails.
+def step(same: Bool, smaller: Bool, local: Bool, +at: Nat, +param: String) -> Maybe<&2, Verdict>:
+  match same smaller local:
+    case True{} _ _:
+      None{}
+    case False{} True{} _:
+      Some{Decreases{}}
+    case False{} False{} True{}:
+      Some{Unknown{}}
+    case False{} False{} False{}:
+      Some{Fails{at, param}}
 
 # The verdict on a call's arguments against the parameters, from the one numbered `at`.
 def verdict(
   params: List<&2, Param>,
   args: List<&2, Lint.Node>,
+  told: Maybe<&2, Verdict>,
   +smaller: List<&2, Smaller>,
   +lets: List<&2, U32>,
   +at: Nat
 ) -> Verdict:
-  match params args:
-    case Con{Param{b, True{}, n}, ps} Con{arg, rest}:
-      verdict(ps, rest, smaller, lets, 1n+at)
+  match params args told:
+    case _ _ Some{v}:
+      v
+    case Con{Param{b, True{}, n}, ps} Con{arg, rest} None{}:
+      verdict(ps, rest, None{}, smaller, lets, 1n+at)
     case Con{
-      Param{+b, False{}, n},
+      Param{+b, False{}, +n},
       ps
-    } Con{Lint.Node{i, p, o, Lint.Variable{}, x, Some{+a}, q, s, t}, rest}:
-      Bool.pick(
-        Verdict,
-        U32.is_eq(a, b),
-        verdict(ps, rest, smaller, lets, 1n+at),
-        Bool.pick(
-          Verdict,
-          is_smaller(smaller, b, a),
-          Decreases{},
-          Bool.pick(Verdict, List.contains(~U32, ~U32.is_eq, lets, a), Unknown{}, Fails{at, n})
-        )
+    } Con{Lint.Node{i, p, o, Lint.Variable{}, x, Some{+a}, q, s, t}, rest} None{}:
+      verdict(
+        ps,
+        rest,
+        step(
+          U32.is_eq(a, b),
+          is_smaller(smaller, False{}, b, a),
+          List.contains(~U32, ~U32.is_eq, lets, a),
+          at,
+          n
+        ),
+        smaller,
+        lets,
+        1n+at
       )
     case Con{
       Param{b, False{}, n},
       ps
-    } Con{Lint.Node{i, p, o, Lint.Application{}, x, y, q, s, t}, rest}:
+    } Con{Lint.Node{i, p, o, Lint.Application{}, x, y, q, s, t}, rest} None{}:
       Fails{at, n}
-    case Nil{} Nil{}:
+    case Nil{} Nil{} None{}:
       Unchanged{}
-    case _ _:
+    case _ _ None{}:
       Unknown{}
 
 def ordinal(n: Nat) -> String:
@@ -231,6 +252,7 @@ def call(
         verdict(
           Param.all(Lint.Children.get(children, owner), children, []),
           args,
+          None{},
           known(List.reverse(&2, Lint.Node, Lint.Here.ancestors(here, id)), children, fuel, []),
           lets,
           0n
@@ -243,21 +265,46 @@ def call(
     case Nil{}:
       []
 
+# The findings about a call of the definition to itself, if `checks`: the definition is not @unsafe, and
+# the call is live.
+def checked(
+  checks: Bool,
+  nodes: List<&2, Lint.Node>,
+  +lets: List<&2, U32>,
+  +owner: U32,
+  +id: U32,
+  span: Maybe<&2, Lint.Span>,
+  +here: Lint.Here,
+  +children: Lint.Children,
+  +fuel: Nat
+) -> List<&2, Lint.Finding>:
+  match checks:
+    case True{}:
+      call(nodes, lets, owner, id, span, here, children, fuel)
+    case False{}:
+      []
+
 def visit(
   recursive: Bool,
   node: Lint.Node,
   +lets: List<&2, U32>,
+  +unsafes: List<&2, U32>,
   +here: Lint.Here,
   +children: Lint.Children,
   +fuel: Nat
 ) -> List<&2, Lint.Finding>:
   match recursive node:
     case True{} Lint.Node{+id, p, +owner, s, n, b, q, span, t}:
-      Bool.pick(
-        List<&2, Lint.Finding>,
-        Lint.Here.unsafe(here, Lint.Here.node(here, owner)) || Bool.not(Lint.Here.live(here, id)),
-        [],
-        call(Lint.Children.get(children, id), lets, owner, id, span, here, children, fuel)
+      checked(
+        Bool.not(List.contains(~U32, ~U32.is_eq, unsafes, owner)) && Lint.Here.live(here, id),
+        Lint.Children.get(children, id),
+        lets,
+        owner,
+        id,
+        span,
+        here,
+        children,
+        fuel
       )
     case _ _:
       []
@@ -265,6 +312,7 @@ def visit(
 def scan(
   nodes: List<&2, Lint.Node>,
   +lets: List<&2, U32>,
+  +unsafes: List<&2, U32>,
   +here: Lint.Here,
   +children: Lint.Children,
   +fuel: Nat,
@@ -277,13 +325,22 @@ def scan(
       scan(
         rest,
         lets,
+        unsafes,
         here,
         children,
         fuel,
         Shared.onto(
           &2,
           Lint.Finding,
-          visit(Lint.Here.recursive(here, children, node), node, lets, here, children, fuel),
+          visit(
+            Lint.Here.recursive(here, children, node),
+            node,
+            lets,
+            unsafes,
+            here,
+            children,
+            fuel
+          ),
           out
         )
       )
@@ -312,7 +369,15 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
   +children = Lint.Children.of(nodes)
   Lint.done(
-    scan(nodes, lets(nodes, children, []), here, children, Shared.length(&2, Lint.Node, nodes), [])
+    scan(
+      nodes,
+      lets(nodes, children, []),
+      Lint.Here.unsafes(here),
+      here,
+      children,
+      Shared.length(&2, Lint.Node, nodes),
+      []
+    )
   )
 
 def rule() -> Lint.Rule:

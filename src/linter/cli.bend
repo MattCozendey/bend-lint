@@ -172,24 +172,32 @@ def Spec.one(spec: Lint.Spec, value: Lint.Value) -> Bool:
       False{}
 
 # Whether one of `specs` accepts `value`; `fuel` bounds AnyOptions inside AnyOptions.
-def Spec.fits(fuel: Nat, specs: List<&2, Lint.Spec>, +value: Lint.Value) -> Bool:
-  match fuel specs:
-    case 0n _:
+def Spec.fits(fuel: Nat, specs: List<&2, Lint.Spec>, hit: Bool, +value: Lint.Value) -> Bool:
+  match fuel specs hit:
+    case _ _ True{}:
+      True{}
+    case 0n _ False{}:
       False{}
-    case _ Nil{}:
+    case _ Nil{} False{}:
       False{}
-    case 1n+f Con{Lint.AnyOption{inner}, rest}:
-      Spec.fits(f, Shared.append(&2, Lint.Spec, inner, rest), value)
-    case 1n+f Con{spec, rest}:
-      Spec.one(spec, value) || Spec.fits(f, rest, value)
+    case 1n+f Con{Lint.AnyOption{inner}, rest} False{}:
+      Spec.fits(f, Shared.append(&2, Lint.Spec, inner, rest), False{}, value)
+    case 1n+f Con{spec, rest} False{}:
+      Spec.fits(f, rest, Spec.one(spec, value), value)
 
 # What the option `name` of `declared` accepts, if a rule declares it.
-def Declared.spec(declared: List<&2, Lint.Declared>, +name: String) -> Maybe<&2, Lint.Spec>:
-  match declared:
-    case Nil{}:
+def Declared.spec(
+  declared: List<&2, Lint.Declared>,
+  found: Maybe<&2, Lint.Spec>,
+  +name: String
+) -> Maybe<&2, Lint.Spec>:
+  match declared found:
+    case _ Some{spec}:
+      Some{spec}
+    case Nil{} None{}:
       None{}
-    case Con{Lint.Declared{+n, default, spec}, rest}:
-      Bool.pick(Maybe<&2, Lint.Spec>, String.eq(n, name), Some{spec}, Declared.spec(rest, name))
+    case Con{Lint.Declared{+n, default, spec}, rest} None{}:
+      Declared.spec(rest, Shared.when(Lint.Spec, String.eq(n, name), spec), name)
 
 def Option.problem(
   spec: Maybe<&2, Lint.Spec>,
@@ -200,7 +208,11 @@ def Option.problem(
     case None{}:
       Some{"it has no option " ++ key}
     case Some{s}:
-      Shared.when(String, Bool.not(Spec.fits(8n, [s], value)), key ++ " does not take that value")
+      Shared.when(
+        String,
+        Bool.not(Spec.fits(8n, [s], False{}, value)),
+        key ++ " does not take that value"
+      )
 
 # The first problem with the given option values: a name not declared, or a value its spec does not accept.
 def Option.given(
@@ -214,7 +226,7 @@ def Option.given(
       Maybe.or(
         &2,
         String,
-        Option.problem(Declared.spec(declared, key), key, value),
+        Option.problem(Declared.spec(declared, None{}, key), key, value),
         Option.given(rest, declared)
       )
 
@@ -229,7 +241,7 @@ def Option.defaults(declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
         String,
         Shared.when(
           String,
-          Bool.not(Spec.fits(8n, [spec], default)),
+          Bool.not(Spec.fits(8n, [spec], False{}, default)),
           "the default of " ++ name ++ " is not a value it takes"
         ),
         Option.defaults(rest)
@@ -1511,16 +1523,21 @@ def lint(
   )
 
 # The source at `path`, among `sources`.
-def Source.at(sources: List<&2, Lint.Source>, +path: String) -> Maybe<&2, Lint.Source>:
-  match sources:
-    case Nil{}:
+def Source.at(
+  sources: List<&2, Lint.Source>,
+  found: Maybe<&2, Lint.Source>,
+  +path: String
+) -> Maybe<&2, Lint.Source>:
+  match sources found:
+    case _ Some{source}:
+      Some{source}
+    case Nil{} None{}:
       None{}
-    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest}:
-      Bool.pick(
-        Maybe<&2, Lint.Source>,
-        String.eq(p, path),
-        Some{Lint.Source{p, namespace, text, nodes, facts}},
-        Source.at(rest, path)
+    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest} None{}:
+      Source.at(
+        rest,
+        Shared.when(Lint.Source, String.eq(p, path), Lint.Source{p, namespace, text, nodes, facts}),
+        path
       )
 
 # Whether to lint the files the named file imports: as the command line says, else as the config says, else not.
@@ -1572,7 +1589,13 @@ def linted(imports: Bool, +path: String, +sources: List<&2, Lint.Source>) -> Lis
       Maybe.default(
         &2,
         List<&2, Lint.Source>,
-        Maybe.map(&2, Lint.Source, List<&2, Lint.Source>, s => [s], Source.at(sources, path)),
+        Maybe.map(
+          &2,
+          Lint.Source,
+          List<&2, Lint.Source>,
+          s => [s],
+          Source.at(sources, None{}, path)
+        ),
         []
       )
 
@@ -1629,7 +1652,7 @@ def Check.own(entries: List<&2, Program.Failure>, check: Program.Check) -> Check
 def Check.reads(+path: String, +check: Program.Check) -> Bool:
   match check:
     case Program.Passed{Lint.Program{sources}, c}:
-      Maybe.is_some(&2, Lint.Source, Source.at(sources, path))
+      Maybe.is_some(&2, Lint.Source, Source.at(sources, None{}, path))
     case Program.Failed{failure, read, parsed}:
       List.contains(~String, ~String.eq, read, path)
 

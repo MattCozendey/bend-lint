@@ -605,16 +605,27 @@ type Pairing is Data:
   Pairing{open: List<&2, Directive>, closed: List<&2, Closed>, wrong: List<&2, Said>}
 
 # The latest open begin of an action and a rule.
-def Open.latest(open: List<&2, Directive>, +action: String, +rule: String) -> Maybe<&2, Directive>:
-  match open:
-    case Nil{}:
+def Open.latest(
+  open: List<&2, Directive>,
+  found: Maybe<&2, Directive>,
+  +action: String,
+  +rule: String
+) -> Maybe<&2, Directive>:
+  match open found:
+    case _ Some{d}:
+      Some{d}
+    case Nil{} None{}:
       None{}
-    case Con{Directive{+a, s, +r, +sev, +c, +i}, rest}:
-      Bool.pick(
-        Maybe<&2, Directive>,
-        String.eq(Action.show(a), action) && String.eq(r, rule),
-        Some{Directive{a, s, r, sev, c, i}},
-        Open.latest(rest, action, rule)
+    case Con{Directive{+a, s, +r, +sev, +c, +i}, rest} None{}:
+      Open.latest(
+        rest,
+        Shared.when(
+          Directive,
+          String.eq(Action.show(a), action) && String.eq(r, rule),
+          Directive{a, s, r, sev, c, i}
+        ),
+        action,
+        rule
       )
 
 def Open.keep(drop: Bool, d: Directive, rest: List<&2, Directive>) -> List<&2, Directive>:
@@ -668,7 +679,7 @@ def Pairing.step(said: Said, p: Pairing) -> Pairing:
       Pairing{Directive{a, Begin{}, r, sev, c, i} <> open, closed, wrong}
     case Said{Directive{+a, End{}, +r, sev, c, i}} Pairing{+open, closed, wrong}:
       Pairing.close(
-        Open.latest(open, Action.show(a), r),
+        Open.latest(open, None{}, Action.show(a), r),
         Directive{a, End{}, r, sev, c, i},
         Pairing{open, closed, wrong}
       )
@@ -712,12 +723,14 @@ def Lines.next_code(
     case Con{code, rest} None{}:
       Lines.next_code(rest, Shared.when(U32, code && U32.is_gt(i, after), i), (i + 1: U32), after)
 
-def Closed.find(closed: List<&2, Closed>, +index: U32) -> Maybe<&2, U32>:
-  match closed:
-    case Nil{}:
+def Closed.find(closed: List<&2, Closed>, found: Maybe<&2, U32>, +index: U32) -> Maybe<&2, U32>:
+  match closed found:
+    case _ Some{line}:
+      Some{line}
+    case Nil{} None{}:
       None{}
-    case Con{Closed{+i, +line}, rest}:
-      Bool.pick(Maybe<&2, U32>, U32.is_eq(i, index), Some{line}, Closed.find(rest, index))
+    case Con{Closed{+i, line}, rest} None{}:
+      Closed.find(rest, Shared.when(U32, U32.is_eq(i, index), line), index)
 
 def Covering.next(d: Directive, found: Maybe<&2, U32>) -> Covering:
   match found:
@@ -750,7 +763,7 @@ def Covering.of(
         Covering{
           Directive{a, Begin{}, r, sev, Comment{b, e, l, t, body}, i},
           l,
-          Maybe.default(&2, U32, Closed.find(closed, i), last)
+          Maybe.default(&2, U32, Closed.find(closed, None{}, i), last)
         }
       }
     case _:

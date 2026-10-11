@@ -105,12 +105,18 @@ def Uses.of(
 # =======
 
 # The namespace of the file at `path`, as the check names it: "" for Base, or a file the check did not parse.
-def Imports.namespace(sources: List<&2, Lint.Source>, +path: String) -> String:
-  match sources:
-    case Nil{}:
+def Imports.namespace(
+  sources: List<&2, Lint.Source>,
+  found: Maybe<&2, String>,
+  +path: String
+) -> String:
+  match sources found:
+    case _ Some{namespace}:
+      namespace
+    case Nil{} None{}:
       ""
-    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest}:
-      Bool.pick(String, String.eq(p, path), namespace, Imports.namespace(rest, path))
+    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest} None{}:
+      Imports.namespace(rest, Shared.when(String, String.eq(p, path), namespace), path)
 
 # The global names a file's own top-level declarations declare, as a set.
 def Imports.own(nodes: List<&2, Lint.Node>, out: Map<&2, Unit>) -> Map<&2, Unit>:
@@ -221,7 +227,7 @@ def Declarations.of.node(
       Some{
         Lint.Declaration{
           Lint.Node{id, parent, owner, Lint.Import{}, name, binder, quantity, span, target},
-          Imports.of(String.is_empty(Imports.namespace(sources, target)), name, imports)
+          Imports.of(String.is_empty(Imports.namespace(sources, None{}, target)), name, imports)
         }
       }
     case +n:
