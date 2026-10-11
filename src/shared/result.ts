@@ -32,6 +32,12 @@ export const ok = <T>(value: T): ResultOk<T> => ({ [OK]: value });
 
 export const error = <E extends ErrorShape>(value: E): ResultErr<E> => ({ [ERROR]: value });
 
+// The same result, with its error passed through `f`.
+export const mapError = <T, E extends ErrorShape, F extends ErrorShape>(
+  res: Result<T, E>,
+  f: (e: E) => F,
+): Result<T, F> => (OK in res ? res : error(f(res[ERROR])));
+
 // The value, or a throw: an Error as it is, a string as an Error's message,
 // and a typed error as an Error with its metadata's message (else its
 // type), caused by the typed error.

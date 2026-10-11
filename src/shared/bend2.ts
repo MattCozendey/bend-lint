@@ -112,17 +112,17 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
 };
 
 // The bend2 folder to load: in `bend`, a checkout or its bend2 folder, else
-// a download. An error ends with `give`, which tells how to name one.
-export const tryGetBend2SourceUrl = async (
-  give: string,
-  { bend = process.env.BEND_DIR, run, cache }: FindOptions = {},
-): Promise<Result<URL, string>> => {
+// a download. An error does not tell how to name one; the caller does.
+export const tryGetBend2SourceUrl = async ({
+  bend = process.env.BEND_DIR,
+  run,
+  cache,
+}: FindOptions = {}): Promise<Result<URL, string>> => {
   if (bend === undefined) {
     const tag = installedTag(run) ?? PIN;
     return fetchBend(tag, cache).then(
       (got) => ok(getUrlFromFolder(got)),
-      (e: unknown) =>
-        error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`),
+      (e: unknown) => error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
   }
   const dir = nodePath.resolve(bend);
@@ -130,6 +130,6 @@ export const tryGetBend2SourceUrl = async (
     nodeFs.existsSync(nodePath.join(d, "bend.ts")),
   );
   return found === undefined
-    ? error(`no bend2 at ${dir} (it needs bend.ts); ${give}`)
+    ? error(`no bend2 at ${dir} (it needs bend.ts)`)
     : ok(getUrlFromFolder(found));
 };

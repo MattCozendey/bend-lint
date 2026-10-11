@@ -26,7 +26,7 @@ import type * as CompModule from "bend2/comp.ts";
 import { CACHE, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
 import { path, resolve, slash } from "../shared/paths.ts";
-import { unwrap } from "../shared/result.ts";
+import { mapError, unwrap } from "../shared/result.ts";
 import { digest } from "../shared/utils.ts";
 import type {
   Declaration,
@@ -1710,7 +1710,9 @@ const selfCheck = async (m: Loaded): Promise<void> => {
 // and checks them (guardMain, selfCheck).
 export const load = async (given: string | undefined): Promise<Loaded> => {
   const dir = path.resolve(
-    url.fileURLToPath(unwrap(await tryGetBend2SourceUrl(GIVE, { bend: given }))),
+    url.fileURLToPath(
+      unwrap(mapError(await tryGetBend2SourceUrl({ bend: given }), (e) => e + "; " + GIVE)),
+    ),
   );
   const patched = new Map(
     PATCHED.map((f) => [path.join(dir, f), patch(f, fs.readFileSync(path.join(dir, f), "utf8"))]),

@@ -635,7 +635,7 @@ async function readConfig(file: string) {
 
 // The href of the bend2 folder found from `bend`; a failure rejects.
 async function bend2Url(bend: string | undefined, options?: FindOptions): Promise<string> {
-  return unwrap(await tryGetBend2SourceUrl("", { ...options, bend })).href;
+  return unwrap(await tryGetBend2SourceUrl({ ...options, bend })).href;
 }
 
 // The error `p` rejects with; a `p` that fulfills fails the test.
