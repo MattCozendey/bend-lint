@@ -111,4 +111,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(paths(Lint.Here.nodes(here), here, Lint.Here.path(here), []))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/canon-import-path", Lint.Needs{False{}}, [], run}
+  Lint.FileRule{"layout/canon-import-path", Lint.Needs{False{}, False{}}, [], run}

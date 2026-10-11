@@ -31,4 +31,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(Lint.findings(~Lint.Node, ~written, Lint.Here.nodes(here)))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/written", Lint.Needs{False{}}, [], run}
+  Lint.FileRule{"tests/written", Lint.Needs{False{}, False{}}, [], run}

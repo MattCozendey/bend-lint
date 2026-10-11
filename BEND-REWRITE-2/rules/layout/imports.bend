@@ -174,4 +174,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(judge(Lint.Here.path(here), Lint.Here.text(here), block(Lint.Here.nodes(here), Lint.Here.text(here), Block{0, 0, []})))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/imports", Lint.Needs{False{}}, [], run}
+  Lint.FileRule{"layout/imports", Lint.Needs{False{}, False{}}, [], run}

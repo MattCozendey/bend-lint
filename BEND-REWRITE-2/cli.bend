@@ -88,10 +88,25 @@ def Rule.ids(rules: List<&1, Lint.Rule>, out: List<&2, String>) -> List<&2, Stri
 
 def Rule.facts(rule: Lint.Rule) -> Bool:
   match rule:
-    case Lint.FileRule{id, Lint.Needs{facts}, options, run}:
+    case Lint.FileRule{id, Lint.Needs{facts, declarations}, options, run}:
       facts
-    case Lint.ProgramRule{id, entries, Lint.Needs{facts}, options, run}:
+    case Lint.ProgramRule{id, entries, Lint.Needs{facts, declarations}, options, run}:
       facts
+
+def Rule.declarations(rule: Lint.Rule) -> Bool:
+  match rule:
+    case Lint.FileRule{id, Lint.Needs{facts, declarations}, options, run}:
+      declarations
+    case Lint.ProgramRule{id, entries, Lint.Needs{facts, declarations}, options, run}:
+      declarations
+
+# Whether a rule needs the declarations with their uses.
+def Rule.need_declarations(rules: List<&1, Lint.Rule>) -> Bool:
+  match rules:
+    case Nil{}:
+      False{}
+    case Con{r, rest}:
+      Rule.declarations(r) || Rule.need_declarations(rest)
 
 # Whether a rule needs the checker's facts.
 def Rule.need_facts(rules: List<&1, Lint.Rule>) -> Bool:
@@ -353,27 +368,37 @@ def File.each(
   files: List<&2, Lint.Source>,
   +settings: List<&2, Shared.Named<Config.Setting>>,
   +program: Lint.Program,
+  +declare: Bool,
   out: List<&1, Job>
 ) -> List<&1, Job>:
   match files:
     case Nil{}:
       out
     case Con{f, rest}:
-      File.each(~rules, rest, settings, program, Shared.onto(&1, Job, Rule.jobs(~rules, settings, AtFile{Program.Here.of(program, f)}), out))
+      File.each(
+        ~rules,
+        rest,
+        settings,
+        program,
+        declare,
+        Shared.onto(&1, Job, Rule.jobs(~rules, settings, AtFile{Program.Here.of(program, f, declare)}), out)
+      )
 
 # The jobs of the file rules on each file of both halves: the halves in parallel, dealt again until `depth` runs out.
+# `declare` says whether a rule needs declarations.
 def File.all(
   ~rules: List<&1, Lint.Rule>,
   +depth: Nat,
   halves: List<&2, Lint.Source> & List<&2, Lint.Source>,
   +settings: List<&2, Shared.Named<Config.Setting>>,
-  +program: Lint.Program
+  +program: Lint.Program,
+  +declare: Bool
 ) -> List<&1, Job>:
   match depth halves:
     case 0n Tuple{a, b}:
-      Shared.append(&1, Job, File.each(~rules, a, settings, program, []), File.each(~rules, b, settings, program, []))
+      Shared.append(&1, Job, File.each(~rules, a, settings, program, declare, []), File.each(~rules, b, settings, program, declare, []))
     case 1n+d Tuple{a, b}:
-      x y = File.all(~rules, d, Shared.deal(&2, Lint.Source, a), settings, program) File.all(~rules, d, Shared.deal(&2, Lint.Source, b), settings, program)
+      x y = File.all(~rules, d, Shared.deal(&2, Lint.Source, a), settings, program, declare) File.all(~rules, d, Shared.deal(&2, Lint.Source, b), settings, program, declare)
       Shared.append(&1, Job, x, y)
 
 # The jobs of the program rules on the whole program of each check, numbered from `check`.
@@ -395,7 +420,7 @@ def Check.jobs(
         settings,
         path,
         (check + 1 : U32),
-        Shared.onto(&1, Job, Rule.jobs(~rules, settings, AtProgram{Program.Whole.of(p), path, check}), out)
+        Shared.onto(&1, Job, Rule.jobs(~rules, settings, AtProgram{Program.Whole.of(p, Rule.need_declarations(Rule.on(rules, settings, []))), path, check}), out)
       )
 
 def Rule.whole(rule: Lint.Rule) -> Bool:
@@ -1017,7 +1042,7 @@ def Shown.safety(format: Format, founds: List<&2, Lint.Found>, sources: List<&2,
 def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
   match need:
     case True{}:
-      Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources}))
+      Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources}, True{}))
     case False{}:
       []
 
@@ -1235,7 +1260,8 @@ def lint(
             3n,
             Shared.deal(&2, Lint.Source, linted),
             settings,
-            Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]})
+            Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]}),
+            Rule.need_declarations(Rule.on(rules, settings, []))
           ),
           Check.jobs.if(~rules, Rule.any_whole(Rule.on(rules, settings, [])), programs, settings, path)
         ),

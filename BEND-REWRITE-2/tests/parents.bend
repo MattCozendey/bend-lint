@@ -23,4 +23,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done([Lint.Finding{Lint.Hint{}, Lint.Span{Lint.Here.path(here), 0, 0}, said(missed(Lint.Here.nodes(here), here, 0)), []}])
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/parents", Lint.Needs{False{}}, [], run}
+  Lint.FileRule{"tests/parents", Lint.Needs{False{}, False{}}, [], run}

@@ -64,4 +64,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   described(terms(Lint.Here.facts(here), Terms{[], [], []}))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/terms", Lint.Needs{True{}}, [], run}
+  Lint.FileRule{"tests/terms", Lint.Needs{True{}, False{}}, [], run}

@@ -488,15 +488,23 @@ def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
     Shared.Table.of(Lint.Node, U32.from_nat(Shared.length(&2, Lint.Node, nodes)), nodes)
   }
 
-# The program from one of its files, built once for every file rule that runs on that file: references from it alone.
-# The runner gives each rule its options.
-def Here.of(program: Lint.Program, source: Lint.Source) -> Lint.Here:
+# A file's declarations, with their uses in it, if a rule needs them (`declare`); else none.
+def Declarations.when(declare: Bool, +sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>) -> List<&2, Lint.Declaration>:
+  match declare:
+    case True{}:
+      Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>)))
+    case False{}:
+      []
+
+# The program from one of its files, built once for every file rule that runs on that file: references from it alone,
+# if a rule needs declarations (`declare`). The runner gives each rule its options.
+def Here.of(program: Lint.Program, source: Lint.Source, declare: Bool) -> Lint.Here:
   match program source:
     case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes, +facts}:
       Lint.Here{
         Lint.Program{sources},
         Lint.Source{path, namespace, text, nodes, facts},
-        Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>))),
+        Declarations.when(declare, sources, nodes),
         Index.of(nodes),
         []
       }
@@ -532,15 +540,20 @@ def Whole.declarations(
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Whole.declarations(rest, sources, uses, Declarations.of(sources, nodes, uses) <> out)
 
-def Whole.from(+sources: List<&2, Lint.Source>) -> Lint.Whole:
-  Lint.Whole{
-    Lint.Program{sources},
-    Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), []),
-    []
-  }
+# The declarations of every file of `sources`, with their uses in all of them, if a rule needs them (`declare`).
+def Whole.when(declare: Bool, +sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
+  match declare:
+    case True{}:
+      Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), [])
+    case False{}:
+      []
 
-# The whole program, built once for every program rule: references from all its own files.
-def Whole.of(program: Lint.Program) -> Lint.Whole:
+def Whole.from(+sources: List<&2, Lint.Source>, declare: Bool) -> Lint.Whole:
+  Lint.Whole{Lint.Program{sources}, Whole.when(declare, sources), []}
+
+# The whole program, built once for every program rule: references from all its own files, if a rule needs
+# declarations (`declare`).
+def Whole.of(program: Lint.Program, declare: Bool) -> Lint.Whole:
   match program:
     case Lint.Program{sources}:
-      Whole.from(Program.own(sources))
+      Whole.from(Program.own(sources), declare)

@@ -222,8 +222,8 @@ type Spec is Data:
 type Declared is Data:
   Declared{name: String, default: Value, spec: Spec}
 
-# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it; its
-# nodes by id; and the rule's options, each declared one with its value.
+# What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it, if a rule
+# needs them; its nodes by id; and the rule's options, each declared one with its value.
 type Here is Data:
   Here{
     program: Program,
@@ -234,7 +234,7 @@ type Here is Data:
   }
 
 # What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
-# uses in all of them; and the rule's options.
+# uses in all of them, if a rule needs them; and the rule's options.
 type Whole is Data:
   Whole{program: Program, declarations: List<&2, Declaration>, options: List<&2, Shared.Named<Value>>}
 
@@ -342,9 +342,10 @@ def show_all(types: List<&2, TypeRef>) -> Ask(List<&2, String>):
     answers => Ask.pure(List<&2, String>, Answer.texts(answers, []))
   )
 
-# What a rule needs collected for it: the checker's facts, which cost time and memory.
+# What a rule needs collected for it, as each costs time and memory: the checker's facts, and the declarations with
+# their uses. A rule that does not ask for them gets none.
 type Needs is Data:
-  Needs{facts: Bool}
+  Needs{facts: Bool, declarations: Bool}
 
 # Which of a program rule's findings stay when several entries check the named file: those some check finds, or those
 # every check finds. If an entry that reads the named file fails its check, an every rule does not run.

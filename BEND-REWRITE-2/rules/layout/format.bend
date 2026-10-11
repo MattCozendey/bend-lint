@@ -2405,4 +2405,4 @@ def options() -> List<&2, Lint.Declared>:
   ]
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/format", Lint.Needs{False{}}, options(), run}
+  Lint.FileRule{"layout/format", Lint.Needs{False{}, False{}}, options(), run}
