@@ -264,12 +264,13 @@ const drift = (text: string): Error =>
   });
 
 // bend.ts with EDITS made and PROBES appended, and BEND_DIR kept at `dir`, so
-// the copy finds base.bend where the original does. Line ends become LF
+// the copy finds base.bend where the original does: `true ? dir :` puts
+// Bend's own expression in a branch that never runs. Line ends become LF
 // first.
 const patched = (dir: string, src: string): string =>
   [
     ...EDITS,
-    ["export const BEND_DIR = (", `export const BEND_DIR = ${JSON.stringify(dir)} ?? (`],
+    ["export const BEND_DIR = ", `export const BEND_DIR = true ? ${JSON.stringify(dir)} : `],
   ].reduce(
     (out, [at, to]) => {
       const n = out.split(at).length - 1;
