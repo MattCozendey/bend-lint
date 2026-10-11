@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { applyFixes, createLinter } from "../../src/lint.ts";
 import type { LintResult } from "../../src/lint.ts";
-import { unwrap } from "../../src/result.ts";
+import { unwrap } from "../../src/shared/result.ts";
 
 const linter = unwrap(await createLinter());
 const rules = unwrap(

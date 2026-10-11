@@ -13,8 +13,6 @@ import * as util from "node:util";
 import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
-import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./result.ts";
-import type { Result } from "./result.ts";
 import {
   DRIFT,
   cachedRule,
@@ -33,6 +31,8 @@ import {
   unstable,
 } from "./seam.ts";
 import type { Checked, Compiled, Loaded, Operations, Unstable } from "./seam.ts";
+import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./shared/result.ts";
+import type { Result } from "./shared/result.ts";
 import { suppress } from "./suppress.ts";
 
 // Types

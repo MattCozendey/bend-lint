@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { applyFixes, createLinter } from "../../src/lint.ts";
 import type { LintOptions, LintResult, LintRule, Options } from "../../src/lint.ts";
-import { unwrap } from "../../src/result.ts";
+import { unwrap } from "../../src/shared/result.ts";
 
 type FormatOptions = {
   tabWidth: number;

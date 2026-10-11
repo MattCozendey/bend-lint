@@ -22,8 +22,6 @@ import type {
   Severity,
   Source,
 } from "./lint.ts";
-import { ERROR, unwrap } from "./result.ts";
-import type { Result } from "./result.ts";
 import {
   DRIFT,
   PIN,
@@ -40,6 +38,8 @@ import {
   walk,
 } from "./seam.ts";
 import type { Raw } from "./seam.ts";
+import { ERROR, unwrap } from "./shared/result.ts";
+import type { Result } from "./shared/result.ts";
 
 // Types
 // =====
