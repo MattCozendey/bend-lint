@@ -656,14 +656,14 @@ def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) 
 # Fixes
 # -----
 
-def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(Maybe<&2, U32>):
+def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
   match plan:
     case Plan{edits, n}:
-      do IO<Maybe<&2, U32>>:
+      do IO<U32>:
         write.all(sources, Shared.Group.of(~Edit, ~Edit.path, edits, Map.new(&2, List<&2, Edit>)))
-        return Some{n}
+        return n
 
-def apply.to(fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(Maybe<&2, U32>):
+def apply.to(fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(U32):
   match program:
     case Lint.Program{+sources}:
       made(
@@ -671,10 +671,10 @@ def apply.to(fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program
         Plan.of(founds, fixing, Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources})), sources)
       )
 
-# Makes the fixes `fixing` allows, of `founds` (in order), in the files of `program`; how many, if it fixes.
-def apply(+fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(Maybe<&2, U32>):
+# Makes the fixes `fixing` allows, of `founds` (in order), in the files of `program`; how many.
+def apply(+fixing: Fixing, founds: List<&2, Lint.Found>, program: Lint.Program) -> IO(U32):
   match fixing:
     case NoFixes{}:
-      IO.pure(Maybe<&2, U32>, None{})
+      IO.pure(U32, 0)
     case _:
       apply.to(fixing, founds, program)

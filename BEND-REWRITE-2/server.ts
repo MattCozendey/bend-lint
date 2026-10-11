@@ -212,6 +212,9 @@ const TYPES: Typed[][] = [];
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
 
+// What makes an input of `files` a glob.
+const GLOB = /[*?[{]/;
+
 // Functions
 // =========
 
@@ -1064,11 +1067,12 @@ const nodesWithFacts = (
   return out;
 };
 
-// The answer to `check <path> <facts|syntax>`: each file the check parsed
-// (path, namespace, text), then its syntax nodes, each followed, with facts,
-// by the checker's facts on it; or, if the check failed, the files it parsed
-// with their nodes (if it got that far), the files it read, then why. The
-// probes are global, so checks must not overlap.
+// The answer to `check <path> <facts|syntax>`: the check's number (for
+// `ask` and `forget`), then each file it parsed (path, namespace, text),
+// then its syntax nodes, each followed, with facts, by the checker's facts on
+// it; or, if the check failed, the files it parsed with their nodes (if it
+// got that far), the files it read, then why. The probes are global, so
+// checks must not overlap.
 const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
@@ -1118,12 +1122,13 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
       : new Map<number, Judged[]>();
     TYPES.push([]);
     const id = TYPES.length;
-    return sections
-      .flatMap(({ file, nodes, first }) => [
+    return [
+      record(["check", String(id)]),
+      ...sections.flatMap(({ file, nodes, first }) => [
         record(["file", file.real, file.ns, file.text]),
         ...nodesWithFacts(Bend, nodes, judged, first, id),
-      ])
-      .join("");
+      ]),
+    ].join("");
   } catch (e) {
     return [
       ...syntax,
@@ -1203,28 +1208,48 @@ const ask = (checker: Checker, questions: string[]): string => {
   }
 };
 
-// The answer to `real <path>`: the path, absolute, with links resolved if it
-// exists, and "/" between its parts.
-const realPath = (path: string): string => {
-  const absolute = nodePath.resolve(path);
-  return record([
-    "real",
-    (nodeFs.existsSync(absolute) ? nodeFs.realpathSync.native(absolute) : absolute).replaceAll(
-      "\\",
-      "/",
+// The answer to `forget <check>`: the check's types are freed; no rule asks
+// about them again.
+const forget = (check: number): string => {
+  TYPES[check - 1] = [];
+  return record(["forgot"]);
+};
+
+// The answer to `files <input>...`: the files the inputs name, each once, in
+// order, absolute, links resolved, with "/" between their parts. An input is
+// a path, or a glob with "/" between its parts, whose files come sorted. If
+// an input names no file, why.
+const named = (inputs: string[]): string => {
+  const found = inputs.map((input) =>
+    (GLOB.test(input) ? nodeFs.globSync(input).sort() : [input]).filter(
+      (f) => nodeFs.existsSync(f) && nodeFs.statSync(f).isFile(),
     ),
-  ]);
+  );
+  const none = inputs.find((_, i) => found[i].length === 0);
+  return none !== undefined
+    ? record(["fail", none + " matches no file"])
+    : [
+        ...new Set(
+          found
+            .flat()
+            .map((f) => nodeFs.realpathSync.native(nodePath.resolve(f)).replaceAll("\\", "/")),
+        ),
+      ]
+        .map((f) => record(["file", f]))
+        .join("");
 };
 
 const answer = (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
   return op === "check" && args.length === 2
     ? check(checker, args[0], args[1] === "facts")
-    : op === "real" && args.length === 1
-      ? Promise.resolve(realPath(args[0]))
-      : op === "ask"
-        ? Promise.resolve(ask(checker, args))
-        : Promise.resolve(record(["fail", "unknown request: " + line]));
+    : op === "files"
+      ? Promise.resolve(named(args))
+      : op === "forget" && args.length === 1
+        ? Promise.resolve(forget(Number(args[0])))
+        : op === "ask"
+          ? Promise.resolve(ask(checker, args))
+          : Promise.resolve(record(["fail", "unknown request: " + line]));
 };
 
 // One request: read its line, write the whole answer, close.

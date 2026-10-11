@@ -7,7 +7,6 @@
 import Base
 import ./lint.bend as Lint
 import ./shared.bend as Shared
-import ./wire.bend as Wire
 
 # JSON
 # ====
@@ -422,17 +421,6 @@ def Parsed.of(+folder: String, json: Maybe<&2, Json>) -> Parsed:
 
 # Finding
 # =======
-
-# The real path of `path` (absolute, links resolved, "/" between its parts), as the server gives it.
-def real.of(records: List<&2, List<&2, String>>) -> IO(String):
-  match records:
-    case Con{Con{tag, Con{path, Nil{}}}, Nil{}}:
-      IO.pure(String, path)
-    case _:
-      IO.die(String, 1, "bend-lint: the checker's answer is malformed")
-
-def real(path: String) -> IO(String):
-  IO.bind(List<&2, List<&2, String>>, String, Wire.ask(["real", path]), real.of)
 
 # The folders a path's folder parts make, nearest first; `at` is the folder so far, `out` the folders so far
 # (nearest first).

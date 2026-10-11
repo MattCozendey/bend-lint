@@ -56,20 +56,21 @@ export const build = (rule: string): string => {
   return out;
 };
 
-// How `program` ends on `named`, with the command line's `flags`, after it
-// writes `files` (names to text) into a fresh folder.
+// How `program` ends on `named`, with the command line's other `args`
+// (flags, more files or globs), after it writes `files` (names to text) into
+// a fresh folder. It runs in that folder.
 export const run = (
   program: string,
   files: Record<string, string>,
   named: string,
-  flags: string[] = [],
+  args: string[] = [],
 ): Ran => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
   Object.entries(files).forEach(([name, text]) => {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), text);
   });
-  const ran = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named), ...flags]);
+  const ran = Bun.spawnSync(["bun", SERVER, program, path.join(dir, named), ...args], { cwd: dir });
   return {
     code: ran.exitCode,
     out: ran.stdout.toString(),

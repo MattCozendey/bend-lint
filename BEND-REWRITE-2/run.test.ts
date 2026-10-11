@@ -88,6 +88,43 @@ setDefaultTimeout(120_000);
     expect(found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
+  test("each file the paths and globs name is linted once, in turn, with one summary", () => {
+    const ran = run(
+      PARENTS,
+      { "a.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
+      "util.bend",
+      ["*.bend"],
+    );
+    expect([
+      ran.code,
+      ran.out
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, "")),
+    ]).toEqual([
+      0,
+      [
+        "util.bend:1:1: hint tests/parents: every parent is found",
+        "a.bend:1:1: hint tests/parents: every parent is found",
+        "bend-lint: 2 finding(s)",
+      ],
+    ]);
+  });
+
+  test("a file whose check fails fails the run, and the others are still linted", () => {
+    const ran = run(
+      PARENTS,
+      { "bad.bend": "import Base\n\ndef bad(\n", "util.bend": ENTRIES["util.bend"] },
+      "bad.bend",
+      ["util.bend"],
+    );
+    expect([
+      ran.code,
+      ran.out.includes("bad.bend: error bend/check: "),
+      ran.out.includes("util.bend:1:1: hint tests/parents: every parent is found"),
+    ]).toEqual([1, true, true]);
+  });
+
   test("--fix-dangerously makes a fix whole, in each file it edits", () => {
     const ran = run(
       ACROSS,

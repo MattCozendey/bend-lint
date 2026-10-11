@@ -4,10 +4,10 @@ import ./lint.bend as Lint
 import ./shared.bend as Shared
 import ./wire.bend as Wire
 
-# What checking a file gives: its program; or why the check failed, the files it read, and, if it parsed them, the
-# program they make, without facts.
+# What checking a file gives: its program, and the check's number on the server; or why the check failed, the files it
+# read, and, if it parsed them, the program they make, without facts.
 type Check is Data:
-  Passed{program: Lint.Program}
+  Passed{program: Lint.Program, check: U32}
   Failed{message: String, read: List<&2, String>, parsed: Maybe<&2, Lint.Program>}
 
 # Decoding
@@ -159,11 +159,19 @@ def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Lint.Sou
 def Check.malformed(-A: Type) -> IO(A):
   IO.die(A, 1, "bend-lint: the checker's answer is malformed")
 
-def Check.read(program: Maybe<&2, Lint.Program>) -> IO(Check):
-  match program:
-    case Some{p}:
-      IO.pure(Check, Passed{p})
-    case None{}:
+def Check.passed(tagged: Bool, check: Maybe<&2, U32>, program: Maybe<&2, Lint.Program>) -> IO(Check):
+  match tagged check program:
+    case True{} Some{c} Some{p}:
+      IO.pure(Check, Passed{p, c})
+    case _ _ _:
+      Check.malformed(Check)
+
+# A passed check's answer: its number, then its program.
+def Check.read(records: List<&2, List<&2, String>>) -> IO(Check):
+  match records:
+    case Con{Con{tag, Con{check, Nil{}}}, rest}:
+      Check.passed(String.eq(tag, "check"), U32.read(check), Program.read(rest, []))
+    case _:
       Check.malformed(Check)
 
 def Records.keep(hit: Bool, record: List<&2, String>, out: List<&2, List<&2, String>>) -> List<&2, List<&2, String>>:
@@ -220,9 +228,9 @@ def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, St
     case Some{Con{+tag, Con{message, Nil{}}}}:
       Check.failed(String.eq(tag, "fail"), message, records)
     case _:
-      Check.read(Program.read(records, []))
+      Check.read(records)
 
-# What an answer says: the program; or, ending in a `fail` record, why the check failed, the files it read (its `read`
+# What an answer says: the check's number and the program; or, ending in a `fail` record, why the check failed, the files it read (its `read`
 # records), and what it parsed (its `file` and `node` records).
 def Check.of(+records: List<&2, List<&2, String>>) -> IO(Check):
   Check.ended(List.last(&2, List<&2, String>, records), records)
@@ -235,6 +243,10 @@ def Check.run(path: String, facts: Bool) -> IO(Check):
     Wire.ask(["check", path, Bool.pick(String, facts, "facts", "syntax")]),
     records => Check.of(records)
   )
+
+# Frees what the server holds for the passed check numbered `check`: no rule asks about its types again.
+def Check.forget(check: U32) -> IO(Unit):
+  IO.bind(List<&2, List<&2, String>>, Unit, Wire.ask(["forget", U32.show(check)]), records => IO.pure(Unit, Unit{}))
 
 # Declarations
 # ============
