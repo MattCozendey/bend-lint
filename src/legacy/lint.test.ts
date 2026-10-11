@@ -13,7 +13,7 @@ import {
   tryGetBend2SourceUrl,
   tryGetInstalledBendTagFromCliOrUndefined,
 } from "../shared/bend2.ts";
-import { relative, resolve } from "../shared/paths.ts";
+import { getPathWithForwardSlashes, relative, resolve } from "../shared/paths.ts";
 import { ERROR, ok, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import * as api from "./lint.ts";
@@ -675,7 +675,7 @@ function file2(p: string, ns: string): { str: string; ns: string; al: {}; path: 
 }
 
 function fixture(name: string, text: string): string {
-  const file = path.join(DIR, name).replaceAll("\\", "/");
+  const file = getPathWithForwardSlashes(path.join(DIR, name));
   fs.writeFileSync(file, text);
   return file;
 }
@@ -1635,7 +1635,7 @@ describe("options", () => {
     const file = path.join(top, "file.bend");
     fs.writeFileSync(file, USERLAND);
     expect(await findConfig(file)).toEqual({
-      load: [path.join(top, "rules", "echo.ts").replaceAll("\\", "/")],
+      load: [getPathWithForwardSlashes(path.join(top, "rules", "echo.ts"))],
     });
     const { rules } = await import(pathToFileURL(path.join(top, "rules", "echo.ts")).href);
     for (const given of [[], rules]) {
@@ -2257,7 +2257,7 @@ describe("cli", () => {
           code: "style/comma-space",
           severity: "hint",
           message: "space",
-          path: fs.realpathSync(input).replaceAll("\\", "/"),
+          path: getPathWithForwardSlashes(fs.realpathSync(input)),
           range: { start: at, end: at },
           fixes: [
             {
@@ -2265,7 +2265,7 @@ describe("cli", () => {
               applicability: "safe",
               edits: [
                 {
-                  path: fs.realpathSync(input).replaceAll("\\", "/"),
+                  path: getPathWithForwardSlashes(fs.realpathSync(input)),
                   range: { start: at, end: at },
                   text: " ",
                 },
@@ -2322,7 +2322,7 @@ describe("cli", () => {
   });
 
   test("--fix writes the linted files, and prints findings when fixes clash", () => {
-    const dir = path.join(DIR, "fixroot").replaceAll("\\", "/");
+    const dir = getPathWithForwardSlashes(path.join(DIR, "fixroot"));
     fs.mkdirSync(dir, { recursive: true });
     const dep = dir + "/dep.bend";
     const main = dir + "/main.bend";
@@ -2351,7 +2351,7 @@ describe("cli", () => {
   });
 
   test("--imports never lints a hub package, nor writes to it", () => {
-    const lib = path.join(DIR, "hublib").replaceAll("\\", "/");
+    const lib = getPathWithForwardSlashes(path.join(DIR, "hublib"));
     const hub = "0x" + "a".repeat(32);
     fs.mkdirSync(lib + "/" + hub, { recursive: true });
     const pkg = lib + "/" + hub + "/dep.bend";
@@ -2438,7 +2438,7 @@ describe("cli", () => {
 
 describe("linted files", () => {
   // main.bend imports sub/lib.bend, which imports util.bend.
-  const dir = path.join(DIR, "linted").replaceAll("\\", "/");
+  const dir = getPathWithForwardSlashes(path.join(DIR, "linted"));
   fs.mkdirSync(dir + "/sub", { recursive: true });
   fs.writeFileSync(dir + "/util.bend", "type N is Data:\n  Z{}\n  S{p: N}\n");
   const lib = dir + "/sub/lib.bend";
@@ -2532,7 +2532,7 @@ describe("linted files", () => {
 describe("entries", () => {
   // a.bend and b.bend import lib.bend; c.bend does not; broken.bend imports
   // it and does not check.
-  const dir = path.join(DIR, "entries").replaceAll("\\", "/");
+  const dir = getPathWithForwardSlashes(path.join(DIR, "entries"));
   fs.mkdirSync(dir, { recursive: true });
   const lib = dir + "/lib.bend";
   fs.writeFileSync(lib, "import Base\n\ndef twice(x: U32) -> U32:\n  x\n");
@@ -3508,7 +3508,7 @@ def Laws.one():
     const program = await declarations(proof, true);
     expect(
       program.filter((d) => d.name === "declaration_laws:one").map((d) => d.span.file.path),
-    ).toEqual([proof, path.join(DIR, "declaration_laws.bend").replaceAll("\\", "/")]);
+    ).toEqual([proof, getPathWithForwardSlashes(path.join(DIR, "declaration_laws.bend"))]);
   });
 
   test("records resolved operator targets and excludes constructor patterns from declaration inventory", async () => {
@@ -3582,7 +3582,7 @@ def main() -> String:
   });
 
   test("an import of a hub package names the file it loads", () => {
-    const lib = path.join(DIR, "loads_hub").replaceAll("\\", "/");
+    const lib = getPathWithForwardSlashes(path.join(DIR, "loads_hub"));
     const hub = "0x" + "b".repeat(32);
     fs.mkdirSync(lib + "/" + hub, { recursive: true });
     fs.writeFileSync(lib + "/" + hub + "/dep.bend", "def one() -> Type:\n  Type\n");
