@@ -1711,7 +1711,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
 export const load = async (given: string | undefined): Promise<Loaded> => {
   const dir = path.resolve(
     url.fileURLToPath(
-      unwrap(mapError(await tryGetBend2SourceUrl({ bend: given }), (e) => e + "; " + GIVE)),
+      unwrap(mapError(await tryGetBend2SourceUrl({ bendDir: given }), (e) => e + "; " + GIVE)),
     ),
   );
   const patched = new Map(

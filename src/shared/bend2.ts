@@ -18,8 +18,12 @@ import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 // =====
 
 // The bend2 folder or checkout to use, else BEND_DIR. Tests replace
-// `bend version` and the cache.
-export type FindOptions = { bend?: string; run?: () => string | undefined; cache?: string };
+// `bend version` and the download folder.
+export type FindOptions = {
+  bendDir?: string;
+  readBendVersion?: () => string | undefined;
+  downloadDir?: string;
+};
 
 // Constants
 // =========
@@ -48,9 +52,9 @@ export const CACHE: string = nodePath.join(
 // =========
 
 // The installed bend's release ("v2.0.36"), or undefined if `bend version`
-// fails. `run` gives its stdout.
+// fails. `readBendVersion` gives its stdout.
 export const installedTag = (
-  run = (): string | undefined => {
+  readBendVersion = (): string | undefined => {
     const r = spawnSync("bend", ["version"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -58,18 +62,18 @@ export const installedTag = (
     return r.status === 0 ? r.stdout : undefined;
   },
 ): string | undefined => {
-  const version = run()?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
+  const version = readBendVersion()?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
   return version === undefined ? undefined : "v" + version;
 };
 
-// bend2 at a release, kept in <cache>/<tag>/bend2.
-// A download goes to a temporary folder first, so the cache never holds a
+// bend2 at a release, kept in <downloadDir>/<tag>/bend2.
+// A download goes to a temporary folder first, so `downloadDir` never holds a
 // partial one.
-export const fetchBend = async (tag: string, cache: string = CACHE): Promise<string> => {
+export const fetchBend = async (tag: string, downloadDir: string = CACHE): Promise<string> => {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
-  const dir = nodePath.join(cache, tag, "bend2");
+  const dir = nodePath.join(downloadDir, tag, "bend2");
   const whole = (): boolean =>
     [...FILES, "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
   if (whole()) {
@@ -92,8 +96,8 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
   const files = [base, ...(await Promise.all([...FILES, ...effs].map(fetched)))];
-  nodeFs.mkdirSync(nodePath.join(cache, tag), { recursive: true });
-  const part = nodeFs.mkdtempSync(nodePath.join(cache, tag, ".part-"));
+  nodeFs.mkdirSync(nodePath.join(downloadDir, tag), { recursive: true });
+  const part = nodeFs.mkdtempSync(nodePath.join(downloadDir, tag, ".part-"));
   files.forEach(([file, body]) => {
     nodeFs.mkdirSync(nodePath.dirname(nodePath.join(part, file)), { recursive: true });
     nodeFs.writeFileSync(nodePath.join(part, file), body);
@@ -111,20 +115,20 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
   return dir;
 };
 
-// The bend2 folder to load: in `bend`, a checkout or its bend2 folder, else
+// The bend2 folder to load: in `bendDir`, a checkout or its bend2 folder, else
 // a download. An error does not tell how to name one; the caller does.
 export const tryGetBend2SourceUrl = async ({
-  bend = process.env.BEND_DIR,
-  run,
-  cache,
+  bendDir = process.env.BEND_DIR,
+  readBendVersion,
+  downloadDir,
 }: FindOptions = {}): Promise<Result<URL, string>> => {
-  if (bend === undefined) {
-    const tag = installedTag(run) ?? PIN;
-    return fetchBend(tag, cache).then(tryGetUrlFromFolder, (e: unknown) =>
+  if (bendDir === undefined) {
+    const tag = installedTag(readBendVersion) ?? PIN;
+    return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>
       error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
   }
-  const dir = nodePath.resolve(bend);
+  const dir = nodePath.resolve(bendDir);
   const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
     nodeFs.existsSync(nodePath.join(d, "bend.ts")),
   );

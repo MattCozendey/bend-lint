@@ -633,9 +633,9 @@ async function readConfig(file: string) {
   return unwrap(await api.readConfig(file));
 }
 
-// The href of the bend2 folder found from `bend`; a failure rejects.
-async function bend2Url(bend: string | undefined, options?: FindOptions): Promise<string> {
-  return unwrap(await tryGetBend2SourceUrl({ ...options, bend })).href;
+// The href of the bend2 folder found from `bendDir`; a failure rejects.
+async function bend2Url(bendDir: string | undefined, options?: FindOptions): Promise<string> {
+  return unwrap(await tryGetBend2SourceUrl({ ...options, bendDir })).href;
 }
 
 // The error `p` rejects with; a `p` that fulfills fails the test.
@@ -943,15 +943,23 @@ describe("downloading bend", () => {
       const at = cache();
       const got = (tag: string) =>
         pathToFileURL(fs.realpathSync(path.join(at, tag, "bend2")) + path.sep).href;
-      expect(await bend2Url(undefined, { cache: at, run: () => "bend 1.2.3\n" })).toBe(
-        got("v1.2.3"),
+      expect(
+        await bend2Url(undefined, { downloadDir: at, readBendVersion: () => "bend 1.2.3\n" }),
+      ).toBe(got("v1.2.3"));
+      expect(await bend2Url(undefined, { downloadDir: at, readBendVersion: () => undefined })).toBe(
+        got(PIN),
       );
-      expect(await bend2Url(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
       mock.restore();
       offline();
-      expect(await bend2Url(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
+      expect(await bend2Url(undefined, { downloadDir: at, readBendVersion: () => undefined })).toBe(
+        got(PIN),
+      );
       expect(
-        (await rejection(bend2Url(undefined, { cache: at, run: () => "bend 1.2.4\n" }))).message,
+        (
+          await rejection(
+            bend2Url(undefined, { downloadDir: at, readBendVersion: () => "bend 1.2.4\n" }),
+          )
+        ).message,
       ).toMatch(/could not download bend v1\.2\.4 \(offline\)/);
     } finally {
       if (saved !== undefined) {
