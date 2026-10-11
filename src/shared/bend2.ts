@@ -78,12 +78,12 @@ export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
 // partial one.
 export const fetchBend = async (
   tag: string,
-  downloadDir: URL = BEND_LINT_CACHE_DIR,
+  downloadURL: URL = BEND_LINT_CACHE_DIR,
 ): Promise<URL> => {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
-  const release = new URL(tag + "/", downloadDir);
+  const release = new URL(tag + "/", downloadURL);
   const dir = new URL("bend2/", release);
   // What a download holds besides base.bend and the effs/ files Base imports.
   const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
