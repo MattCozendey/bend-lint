@@ -10,8 +10,8 @@
   "type": "module",
   "exports": "./src/lint.ts",
   "scripts": {
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check .",
+    "format": "oxfmt --write --disable-nested-config .",
+    "format:check": "oxfmt --check --disable-nested-config .",
     "lint": "bun scripts/link-bend.ts && oxlint .",
     "sync-bend": "bun scripts/sync-bend.ts",
     "test": "bun test",
