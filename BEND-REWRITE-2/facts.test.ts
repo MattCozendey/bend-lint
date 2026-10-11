@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "./testing.ts";
+import { build, lint, run } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
@@ -38,6 +38,17 @@ const found = (program: string, main: string): Array<Pick<Found, "at" | "message
 setDefaultTimeout(120_000);
 
 (process.env.BEND_DIR === undefined ? describe.skip : describe)("facts", () => {
+  test("a later run sees each file as it is now, the checker's types included", () => {
+    const add = (t: string): string =>
+      `import Base\n\ndef add(a: ${t}, b: ${t}) -> ${t}:\n  (a + b : ${t})\n`;
+    const first = run(TYPES, { "main.bend": add("U32") }, "main.bend");
+    const again = run(TYPES, {}, "main.bend", [], first.dir);
+    const changed = run(TYPES, { "main.bend": add("F32") }, "main.bend", [], first.dir);
+    expect([first.out.includes("type: U32"), again.out, changed.out.includes("type: F32")]).toEqual(
+      [true, first.out, true],
+    );
+  });
+
   test("a variable use has the type it was checked as; same types are the same", () => {
     expect(
       found(TYPES, "import Base\n\ndef add(a: U32, b: U32) -> U32:\n  (a + b : U32)\n"),

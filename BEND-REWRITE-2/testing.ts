@@ -16,8 +16,15 @@ import { fileURLToPath } from "node:url";
 // (line:column), its severity, its rule and its message.
 export type Found = { file: string; at: string; severity: string; code: string; message: string };
 
-// How a run ended: its exit code, what it printed, and the files after it.
-export type Ran = { code: number; out: string; err: string; files: Record<string, string> };
+// How a run ended: its exit code, what it printed, the files after it, and
+// the folder it ran in.
+export type Ran = {
+  code: number;
+  out: string;
+  err: string;
+  files: Record<string, string>;
+  dir: string;
+};
 
 // Constants
 // =========
@@ -58,14 +65,14 @@ export const build = (rule: string): string => {
 
 // How `program` ends on `named`, with the command line's other `args`
 // (flags, more files or globs), after it writes `files` (names to text) into
-// a fresh folder. It runs in that folder.
+// `dir`, a fresh folder unless given. It runs in that folder.
 export const run = (
   program: string,
   files: Record<string, string>,
   named: string,
   args: string[] = [],
+  dir: string = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-"))),
 ): Ran => {
-  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
   Object.entries(files).forEach(([name, text]) => {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), text);
@@ -78,6 +85,7 @@ export const run = (
     files: Object.fromEntries(
       Object.keys(files).map((name) => [name, fs.readFileSync(path.join(dir, name), "utf8")]),
     ),
+    dir,
   };
 };
 

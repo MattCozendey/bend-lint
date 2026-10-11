@@ -37,7 +37,20 @@ type Bend = typeof BendModule;
 type Cell = [Quant, string, number, LTerm, Span];
 
 // Bend, and Base as checked once.
-type Checker = { Bend: Bend; base: Book };
+type Loaded = { Bend: Bend; base: Book };
+
+// What a check's answer depends on besides its files (this server, the
+// patched bend.ts and Base, as one digest), and Bend, loaded when a check or
+// a question first needs it: an answer from the cache needs none.
+type Checker = { version: string; loaded: () => Promise<Loaded> };
+
+// A check's answer as the cache keeps it, with 0 for its number: the files it
+// read, each with the digest of the text it read, and the answer's digest.
+type Entry = { files: Array<[string, string]>; answer: string; digest: string };
+
+// A check this server answered: its root, its mode, and its answer's digest,
+// numbered 0. Enough to check it again with the same numbers.
+type Answered = { path: string; facts: boolean; digest: string };
 
 // An exact edit of bend.ts: the text it must find once, and its replacement.
 type Edit = [string, string];
@@ -209,11 +222,24 @@ const BINDERS = new Set(["Parameter", "Field", "PatternVariable", "Lambda", "For
 // The types rules hold handles to, by check (from 1), then by handle.
 const TYPES: Typed[][] = [];
 
+// The checks answered, by number (from 1), and those whose types are gone:
+// freed, or answered from the cache. A question about one checks it again.
+const ANSWERED: Answered[] = [];
+const GONE = new Set<number>();
+
+// The number of each check answered from or to the cache, by its entry's
+// path: the files of one entry share one check.
+const NUMBERS = new Map<string, number>();
+
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
 
 // What makes an input of `files` a glob.
 const GLOB = /[*?[{]/;
+
+// How long a cached check stays unused before the cache deletes it: a week,
+// in milliseconds.
+const STALE = 7 * 24 * 60 * 60 * 1000;
 
 // Functions
 // =========
@@ -296,12 +322,32 @@ const copied = (dir: string): string => {
   return file;
 };
 
-const load = async (): Promise<Checker> => {
-  const Bend = (await import(url.pathToFileURL(copied(bendDir())).href)) as Bend;
-  const base = Bend.book_nil();
-  await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
-  Bend.book_valid(base, 0);
-  return { Bend, base };
+const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+// The checker. The patched bend.ts is written now, so a drift stops the run
+// at once; Bend loads, and checks Base, once, when first needed.
+const load = (): Checker => {
+  const dir = bendDir();
+  const bend = copied(dir);
+  let loading: Promise<Loaded> | undefined;
+  const loaded = (): Promise<Loaded> => {
+    loading ??= (async () => {
+      const Bend = (await import(url.pathToFileURL(bend).href)) as Bend;
+      const base = Bend.book_nil();
+      await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
+      Bend.book_valid(base, 0);
+      return { Bend, base };
+    })();
+    return loading;
+  };
+  const version = digest(
+    [
+      nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
+      bend,
+      nodeFs.readFileSync(nodePath.join(dir, "base.bend"), "utf8"),
+    ].join("\n"),
+  );
+  return { version, loaded };
 };
 
 // Where each line of `text` starts.
@@ -1107,9 +1153,16 @@ const failure = (Bend: Bend, e: unknown, placed: boolean): string => {
 // then its syntax nodes, each followed, with facts, by the checker's facts on
 // it; or, if the check failed, the files it parsed with their nodes (if it
 // got that far), the files it read, then why, and, if Bend's error says,
-// where: the file's path, the range, and the file's text. The probes are
-// global, so checks must not overlap.
-const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Promise<string> => {
+// where: the file's path, the range, and the file's text. A passed check
+// also gives the files it read, with the text it read; its number is
+// `number`, or the next. The probes are global, so checks must not overlap.
+const check = async (
+  checker: Checker,
+  path: string,
+  facts: boolean,
+  number?: number,
+): Promise<{ answer: string; read?: Array<[string, string]>; number?: number }> => {
+  const { Bend, base } = await checker.loaded();
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const reported: Seen[] = [];
@@ -1156,26 +1209,32 @@ const check = async ({ Bend, base }: Checker, path: string, facts: boolean): Pro
     const judged = facts
       ? factsOf(Bend, book, book.order.slice(base.order.length), origins, binders)
       : new Map<number, Judged[]>();
-    TYPES.push([]);
-    const id = TYPES.length;
-    return [
-      record(["check", String(id)]),
-      ...sections.flatMap(({ file, nodes, first }) => [
-        record(["file", file.real, file.ns, file.text]),
-        ...nodesWithFacts(Bend, nodes, judged, first, id),
-      ]),
-    ].join("");
+    const id = number ?? TYPES.push([]);
+    TYPES[id - 1] = [];
+    return {
+      answer: [
+        record(["check", String(id)]),
+        ...sections.flatMap(({ file, nodes, first }) => [
+          record(["file", file.real, file.ns, file.text]),
+          ...nodesWithFacts(Bend, nodes, judged, first, id),
+        ]),
+      ].join(""),
+      read: files.map(({ file }): [string, string] => [file.real, file.text]),
+      number: id,
+    };
   } catch (e) {
     const at = located(e, seen, reported);
-    return [
-      ...syntax,
-      ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
-      record([
-        "fail",
-        failure(Bend, e, at !== undefined),
-        ...(at === undefined ? [] : [at.path, String(at.range[0]), String(at.range[1]), at.text]),
-      ]),
-    ].join("");
+    return {
+      answer: [
+        ...syntax,
+        ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
+        record([
+          "fail",
+          failure(Bend, e, at !== undefined),
+          ...(at === undefined ? [] : [at.path, String(at.range[0]), String(at.range[1]), at.text]),
+        ]),
+      ].join(""),
+    };
   } finally {
     hook.BEND_LINT_SEE = undefined;
   }
@@ -1205,7 +1264,7 @@ const written = (t: LTerm, bok: Book): LTerm => {
 
 // The answer to one question about types: `show:<check>:<id>`,
 // `same:<check>:<id>:<check>:<id>` or `normal:<check>:<id>`.
-const question = ({ Bend }: Checker, q: string): string => {
+const question = ({ Bend }: Loaded, q: string): string => {
   const [op, ...ns] = q.split(":");
   const at = (c: number, i: number): Typed => {
     const t = TYPES[c - 1]?.[i];
@@ -1240,19 +1299,143 @@ const question = ({ Bend }: Checker, q: string): string => {
   throw new Error("unknown question " + q);
 };
 
-// The answer to `ask <question>...`: one record per question, in order.
-const ask = (checker: Checker, questions: string[]): string => {
+// An answer with `number` as its check's number: in its `check` record and
+// in each `fact` record.
+const numbered = (answer: string, number: number): string =>
+  answer
+    .replace(/^(check\t)\d+$/m, "$1" + number)
+    .replace(/^(fact\t\w+\t)\d+\t/gm, "$1" + number + "\t");
+
+// Where the cache keeps the check of `path` in mode `facts`.
+const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
+  nodePath.join(
+    CACHE,
+    "checks",
+    digest([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
+  );
+
+// The cached answer at `file`, if each file it read still has the text it
+// read. A hit marks the entry used now.
+const cached = (file: string): Entry | undefined => {
   try {
-    return questions.map((q) => question(checker, q)).join("");
+    const entry = JSON.parse(nodeFs.readFileSync(file, "utf8")) as Entry;
+    if (!entry.files.every(([p, d]) => digest(nodeFs.readFileSync(p, "utf8")) === d)) {
+      return undefined;
+    }
+    nodeFs.utimesSync(file, new Date(), new Date());
+    return entry;
+  } catch {
+    return undefined;
+  }
+};
+
+// Deletes the entries of the cache folder `dir` unused for longer than
+// STALE; one that another run deletes first is skipped.
+const prune = (dir: string): void => {
+  try {
+    nodeFs
+      .readdirSync(dir)
+      .map((name) => nodePath.join(dir, name))
+      .filter(
+        (old) =>
+          Date.now() - (nodeFs.statSync(old, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) >
+          STALE,
+      )
+      .forEach((old) => nodeFs.rmSync(old, { force: true }));
+  } catch {
+    // A folder that cannot be read keeps its entries.
+  }
+};
+
+// Keeps `entry` at `file`, whole or not at all, after pruning its folder. A
+// cache that cannot be written is skipped.
+const keep = (file: string, entry: Entry): void => {
+  try {
+    const dir = nodePath.dirname(file);
+    nodeFs.mkdirSync(dir, { recursive: true });
+    prune(dir);
+    nodeFs.writeFileSync(file + "." + process.pid, JSON.stringify(entry));
+    nodeFs.renameSync(file + "." + process.pid, file);
+  } catch {
+    // The next run checks again.
+  }
+};
+
+// Notes the check numbered `number`, of the cache entry at `file`; `gone`
+// says whether its types are gone. Gives the number.
+const answered = (file: string, check: Answered, number: number, gone: boolean): number => {
+  ANSWERED[number - 1] = check;
+  NUMBERS.set(file, number);
+  if (gone) {
+    GONE.add(number);
+  }
+  return number;
+};
+
+// The answer to `check <path> <facts|syntax>`: from the cache, if each file
+// the check read is unchanged, numbered as before in this server, or anew
+// with its types gone; else from Bend, and a passed check goes to the cache.
+const checked = async (checker: Checker, path: string, facts: boolean): Promise<string> => {
+  const file = entryOf(checker, path, facts);
+  const entry = cached(file);
+  const known = NUMBERS.get(file);
+  if (entry !== undefined) {
+    return numbered(
+      entry.answer,
+      known !== undefined && ANSWERED[known - 1].digest === entry.digest
+        ? known
+        : answered(file, { path, facts, digest: entry.digest }, TYPES.push([]), true),
+    );
+  }
+  const made = await check(checker, path, facts);
+  if (made.read !== undefined && made.number !== undefined) {
+    const answer = numbered(made.answer, 0);
+    const sum = digest(answer);
+    answered(file, { path, facts, digest: sum }, made.number, false);
+    keep(file, { files: made.read.map(([p, text]) => [p, digest(text)]), answer, digest: sum });
+  }
+  return made.answer;
+};
+
+// Checks again the check numbered `number`, whose types are gone, with the
+// same numbers. Its answer must be the one rules have.
+const revive = async (checker: Checker, number: number): Promise<void> => {
+  const { path, facts, digest: was } = ANSWERED[number - 1];
+  const made = await check(checker, path, facts, number);
+  if (made.read === undefined || digest(numbered(made.answer, 0)) !== was) {
+    nodeFs.rmSync(entryOf(checker, path, facts), { force: true });
+    throw new Error("a check changed since its answer; run again");
+  }
+  GONE.delete(number);
+};
+
+// The answer to `ask <question>...`: one record per question, in order. The
+// checks they ask about whose types are gone are checked again first.
+const ask = async (checker: Checker, questions: string[]): Promise<string> => {
+  try {
+    const numbers = new Set(
+      questions.flatMap((q) =>
+        q
+          .split(":")
+          .filter((_, i) => i === 1 || i === 3)
+          .map(Number),
+      ),
+    );
+    for (const number of [...numbers].filter((n) => GONE.has(n))) {
+      await revive(checker, number);
+    }
+    const loaded = await checker.loaded();
+    return questions.map((q) => question(loaded, q)).join("");
   } catch (e) {
     return record(["fail", message(e)]);
   }
 };
 
-// The answer to `forget <check>`: the check's types are freed; no rule asks
-// about them again.
+// The answer to `forget <check>`: the check's types are freed. A question
+// about them checks it again.
 const forget = (check: number): string => {
   TYPES[check - 1] = [];
+  GONE.add(check);
   return record(["forgot"]);
 };
 
@@ -1283,22 +1466,23 @@ const named = (inputs: string[]): string => {
 const answer = (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
   return op === "check" && args.length === 2
-    ? check(checker, args[0], args[1] === "facts")
+    ? checked(checker, args[0], args[1] === "facts")
     : op === "files"
       ? Promise.resolve(named(args))
       : op === "forget" && args.length === 1
         ? Promise.resolve(forget(Number(args[0])))
         : op === "ask"
-          ? Promise.resolve(ask(checker, args))
+          ? ask(checker, args)
           : Promise.resolve(record(["fail", "unknown request: " + line]));
 };
 
-// One request: read its line, write the whole answer, close.
+// One request: read its line, write the whole answer, close. If Bend does not
+// load, the answer says why.
 const serve = async (checker: Checker, socket: net.Socket): Promise<void> => {
   const lines = readline.createInterface({ input: socket });
   const [line] = (await once(lines, "line")) as [string];
   lines.close();
-  socket.end(await answer(checker, line));
+  socket.end(await answer(checker, line).catch((e: unknown) => record(["fail", message(e)])));
 };
 
 // Side effects
@@ -1310,10 +1494,16 @@ if (program === undefined) {
   process.exit(2);
 }
 
-const checker = await load().catch((e: unknown) => {
-  console.error("bend-lint: " + message(e));
-  process.exit(2);
-});
+const started = (): Checker => {
+  try {
+    return load();
+  } catch (e) {
+    console.error("bend-lint: " + message(e));
+    return process.exit(2);
+  }
+};
+
+const checker = started();
 
 const server = net.createServer((socket) => void serve(checker, socket));
 server.listen(0, "127.0.0.1");
