@@ -119,7 +119,7 @@ type Tree = {
 
 const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n" };
 
-const SERVER_CACHE_DIR = nodePath.join(BEND_LINT_CACHE_DIR, "server");
+const SERVER_CACHE_DIR = new URL("server/", BEND_LINT_CACHE_DIR);
 
 // The fs and path that bend.ts gets instead of Node's.
 const PATHS = url.fileURLToPath(new URL("../src/shared/paths.ts", import.meta.url));
@@ -293,14 +293,14 @@ const patched = (dir: string, src: string): string =>
   ) + PROBES;
 
 // The patched copy of the bend.ts in `dir`, written once to the cache.
-const copied = (dir: URL): string => {
+const copied = (dir: URL): URL => {
   const text = patched(
     url.fileURLToPath(dir).replaceAll("\\", "/"),
     nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
-  const file = nodePath.join(SERVER_CACHE_DIR, digest(text).slice(0, 16), "bend.ts");
+  const file = new URL(`${digest(text).slice(0, 16)}/bend.ts`, SERVER_CACHE_DIR);
   if (!nodeFs.existsSync(file)) {
-    nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    nodeFs.mkdirSync(new URL(".", file), { recursive: true });
     nodeFs.writeFileSync(file, text);
   }
   return file;
@@ -314,7 +314,7 @@ const load = async (): Promise<Checker> => {
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {
     loading ??= (async () => {
-      const Bend = (await import(url.pathToFileURL(bend).href)) as Bend;
+      const Bend = (await import(bend.href)) as Bend;
       const base = Bend.book_nil();
       await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
       Bend.book_valid(base, 0);
@@ -326,7 +326,7 @@ const load = async (): Promise<Checker> => {
     [
       nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
       nodeFs.readFileSync(PATHS, "utf8"),
-      bend,
+      bend.href,
       nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
     ].join("\n"),
   );
@@ -1288,7 +1288,7 @@ const numbered = (answer: string, number: number): string =>
 // Where the cache keeps the check of `path` in mode `facts`.
 const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
-    SERVER_CACHE_DIR,
+    url.fileURLToPath(SERVER_CACHE_DIR),
     "checks",
     digest([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
   );

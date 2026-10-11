@@ -954,7 +954,8 @@ describe("downloading bend", () => {
   test("a release downloads once and whole, and bend-lint runs on it", async () => {
     const asked = github();
     const at = cache();
-    const dir = await fetchBend(PINNED_BEND_RELEASE_TAG, at);
+    const folder = pathToFileURL(at + "/");
+    const dir = fileURLToPath(await fetchBend(PINNED_BEND_RELEASE_TAG, folder));
     const effs = fs.readdirSync(path.join(BEND2, "effs"));
     expect(fs.readFileSync(path.join(dir, "bend.ts"), "utf8")).toBe(
       fs.readFileSync(path.join(BEND2, "bend.ts"), "utf8"),
@@ -964,10 +965,10 @@ describe("downloading bend", () => {
     );
     expect(fs.readdirSync(path.join(dir, "effs")).sort()).toEqual(effs.sort());
     expect(asked.length).toBe(5 + effs.length);
-    expect(await fetchBend(PINNED_BEND_RELEASE_TAG, at)).toBe(dir);
+    expect(fileURLToPath(await fetchBend(PINNED_BEND_RELEASE_TAG, folder))).toBe(dir);
     expect(asked.length).toBe(5 + effs.length);
     fs.rmSync(path.join(dir, "main.ts")); // a cache from before main.ts was patched
-    expect(await fetchBend(PINNED_BEND_RELEASE_TAG, at)).toBe(dir);
+    expect(fileURLToPath(await fetchBend(PINNED_BEND_RELEASE_TAG, folder))).toBe(dir);
     expect(asked.length).toBe(2 * (5 + effs.length));
     expect(fs.existsSync(path.join(dir, "main.ts"))).toBe(true);
     expect(fs.readdirSync(path.join(at, PINNED_BEND_RELEASE_TAG))).toEqual(["bend2"]);
@@ -976,7 +977,7 @@ describe("downloading bend", () => {
       env: { ...process.env, BEND_DIR: dir },
     });
     expect([out.status, out.stderr]).toEqual([0, ""]);
-    expect((await rejection(fetchBend("../x", at))).message).toMatch(/not a bend release/);
+    expect((await rejection(fetchBend("../x", folder))).message).toMatch(/not a bend release/);
   });
 
   test("bend2 downloads only when no bend is given", async () => {
@@ -988,7 +989,7 @@ describe("downloading bend", () => {
       const got = (tag: string) =>
         pathToFileURL(fs.realpathSync(path.join(at, tag, "bend2")) + path.sep).href;
       const url = (printed: string | null | undefined) =>
-        withBend(printed, () => bend2Url(undefined, { downloadDir: at }));
+        withBend(printed, () => bend2Url(undefined, { downloadDir: pathToFileURL(at + "/") }));
       expect(await url("bend 1.2.3\n")).toBe(got("v1.2.3"));
       expect(await url(undefined)).toBe(got(PINNED_BEND_RELEASE_TAG));
       mock.restore();

@@ -21,7 +21,7 @@ export const digest = (text: string): string => createHash("sha256").update(text
 // The folder at its real path, as a file: URL that ends in `/`, so
 // `new URL("file", folder)` finds a file in it. An error if `dir` is not a
 // folder, or cannot be resolved.
-export const tryGetUrlFromFolder = (dir: string): Result<URL, string> => {
+export const tryGetUrlFromFolderPathOrUrl = (dir: string | URL): Result<URL, string> => {
   try {
     const real = nodeFs.realpathSync(dir);
     return nodeFs.statSync(real).isDirectory()

@@ -184,7 +184,7 @@ const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 export const MARK = "BEND_LINT_PATCH";
 
 // Compiled Bend rules.
-const RULES_CACHE_DIR = nodePath.join(BEND_LINT_CACHE_DIR, "rules");
+const RULES_CACHE_DIR = new URL("rules/", BEND_LINT_CACHE_DIR);
 
 // Each loaded bend2's compiler hash, made once.
 const COMPILERS = new WeakMap<Loaded, string>();
@@ -1475,8 +1475,8 @@ const effectsOf = (book: Book): string[] => [
   ),
 ];
 
-const keptPath = (file: string): string =>
-  nodePath.join(RULES_CACHE_DIR, digest(slash(nodePath.resolve(file))) + ".json");
+const keptPath = (file: string): URL =>
+  new URL(digest(slash(nodePath.resolve(file))) + ".json", RULES_CACHE_DIR);
 
 const unchanged = (m: Loaded, kept: Kept): boolean =>
   kept.compiler === compilerOf(m) && kept.files.every(([p, h]) => hashed(p) === h);
@@ -1498,12 +1498,12 @@ const keep = (kept: Kept): void => {
   tried(() => {
     nodeFs.mkdirSync(RULES_CACHE_DIR, { recursive: true });
     for (const name of nodeFs.readdirSync(RULES_CACHE_DIR)) {
-      const at = nodePath.join(RULES_CACHE_DIR, name);
+      const at = new URL(name, RULES_CACHE_DIR);
       const old = tried(() => JSON.parse(nodeFs.readFileSync(at, "utf8")) as Kept);
       if (old === undefined || !nodeFs.existsSync(old.file)) tried(() => nodeFs.rmSync(at));
     }
     const to = keptPath(kept.file);
-    const temp = `${to}.${process.pid}.${Date.now()}`;
+    const temp = new URL(`${to.href}.${process.pid}.${Date.now()}`);
     nodeFs.writeFileSync(temp, JSON.stringify(kept));
     nodeFs.renameSync(temp, to);
   });

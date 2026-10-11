@@ -8,11 +8,12 @@ import { execFile } from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as os from "node:os";
 import * as nodePath from "node:path";
+import * as url from "node:url";
 
 import pkg from "../../package.json" with { type: "json" };
 import { ERROR, error, mapError, ok } from "./result.ts";
 import type { Result } from "./result.ts";
-import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
+import { getErrorMessageFromUnknown, tryGetUrlFromFolderPathOrUrl } from "./utils.ts";
 
 // Constants
 // =========
@@ -23,12 +24,14 @@ export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
 
 // bend-lint's cache: downloaded bends, one folder per release, and what each
 // version keeps.
-export const BEND_LINT_CACHE_DIR: string = nodePath.join(
-  process.env.XDG_CACHE_HOME ??
-    (process.platform === "win32"
-      ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
-      : nodePath.join(os.homedir(), ".cache")),
-  "bend-lint",
+export const BEND_LINT_CACHE_DIR: URL = url.pathToFileURL(
+  nodePath.join(
+    process.env.XDG_CACHE_HOME ??
+      (process.platform === "win32"
+        ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
+        : nodePath.join(os.homedir(), ".cache")),
+    "bend-lint",
+  ) + nodePath.sep,
 );
 
 // Functions
@@ -75,16 +78,17 @@ export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
 // partial one.
 export const fetchBend = async (
   tag: string,
-  downloadDir: string = BEND_LINT_CACHE_DIR,
-): Promise<string> => {
+  downloadDir: URL = BEND_LINT_CACHE_DIR,
+): Promise<URL> => {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
-  const dir = nodePath.join(downloadDir, tag, "bend2");
+  const release = new URL(tag + "/", downloadDir);
+  const dir = new URL("bend2/", release);
   // What a download holds besides base.bend and the effs/ files Base imports.
   const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
   const whole = (): boolean =>
-    [...FILES, "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
+    [...FILES, "base.bend"].every((f) => nodeFs.existsSync(new URL(f, dir)));
   if (whole()) {
     return dir;
   }
@@ -105,11 +109,14 @@ export const fetchBend = async (
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
   const files = [base, ...(await Promise.all([...FILES, ...effs].map(fetched)))];
-  nodeFs.mkdirSync(nodePath.join(downloadDir, tag), { recursive: true });
-  const part = nodeFs.mkdtempSync(nodePath.join(downloadDir, tag, ".part-"));
+  nodeFs.mkdirSync(release, { recursive: true });
+  const part = url.pathToFileURL(
+    nodeFs.mkdtempSync(url.fileURLToPath(new URL(".part-", release))) + nodePath.sep,
+  );
   files.forEach(([file, body]) => {
-    nodeFs.mkdirSync(nodePath.dirname(nodePath.join(part, file)), { recursive: true });
-    nodeFs.writeFileSync(nodePath.join(part, file), body);
+    const to = new URL(file, part);
+    nodeFs.mkdirSync(new URL(".", to), { recursive: true });
+    nodeFs.writeFileSync(to, body);
   });
   try {
     nodeFs.rmSync(dir, { recursive: true, force: true });
@@ -120,7 +127,7 @@ export const fetchBend = async (
       throw e;
     }
   }
-  console.error("bend-lint: downloaded bend " + tag + " to " + dir);
+  console.error("bend-lint: downloaded bend " + tag + " to " + url.fileURLToPath(dir));
   return dir;
 };
 
@@ -128,7 +135,7 @@ export const fetchBend = async (
 // a download.
 const tryFindBend2SourceUrl = async (
   bendDir: string | undefined,
-  downloadDir: string | undefined,
+  downloadDir: URL | undefined,
 ): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
     const installed = await tryGetInstalledBendTagFromCliOrUndefined();
@@ -136,7 +143,7 @@ const tryFindBend2SourceUrl = async (
       return error(`could not read the installed bend's release (${installed[ERROR]})`);
     }
     const tag = installed.OK ?? PINNED_BEND_RELEASE_TAG;
-    return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>
+    return fetchBend(tag, downloadDir).then(tryGetUrlFromFolderPathOrUrl, (e: unknown) =>
       error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
   }
@@ -146,14 +153,14 @@ const tryFindBend2SourceUrl = async (
   );
   return found === undefined
     ? error(`no bend2 at ${dir} (it needs bend.ts)`)
-    : tryGetUrlFromFolder(found);
+    : tryGetUrlFromFolderPathOrUrl(found);
 };
 
 // The bend2 folder to load. An error tells how to name one.
 export const tryGetBend2SourceUrl = async ({
   bendDir = process.env.BEND_DIR,
   downloadDir,
-}: { bendDir?: string; downloadDir?: string } = {}): Promise<Result<URL, string>> =>
+}: { bendDir?: string; downloadDir?: URL } = {}): Promise<Result<URL, string>> =>
   mapError(
     await tryFindBend2SourceUrl(bendDir, downloadDir),
     (e) => e + "; set BEND_DIR to a bend checkout",
