@@ -327,28 +327,14 @@ def Draft.rule_ok(parts: List<&2, String>) -> Bool:
     case _:
       False{}
 
-def Draft.checked(ok: Bool, target: Target) -> Maybe<&2, Target>:
-  match ok:
-    case True{}:
-      Some{target}
-    case False{}:
-      None{}
-
 # `rule@severity`, split at its @s.
 def Draft.target(parts: List<&2, String>) -> Maybe<&2, Target>:
   match parts:
     case Con{+rule, Nil{}}:
-      Draft.checked(Draft.rule_ok(String.split(rule, '/')), Target{rule, None{}})
+      Shared.when(Target, Draft.rule_ok(String.split(rule, '/')), Target{rule, None{}})
     case Con{+rule, Con{p, rest}}:
-      Draft.checked(Draft.rule_ok(String.split(rule, '/')), Target{rule, Some{String.join(p <> rest, "@")}})
+      Shared.when(Target, Draft.rule_ok(String.split(rule, '/')), Target{rule, Some{String.join(p <> rest, "@")}})
     case Nil{}:
-      None{}
-
-def Draft.reason.of(dash: Bool, reason: String) -> Maybe<&2, Maybe<&2, String>>:
-  match dash:
-    case True{}:
-      Some{Some{reason}}
-    case False{}:
       None{}
 
 # What comes after the rule: nothing, or `-- <reason>`.
@@ -357,7 +343,7 @@ def Draft.reason(rest: List<&2, String>) -> Maybe<&2, Maybe<&2, String>>:
     case Nil{}:
       Some{None{}}
     case Con{+dash, Con{r, more}}:
-      Draft.reason.of(String.eq(dash, "--"), String.join(r <> more, " "))
+      Shared.when(Maybe<&2, String>, String.eq(dash, "--"), Some{String.join(r <> more, " ")})
     case _:
       None{}
 
@@ -373,17 +359,11 @@ def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
     case _:
       None{}
 
-def Problem.when(hit: Bool, why: String) -> Maybe<&2, String>:
-  match hit:
-    case True{}:
-      Some{why}
-    case False{}:
-      None{}
-
 def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
   match pinned:
     case Some{+p}:
-      Problem.when(
+      Shared.when(
+        String,
         Maybe.is_none(&2, Lint.Severity, Shared.lookup(Lint.Severity, p, Severity.names())),
         p ++ " is not a severity."
       )
@@ -458,8 +438,8 @@ def Said.of(draft: Maybe<&2, Draft>, +trailing: Bool, +comment: Comment, +known:
             Problem.severity(action, Maybe.is_some(&2, String, pinned), rule),
             Problem.reason(scope, Maybe.is_some(&2, String, reason)),
             Problem.line(scope, trailing),
-            Problem.when(Rule.reserved(Shared.before(rule, '/')), rule ++ " findings cannot be suppressed."),
-            Problem.when(Bool.not(List.contains(~String, ~String.eq, known, rule)), "There is no rule " ++ rule ++ ".")
+            Shared.when(String, Rule.reserved(Shared.before(rule, '/')), rule ++ " findings cannot be suppressed."),
+            Shared.when(String, Bool.not(List.contains(~String, ~String.eq, known, rule)), "There is no rule " ++ rule ++ ".")
           ]
         ),
         Draft{Keyword{action, scope}, Target{rule, pinned}, reason},
@@ -586,13 +566,6 @@ def Pairing.unclosed(open: List<&2, Directive>, wrong: List<&2, Said>) -> List<&
 type Covering is Data:
   Covering{directive: Directive, from: U32, to: U32}
 
-def Lines.pick(hit: Bool, i: U32) -> Maybe<&2, U32>:
-  match hit:
-    case True{}:
-      Some{i}
-    case False{}:
-      None{}
-
 # The first line after `after` that holds code; `i` is the line of the head of `lines`.
 def Lines.next_code(lines: List<&2, Bool>, found: Maybe<&2, U32>, +i: U32, +after: U32) -> Maybe<&2, U32>:
   match lines found:
@@ -601,7 +574,7 @@ def Lines.next_code(lines: List<&2, Bool>, found: Maybe<&2, U32>, +i: U32, +afte
     case Nil{} None{}:
       None{}
     case Con{code, rest} None{}:
-      Lines.next_code(rest, Lines.pick(code && U32.is_gt(i, after), i), (i + 1 : U32), after)
+      Lines.next_code(rest, Shared.when(U32, code && U32.is_gt(i, after), i), (i + 1 : U32), after)
 
 def Closed.find(closed: List<&2, Closed>, +index: U32) -> Maybe<&2, U32>:
   match closed:

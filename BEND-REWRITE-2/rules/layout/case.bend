@@ -208,7 +208,7 @@ def wanted(
 ) -> Maybe<&2, Case>:
   match syntax:
     case Lint.Import{}:
-      Bool.pick(Maybe<&2, Case>, String.eq(name, "Base"), None{}, Some{Pascal{}})
+      Shared.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
     case Lint.Datatype{}:
       Some{Pascal{}}
     case Lint.Constructor{}:

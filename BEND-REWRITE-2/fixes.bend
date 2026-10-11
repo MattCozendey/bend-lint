@@ -69,23 +69,16 @@ def Syntax.alias(syntax: Lint.Syntax) -> Bool:
     case _:
       False{}
 
-def Part.when(hit: Bool, from: U32, until: U32) -> Maybe<&2, Part>:
-  match hit:
-    case True{}:
-      Some{Part{from, until}}
-    case False{}:
-      None{}
-
 # Where `old` is in `name`, a name a node writes: its first part, if `alias`; else its last.
 def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
   match alias:
     case True{}:
-      Part.when(String.eq(name, old) || String.starts_with(name, old ++ "."), 0, U32.from_nat(String.length(old)))
+      Shared.when(Part, String.eq(name, old) || String.starts_with(name, old ++ "."), Part{0, U32.from_nat(String.length(old))})
     case False{}:
-      Part.when(
+      Shared.when(
+        Part,
         String.eq(last(name), old),
-        U32.from_nat(Nat.sub(String.length(name), String.length(old))),
-        U32.from_nat(String.length(name))
+        Part{U32.from_nat(Nat.sub(String.length(name), String.length(old))), U32.from_nat(String.length(name))}
       )
 
 # Renames
@@ -154,7 +147,7 @@ def Rename.file(sources: List<&2, Lint.Source>, +path: String, found: Maybe<&2, 
     case Nil{} None{}:
       []
     case Con{Lint.Source{p, namespace, text, nodes, facts}, rest} None{}:
-      Rename.file(rest, path, Shared.lookup.hit(List<&2, Lint.Node>, String.eq(p, path), nodes))
+      Rename.file(rest, path, Shared.when(List<&2, Lint.Node>, String.eq(p, path), nodes))
 
 # Whether a rename may write `to`: a Rename (`whole`) if no node of the declaration's file takes it already. RenameUses
 # points the uses at a name the program declares.
@@ -219,7 +212,7 @@ def Declaration.find(declarations: List<&2, Lint.Declaration>, +id: U32, found: 
       Declaration.find(
         rest,
         id,
-        Shared.lookup.hit(Lint.Declaration, U32.is_eq(i, id), Lint.Declaration{Lint.Node{i, p, o, s, n, b, q, sp, t}, uses})
+        Shared.when(Lint.Declaration, U32.is_eq(i, id), Lint.Declaration{Lint.Node{i, p, o, s, n, b, q, sp, t}, uses})
       )
 
 # Finding names in the text

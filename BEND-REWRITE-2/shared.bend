@@ -6,7 +6,8 @@ import Base
 type Named<-A: Data> is Data:
   Named{name: String, value: A}
 
-def lookup.hit(-A: Data, hit: Bool, v: A) -> Maybe<&2, A>:
+# `v`, if `hit` holds.
+def when(-A: Data, hit: Bool, v: A) -> Maybe<&2, A>:
   match hit:
     case True{}:
       Some{v}
@@ -20,7 +21,7 @@ def lookup.go(-A: Data, +key: String, table: List<&2, Named<A>>, found: Maybe<&2
     case Nil{} None{}:
       None{}
     case Con{Named{k, v}, rest} None{}:
-      lookup.go(A, key, rest, lookup.hit(A, String.eq(k, key), v))
+      lookup.go(A, key, rest, when(A, String.eq(k, key), v))
 
 # The value `key` names in `table`: the first, read no further.
 def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:

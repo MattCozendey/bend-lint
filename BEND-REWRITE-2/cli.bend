@@ -177,7 +177,7 @@ def Option.problem(spec: Maybe<&2, Lint.Spec>, +key: String, value: Lint.Value) 
     case None{}:
       Some{"it has no option " ++ key}
     case Some{s}:
-      Bool.pick(Maybe<&2, String>, Spec.fits(8n, [s], value), None{}, Some{key ++ " does not take that value"})
+      Shared.when(String, Bool.not(Spec.fits(8n, [s], value)), key ++ " does not take that value")
 
 # The first problem with the given option values: a name not declared, or a value its spec does not accept.
 def Option.given(given: List<&2, Shared.Named<Lint.Value>>, +declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
@@ -196,7 +196,7 @@ def Option.defaults(declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
       Maybe.or(
         &2,
         String,
-        Bool.pick(Maybe<&2, String>, Spec.fits(8n, [spec], default), None{}, Some{"the default of " ++ name ++ " is not a value it takes"}),
+        Shared.when(String, Bool.not(Spec.fits(8n, [spec], default)), "the default of " ++ name ++ " is not a value it takes"),
         Option.defaults(rest)
       )
 
