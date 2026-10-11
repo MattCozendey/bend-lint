@@ -4,6 +4,6 @@
   "jsdoc": true,
   "objectWrap": "collapse",
   "proseWrap": "always",
-  "sortImports": true,
+  "sortImports": { "sortSideEffects": true },
   "sortPackageJson": { "sortScripts": true }
 }

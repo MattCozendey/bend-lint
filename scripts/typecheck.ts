@@ -1,4 +1,4 @@
-import { resolve, relative } from "node:path";
+import { relative, resolve } from "node:path";
 
 import { API, DiagnosticCategory } from "typescript/unstable/async";
 
