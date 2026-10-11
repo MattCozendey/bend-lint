@@ -72,7 +72,7 @@ export const fetchBend = async (tag: string, cache: string = CACHE): Promise<str
   }
   const fetched = async (file: string): Promise<[string, string]> => {
     const res = await fetch(
-      `"https://raw.githubusercontent.com/bendlang/bend/"${tag}/bend2/${file}`,
+      `https://raw.githubusercontent.com/bendlang/bend/${tag}/bend2/${file}`,
       { signal: AbortSignal.timeout(30_000) },
     );
     if (!res.ok) {
