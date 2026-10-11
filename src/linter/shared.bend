@@ -23,6 +23,14 @@ def lookup.go(-A: Data, +key: String, table: List<&2, Named<A>>, found: Maybe<&2
     case Con{Named{k, v}, rest} None{}:
       lookup.go(A, key, rest, when(A, String.eq(k, key), v))
 
+# Each of `xs` with the name `show` gives it: a table for `lookup`, so that each name is written once, in `show`.
+def named(~A: Data, ~show: A -> String, xs: List<&2, A>) -> List<&2, Named<A>>:
+  match xs:
+    case Nil{}:
+      []
+    case Con{+x, rest}:
+      Named{show(x), x} <> named(~A, ~show, rest)
+
 # The value `key` names in `table`: the first, read no further.
 def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
   lookup.go(A, key, table, None{})

@@ -141,7 +141,9 @@ setDefaultTimeout(120_000);
   });
 
   test("--json prints one object: the findings with their fixes' edits, and those suppressed", async () => {
-    const util = "# bend-lint: disable-file tests/across -- kept\n" + ENTRIES["util.bend"];
+    const util =
+      "# bend-lint: disable-file tests/across -- kept not-expected-because: it is not always found\n" +
+      ENTRIES["util.bend"];
     const ran = await run(
       ACROSS,
       { "main.bend": ENTRIES["a.bend"], "util.bend": util },

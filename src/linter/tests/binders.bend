@@ -33,7 +33,7 @@ def binders(facts: List<&2, Lint.Fact>, acc: Binders) -> Binders:
         List.reverse(&2, String, names),
         List.reverse(&2, Lint.TypeRef, types)
       }
-    case Con{Lint.Fact{n, Lint.OfBinder{}, q, t}, rest} _:
+    case Con{Lint.Fact{n, Lint.OfBinder{}, q, u, t}, rest} _:
       binders(rest, keep(n, q, t, acc))
     case Con{f, rest} _:
       binders(rest, acc)
@@ -57,4 +57,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   described(binders(Lint.Here.facts(here), Binders{[], [], []}))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/binders", Lint.Needs{True{}, False{}}, [], run}
+  Lint.Rule{"tests/binders", Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}

@@ -21,4 +21,4 @@ def run(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(marks(Lint.Whole.sources(whole), Lint.Fix{"Mark every file", inserts(Lint.Whole.sources(whole), [])}, []))
 
 def rule() -> Lint.Rule:
-  Lint.ProgramRule{"tests/across", Lint.SomeEntry{}, Lint.Needs{False{}, False{}}, [], run}
+  Lint.Rule{"tests/across", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{False{}, run}}

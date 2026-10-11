@@ -1,6 +1,7 @@
 # Fixing: the edits that the fixes of the findings that stay ask for, planned and written to the files. A fix runs
 # whole or not at all: one whose operation the linter refuses, or whose edits overlap an earlier fix's, waits for the
-# next run.
+# next run. A run's `fixing` says how it fixes: not at all (None), or with the fixes the linter proves safe, or, if
+# Some{True{}}, with every fix.
 import Base
 import ./directives.bend as Directives
 import ./lint.bend as Lint
@@ -9,12 +10,6 @@ import ./shared.bend as Shared
 
 # Types
 # =====
-
-# How a run fixes: not at all, with the fixes the linter proves safe, or with every fix.
-type Fixing is Data:
-  NoFixes{}
-  SafeFixes{}
-  DangerousFixes{}
 
 # An edit to make: a span of a file, and its new text.
 type Edit is Data:
@@ -158,14 +153,6 @@ def Taken.files(sources: List<&2, Lint.Source>, out: Map<&2, Unit>) -> Map<&2, U
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Taken.files(rest, Taken.nodes(nodes, path, out))
 
-# Whether a declaration of this kind declares a global name: a def, type, constructor or law.
-def Declares.global(declares: Program.Declares) -> Bool:
-  match declares:
-    case Program.DeclaresGlobal{}:
-      True{}
-    case _:
-      False{}
-
 # Whether a rename may write `to`. A Rename (`whole`) may, of a name no file but its own can use (not a `global` one),
 # if its file does not take `to` already (`taken`). RenameUses points the uses at a name the program declares, and
 # leaves the declaration as it is.
@@ -214,7 +201,7 @@ def Rename.plan(
     case Some{Lint.Declaration{Lint.Node{id, p, o, +s, +name, b, q, +span, t}, uses}}:
       +alias = Syntax.alias(s)
       Rename.checked(
-        Rename.allowed(whole, Declares.global(Program.Syntax.declares(s)), alias, to, span, taken),
+        Rename.allowed(whole, Maybe.default(&2, Bool, Program.Syntax.declares(s), False{}), alias, to, span, taken),
         Rename.spots(
           Rename.nodes(whole, Lint.Node{id, p, o, s, name, b, q, span, t}, uses),
           fix,
@@ -443,13 +430,13 @@ def Fix.safe(fix: Lint.Fix, +comments: Map<&2, Unit>) -> Bool:
     case Lint.Fix{title, ops}:
       Fix.safe.go(ops, comments, True{})
 
-def Plan.allowed(fixing: Fixing, fix: Lint.Fix, +comments: Map<&2, Unit>) -> Bool:
+def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, +comments: Map<&2, Unit>) -> Bool:
   match fixing:
-    case NoFixes{}:
+    case None{}:
       False{}
-    case SafeFixes{}:
+    case Some{False{}}:
       Fix.safe(fix, comments)
-    case DangerousFixes{}:
+    case Some{True{}}:
       True{}
 
 # The first fix of each of `founds`, in order, onto `out`.
@@ -463,7 +450,7 @@ def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&
       Plan.firsts(rest, out)
 
 # The fixes of `fixes` that `fixing` allows, in order, onto `out`; `comments` says where a safe fix may write.
-def Plan.picked(fixes: List<&2, Lint.Fix>, +fixing: Fixing, +comments: Map<&2, Unit>, out: List<&2, Lint.Fix>) ->
+def Plan.picked(fixes: List<&2, Lint.Fix>, +fixing: Maybe<&2, Bool>, +comments: Map<&2, Unit>, out: List<&2, Lint.Fix>) ->
   List<&2, Lint.Fix>:
   match fixes:
     case Nil{}:
@@ -853,9 +840,9 @@ def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Map<&2,
   )
 
 # Where a safe fix may write, if the run makes the safe fixes alone.
-def Plan.safety(fixing: Fixing, fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Map<&2, Unit>:
+def Plan.safety(fixing: Maybe<&2, Bool>, fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Map<&2, Unit>:
   match fixing:
-    case SafeFixes{}:
+    case Some{False{}}:
       safety(fixes, sources)
     case _:
       Map.new(&2, Unit)
@@ -872,7 +859,7 @@ def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Edit>>>, plan: Plan) -> Plan:
 # touch an earlier one's.
 def Plan.of(
   founds: List<&2, Lint.Found>,
-  +fixing: Fixing,
+  +fixing: Maybe<&2, Bool>,
   declarations: List<&2, Lint.Declaration>,
   +sources: List<&2, Lint.Source>
 ) -> Plan:
@@ -952,10 +939,10 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
 
 # Makes the fixes `fixing` allows, of `founds` (in order), in the program's files (`sources`, whose declarations are
 # `declarations`); how many.
-def apply(+fixing: Fixing, founds: List<&2, Lint.Found>, declarations: List<&2, Lint.Declaration>, +sources: List<&2, Lint.Source>) ->
+def apply(+fixing: Maybe<&2, Bool>, founds: List<&2, Lint.Found>, declarations: List<&2, Lint.Declaration>, +sources: List<&2, Lint.Source>) ->
   IO(U32):
   match fixing:
-    case NoFixes{}:
+    case None{}:
       IO.pure(U32, 0)
     case _:
       made(sources, Plan.of(founds, fixing, declarations, sources))

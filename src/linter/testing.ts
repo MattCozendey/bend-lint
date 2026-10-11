@@ -10,9 +10,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tryGetBend2SourceUrl, tryGetInstalledBendTagFromCliOrUndefined } from "../shared/bend2.ts";
-import { getPathWithForwardSlashes } from "../shared/paths.ts";
 import { ERROR, OK } from "../shared/result.ts";
-import { getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
+import { getPathWithForwardSlashes, getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
 
 // Types
 // =====
@@ -36,6 +35,9 @@ export type Ran = {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(HERE, "server.ts");
+
+// What a rules program calls to run its rules.
+const CLI = path.join(HERE, "cli.bend");
 
 // Bend imports only relative paths of plain names, so the programs the
 // tests build live in this folder, beside the executables they keep.
@@ -107,9 +109,10 @@ const getBuilderText = async (): Promise<string> => {
 
 // The program that lints with the rule in `rule` (a path under this
 // folder); the path of its executable. A build is kept, and used again until
-// the rule, a file it imports or the bend that builds it changes. It goes to
-// a folder of its own first, so a kept executable is never partial, and
-// test files that build the same rule at once share one executable.
+// the rule, the linter, a file either imports or the bend that builds it
+// changes. It goes to a folder of its own first, so a kept executable is
+// never partial, and test files that build the same rule at once share one
+// executable.
 export const build = async (rule: string): Promise<string> => {
   const name = rule.replace(/\.bend$/, "").replace(/\W/g, "_");
   const source = path.join(BUILD, name + ".bend");
@@ -119,10 +122,9 @@ export const build = async (rule: string): Promise<string> => {
     [
       text,
       await getBuilderText(),
-      ...getBendFileClosure(path.join(HERE, rule)).flatMap((f) => [
-        path.relative(HERE, f),
-        fs.readFileSync(f, "utf8"),
-      ]),
+      ...[CLI, path.join(HERE, rule)]
+        .flatMap((file) => getBendFileClosure(file))
+        .flatMap((f) => [path.relative(HERE, f), fs.readFileSync(f, "utf8")]),
     ].join("\0"),
   ).slice(0, 16);
   const exe = path.join(BUILD, `${name}.${key}${process.platform === "win32" ? ".exe" : ""}`);

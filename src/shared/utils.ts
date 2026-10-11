@@ -15,6 +15,8 @@ import type { Result } from "./result.ts";
 export const getErrorMessageFromUnknown = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+export const getPathWithForwardSlashes = (p: string): string => p.split(nodePath.sep).join("/");
+
 // f's value, or undefined if it throws.
 export const tryGetOrUndefined = <T>(f: () => T): T | undefined => {
   try {

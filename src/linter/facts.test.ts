@@ -10,11 +10,11 @@ import type { Found } from "./testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const [TYPES, BUDGET, BINDERS, TERMS] = BUILDS
+const [TYPES, BUDGET, BINDERS, TERMS, USES] = BUILDS
   ? await Promise.all(
-      ["types", "budget", "binders", "terms"].map((name) => build(`tests/${name}.bend`)),
+      ["types", "budget", "binders", "terms", "uses"].map((name) => build(`tests/${name}.bend`)),
     )
-  : ["", "", "", ""];
+  : ["", "", "", "", ""];
 
 const UTIL = "import Base\n\ntype T is Data:\n  A{}\n  B{}\n";
 
@@ -102,6 +102,25 @@ setDefaultTimeout(120_000);
       { at: "9:17", message: "r (once): U32" },
       { at: "11:15", message: "w (once): U32" },
       { at: "11:18", message: "h (once): String" },
+    ]);
+  });
+
+  test("a binder is used as often as its body uses it, the most over its branches", async () => {
+    expect(
+      await found(
+        USES,
+        SHAPE +
+          "def area(x: Shape, k: U32) -> U32:\n  match x:\n    case Circle{r}:\n      (r * k : U32)\n    case Rect{w, h}:\n      w\n\n" +
+          "def inc(+n: U32) -> U32:\n  f : U32 -> U32 = z => (z + n : U32)\n  f(n)\n",
+      ),
+    ).toEqual([
+      { at: "7:20", message: "k: used once" },
+      { at: "9:17", message: "r: used once" },
+      { at: "11:15", message: "w: used once" },
+      { at: "11:18", message: "h: used erased" },
+      { at: "14:10", message: "n: used many" },
+      { at: "15:3", message: "f: used once" },
+      { at: "15:20", message: "z: used once" },
     ]);
   });
 

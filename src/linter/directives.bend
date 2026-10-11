@@ -1,9 +1,9 @@
 # Directives: comments in a linted file that silence findings (disable) or demand them (expect):
 # `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`. One directive names one
-# rule. An expect pins a severity; a disable takes none. file covers the whole file; begin and end bound a region;
-# line covers its own line; next covers the next line that holds code. A finding is covered when its span starts on a
-# covered line. Directives that stack on consecutive comment-only lines must be in order, by rule, severity and
-# keyword. The checker's and bend-lint's own findings cannot be suppressed.
+# rule. An expect pins a severity. A disable takes none, and says why it is not an expect, after its reason:
+# `not-expected-because: <why>`. file covers the whole file; begin and end bound a region; line covers its own line;
+# next covers the next line that holds code. A finding is covered when its span starts on a covered line. The
+# checker's and bend-lint's own findings cannot be suppressed.
 import Base
 import ./lint.bend as Lint
 import ./shared.bend as Shared
@@ -218,9 +218,9 @@ type Keyword is Data:
 type Target is Data:
   Target{rule: String, pinned: Maybe<&2, String>}
 
-# A directive as written, before its severity and rule are checked.
+# A directive as written, before its severity and rule are checked: its reasons are the texts after each `--`.
 type Draft is Data:
-  Draft{keyword: Keyword, target: Target, reason: Maybe<&2, String>}
+  Draft{keyword: Keyword, target: Target, reasons: List<&2, String>}
 
 # A directive: what it does, how far, the rule it names, the severity it pins, its comment, and its place among the
 # file's comments.
@@ -231,26 +231,6 @@ type Directive is Data:
 type Said is Data:
   Said{directive: Directive}
   Wrong{comment: Comment, why: String}
-
-def Action.names() -> List<&2, Shared.Named<Action>>:
-  [Shared.Named{"disable", Disable{}}, Shared.Named{"expect", Expect{}}]
-
-def Scope.names() -> List<&2, Shared.Named<Scope>>:
-  [
-    Shared.Named{"file", WholeFile{}},
-    Shared.Named{"begin", Begin{}},
-    Shared.Named{"end", End{}},
-    Shared.Named{"next", NextLine{}},
-    Shared.Named{"line", SameLine{}}
-  ]
-
-def Severity.names() -> List<&2, Shared.Named<Lint.Severity>>:
-  [
-    Shared.Named{"error", Lint.Error{}},
-    Shared.Named{"warning", Lint.Warning{}},
-    Shared.Named{"information", Lint.Information{}},
-    Shared.Named{"hint", Lint.Hint{}}
-  ]
 
 def Action.show(a: Action) -> String:
   match a:
@@ -271,6 +251,12 @@ def Scope.show(s: Scope) -> String:
       "next"
     case SameLine{}:
       "line"
+
+def Action.names() -> List<&2, Shared.Named<Action>>:
+  Shared.named(~Action, ~Action.show, [Disable{}, Expect{}])
+
+def Scope.names() -> List<&2, Shared.Named<Scope>>:
+  Shared.named(~Scope, ~Scope.show, [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}])
 
 def Severity.pinned(severity: Maybe<&2, Lint.Severity>) -> String:
   Maybe.default(&2, String, Maybe.map(&2, Lint.Severity, String, Lint.Severity.show, severity), "")
@@ -337,15 +323,38 @@ def Draft.target(parts: List<&2, String>) -> Maybe<&2, Target>:
     case Nil{}:
       None{}
 
-# What comes after the rule: nothing, or `-- <reason>`.
-def Draft.reason(rest: List<&2, String>) -> Maybe<&2, Maybe<&2, String>>:
+# The word that starts a disable's second reason: why it is not an expect.
+def Draft.label() -> String:
+  "not-expected-because:"
+
+# A reason's words (last first) as one text, onto `out`.
+def Draft.part(part: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+  String.join(List.reverse(&2, String, part), " ") <> out
+
+# The reason so far (last first) and those before it (last first), with `word` read: the label starts another.
+def Draft.reasons.step(dash: Bool, +word: String, read: List<&2, String> & List<&2, String>) ->
+  List<&2, String> & List<&2, String>:
+  match dash read:
+    case True{} Tuple{part, out}:
+      ([], Draft.part(part, out))
+    case False{} Tuple{part, out}:
+      (word <> part, out)
+
+# The reasons in `words`, split at each label, in order, after what is `read`.
+def Draft.reasons(words: List<&2, String>, read: List<&2, String> & List<&2, String>) -> List<&2, String>:
+  match words read:
+    case Nil{} Tuple{part, out}:
+      List.reverse(&2, String, Draft.part(part, out))
+    case Con{+w, rest} _:
+      Draft.reasons(rest, Draft.reasons.step(String.eq(w, Draft.label()), w, read))
+
+# What comes after the rule: nothing, or `--` and the reasons.
+def Draft.reason(rest: List<&2, String>) -> Maybe<&2, List<&2, String>>:
   match rest:
     case Nil{}:
-      Some{None{}}
-    case Con{+dash, Con{r, more}}:
-      Shared.when(Maybe<&2, String>, String.eq(dash, "--"), Some{String.join(r <> more, " ")})
-    case _:
-      None{}
+      Some{[]}
+    case Con{+dash, more}:
+      Shared.when(List<&2, String>, String.eq(dash, "--"), Draft.reasons(more, ([], [])))
 
 # The draft of a directive's words, after `bend-lint:`.
 def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
@@ -354,7 +363,7 @@ def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
       do Maybe<&2, Draft>:
         k : Keyword <- Draft.kind(String.split(kind, '-'))
         t : Target <- Draft.target(String.split(named, '@'))
-        r : Maybe<&2, String> <- Draft.reason(rest)
+        r : List<&2, String> <- Draft.reason(rest)
         return Draft{k, t, r}
     case _:
       None{}
@@ -364,7 +373,7 @@ def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
     case Some{+p}:
       Shared.when(
         String,
-        Maybe.is_none(&2, Lint.Severity, Shared.lookup(Lint.Severity, p, Severity.names())),
+        Maybe.is_none(&2, Lint.Severity, Shared.lookup(Lint.Severity, p, Lint.Severity.names())),
         p ++ " is not a severity."
       )
     case None{}:
@@ -379,15 +388,26 @@ def Problem.severity(action: Action, pinned: Bool, +rule: String) -> Maybe<&2, S
     case _ _:
       None{}
 
-def Problem.reason(scope: Scope, reason: Bool) -> Maybe<&2, String>:
-  match scope reason:
-    case End{} True{}:
-      Some{"An end takes no reason; the begin has it."}
-    case End{} False{}:
+def Problem.reason(scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>:
+  match scope reasons:
+    case End{} Nil{}:
       None{}
-    case _ False{}:
+    case End{} _:
+      Some{"An end takes no reason; the begin has it."}
+    case _ Con{+r, more}:
+      Shared.when(String, String.is_empty(r), "A reason is required, after `--`.")
+    case _ Nil{}:
       Some{"A reason is required, after `--`."}
-    case _ True{}:
+
+def Problem.because(action: Action, scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>:
+  match action scope reasons:
+    case Disable{} End{} _:
+      None{}
+    case Disable{} _ Con{r, Con{+b, more}}:
+      Shared.when(String, String.is_empty(b), "Say why it is not an expect, after " ++ Draft.label())
+    case Disable{} _ _:
+      Some{"A disable says why it is not an expect, after its reason: " ++ Draft.label() ++ " <why>"}
+    case _ _ _:
       None{}
 
 def Problem.line(scope: Scope, trailing: Bool) -> Maybe<&2, String>:
@@ -413,13 +433,13 @@ def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: 
   match why draft:
     case Some{w} _:
       Wrong{comment, w}
-    case None{} Draft{Keyword{action, scope}, Target{rule, pinned}, reason}:
+    case None{} Draft{Keyword{action, scope}, Target{rule, pinned}, reasons}:
       Said{
         Directive{
           action,
           scope,
           rule,
-          Maybe.bind(&2, String, Lint.Severity, pinned, p => Shared.lookup(Lint.Severity, p, Severity.names())),
+          Maybe.bind(&2, String, Lint.Severity, pinned, p => Shared.lookup(Lint.Severity, p, Lint.Severity.names())),
           comment,
           index
         }
@@ -429,50 +449,52 @@ def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: 
 def Said.of(draft: Maybe<&2, Draft>, +trailing: Bool, +comment: Comment, +known: List<&2, String>, index: U32) -> Said:
   match draft:
     case None{}:
-      Wrong{comment, "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`."}
-    case Some{Draft{Keyword{+action, +scope}, Target{+rule, +pinned}, +reason}}:
+      Wrong{
+        comment,
+        "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`, and, for a disable, " ++ Draft.label() ++ " <why> after it."
+      }
+    case Some{Draft{Keyword{+action, +scope}, Target{+rule, +pinned}, +reasons}}:
       Said.checked(
         Problem.first(
           [
             Problem.pinned(pinned),
             Problem.severity(action, Maybe.is_some(&2, String, pinned), rule),
-            Problem.reason(scope, Maybe.is_some(&2, String, reason)),
+            Problem.reason(scope, reasons),
+            Problem.because(action, scope, reasons),
             Problem.line(scope, trailing),
             Shared.when(String, Rule.reserved(Shared.before(rule, '/')), rule ++ " findings cannot be suppressed."),
             Shared.when(String, Bool.not(List.contains(~String, ~String.eq, known, rule)), "There is no rule " ++ rule ++ ".")
           ]
         ),
-        Draft{Keyword{action, scope}, Target{rule, pinned}, reason},
+        Draft{Keyword{action, scope}, Target{rule, pinned}, reasons},
         comment,
         index
       )
 
-def Said.read.body(
-  directive: Bool,
-  +rest: String,
-  +trailing: Bool,
-  +comment: Comment,
-  +known: List<&2, String>,
-  index: U32
-) -> Maybe<&2, Said>:
-  match directive:
+def Draft.read.if(marked: Bool, +text: String) -> Maybe<&2, Maybe<&2, Draft>>:
+  match marked:
     case True{}:
-      Some{Said.of(Draft.of(Words.of(String.drop(rest, 10n))), trailing, comment, known, index)}
+      Some{Draft.of(Words.of(String.drop(text, 10n)))}
     case False{}:
+      None{}
+
+# What a comment's text says, if it says bend-lint:: a directive's draft, if it is one.
+def Draft.read(+body: String) -> Maybe<&2, Maybe<&2, Draft>>:
+  Draft.read.if(String.starts_with(String.trim_start(body), "bend-lint:"), String.trim_start(body))
+
+def Said.read.of(draft: Maybe<&2, Maybe<&2, Draft>>, +comment: Comment, +known: List<&2, String>, index: U32) ->
+  Maybe<&2, Said>:
+  match draft comment:
+    case Some{d} Comment{beg, end, line, +trailing, body}:
+      Some{Said.of(d, trailing, Comment{beg, end, line, trailing, body}, known, index)}
+    case None{} _:
       None{}
 
 # What a comment says, if it says bend-lint:.
 def Said.read(+comment: Comment, +known: List<&2, String>, index: U32) -> Maybe<&2, Said>:
   match comment:
-    case Comment{beg, end, line, +trailing, +body}:
-      Said.read.body(
-        String.starts_with(String.trim_start(body), "bend-lint:"),
-        String.trim_start(body),
-        trailing,
-        comment,
-        known,
-        index
-      )
+    case Comment{beg, end, line, trailing, +body}:
+      Said.read.of(Draft.read(body), Comment{beg, end, line, trailing, body}, known, index)
 
 # What the comments say, in order, each numbered; `out` holds those so far, last first.
 def Said.all(comments: List<&2, Comment>, +known: List<&2, String>, +index: U32, out: List<&2, Said>) -> List<&2, Said>:
@@ -729,90 +751,6 @@ def Unmet.go(coverings: List<&2, Covering>, +used: List<&2, U32>, +path: String,
     case Con{Covering{Directive{a, s, r, sev, Comment{b, e, l, t, body}, +i}, from, to}, rest}:
       Unmet.go(rest, used, path, Unmet.add(List.contains(~U32, ~U32.is_eq, used, i), a, r, sev, Lint.Span{path, b, e}, out))
 
-# Order
-# =====
-
-# The key stacked directives are sorted by: rule, then severity, then keyword.
-def Directive.key(a: Action, s: Scope, r: String, sev: Maybe<&2, Lint.Severity>) -> String:
-  r ++ "\t" ++ Severity.pinned(sev) ++ "\t" ++ Action.show(a) ++ "-" ++ Scope.show(s)
-
-# A directive of a run: its key, where its comment is, and the comment's text.
-type Slot is Data:
-  Slot{key: String, beg: U32, end: U32, text: String}
-
-# A run of directives on consecutive comment-only lines: where it starts and ends, its last line, its last key, whether
-# it is in order, and its directives (last first).
-type Run is Data:
-  Run{beg: U32, end: U32, line: U32, key: String, sorted: Bool, slots: List<&2, Slot>}
-
-# The runs so far: the open one, and the findings about the closed ones that are out of order (last first).
-type Runs is Data:
-  Runs{open: Maybe<&2, Run>, out: List<&2, Lint.Found>}
-
-def Slot.le(a: Slot, b: Slot) -> Bool:
-  match a b:
-    case Slot{k, x, y, t} Slot{j, v, w, u}:
-      String.is_le(k, j)
-
-# The edits that write the directives of `sorted` into the places of `slots` (both in order), onto `out`.
-def Slot.order(slots: List<&2, Slot>, sorted: List<&2, Slot>, +path: String, out: List<&2, Lint.Operation>) ->
-  List<&2, Lint.Operation>:
-  match slots sorted:
-    case Con{Slot{k, beg, end, t}, rest} Con{Slot{j, b, e, text}, more}:
-      Slot.order(rest, more, path, Lint.Replace{Lint.Span{path, beg, end}, text} <> out)
-    case _ _:
-      List.reverse(&2, Lint.Operation, out)
-
-def Runs.close(open: Maybe<&2, Run>, +path: String, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
-  match open:
-    case Some{Run{beg, end, line, key, False{}, slots}}:
-      +ordered = List.reverse(&2, Slot, slots)
-      Lint.Found{
-        "bend-lint/directive",
-        Lint.Finding{
-          Lint.Error{},
-          Lint.Span{path, beg, end},
-          "Directives that stack must be in order: by rule, then severity, then keyword.",
-          [Lint.Fix{"Order the directives", Slot.order(ordered, Shared.sort(~Slot, ~Slot.le, ordered), path, [])}]
-        }
-      } <> out
-    case _:
-      out
-
-# A run of one directive: its key, and its comment's place, line and text after the #.
-def Run.first(+key: String, +beg: U32, +end: U32, line: U32, body: String) -> Run:
-  Run{beg, end, line, key, True{}, [Slot{key, beg, end, "#" ++ body}]}
-
-def Runs.extend(continues: Bool, run: Run, comment: Comment, +key: String, +path: String, out: List<&2, Lint.Found>) -> Runs:
-  match continues run comment:
-    case True{} Run{beg, end, line, +last, sorted, slots} Comment{+b, +e, l, t, body}:
-      Runs{Some{Run{beg, e, l, key, sorted && String.is_le(last, key), Slot{key, b, e, "#" ++ body} <> slots}}, out}
-    case False{} _ Comment{b, e, l, t, body}:
-      Runs{Some{Run.first(key, b, e, l, body)}, Runs.close(Some{run}, path, out)}
-
-def Runs.step(said: Said, +path: String, runs: Runs) -> Runs:
-  match said runs:
-    case Said{Directive{a, s, r, sev, Comment{b, e, +l, False{}, body}, i}} Runs{Some{Run{rb, re, +rl, rk, rs, slots}}, out}:
-      Runs.extend(
-        U32.is_eq(l, (rl + 1 : U32)),
-        Run{rb, re, rl, rk, rs, slots},
-        Comment{b, e, l, False{}, body},
-        Directive.key(a, s, r, sev),
-        path,
-        out
-      )
-    case Said{Directive{a, s, r, sev, Comment{b, e, l, False{}, body}, i}} Runs{None{}, out}:
-      Runs{Some{Run.first(Directive.key(a, s, r, sev), b, e, l, body)}, out}
-    case _ _:
-      runs
-
-def Runs.go(saids: List<&2, Said>, +path: String, runs: Runs) -> List<&2, Lint.Found>:
-  match saids runs:
-    case Nil{} Runs{open, out}:
-      List.reverse(&2, Lint.Found, Runs.close(open, path, out))
-    case Con{s, rest} _:
-      Runs.go(rest, path, Runs.step(s, path, runs))
-
 # What is wrong with the directives, in order, as findings.
 def Wrong.found(saids: List<&2, Said>, +path: String, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match saids:
@@ -878,7 +816,6 @@ def done(a: Applied, +coverings: List<&2, Covering>, unpaired: List<&2, Said>, +
             List.reverse(&2, Lint.Found, kept),
             Wrong.found(saids, Linted.path(linted), []),
             Wrong.found(List.reverse(&2, Said, unpaired), Linted.path(linted), []),
-            Runs.go(saids, Linted.path(linted), Runs{None{}, []}),
             Unmet.go(Covering.ran(coverings, Linted.ran(linted), []), used, Linted.path(linted), [])
           ]
         ),

@@ -40,7 +40,7 @@ def terms(facts: List<&2, Lint.Fact>, acc: Terms) -> Terms:
         List.reverse(&2, String, kinds),
         List.reverse(&2, Lint.TypeRef, types)
       }
-    case Con{Lint.Fact{n, Lint.OfTerm{}, q, t}, rest} _:
+    case Con{Lint.Fact{n, Lint.OfTerm{}, q, u, t}, rest} _:
       terms(rest, keep(n, t, acc))
     case Con{f, rest} _:
       terms(rest, acc)
@@ -64,4 +64,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   described(terms(Lint.Here.facts(here), Terms{[], [], []}))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/terms", Lint.Needs{True{}, False{}}, [], run}
+  Lint.Rule{"tests/terms", Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}

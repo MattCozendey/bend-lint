@@ -34,15 +34,15 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(Lint.findings(~Lint.Node, ~judge, Lint.Here.nodes(here)))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/no-foo", Lint.Needs{False{}, False{}}, [], run}
+  Lint.Rule{"demo/no-foo", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}
 ```
 
-A rule is one of two kinds:
+A rule is `Rule{id, needs, options, run}`. Its `run` says how it runs:
 
-| Kind                                            | Runs                 | Sees (`run` gets)        | May report in |
-| ----------------------------------------------- | -------------------- | ------------------------ | ------------- |
-| `FileRule{id, needs, options, run}`             | once per linted file | `Lint.Here`: one file    | that file     |
-| `ProgramRule{id, entries, needs, options, run}` | once per check       | `Lint.Whole`: every file | any file      |
+| `run`                   | Runs                 | Sees (`run` gets)        | May report in |
+| ----------------------- | -------------------- | ------------------------ | ------------- |
+| `OnFile{run}`           | once per linted file | `Lint.Here`: one file    | that file     |
+| `OnProgram{every, run}` | once per check       | `Lint.Whole`: every file | any file      |
 
 - The id is `namespace/.../name`, each part kebab-case. The rule file is
   `rules/namespace/.../name.bend`. The id is the code of its findings.
@@ -51,8 +51,8 @@ A rule is one of two kinds:
   [Declarations](#declarations)). Each costs time and memory, so a rule gets them only if it asks.
 - `options` lists the options the rule declares. See [Options](#options).
 - A program rule's finding in a file that is not linted is dropped.
-- `entries` matters when several entries of the config check the named file: `SomeEntry{}` keeps
-  what one check finds, `EveryEntry{}` what all find.
+- `every` matters when several entries of the config check the named file: `False{}` keeps what one
+  check finds, `True{}` what all find.
 - Make a rule idempotent: its fixes make its findings go.
 
 ## Running rules
@@ -149,11 +149,14 @@ empty.
 
 ## Facts and questions
 
-A rule that sets `Needs{True{}, declarations}` gets facts: `Fact{node, role, quantity, checked}`.
+A rule that sets `Needs{True{}, declarations}` gets facts:
+`Fact{node, role, quantity, used, checked}`.
 
 - `role` is `OfTerm{}` (the type of the term the node is) or `OfBinder{}` (the type its binder
   declares).
 - `quantity` is how often the term is demanded, or the binder's.
+- `used`, for a binder, is how often its body uses it, the most over its branches: `Some{Erased{}}`
+  for an unused one. A parameter that a match takes apart has none.
 - `checked` is a `TypeRef`, a handle to a type the checker holds.
 - A node can have no fact: the checker rewrote its term into another.
 - A rule that needs facts does not run on a file whose check fails.
@@ -176,7 +179,7 @@ def params(facts: List<&2, Lint.Fact>, out: List<&2, Param>) -> List<&2, Param>:
   match facts:
     case Nil{}:
       List.reverse(&2, Param, out)
-    case Con{Lint.Fact{Lint.Node{i, p, o, Lint.Parameter{}, n, b, q, Some{span}, t}, Lint.OfBinder{}, quantity, checked}, rest}:
+    case Con{Lint.Fact{Lint.Node{i, p, o, Lint.Parameter{}, n, b, q, Some{span}, t}, Lint.OfBinder{}, quantity, used, checked}, rest}:
       params(rest, Param{span, checked} <> out)
     case Con{fact, rest}:
       params(rest, out)
@@ -202,7 +205,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     return said(ps, shown, [])
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/param-types", Lint.Needs{True{}, False{}}, [], run}
+  Lint.Rule{"demo/param-types", Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}
 ```
 
 Facts cost time and memory: ask for them only in a rule that reads them.
@@ -263,7 +266,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(judge(U32.is_gt(lines(Lint.Here.text(here), 0), max), Lint.Here.path(here), max))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/max-lines", Lint.Needs{False{}, False{}}, [Lint.Declared{"max", Lint.Num{500}, Lint.NumberOption{1, 4294967295}}], run}
+  Lint.Rule{"demo/max-lines", Lint.Needs{False{}, False{}}, [Lint.Declared{"max", Lint.Num{500}, Lint.NumberOption{1, 4294967295}}], Lint.OnFile{run}}
 ```
 
 | Spec                     | Accepts                                    |

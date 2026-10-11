@@ -194,6 +194,11 @@ A name's case follows the kind of what it names.
 - A sort is `Type`, `Data` or `Kind(..)`.
 - `import Base`, and a def that fills a law of another file, are skipped.
 
+### `layout/directive-order`
+
+Directives on consecutive comment-only lines are in order: by rule, then severity, then keyword. The
+fix writes them in that order, over the same comments, so `--fix` makes it.
+
 ### `no-unused/imports`
 
 Each import must be used: a name written through its alias, or, for `import Base`, a name that only
@@ -204,14 +209,15 @@ Base declares. The fix removes the import.
 A directive comment can silence a rule (`disable`) or require a finding (`expect`):
 
 ```
-# bend-lint: disable-file layout/format -- generated tables
-# bend-lint: disable-begin layout/format -- hand-aligned table
+# bend-lint: disable-file layout/format -- generated tables not-expected-because: they change often
+# bend-lint: disable-begin layout/format -- hand-aligned table not-expected-because: the format may change
 # bend-lint: disable-end layout/format
-# bend-lint: disable-next my/rule -- the old name stays
+# bend-lint: disable-next my/rule -- the old name stays not-expected-because: it is found only on old Bend
 # bend-lint: expect-next my/rule@hint -- the sample must report this
 ```
 
-Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`
+Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`, and, for a `disable`,
+`not-expected-because: <why>` after the reason.
 
 | Scope           | Covers                            |
 | --------------- | --------------------------------- |
@@ -221,18 +227,19 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`
 | `line`          | its own line; it must follow code |
 
 - One directive names one rule, and needs a reason. `end` takes none.
+- A `disable` also says why it is not an `expect`. bend-lint does not check what either reason says.
 - `expect` names the severity the finding must have. `disable` names none.
 - A finding is covered when it starts on a covered line.
-- Directives on consecutive comment lines must be sorted: by rule, then severity, then keyword.
+- The order of directives on consecutive lines is the rule `layout/directive-order`'s.
 - Findings of the checker (`bend/...`) and of bend-lint (`bend-lint/...`) cannot be suppressed.
 
 bend-lint reports problems with the directives:
 
-| Code                          | Severity | When                                 |
-| ----------------------------- | -------- | ------------------------------------ |
-| `bend-lint/directive`         | error    | a directive is wrong or out of order |
-| `bend-lint/unmet-expectation` | error    | an `expect` got no finding           |
-| `bend-lint/unused-disable`    | warning  | a `disable` covered nothing          |
+| Code                          | Severity | When                        |
+| ----------------------------- | -------- | --------------------------- |
+| `bend-lint/directive`         | error    | a directive is wrong        |
+| `bend-lint/unmet-expectation` | error    | an `expect` got no finding  |
+| `bend-lint/unused-disable`    | warning  | a `disable` covered nothing |
 
 ## What can go wrong
 

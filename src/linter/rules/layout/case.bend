@@ -349,4 +349,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   )
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"layout/case", Lint.Needs{False{}, True{}}, [], run}
+  Lint.Rule{"layout/case", Lint.Needs{False{}, True{}}, [], Lint.OnFile{run}}

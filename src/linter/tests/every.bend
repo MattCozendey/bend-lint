@@ -21,4 +21,4 @@ def run(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(marks(Lint.Whole.sources(whole), U32.from_nat(Shared.length(&2, Lint.Source, Lint.Whole.sources(whole))), []))
 
 def rule() -> Lint.Rule:
-  Lint.ProgramRule{"tests/every", Lint.EveryEntry{}, Lint.Needs{False{}, False{}}, [], run}
+  Lint.Rule{"tests/every", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{True{}, run}}

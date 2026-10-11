@@ -12,7 +12,7 @@ def asking(n: Nat, +t: Lint.TypeRef) -> Lint.Ask(List<&2, Lint.Finding>):
 
 def first(facts: List<&2, Lint.Fact>) -> Lint.Ask(List<&2, Lint.Finding>):
   match facts:
-    case Con{Lint.Fact{n, r, q, t}, rest}:
+    case Con{Lint.Fact{n, r, q, u, t}, rest}:
       asking(100n, t)
     case Nil{}:
       Lint.done([])
@@ -21,4 +21,4 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   first(Lint.Here.facts(here))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"tests/budget", Lint.Needs{True{}, False{}}, [], run}
+  Lint.Rule{"tests/budget", Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}

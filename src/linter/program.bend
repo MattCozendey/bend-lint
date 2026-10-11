@@ -107,16 +107,17 @@ def Record.names() -> List<&2, Shared.Named<Record>>:
 def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
   [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
 
-# A fact on `node` from the fields of its record: its role, the check and handle of its type, and its quantity.
+# A fact on `node` from the fields of its record: its role, the check and handle of its type, its quantity, and how
+# often its binder is used, if the checker says.
 def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
   match fields:
-    case Con{role, Con{check, Con{id, Con{quantity, Nil{}}}}}:
+    case Con{role, Con{check, Con{id, Con{quantity, Con{used, Nil{}}}}}}:
       do Maybe<&2, Lint.Fact>:
         r : Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
         c : U32 <- U32.read(check)
         i : U32 <- U32.read(id)
         q : Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
-        return Lint.Fact{node, r, q, Lint.TypeRef{c, i}}
+        return Lint.Fact{node, r, q, Shared.lookup(Lint.Quantity, used, Quantity.names()), Lint.TypeRef{c, i}}
     case _:
       None{}
 
@@ -230,19 +231,25 @@ def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
     case _:
       Program.of(syntax)
 
-def Check.failed(fail: Bool, failure: Failure, +records: List<&2, List<&2, String>>) -> IO(Check):
-  match fail:
-    case True{}:
-      IO.pure(Check, Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
-    case False{}:
+def Check.failed(failure: Failure, +records: List<&2, List<&2, String>>) -> IO(Check):
+  IO.pure(Check, Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
+
+# What an answer whose last record has `fields` says: if it is a `fail` record, why and maybe where the check failed.
+def Check.closed(fail: Bool, fields: List<&2, String>, records: List<&2, List<&2, String>>) -> IO(Check):
+  match fail fields:
+    case True{} Con{message, Nil{}}:
+      Check.failed(Failure{message, None{}, ""}, records)
+    case True{} Con{message, Con{path, Con{beg, Con{end, Con{text, Nil{}}}}}}:
+      Check.failed(Failure{message, Span.read(path, beg, end), text}, records)
+    case True{} _:
       Check.malformed(Check)
+    case False{} _:
+      Check.read(records)
 
 def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, String>>) -> IO(Check):
   match last:
-    case Some{Con{+tag, Con{message, Nil{}}}}:
-      Check.failed(String.eq(tag, "fail"), Failure{message, None{}, ""}, records)
-    case Some{Con{+tag, Con{message, Con{path, Con{beg, Con{end, Con{text, Nil{}}}}}}}}:
-      Check.failed(String.eq(tag, "fail"), Failure{message, Span.read(path, beg, end), text}, records)
+    case Some{Con{+tag, fields}}:
+      Check.closed(String.eq(tag, "fail"), fields, records)
     case _:
       Check.read(records)
 
@@ -267,38 +274,6 @@ def Check.forget(check: U32) -> IO(Unit):
 # Declarations
 # ============
 
-# What a syntax declares: a global name, a binder of its top-level declaration, or nothing (an import declares an
-# alias, which Imports below handles).
-type Declares is Data:
-  DeclaresGlobal{}
-  DeclaresBinder{}
-  DeclaresNothing{}
-
-def Syntax.declares(syntax: Lint.Syntax) -> Declares:
-  match syntax:
-    case Lint.Definition{}:
-      DeclaresGlobal{}
-    case Lint.Datatype{}:
-      DeclaresGlobal{}
-    case Lint.Constructor{}:
-      DeclaresGlobal{}
-    case Lint.Law{}:
-      DeclaresGlobal{}
-    case Lint.Parameter{}:
-      DeclaresBinder{}
-    case Lint.Field{}:
-      DeclaresBinder{}
-    case Lint.Binding{}:
-      DeclaresBinder{}
-    case Lint.Lambda{}:
-      DeclaresBinder{}
-    case Lint.Forall{}:
-      DeclaresBinder{}
-    case Lint.PatternVariable{}:
-      DeclaresBinder{}
-    case _:
-      DeclaresNothing{}
-
 # The key that ties a use to what it uses: "g" and a global name, or "l", a top-level declaration's id and a binder.
 def Key.global(name: String) -> String:
   "g" ++ name
@@ -306,12 +281,39 @@ def Key.global(name: String) -> String:
 def Key.binder(owner: U32, binder: U32) -> String:
   "l" ++ U32.show(owner) ++ ":" ++ U32.show(binder)
 
-def Key.declared.of(declares: Declares, owner: U32, binder: Maybe<&2, U32>, anonymous: Bool, target: String) ->
+# Whether a syntax declares a global name (Some{True{}}), a binder of its top-level declaration (Some{False{}}), or
+# nothing (an import declares an alias, which Imports below handles).
+def Syntax.declares(syntax: Lint.Syntax) -> Maybe<&2, Bool>:
+  match syntax:
+    case Lint.Definition{}:
+      Some{True{}}
+    case Lint.Datatype{}:
+      Some{True{}}
+    case Lint.Constructor{}:
+      Some{True{}}
+    case Lint.Law{}:
+      Some{True{}}
+    case Lint.Parameter{}:
+      Some{False{}}
+    case Lint.Field{}:
+      Some{False{}}
+    case Lint.Binding{}:
+      Some{False{}}
+    case Lint.Lambda{}:
+      Some{False{}}
+    case Lint.Forall{}:
+      Some{False{}}
+    case Lint.PatternVariable{}:
+      Some{False{}}
+    case _:
+      None{}
+
+def Key.declared.of(global: Maybe<&2, Bool>, owner: U32, binder: Maybe<&2, U32>, anonymous: Bool, target: String) ->
   Maybe<&2, String>:
-  match declares binder anonymous:
-    case DeclaresGlobal{} _ _:
+  match global binder anonymous:
+    case Some{True{}} _ _:
       Some{Key.global(target)}
-    case DeclaresBinder{} Some{b} False{}:
+    case Some{False{}} Some{b} False{}:
       Some{Key.binder(owner, b)}
     case _ _ _:
       None{}

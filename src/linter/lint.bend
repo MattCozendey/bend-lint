@@ -102,13 +102,14 @@ type Role is Data:
   OfTerm{}
   OfBinder{}
 
-# What the checker found for a node of the source: the node, what the fact says of it, the quantity (how
-# often the term is demanded, or the binder's), and the type. A fact is never wrong, but a node can have none: a term
-# the checker rewrote into another (a scrutinee used again, a call a template took) is not typed as itself. A node
-# has one fact per distinct type: pattern compilation can check one term in several branches, under different
-# refinements. Only for a rule that needs facts.
+# What the checker found for a node of the source: the node, what the fact says of it, the quantity (how often the term
+# is demanded, or the binder's), for a binder of a parameter, lambda, let or case, how often its body uses it (the most
+# of its checked copies; none for a parameter a match takes apart), and the type. A fact is never wrong, but a node can have none: a term the checker rewrote into
+# another (a scrutinee used again, a call a template took) is not typed as itself. A node has one fact per distinct
+# type: pattern compilation can check one term in several branches, under different refinements. Only for a rule that
+# needs facts.
 type Fact is Data:
-  Fact{node: Node, role: Role, quantity: Quantity, checked: TypeRef}
+  Fact{node: Node, role: Role, quantity: Quantity, used: Maybe<&2, Quantity>, checked: TypeRef}
 
 # A file the check parsed: its path, its namespace in the check, its text, its nodes (parents first), and the
 # checker's facts on its terms, if a rule needs them.
@@ -163,6 +164,9 @@ def Severity.show(s: Severity) -> String:
       "information"
     case Hint{}:
       "hint"
+
+def Severity.names() -> List<&2, Shared.Named<Severity>>:
+  Shared.named(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
 
 # An edit a fix asks for: replace a span's text; rename what a declaration declares (its node, by id), with each of
 # its uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
@@ -347,24 +351,17 @@ def show_all(types: List<&2, TypeRef>) -> Ask(List<&2, String>):
 type Needs is Data:
   Needs{facts: Bool, declarations: Bool}
 
-# Which of a program rule's findings stay when several entries check the named file: those some check finds, or those
-# every check finds. If an entry that reads the named file fails its check, an every rule does not run.
-type Entries is Data:
-  SomeEntry{}
-  EveryEntry{}
+# How a rule runs: once per linted file, reporting only in it; or once per check, on the whole program, reporting in any
+# file (what it finds in a file that is not linted is dropped). When several entries check the named file, a program
+# rule's finding stays if some check finds it, or, if `every`, if every check finds it; then, if an entry that reads the
+# named file fails its check, the rule does not run.
+type Run is Type:
+  OnFile{run: @+here: Here -> Ask(List<&2, Finding>)}
+  OnProgram{every: Bool, run: @+whole: Whole -> Ask(List<&2, Finding>)}
 
-# A rule: its id (`namespace/.../name`), and what it finds. A file rule runs once per linted file, and may report only
-# in it. A program rule runs once per check, and may report in any file; what it finds in a file that is not linted
-# is dropped.
+# A rule: its id (`namespace/.../name`), what it needs, the options it declares, and how it runs.
 type Rule is Type:
-  FileRule{id: String, needs: Needs, options: List<&2, Declared>, run: @+here: Here -> Ask(List<&2, Finding>)}
-  ProgramRule{
-    id: String,
-    entries: Entries,
-    needs: Needs,
-    options: List<&2, Declared>,
-    run: @+whole: Whole -> Ask(List<&2, Finding>)
-  }
+  Rule{id: String, needs: Needs, options: List<&2, Declared>, run: Run}
 
 # The path of the file a rule runs on.
 def Here.path(here: Here) -> String:

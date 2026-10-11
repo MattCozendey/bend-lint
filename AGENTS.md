@@ -120,7 +120,6 @@ git diff --check
 | `src/linter/tests/`          | rules that only the tests use                                |
 | `src/shared/result.ts`       | the `Result` that entry points return                        |
 | `src/shared/bend2.ts`        | finding Bend (see [Finding Bend](#finding-bend))             |
-| `src/shared/paths.ts`        | the `/`-path `fs` and `path` that the server gives `bend.ts` |
 | `src/shared/text.ts`         | text helpers: line offsets, exact edits, line ends           |
 | `src/shared/utils.ts`        | other helpers that are not about Bend or linting             |
 

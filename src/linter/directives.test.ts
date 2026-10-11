@@ -43,9 +43,9 @@ setDefaultTimeout(120_000);
   test("--show-suppressed lists the findings directives suppressed, before the summary", async () => {
     const text = [
       "import Base",
-      "# bend-lint: disable-next no-unused/imports -- kept on purpose",
+      "# bend-lint: disable-next no-unused/imports -- kept on purpose not-expected-because: it is not always found",
       "import ./util.bend as V",
-      "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept",
+      "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept not-expected-because: it is not always found",
     ].join("\n");
     const ran = await run(
       PROGRAM,
@@ -70,10 +70,10 @@ setDefaultTimeout(120_000);
     expect(
       await found([
         "import Base",
-        "# bend-lint: disable-next no-unused/imports -- kept on purpose",
+        "# bend-lint: disable-next no-unused/imports -- kept on purpose not-expected-because: it is not always found",
         "import ./util.bend as V",
-        "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept",
-        "# bend-lint: disable-next no-unused/imports -- nothing to disable here",
+        "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept not-expected-because: it is not always found",
+        "# bend-lint: disable-next no-unused/imports -- nothing to disable here not-expected-because: it is not always found",
       ]),
     ).toEqual([
       finding(
@@ -111,11 +111,13 @@ setDefaultTimeout(120_000);
         "import Base",
         "# bend-lint: nonsense",
         "# bend-lint: disable-next no-unused/imports",
-        "# bend-lint: disable-next no-unused/imports@warning -- a disable pins nothing",
+        "# bend-lint: disable-next no-unused/imports@warning -- a disable pins nothing not-expected-because: it is not always found",
+        "# bend-lint: disable-next no-unused/imports -- a reason, but not why it is no expect",
+        "# bend-lint: disable-next no-unused/imports -- a reason -- with dashes not-expected-because:",
         "# bend-lint: expect-next no-unused/imports -- an expect pins one",
-        "# bend-lint: disable-line no-unused/imports -- not after code",
-        "# bend-lint: disable-next bend/check -- reserved",
-        "# bend-lint: disable-next no-such/rule -- unknown",
+        "# bend-lint: disable-line no-unused/imports -- not after code not-expected-because: it is not always found",
+        "# bend-lint: disable-next bend/check -- reserved not-expected-because: it is not always found",
+        "# bend-lint: disable-next no-such/rule -- unknown not-expected-because: it is not always found",
         "# bend-lint: expect-next no-unused/imports@fatal -- not a severity",
         'def text() -> String:\n  "# bend-lint: disable-file no-unused/imports -- in a string, not a comment"',
       ]),
@@ -124,65 +126,56 @@ setDefaultTimeout(120_000);
         "2:1",
         "error",
         DIRECTIVE,
-        "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`.",
+        "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`, and, for a disable, not-expected-because: <why> after it.",
       ),
       finding("3:1", "error", DIRECTIVE, "A reason is required, after `--`."),
       finding("4:1", "error", DIRECTIVE, "A disable takes no severity."),
-      finding("5:1", "error", DIRECTIVE, "An expect pins a severity: no-unused/imports@..."),
-      finding("6:1", "error", DIRECTIVE, "A line directive must follow code on its line."),
-      finding("7:1", "error", DIRECTIVE, "bend/check findings cannot be suppressed."),
-      finding("8:1", "error", DIRECTIVE, "There is no rule no-such/rule."),
-      finding("9:1", "error", DIRECTIVE, "fatal is not a severity."),
+      finding(
+        "5:1",
+        "error",
+        DIRECTIVE,
+        "A disable says why it is not an expect, after its reason: not-expected-because: <why>",
+      ),
+      finding(
+        "6:1",
+        "error",
+        DIRECTIVE,
+        "Say why it is not an expect, after not-expected-because:",
+      ),
+      finding("7:1", "error", DIRECTIVE, "An expect pins a severity: no-unused/imports@..."),
+      finding("8:1", "error", DIRECTIVE, "A line directive must follow code on its line."),
+      finding("9:1", "error", DIRECTIVE, "bend/check findings cannot be suppressed."),
+      finding("10:1", "error", DIRECTIVE, "There is no rule no-such/rule."),
+      finding("11:1", "error", DIRECTIVE, "fatal is not a severity."),
     ]);
   });
 
   test("a rule id may nest namespaces", async () => {
-    expect(await found(["import Base", "# bend-lint: disable-next a/b/c -- nested"])).toEqual([
-      finding("2:1", "error", DIRECTIVE, "There is no rule a/b/c."),
-    ]);
-  });
-
-  test("--fix sorts a stack of directives in place: it only rewrites comments, so it is safe", async () => {
-    const stack = (first: string, second: string): string =>
-      [
-        "import Base",
-        first,
-        second,
-        "import ./util.bend as V",
-        "import ./util.bend as W",
-        TAIL,
-      ].join("\n");
-    const b = "# bend-lint: expect-next no-unused/imports@warning -- b";
-    const a = "# bend-lint: disable-next no-unused/imports -- a";
-    const ran = await run(PROGRAM, { "main.bend": stack(b, a), "util.bend": UTIL }, "main.bend", [
-      "--fix",
-    ]);
-    expect([ran.files["main.bend"], ran.code]).toEqual([stack(a, b), 1]);
-  });
-
-  test("begin and end pair; an end that closes nothing, an open begin, and an unsorted stack are reported", async () => {
     expect(
       await found([
         "import Base",
-        "# bend-lint: disable-begin no-unused/imports -- region",
+        "# bend-lint: disable-next a/b/c -- nested not-expected-because: it is not always found",
+      ]),
+    ).toEqual([finding("2:1", "error", DIRECTIVE, "There is no rule a/b/c.")]);
+  });
+
+  test("begin and end pair; an end that closes nothing, and an open begin, are reported", async () => {
+    expect(
+      await found([
+        "import Base",
+        "# bend-lint: disable-begin no-unused/imports -- region not-expected-because: it is not always found",
         "import ./util.bend as V",
         "# bend-lint: disable-end no-unused/imports",
         "import ./util.bend as W",
         "# bend-lint: disable-end no-unused/imports",
-        "# bend-lint: disable-begin no-unused/imports -- never closed",
+        "# bend-lint: disable-begin no-unused/imports -- never closed not-expected-because: it is not always found",
         "# bend-lint: expect-next no-unused/imports@warning -- b",
-        "# bend-lint: disable-next no-unused/imports -- a",
+        "# bend-lint: disable-next no-unused/imports -- a not-expected-because: it is not always found",
       ]),
     ).toEqual([
       finding("5:23", "warning", UNUSED, "Remove the import W: nothing uses it."),
       finding("6:1", "error", DIRECTIVE, "This end closes no begin of no-unused/imports."),
       finding("7:1", "error", DIRECTIVE, "This begin of no-unused/imports is never closed."),
-      finding(
-        "6:1",
-        "error",
-        DIRECTIVE,
-        "Directives that stack must be in order: by rule, then severity, then keyword.",
-      ),
       finding(
         "7:1",
         "warning",

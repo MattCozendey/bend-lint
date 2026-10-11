@@ -1,18 +1,20 @@
 // The checker server: see the header of lint.bend. It runs a rules program
 // (a build of a file that imports lint.bend), and answers its questions
-// about Bend files over local TCP, until the program exits. It is the one TS
-// file of this folder, and it goes when Bend's checker is Bend, so any
-// optimization is fair here, local mutation included (AGENTS.md).
+// about Bend files over local TCP, until the program exits. It is all the
+// TypeScript the linter runs on, host and probe, and it goes when Bend's
+// checker is Bend, so any optimization is fair here, mutation included
+// (AGENTS.md).
 //
 // Usage: bun server.ts <program> <args...>
 // Node 24 or later works too, but Bend's checker can need more than its
 // default heap: pass --max-old-space-size=8192 for a large program.
 //
-// It loads a copy of bend.ts with EDITS made: probes that report what Bend's
-// parser reads, while the check parses it. A file's syntax goes out as Bend's
-// parser has it, before the checker lowers it. Facts are read after the
-// check, from what the checker leaves in the book: each def's elaborated body
-// (`e`, what Bend compiles), and each declaration's type.
+// It loads a copy of bend.ts in which each TRACED function reports its calls:
+// Bend's parser reads a file with some, and the checker judges terms with the
+// others. A file's syntax goes out as Bend's parser has it, before the
+// checker lowers it. Facts are read after the check, from each def's
+// elaborated body (`e`, what Bend compiles) and each declaration's type, with
+// what the checker passed each judgment.
 
 // Imports
 // =======
@@ -25,11 +27,24 @@ import * as nodePath from "node:path";
 import * as readline from "node:readline";
 import * as url from "node:url";
 
-import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
+import type {
+  Ann,
+  Body,
+  Book,
+  Check,
+  Ctx,
+  Err,
+  HTerm,
+  Infer,
+  LTerm,
+  Parse,
+  Patt,
+  Quant,
+  Span,
+} from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
 import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import { getPathWithForwardSlashes } from "../shared/paths.ts";
 import { unwrap } from "../shared/result.ts";
 import {
   getLineIndexAtOffset,
@@ -39,6 +54,7 @@ import {
 } from "../shared/text.ts";
 import {
   getErrorMessageFromUnknown,
+  getPathWithForwardSlashes,
   getSha256Hex,
   tryGetOrUndefined,
   writeFileAtomically,
@@ -62,24 +78,47 @@ type Checker = { version: string; loaded: () => Promise<Loaded> };
 // read, each with the digest of the text it read, and the answer's digest.
 type Entry = { files: Array<[string, string]>; answer: string; digest: string };
 
-// A check this server answered: its root, its mode, and its answer's getSha256Hex,
+// A check this server answered: its root, its mode, and its answer's digest,
 // numbered 0. Enough to check it again with the same numbers.
 type Answered = { path: string; facts: boolean; digest: string };
 
 // An exact edit of bend.ts: the text it must find once, and its replacement.
 type Edit = [string, string];
 
-// What the probes report, in the order the parser reads it.
-type Seen =
-  | { $: "file"; real: string; text: string; ns: string; al: Record<string, string> }
-  | { $: "import"; real: string; at: number; line: string; path: string; alias?: string }
-  | { $: "declared"; p: Parse; kind: string; k: string; nm?: string; end: number }
-  | { $: "tele"; close: string; tele: Cell[]; tk: string[] }
-  | { $: "term"; t: LTerm }
-  | { $: "body"; b: Body };
+// A function of bend.ts, as a hook gets it.
+type Traced = (...args: unknown[]) => unknown;
 
-type SeenFile = Extract<Seen, { $: "file" }>;
-type SeenImport = Extract<Seen, { $: "import" }>;
+// What a TRACED function calls instead of itself: its original, and its
+// arguments.
+type Hook = (f: Traced, args: unknown[]) => unknown;
+
+// What the server shares with its copy of bend.ts on globalThis: the fs and
+// path the copy uses, and, once the copy loads, its setter of hooks.
+type Shared = { fs: object; path: object; hook?: (name: string, hook?: Hook) => void };
+
+// A traced call that a Frame KEPT: its name, arguments and result, where the
+// parser is after it (-1 for a call without a parser), and the calls it made
+// that it KEPT.
+type Frame = { name: string; args: unknown[]; out: unknown; end: number; kids: Frame[] };
+
+// A file the check parsed: its real path, its text on disk, the parser that
+// read it (with its import lines blanked) if it read a declaration, its
+// namespace and aliases, and the calls that loaded its imports and parsed
+// its declarations.
+type Parsed = {
+  real: string;
+  text: string;
+  read?: Parse;
+  ns: string;
+  al: Record<string, string>;
+  imports: Frame[];
+  declarations: Frame[];
+};
+
+// What the checker passed a judgment, by the term it gave back: the demand
+// on the term, its context and depth, and how often each binder it closed
+// (by level) was used.
+type Judgment = { qt: Quant; ctx: Ctx; dep: number; used: ReadonlyArray<[number, Quant]> };
 
 // A syntax node a checked term can be: its id, kind, name and target, the
 // span objects of its children, and, for a variable, its binder's key in its
@@ -93,10 +132,10 @@ type Origin = {
   binder?: string;
 };
 
-// The binders around a checked term, innermost first: each level's name and
-// token, the id of the syntax node that writes its binder, or the checked
-// binder itself if no node does. Cells are shared, never copied.
-type Scope = { level: number; name: string; token: unknown; up: Scope } | null;
+// The binders around a checked term: the checker's context, and the id of
+// the syntax node that writes each of its binders, by the binder's entry in
+// a context. A binder no node writes is itself.
+type Scope = { ctx: Ctx; ids: Map<unknown, number> };
 
 // A type a rule holds a handle to: the type, the book, depth and binders of
 // its scope, and the file whose spelling shows it.
@@ -106,8 +145,22 @@ type Typed = { ty: HTerm; bok: Book; dep: number; scope: Scope; file: Span["file
 // its binder declares, with the term's demand or the binder's quantity.
 type Judged = Typed & { role: "term" | "binder"; qt: Quant };
 
-// A file the check parsed, with what its parser read, in order.
-type Parsed = { file: SeenFile; seen: Seen[] };
+// What the checker found of the nodes of a check: each node's judgments,
+// and how often each binder node is used (the most of its checked copies).
+type Found = { judged: Map<number, Judged[]>; used: Map<number, Quant> };
+
+// What reading a check's facts uses: Bend, the book, the nodes each span
+// object is, the binder nodes by key, what the checker passed each judgment,
+// the node each binder's context entry is, and what it found so far.
+type Reading = {
+  Bend: Bend;
+  book: Book;
+  origins: Map<Span, Origin[]>;
+  binders: Map<string, number>;
+  judgments: Map<LTerm, Judgment>;
+  ids: Map<unknown, number>;
+  found: Found;
+};
 
 // Where a span of a file is, in code points of the file on disk.
 type Range = [number, number];
@@ -133,76 +186,69 @@ const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n"
 
 const SERVER_CACHE_DIR = new URL("server/", getBendLintCacheDir());
 
-// The fs and path that bend.ts gets instead of Node's.
-const PATHS = url.fileURLToPath(new URL("../shared/paths.ts", import.meta.url));
+// Where the cache keeps checks' answers.
+const CHECKS_DIR = url.fileURLToPath(new URL("checks/", SERVER_CACHE_DIR));
 
-// The edits that make bend.ts use PATHS, and report what it parses to
-// PROBES.
+// A drive letter that starts a path with `/`.
+const DRIVE = /^[A-Za-z]:(?=\/)/;
+
+// The edits that make bend.ts use the fs and path the server Shares. The copy
+// is never type-checked, so it needs no types.
 const EDITS: Edit[] = [
-  [
-    'import * as fs from "node:fs";',
-    `import { fs } from ${JSON.stringify(url.pathToFileURL(PATHS).href)};`,
-  ],
-  [
-    'import * as path from "node:path";',
-    `import { path } from ${JSON.stringify(url.pathToFileURL(PATHS).href)};`,
-  ],
-  [
-    'parse_book(book, dir, body.join("\\n"), ns, al);',
-    'seeFile(real, text, ns, al);\n  parse_book(book, dir, body.join("\\n"), ns, al);',
-  ],
-  ['body[i] = "";', 'seeImport(real, at, lines[i], m);\n    body[i] = "";'],
-  [
-    "const k   = law ? q : parse_fresh(p, nm);",
-    'const k   = seeDeclared(p, "Definition", law ? q : parse_fresh(p, nm), nm);',
-  ],
-  ["tele_bind(tele, parse_term(p))", "tele_bind(tele, seeTerm(parse_term(p)))"],
-  ["body_flatten(parse_body(p), vars,", "body_flatten(seeBody(parse_body(p)), vars,"],
-  [
-    'if (parse_word(p, "type")) {\n      const k = parse_fresh(p, parse_name(p));',
-    'if (parse_word(p, "type")) {\n      const k = seeDeclared(p, "Datatype", parse_fresh(p, parse_name(p)));',
-  ],
-  ["const K = parse_term(p);", "const K = seeTerm(parse_term(p));"],
-  [
-    'const c = parse_fresh(p, parse_name(p), book.ctrs, "a fresh constructor name");',
-    'const c = seeDeclared(p, "Constructor", parse_fresh(p, parse_name(p), book.ctrs, "a fresh constructor name"));',
-  ],
-  [
-    'if (parse_word(p, "law")) {\n      const k = parse_fresh(p, parse_name(p));',
-    'if (parse_word(p, "law")) {\n      const k = seeDeclared(p, "Law", parse_fresh(p, parse_name(p)));',
-  ],
-  ["T: term_higher(T), v: null, x: tc,", "T: term_higher(seeTerm(T)), v: null, x: tc,"],
-  ["export function parse_tele(", "function unseen_parse_tele("],
+  ['import * as fs from "node:fs";', "const { fs } = globalThis.BEND_LINT;"],
+  ['import * as path from "node:path";', "const { path } = globalThis.BEND_LINT;"],
 ];
 
-// What EDITS call, appended to bend.ts. Each reports to the probe the
-// server sets on globalThis, and hands its value on.
-const PROBES = `
-const BEND_LINT_SEE = (seen: unknown): void => {
-  (globalThis as { BEND_LINT_SEE?: (seen: unknown) => void }).BEND_LINT_SEE?.(seen);
+// The functions of bend.ts whose calls the server sees while Bend loads a
+// check's files: those that load a file, parse what it declares and build a
+// law's type.
+const PARSED = [
+  "book_load",
+  "parse_book",
+  "parse_def",
+  "parse_fresh",
+  "parse_reso",
+  "parse_tele",
+  "parse_term",
+  "parse_body",
+  "term_higher",
+];
+
+// The functions of bend.ts whose calls the server sees while Bend checks, for
+// facts: those that judge a term and close a binder.
+const JUDGED = ["term_infer", "term_check", "uses_close"] as const;
+
+const TRACED = [...PARSED, ...JUDGED];
+
+// The traced calls a Frame keeps, by the function that made them: a check
+// loads a file, which loads its imports and parses its declarations, each
+// with its name, binders, types and body.
+const KEPT: Record<string, ReadonlySet<string> | undefined> = {
+  check: new Set(["book_load"]),
+  book_load: new Set(["book_load", "parse_book"]),
+  parse_book: new Set(["parse_def", "parse_fresh", "parse_tele", "parse_term", "term_higher"]),
+  parse_def: new Set(["parse_fresh", "parse_reso", "parse_tele", "parse_term", "parse_body"]),
 };
-function seeFile(real: string, text: string, ns: string, al: Record<Name, Name>): void {
-  BEND_LINT_SEE({ $: "file", real, text, ns, al });
-}
-function seeImport(real: string, at: number, line: string, m: RegExpExecArray): void {
-  BEND_LINT_SEE({ $: "import", real, at, line, path: m[1], alias: m[2] });
-}
-function seeDeclared(p: Parse, kind: string, k: Name, nm?: Name): Name {
-  BEND_LINT_SEE({ $: "declared", p, kind, k, nm, end: p.pos });
-  return k;
-}
-function seeTerm(t: LTerm): LTerm {
-  BEND_LINT_SEE({ $: "term", t });
-  return t;
-}
-function seeBody(b: Body): Body {
-  BEND_LINT_SEE({ $: "body", b });
-  return b;
-}
-export const parse_tele = (p: Parse, close: string, tk: Name[] = []): Array<[Quant, Name, number, LTerm, Span]> => {
-  const tele = unseen_parse_tele(p, close, tk);
-  BEND_LINT_SEE({ $: "tele", close, tele, tk });
-  return tele;
+
+const NONE: ReadonlySet<string> = new Set();
+
+// The hook each TRACED function points at, by its name.
+const HOOKED = new Map<string, Hook | undefined>();
+
+// What bend.ts gets appended: a setter, Shared on globalThis, that points a
+// TRACED function at a hook, or back at its original. A function a module
+// declares is a binding the module can set, so each call in bend.ts goes
+// through the hook, and a function without one runs as it is.
+const PROBES = `
+const BEND_LINT_ORIGINALS = { ${TRACED.join(", ")} };
+globalThis.BEND_LINT.hook = (name, hook) => {
+  switch (name) {
+${TRACED.map(
+  (name) => `    case "${name}":
+      ${name} = hook === undefined ? BEND_LINT_ORIGINALS.${name} : (...args) => hook(BEND_LINT_ORIGINALS.${name}, args);
+      return;`,
+).join("\n")}
+  }
 };
 `;
 
@@ -248,6 +294,12 @@ const GONE = new Set<number>();
 // path: the files of one entry share one check.
 const NUMBERS = new Map<string, number>();
 
+// What a check found without facts.
+const NOTHING: Found = { judged: new Map(), used: new Map() };
+
+// The uses of a judgment that closed no binder: one, shared.
+const UNUSED: ReadonlyArray<[number, Quant]> = [];
+
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
 
@@ -281,17 +333,20 @@ const seeded = (Bend: Bend, base: Book): Book => ({
 });
 
 const drift = (text: string): Error =>
-  Object.assign(new Error(text + "; update EDITS in src/linter/server.ts"), { name: "DriftError" });
+  Object.assign(new Error(text + "; update EDITS or TRACED in src/linter/server.ts"), {
+    name: "DriftError",
+  });
 
 // bend.ts with EDITS made and PROBES appended, and BEND_DIR kept at `dir`, so
 // the copy finds base.bend where the original does: `true ? dir :` puts
-// Bend's own expression in a branch that never runs. Line ends become LF
-// first.
+// Bend's own expression in a branch that never runs. Each TRACED function must
+// be declared once. Line ends become LF first.
 const patched = (dir: string, src: string): string =>
   getTextWithEachEditAppliedOnce(
     getTextWithLfLineEnds(src),
     [
       ...EDITS,
+      ...TRACED.map((name): Edit => [`function ${name}(`, `function ${name}(`]),
       ["export const BEND_DIR = ", `export const BEND_DIR = true ? ${JSON.stringify(dir)} : `],
     ],
     (at, n) => {
@@ -313,6 +368,43 @@ const copied = (dir: URL): URL => {
   return file;
 };
 
+// The real path of `p`, with `/`.
+const realpath = (p: nodeFs.PathLike): string => getPathWithForwardSlashes(nodeFs.realpathSync(p));
+
+// path.posix.resolve from `cwd`, where a drive letter is a root.
+const resolvePosix = (cwd: string, ...ps: string[]): string => {
+  const all = [cwd, ...ps].map(getPathWithForwardSlashes);
+  const drive =
+    all
+      .filter((p) => DRIVE.test(p))
+      .at(-1)
+      ?.slice(0, 2) ?? "";
+  return drive + nodePath.posix.resolve(...all.map((p) => p.replace(DRIVE, "")));
+};
+
+const relativePosix = (from: string, to: string): string =>
+  nodePath.posix.relative(
+    getPathWithForwardSlashes(from).replace(DRIVE, ""),
+    getPathWithForwardSlashes(to).replace(DRIVE, ""),
+  );
+
+// What the server Shares with its copy of bend.ts: Node's fs and path, with
+// each path they give real and with `/`, as Bend resolves imports with
+// path.posix, where a drive letter is a root.
+const shared = (): Shared => ({
+  fs: { ...nodeFs, realpathSync: realpath },
+  path: {
+    ...nodePath,
+    join: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.join(...ps)),
+    resolve: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.resolve(...ps)),
+    posix: {
+      ...nodePath.posix,
+      resolve: (...ps: string[]): string => resolvePosix(process.cwd(), ...ps),
+      relative: relativePosix,
+    },
+  },
+});
+
 // The checker. The patched bend.ts is written now, so a drift stops the run
 // at once; Bend loads, and checks Base, once, when first needed.
 const load = async (): Promise<Checker> => {
@@ -321,6 +413,7 @@ const load = async (): Promise<Checker> => {
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {
     loading ??= (async () => {
+      (globalThis as { BEND_LINT?: Shared }).BEND_LINT = shared();
       const Bend = (await import(bend.href)) as Bend;
       const base = Bend.book_nil();
       await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
@@ -332,7 +425,6 @@ const load = async (): Promise<Checker> => {
   const version = getSha256Hex(
     [
       nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
-      nodeFs.readFileSync(PATHS, "utf8"),
       bend.href,
       nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
     ].join("\n"),
@@ -346,15 +438,16 @@ const pointsOf = (text: string): ((off: number) => number) =>
     ? (off) => text.slice(0, off).match(/./gsu)?.length ?? 0
     : (off) => off;
 
-// A span of what the parser `read` of `file` as a Range on disk. The parser
-// reads the file with its import lines blanked, so a span moves by line.
+// A span of what the parser `read` of a file's `text` as a Range on disk. The
+// parser reads the file with its import lines blanked, so a span moves by
+// line.
 const placerOf = (
-  file: SeenFile,
+  text: string,
   read: Span["file"] | undefined,
 ): ((s: Span | undefined) => Range | undefined) => {
-  const disk = getLineStartOffsets(file.text);
-  const lines = getLineStartOffsets(read?.str ?? file.text);
-  const points = pointsOf(file.text);
+  const disk = getLineStartOffsets(text);
+  const lines = getLineStartOffsets(read?.str ?? text);
+  const points = pointsOf(text);
   const at = (off: number): number => {
     const line = getLineIndexAtOffset(lines, off);
     return points(disk[line] + off - lines[line]);
@@ -518,38 +611,68 @@ const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
 };
 
 // The trees of what a file declares: each declaration with its binders,
-// signature and body; a constructor under its type.
-const declarationsOf = (parsed: Parsed): Tree[] => {
-  const heads = parsed.seen.flatMap((seen, at) => (seen.$ === "declared" ? [{ seen, at }] : []));
-  const place = placerOf(parsed.file, heads[0]?.seen.p);
+// signature and body; a constructor under its type. A declaration starts at a
+// `def`, or at a fresh name: a constructor's (in the book's constructors), a
+// type's or a law's (by what the book holds). A law's signature is the type
+// Bend builds from its clauses, last.
+const declarationsOf = (book: Book, parsed: Parsed): Tree[] => {
+  const place = placerOf(parsed.text, parsed.read);
   const { term, body } = syntaxOf(place);
-  const under = (seen: Seen): Tree[] =>
-    seen.$ === "tele"
-      ? seen.tele.map(([q, k, i, T, s]) =>
-          tree(CELLS[seen.close], [term(T)], {
-            name: k,
-            binder: String(i),
-            quantity: seen.tk.includes(k) ? "Template" : QUANTITIES[q.$],
-            range: place(s),
-            origin: s,
-          }),
-        )
-      : seen.$ === "term"
-        ? [tree("Returns", [term(seen.t)])]
-        : seen.$ === "body"
-          ? [tree("Body", [body(seen.b)])]
+  const cells = ({ args, out }: Frame): Tree[] => {
+    const [, close, tk = []] = args as Parameters<Bend["parse_tele"]>;
+    return (out as Cell[]).map(([q, k, i, T, s]) =>
+      tree(CELLS[close], [term(T)], {
+        name: k,
+        binder: String(i),
+        quantity: tk.includes(k) ? "Template" : QUANTITIES[q.$],
+        range: place(s),
+        origin: s,
+      }),
+    );
+  };
+  const under = (f: Frame): Tree[] =>
+    f.name === "parse_tele"
+      ? cells(f)
+      : f.name === "parse_term"
+        ? [tree("Returns", [term(f.out as LTerm)])]
+        : f.name === "parse_body"
+          ? [tree("Body", [body(f.out as Body)])]
           : [];
-  const own = (k: string): string =>
-    parsed.file.ns !== "" && k.startsWith(parsed.file.ns + ":")
-      ? k.slice(parsed.file.ns.length + 1)
-      : k;
-  const declared = heads.map(({ seen, at }, j) => {
-    const name = seen.nm ?? own(seen.k);
-    const next = heads[j + 1]?.at ?? parsed.seen.length;
-    return tree(seen.kind, parsed.seen.slice(at + 1, next).flatMap(under), {
+  const all = parsed.declarations;
+  const heads = all.flatMap((f, at) => {
+    const head =
+      f.name === "parse_def"
+        ? f.kids.filter((k) => k.name === "parse_fresh" || k.name === "parse_reso").at(-1)
+        : f.name === "parse_fresh"
+          ? f
+          : undefined;
+    return head === undefined ? [] : [{ f, head, at }];
+  });
+  const declared = heads.map(({ f, head, at }, j) => {
+    const [p, name, table] = head.args as Parameters<Bend["parse_fresh"]>;
+    const k = head.out as string;
+    const tld = book.tlds[k];
+    const kind =
+      f.name === "parse_def"
+        ? "Definition"
+        : table === book.ctrs
+          ? "Constructor"
+          : tld?.$ === "ADT"
+            ? "Datatype"
+            : "Law";
+    const group =
+      f.name === "parse_def" ? f.kids : all.slice(at + 1, heads[j + 1]?.at ?? all.length);
+    const kids =
+      kind === "Law"
+        ? group
+            .filter((g) => g.name === "term_higher")
+            .slice(-1)
+            .map((g) => tree("Returns", [term(g.args[0] as LTerm)]))
+        : group.flatMap(under);
+    return tree(kind, kids, {
       name,
-      target: seen.k,
-      range: place({ file: seen.p, beg: seen.end - name.length, end: seen.end }),
+      target: k,
+      range: place({ file: p, beg: head.end - name.length, end: head.end }),
     });
   });
   const tops = declared.flatMap((d, i) => (d.kind === "Constructor" ? [] : [i]));
@@ -560,32 +683,34 @@ const declarationsOf = (parsed: Parsed): Tree[] => {
 };
 
 // The trees of a file's imports: each alias (or Base) and the file it loads,
-// with the path it writes (Base writes none).
-const importsOf = (
-  file: SeenFile,
-  imports: SeenImport[],
-  real: (ns: string) => string,
-  base: string,
-): Tree[] => {
-  const points = pointsOf(file.text);
-  return imports.map((i) => {
-    const from = i.line.indexOf(i.path);
-    const beg =
-      i.at + (i.alias === undefined ? from : i.line.indexOf(i.alias, from + i.path.length));
-    const name = i.alias ?? "Base";
-    const path = i.at + from;
+// with the path it writes (Base writes none). An import's span is where its
+// path is written; its alias is the next of the file's aliases, as Bend adds
+// one per import of a file.
+const importsOf = (parsed: Parsed, base: string): Tree[] => {
+  const points = pointsOf(parsed.text);
+  const aliases = Object.keys(parsed.al);
+  const aliased = parsed.imports.filter((f) => f.args[1] !== base);
+  return parsed.imports.map((f) => {
+    const [, file, , , spn] = f.args as Parameters<Bend["book_load"]>;
+    const from = spn?.beg ?? 0;
+    const word = /\S+/y;
+    word.lastIndex = from;
+    const path = word.exec(parsed.text)?.[0] ?? "";
+    const alias = file === base ? undefined : aliases[aliased.indexOf(f)];
+    const beg = alias === undefined ? from : parsed.text.indexOf(alias, from + path.length);
+    const name = alias ?? "Base";
     const written =
-      i.alias === undefined
+      alias === undefined
         ? []
         : [
             tree("ImportPath", [], {
-              name: i.path,
-              range: [points(path), points(path + i.path.length)],
+              name: path,
+              range: [points(from), points(from + path.length)],
             }),
           ];
     return tree("Import", written, {
       name,
-      target: i.alias === undefined ? base : real(file.al[i.alias]),
+      target: file,
       range: [points(beg), points(beg + name.length)],
     });
   });
@@ -646,13 +771,125 @@ const nodeRecords = (
   return out;
 };
 
-// The files the check parsed, each with what its parser read.
-const parsedOf = (seen: Seen[]): Parsed[] => {
-  const at = seen.flatMap((s, i) => (s.$ === "file" ? [i] : []));
-  return at.map((i, j) => ({
-    file: seen[i] as SeenFile,
-    seen: seen.slice(i + 1, at[j + 1] ?? seen.length).filter((s) => s.$ !== "import"),
-  }));
+// The files that the book_load calls in `frames` parsed, in the order Bend
+// parsed them: a file's imports first. Bend reads a file without imports as
+// it is on disk; else its imports' spans hold its text.
+const parsedOf = (frames: Frame[]): Parsed[] =>
+  frames.flatMap((f) => {
+    const imports = f.kids.filter((k) => k.name === "book_load");
+    const book = f.kids.find((k) => k.name === "parse_book");
+    if (book === undefined) {
+      return parsedOf(imports);
+    }
+    const [, , read, ns, al] = book.args as Parameters<Bend["parse_book"]>;
+    const spn = (imports[0]?.args as Parameters<Bend["book_load"]> | undefined)?.[4];
+    return [
+      ...parsedOf(imports),
+      {
+        real: realpath(f.args[1] as string),
+        text: spn?.file.str ?? read,
+        read: book.kids[0]?.args[0] as Parse | undefined,
+        ns,
+        al,
+        imports,
+        declarations: book.kids,
+      },
+    ];
+  });
+
+// Points the TRACED function `name` at `hook`, or back at its original. A
+// binding bend.ts sets is code JSC compiles again, so one that would not
+// change is left alone.
+const setHook = (name: string, hook?: Hook): void => {
+  if (HOOKED.get(name) !== hook) {
+    HOOKED.set(name, hook);
+    (globalThis as { BEND_LINT?: Shared }).BEND_LINT?.hook?.(name, hook);
+  }
+};
+
+// Points each TRACED function back at its original.
+const untrace = (): void => {
+  TRACED.forEach((name) => setHook(name));
+};
+
+// While Bend loads a check's files: keeps under `root` each call a Frame
+// KEPT. Only the calls the Frame on top keeps are hooked, so every other call
+// runs as it is: the stack sets the hooks as it grows and shrinks.
+const traceParsing = (root: Frame): void => {
+  const stack = [root];
+  let hooked = NONE;
+  const focus = (): void => {
+    const keeps = KEPT[stack[stack.length - 1].name] ?? NONE;
+    PARSED.forEach((name) => {
+      if (hooked.has(name) !== keeps.has(name)) {
+        setHook(name, keeps.has(name) ? (f, args) => kept(name, f, args) : undefined);
+      }
+    });
+    hooked = keeps;
+  };
+  const kept = (name: string, f: Traced, args: unknown[]): unknown => {
+    const p = args[0] as { pos?: number };
+    const frame: Frame = { name, args, out: undefined, end: -1, kids: [] };
+    const done = (out: unknown): unknown => {
+      frame.out = out;
+      frame.end = p.pos ?? -1;
+      stack.pop();
+      focus();
+      return out;
+    };
+    const fail = (e: unknown): never => {
+      stack.pop();
+      focus();
+      throw e;
+    };
+    stack[stack.length - 1].kids.push(frame);
+    stack.push(frame);
+    focus();
+    try {
+      const out = f(...args);
+      return out instanceof Promise ? out.then(done, fail) : done(out);
+    } catch (e) {
+      return fail(e);
+    }
+  };
+  focus();
+};
+
+// While Bend checks: keeps in `judgments` what the checker passes each
+// judgment. A binder's uses are those its judgment closed, after the
+// judgments inside it took theirs. A judgment can give back the term of one
+// inside it (an annotation's, say): the inner one made it, so it keeps it.
+const traceJudgments = (Bend: Bend, judgments: Map<LTerm, Judgment>): void => {
+  const closed: Array<[number, Quant]> = [];
+  const judge = (f: Traced, args: unknown[], qt: Quant, ctx: Ctx, dep: number): unknown => {
+    const mark = closed.length;
+    try {
+      const judged = f(...args) as Infer | Check;
+      const used = closed.length === mark ? UNUSED : closed.slice(mark);
+      if (!judgments.has(judged.tm)) {
+        judgments.set(judged.tm, { qt, ctx, dep, used });
+      }
+      return judged;
+    } finally {
+      closed.length = mark;
+    }
+  };
+  const hooks: Record<(typeof JUDGED)[number], Hook> = {
+    term_infer: (f, args) => {
+      const [, , , qt, ctx, dep] = args as Parameters<Bend["term_infer"]>;
+      return judge(f, args, qt, ctx, dep);
+    },
+    term_check: (f, args) => {
+      const [, , , qt, , ctx, dep] = args as Parameters<Bend["term_check"]>;
+      return judge(f, args, qt, ctx, dep);
+    },
+    uses_close: (f, args) => {
+      const [, , us, i] = args as Parameters<Bend["uses_close"]>;
+      closed.push([i, Bend.pmap_get(us, i) ?? Bend.None()]);
+      return f(...args);
+    },
+  };
+  JUDGED.forEach((name) => setHook(name, hooks[name]));
 };
 
 // The checker wraps each term of an elaborated body it returns in an
@@ -674,28 +911,17 @@ const bare = (t: LTerm): LTerm => {
 const typeOf = (t: LTerm): HTerm | undefined =>
   isTyping(t) && t.T.$ === "Var" ? t.T.v : undefined;
 
-// The token of a scope's binder at `level`, if it has one.
-const tokenAt = (scope: Scope, level: number): unknown => {
-  let at = scope;
-  while (at !== null && at.level !== level) {
-    at = at.up;
-  }
-  return at?.token;
-};
+// What a scope has at each level, from 0 to `dep`: what `of` makes of each
+// binder's entry in its context.
+const levels = <T>(Bend: Bend, scope: Scope, dep: number, of: (entry: Ann) => T): T[] =>
+  Array.from({ length: dep }, (_, level) => {
+    const entry = Bend.pmap_get(scope.ctx, level);
+    return entry === null ? undefined : of(entry);
+  }) as T[];
 
-// What a scope has at each level, from 0 to `dep`: its binders' tokens or
-// names.
-const levels = <T>(scope: Scope, dep: number, of: (at: NonNullable<Scope>) => T): T[] => {
-  const out: T[] = Array.from({ length: dep });
-  const seen: boolean[] = Array.from({ length: dep }, () => false);
-  for (let at = scope; at !== null; at = at.up) {
-    if (at.level < dep && !seen[at.level]) {
-      seen[at.level] = true;
-      out[at.level] = of(at);
-    }
-  }
-  return out;
-};
+// The token of a binder's entry in a scope: the id of the node that writes
+// the binder, or the entry itself.
+const tokenOf = (scope: Scope, entry: Ann): unknown => scope.ids.get(entry) ?? entry;
 
 // The deepest level a lowered type uses free (below `dep`), or -1.
 const deepest = (t: LTerm, dep: number): number => {
@@ -728,9 +954,9 @@ const sameType = (Bend: Bend, a: Typed, b: Typed): boolean => {
     return false;
   }
   const dep = Math.min(a.dep, b.dep);
-  const ta = a.scope === b.scope ? [] : levels(a.scope, dep, (at) => at.token);
-  const tb = a.scope === b.scope ? [] : levels(b.scope, dep, (at) => at.token);
-  let shared = a.scope === b.scope ? dep : 0;
+  const ta = levels(Bend, a.scope, dep, (entry) => tokenOf(a.scope, entry));
+  const tb = levels(Bend, b.scope, dep, (entry) => tokenOf(b.scope, entry));
+  let shared = 0;
   while (shared < dep && ta[shared] !== undefined && ta[shared] === tb[shared]) {
     shared++;
   }
@@ -762,88 +988,87 @@ const binderAt = (
 ): Origin | undefined =>
   s === undefined ? undefined : origins.get(s)?.find((o) => BINDERS.has(o.kind) && o.name === k);
 
-// The quantities of a telescope's domains.
-const quantities = (Bend: Bend, T: HTerm): Quant[] => {
-  const out: Quant[] = [];
-  for (let t = T, i = 0; t.$ === "All"; t = t.B(Bend.Var(t.k, i)), i++) {
-    out.push(t.q);
-  }
-  return out;
-};
-
 // The facts of each declaration's binders: each domain of its type's
 // telescope is the type its binder declares, with its quantity. The type
 // opens each binder in turn, so a domain is at the depth of its place.
-const signature = (
-  Bend: Bend,
-  book: Book,
-  T: HTerm,
-  origins: Map<Span, Origin[]>,
-  judged: Map<number, Judged[]>,
-): void => {
-  let scope: Scope = null;
+const signature = ({ Bend, book, origins, ids, found }: Reading, T: HTerm): void => {
+  let ctx = Bend.ctx_nil();
   for (let t = T, i = 0; t.$ === "All"; t = t.B(Bend.Var(t.k, i)), i++) {
     const binder = binderAt(origins, t.s, t.k);
     if (binder !== undefined && t.s !== undefined) {
-      judge(judged, binder.id, {
+      judge(found.judged, binder.id, {
         role: "binder",
         ty: t.A,
         bok: book,
         dep: i,
-        scope,
+        scope: { ctx, ids },
         qt: t.q,
         file: t.s.file,
       });
     }
-    scope = { level: i, name: t.k, token: binder?.id ?? t, up: scope };
+    ctx = Bend.ctx_bind(ctx, i, t.q, t.k, t.A);
+    const entry = Bend.pmap_get(ctx, i);
+    if (binder !== undefined && entry !== null) {
+      ids.set(entry, binder.id);
+    }
   }
 };
+
+// Whether `x` is a term, not a quantity, a pattern or a span.
+const isTerm = (x: unknown): x is LTerm =>
+  typeof x === "object" && x !== null && String((x as { $?: unknown }).$) in SYNTAX;
+
+// The terms right under an elaborated term, in order: none under a variable
+// (a value it has is a substitution's), and only the term an annotation
+// annotates.
+const kids = (t: LTerm): LTerm[] =>
+  t.$ === "Var"
+    ? []
+    : t.$ === "Ann"
+      ? [t.x]
+      : Object.values(t).flatMap((v: unknown) =>
+          Array.isArray(v) ? v.filter(isTerm) : isTerm(v) ? [v] : [],
+        );
 
 // The facts of an elaborated body: each term the checker typed is a node's
 // if it has the node's span object, kind and name, and, for a call or a
 // constructor, the node's children; a variable must also name the node's
 // binder. So a term the checker made from another (a pattern put for a
-// scrutinee, a partial call, a list's tail) is no node's. A lambda's, let's
-// or case's binder declares the type its function type gives it; a
-// parameter's is its signature's, if its signature has it (a law's fill
-// takes the law's). Each term's demand flows as the checker
-// passes it: `quant_dem` of a domain's quantity for an argument, a field or a
-// let value, erased for types.
-const body = (
-  Bend: Bend,
-  book: Book,
-  e: LTerm,
-  origins: Map<Span, Origin[]>,
-  binders: Map<string, number>,
-  judged: Map<number, Judged[]>,
-): void => {
-  const erased = Bend.None();
-  const telescopes = new Map<string, Quant[]>();
+// scrutinee, a partial call, a list's tail) is no node's. A fact has the
+// demand, context and depth the checker judged its term with. A lambda's or
+// let's binder declares the type and quantity its entry in the context of
+// its body has, unless it is a parameter its signature declared (a law's
+// fill takes the law's); it is used as often as its judgment closed it.
+const body = (r: Reading, e: LTerm): void => {
+  const { Bend, book, origins, binders, judgments, ids, found } = r;
+  // The judgment of an elaborated term: its outermost annotation's that a
+  // traced call returned.
+  const judgmentOf = (u: LTerm): Judgment | undefined =>
+    judgments.get(u) ?? (isTyping(u) ? judgmentOf(u.x) : undefined);
   const sameKids = (xs: LTerm[], o: Origin): boolean =>
     xs.length === o.kids.length && xs.every((x, j) => bare(x).s === o.kids[j]);
-  // Whether `t` is the node `o`; `scope` binds its variables.
-  const matches = (t: LTerm, o: Origin, scope: Scope): boolean => {
-    if (o.kind !== SYNTAX[t.$]) {
-      return false;
-    }
-    switch (t.$) {
-      case "Var":
-        return (
-          o.name === t.k && o.binder !== undefined && binders.get(o.binder) === tokenAt(scope, t.i)
-        );
-      case "Ref":
-        return o.target === t.k;
-      case "Lit":
-        return o.name === String(t.v);
-      case "Lam":
-      case "All":
-        return o.name === t.k;
-      case "Ctr":
-      case "ADT":
-        return o.target === t.k && sameKids(t.x, o);
-      default:
-        return true;
-    }
+  // Whether a term of a kind, judged `j`, is a node `o` of its syntax; any
+  // node of its syntax is a term of a kind left out.
+  const fits: {
+    [K in LTerm["$"]]?: (t: Extract<LTerm, { $: K }>, o: Origin, j: Judgment) => boolean;
+  } = {
+    Var: (t, o, j) => {
+      const entry = Bend.pmap_get(j.ctx, t.i);
+      const token = entry === null ? undefined : tokenOf({ ctx: j.ctx, ids }, entry);
+      return o.name === t.k && o.binder !== undefined && binders.get(o.binder) === token;
+    },
+    Ref: (t, o) => o.target === t.k,
+    Lit: (t, o) => o.name === String(t.v),
+    Lam: (t, o) => o.name === t.k,
+    All: (t, o) => o.name === t.k,
+    Ctr: (t, o) => o.target === t.k && sameKids(t.x, o),
+    ADT: (t, o) => o.target === t.k && sameKids(t.x, o),
+  };
+  const matches = (t: LTerm, o: Origin, j: Judgment): boolean => {
+    const fit = (
+      fits as Record<string, ((t: LTerm, o: Origin, j: Judgment) => boolean) | undefined>
+    )[t.$];
+    return o.kind === SYNTAX[t.$] && (fit === undefined || fit(t, o, j));
   };
   // Whether a call, as its head and arguments, is the node `o`: they are its
   // children, but the leading ones a template's instance took as `~`
@@ -861,165 +1086,110 @@ const body = (
     id: number,
     role: "term" | "binder",
     ty: HTerm,
-    dep: number,
-    scope: Scope,
     qt: Quant,
+    j: Judgment,
     file: Span["file"],
-  ): void => judge(judged, id, { role, ty, bok: book, dep, scope, qt, file });
-  // The binder node a checked binder is, recording the type it declares,
-  // unless it is a parameter its signature declared.
-  const binder = (
+  ): void =>
+    judge(found.judged, id, {
+      role,
+      ty,
+      bok: book,
+      dep: j.dep,
+      scope: { ctx: j.ctx, ids },
+      qt,
+      file,
+    });
+  // The binder nodes of the binders a lambda, let or forall at `s` declares at
+  // `levels`, each with its entry in the context of its body, judged `inner`.
+  // Each node is its binder's token from now on.
+  const named = (
     s: Span | undefined,
-    k: string,
-    ty: HTerm | undefined,
-    dep: number,
-    scope: Scope,
-    q: Quant,
-  ): Origin | undefined => {
-    const o = binderAt(origins, s, k);
-    if (o !== undefined && s !== undefined && ty !== undefined) {
-      if (o.kind !== "Parameter" || judged.get(o.id) === undefined) {
-        record(o.id, "binder", ty, dep, scope, q, s.file);
+    names: string[],
+    levels: number[],
+    inner: Judgment | undefined,
+  ): Array<[Origin, Ann, number]> =>
+    levels.flatMap((level, n): Array<[Origin, Ann, number]> => {
+      const o = binderAt(origins, s, names[n]);
+      const entry = inner === undefined ? null : Bend.pmap_get(inner.ctx, level);
+      if (o === undefined || entry === null) {
+        return [];
       }
-    }
-    return o;
-  };
-  const pi = (ty: HTerm): HTerm => (ty.$ === "All" ? ty : Bend.term_wnf(book, ty));
-  // The quantities of a type's or constructor's telescope, read once.
-  const telescope = (k: string, T: HTerm | undefined): Quant[] => {
-    const at = telescopes.get(k);
-    if (at !== undefined) {
-      return at;
-    }
-    const qs = T === undefined ? [] : quantities(Bend, T);
-    telescopes.set(k, qs);
-    return qs;
-  };
-  // The children of a term that binds nothing, each with its demand: a
-  // field's or parameter's quantity under the term's, erased in a type.
-  const descend = (t: LTerm, dep: number, scope: Scope, qt: Quant): void => {
-    switch (t.$) {
-      case "Ctr": {
-        const qs = telescope(t.k, book.ctrs[t.k]?.T);
-        const first = qs.length - t.x.length;
-        t.x.forEach((x, j) => walk(x, dep, scope, Bend.quant_dem(qs[first + j] ?? erased, qt)));
+      ids.set(entry, o.id);
+      return [[o, entry, level]];
+    });
+  // The facts of the binders a lambda or let at `s`, judged `j`, declares.
+  const declare = (
+    s: Span | undefined,
+    names: string[],
+    levels: number[],
+    j: Judgment | undefined,
+    inner: Judgment | undefined,
+  ): void =>
+    named(s, names, levels, inner).forEach(([o, entry, level]) => {
+      if (j === undefined || s === undefined) {
         return;
       }
-      case "ADT": {
-        const qs = telescope(t.k, book.tlds[t.k]?.T);
-        t.x.forEach((x, j) => walk(x, dep, scope, Bend.quant_dem(qs[j] ?? erased, qt)));
-        return;
+      if (o.kind !== "Parameter" || !found.judged.has(o.id)) {
+        record(o.id, "binder", entry.T, entry.q, j, s.file);
       }
-      case "Typ":
-        walk(t.g, dep, scope, erased);
-        return;
-      case "Min":
-        walk(t.a, dep, scope, qt);
-        walk(t.b, dep, scope, qt);
-        return;
-      case "Mat":
-        walk(t.h, dep, scope, qt);
-        walk(t.m, dep, scope, qt);
-        return;
-      case "Eql":
-        walk(t.a, dep, scope, erased);
-        walk(t.b, dep, scope, erased);
-        walk(t.T, dep, scope, erased);
-        return;
-      case "Rwt":
-        walk(t.e, dep, scope, qt);
-        walk(t.p, dep, scope, erased);
-        walk(t.f, dep, scope, qt);
-        return;
-      case "Ann":
-        walk(t.x, dep, scope, qt);
-        return;
-      case "Sub":
-        walk(t.f, dep, scope, qt);
-        return;
-      default:
-        return;
-    }
-  };
+      const used = j.used.find(([l]) => l === level)?.[1];
+      const was = found.used.get(o.id);
+      if (used !== undefined) {
+        found.used.set(o.id, was === undefined ? used : Bend.quant_join(was, used));
+      }
+    });
   // A call: the applications that share its span object, outermost first,
-  // are one; each argument's demand is its function's domain quantity under
-  // the call's.
+  // are one.
   const walkCall = (
     t: Extract<LTerm, { $: "App" }>,
     ty: HTerm | undefined,
+    j: Judgment | undefined,
     here: Origin[] | undefined,
-    dep: number,
-    scope: Scope,
-    qt: Quant,
   ): void => {
     const args: LTerm[] = [];
-    const fns: Array<HTerm | undefined> = [];
     let typed: LTerm = t;
     let head: LTerm = t;
     while (head.$ === "App" && head.s === t.s) {
       args.push(head.x);
-      fns.push(typeOf(head.f));
       typed = head.f;
       head = bare(typed);
     }
     args.reverse();
-    fns.reverse();
     here?.forEach((o) => {
-      if (ty !== undefined && t.s !== undefined && call(head, args, o)) {
-        record(o.id, "term", ty, dep, scope, qt, t.s.file);
+      if (ty !== undefined && j !== undefined && t.s !== undefined && call(head, args, o)) {
+        record(o.id, "term", ty, j.qt, j, t.s.file);
       }
     });
-    walk(typed, dep, scope, qt);
-    args.forEach((x, j) => {
-      const fn = fns[j];
-      const f = qt.$ === "None" || fn === undefined ? undefined : pi(fn);
-      walk(x, dep, scope, f?.$ === "All" ? Bend.quant_dem(f.q, qt) : qt);
-    });
+    walk(typed, j);
+    args.forEach((x) => walk(x, j));
   };
-  const walk = (u: LTerm, dep: number, scope: Scope, qt: Quant): void => {
+  // A term, with the judgment `up` of the term above it, which a term the
+  // checker annotated without a traced call has (a match's absurd case).
+  const walk = (u: LTerm, up?: Judgment): void => {
     const ty = typeOf(u);
+    const j = judgmentOf(u) ?? up;
     const t = bare(u);
     const s = t.s;
     const here = s === undefined || ty === undefined ? undefined : origins.get(s);
     if (t.$ === "App") {
-      walkCall(t, ty, here, dep, scope, qt);
+      walkCall(t, ty, j, here);
       return;
     }
     here?.forEach((o) => {
-      if (ty !== undefined && s !== undefined && matches(t, o, scope)) {
-        record(o.id, "term", ty, dep, scope, qt, s.file);
+      if (ty !== undefined && j !== undefined && s !== undefined && matches(t, o, j)) {
+        record(o.id, "term", ty, j.qt, j, s.file);
       }
     });
-    switch (t.$) {
-      case "Lam": {
-        const f = ty === undefined ? undefined : pi(ty);
-        const declared = f?.$ === "All" ? f : undefined;
-        const q = t.q?.$ === "Many" && declared?.q.$ === "Lone" ? t.q : declared?.q;
-        const o = binder(s, t.k, declared?.A, t.i, scope, q ?? erased);
-        walk(t.f, t.i + 1, { level: t.i, name: t.k, token: o?.id ?? t, up: scope }, qt);
-        return;
-      }
-      case "Let": {
-        let inner = scope;
-        t.v.forEach((v, j) => {
-          walk(v, dep, scope, Bend.quant_dem(t.q[j], qt));
-          const o = binder(s, t.k[j], typeOf(v), dep, scope, t.q[j]);
-          inner = { level: t.i[j], name: t.k[j], token: o?.id ?? v, up: inner };
-        });
-        walk(t.f, dep + t.k.length, inner, qt);
-        return;
-      }
-      case "All": {
-        walk(t.A, dep, scope, erased);
-        const o = binderAt(origins, s, t.k);
-        walk(t.B, t.i + 1, { level: t.i, name: t.k, token: o?.id ?? t, up: scope }, erased);
-        return;
-      }
-      default:
-        descend(t, dep, scope, qt);
+    if (t.$ === "Lam") {
+      declare(s, [t.k], [t.i], j, judgmentOf(t.f));
+    } else if (t.$ === "Let") {
+      declare(s, t.k, t.i, j, judgmentOf(t.f));
+    } else if (t.$ === "All") {
+      named(s, [t.k], [t.i], judgmentOf(t.B));
     }
+    kids(t).forEach((x) => walk(x, j));
   };
-  walk(e, 0, null, Bend.Lone());
+  walk(e);
 };
 
 // The checker's facts on the nodes of the files a check read: from each own
@@ -1031,24 +1201,33 @@ const factsOf = (
   own: string[],
   origins: Map<Span, Origin[]>,
   binders: Map<string, number>,
-): Map<number, Judged[]> => {
-  const judged = new Map<number, Judged[]>();
+  judgments: Map<LTerm, Judgment>,
+): Found => {
+  const r: Reading = {
+    Bend,
+    book,
+    origins,
+    binders,
+    judgments,
+    ids: new Map(),
+    found: { judged: new Map(), used: new Map() },
+  };
   const tlds = [...new Set(own)].flatMap((k) => {
     const tld = book.tlds[k];
     return tld === undefined || k.includes("~") ? [] : [tld];
   });
   tlds.forEach((tld) => {
-    signature(Bend, book, tld.T, origins, judged);
+    signature(r, tld.T);
     if (tld.$ === "ADT") {
-      tld.c.forEach((c) => signature(Bend, book, c.T, origins, judged));
+      tld.c.forEach((c) => signature(r, c.T));
     }
   });
   tlds.forEach((tld) => {
     if (tld.$ === "Def" && tld.e !== undefined) {
-      body(Bend, book, tld.e, origins, binders, judged);
+      body(r, tld.e);
     }
   });
-  return judged;
+  return r.found;
 };
 
 // A node's judgments, those the checker counts the same (same role and
@@ -1066,22 +1245,32 @@ const distinct = (Bend: Bend, js: Judged[]): Judged[] =>
 
 // The records of the nodes numbered from `first`, each followed by its
 // facts: each of its distinct judgments, with a new handle to its type in
-// check `id`.
+// check `id`, and, for a binder the checker closed, how often it is used.
 const nodesWithFacts = (
   Bend: Bend,
   nodes: string[],
-  judged: Map<number, Judged[]>,
+  found: Found,
   first: number,
   id: number,
 ): string[] => {
   const out: string[] = [];
   const types = TYPES[id - 1];
   nodes.forEach((node, j) => {
+    const used = found.used.get(first + j);
     out.push(node);
-    distinct(Bend, judged.get(first + j) ?? []).forEach(
+    distinct(Bend, found.judged.get(first + j) ?? []).forEach(
       ({ role, ty, bok, dep, scope, qt, file }) => {
         types.push({ ty, bok, dep, scope, file });
-        out.push(record(["fact", role, String(id), String(types.length - 1), QUANTITIES[qt.$]]));
+        out.push(
+          record([
+            "fact",
+            role,
+            String(id),
+            String(types.length - 1),
+            QUANTITIES[qt.$],
+            role === "binder" && used !== undefined ? QUANTITIES[used.$] : "",
+          ]),
+        );
       },
     );
   });
@@ -1094,21 +1283,19 @@ const nodesWithFacts = (
 const located = (
   e: unknown,
   seen: Map<string, string | null>,
-  reported: Seen[],
+  files: Parsed[],
 ): { path: string; text: string; range: Range } | undefined => {
   const s = isErr(e) ? e.spn : undefined;
   if (s === undefined) {
     return undefined;
   }
-  const parsed = parsedOf(reported).find((f) =>
-    f.seen.some((x) => x.$ === "declared" && x.p === s.file),
-  );
-  const path = parsed?.file.real ?? [...seen].filter(([, ns]) => ns === null).pop()?.[0];
+  const file = files.find((f) => f.read === s.file);
+  const path = file?.real ?? [...seen].filter(([, ns]) => ns === null).pop()?.[0];
   if (path === undefined) {
     return undefined;
   }
-  const text = parsed?.file.text ?? nodeFs.readFileSync(path, "utf8");
-  const range = placerOf({ $: "file", real: path, text, ns: "", al: {} }, s.file)(s);
+  const text = file?.text ?? nodeFs.readFileSync(path, "utf8");
+  const range = placerOf(text, s.file)(s);
   return range === undefined ? undefined : { path, text, range };
 };
 
@@ -1130,7 +1317,7 @@ const failure = (Bend: Bend, e: unknown, placed: boolean): string => {
 // got that far), the files it read, then why, and, if Bend's error says,
 // where: the file's path, the range, and the file's text. A passed check
 // also gives the files it read, with the text it read; its number is
-// `number`, or the next. The probes are global, so checks must not overlap.
+// `number`, or the next. The hooks are global, so checks must not overlap.
 const check = async (
   checker: Checker,
   path: string,
@@ -1140,35 +1327,21 @@ const check = async (
   const { Bend, base } = await checker.loaded();
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
-  const reported: Seen[] = [];
+  const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
+  const judgments = facts ? new Map<LTerm, Judgment>() : undefined;
   const origins = new Map<Span, Origin[]>();
   const binders = new Map<string, number>();
-  const hook = globalThis as { BEND_LINT_SEE?: (seen: Seen) => void };
-  hook.BEND_LINT_SEE = (s) => reported.push(s);
   let syntax: string[] = [];
+  traceParsing(root);
   try {
     await Bend.book_load(book, getPathWithForwardSlashes(nodePath.resolve(path)), "", seen);
-    hook.BEND_LINT_SEE = undefined;
-    const real = (ns: string): string =>
-      [...seen].find(([at, n]) => at !== Bend.BASE_BEND && n === ns)?.[0] ?? "";
-    const imports = reported.filter((x): x is SeenImport => x.$ === "import");
-    const files = parsedOf(reported);
-    const sections = files.reduce<Array<{ file: SeenFile; nodes: string[]; first: number }>>(
-      (done, parsed) => {
+    untrace();
+    const files = parsedOf(root.kids);
+    const sections = files.reduce<Array<{ file: Parsed; nodes: string[]; first: number }>>(
+      (done, file) => {
         const first = 1 + done.reduce((n, d) => n + d.nodes.length, 0);
-        const trees = [
-          ...importsOf(
-            parsed.file,
-            imports.filter((i) => i.real === parsed.file.real),
-            real,
-            Bend.BASE_BEND,
-          ),
-          ...declarationsOf(parsed),
-        ];
-        return [
-          ...done,
-          { file: parsed.file, nodes: nodeRecords(trees, first, origins, binders), first },
-        ];
+        const trees = [...importsOf(file, Bend.BASE_BEND), ...declarationsOf(book, file)];
+        return [...done, { file, nodes: nodeRecords(trees, first, origins, binders), first }];
       },
       [],
     );
@@ -1176,10 +1349,15 @@ const check = async (
       record(["file", file.real, file.ns, file.text]),
       ...nodes,
     ]);
+    if (judgments !== undefined) {
+      traceJudgments(Bend, judgments);
+    }
     Bend.book_valid(book, base.order.length);
-    const judged = facts
-      ? factsOf(Bend, book, book.order.slice(base.order.length), origins, binders)
-      : new Map<number, Judged[]>();
+    untrace();
+    const found =
+      judgments === undefined
+        ? NOTHING
+        : factsOf(Bend, book, book.order.slice(base.order.length), origins, binders, judgments);
     const id = number ?? TYPES.push([]);
     TYPES[id - 1] = [];
     return {
@@ -1187,14 +1365,14 @@ const check = async (
         record(["check", String(id)]),
         ...sections.flatMap(({ file, nodes, first }) => [
           record(["file", file.real, file.ns, file.text]),
-          ...nodesWithFacts(Bend, nodes, judged, first, id),
+          ...nodesWithFacts(Bend, nodes, found, first, id),
         ]),
       ].join(""),
-      read: files.map(({ file }): [string, string] => [file.real, file.text]),
+      read: files.map((file): [string, string] => [file.real, file.text]),
       number: id,
     };
   } catch (e) {
-    const at = located(e, seen, reported);
+    const at = located(e, seen, parsedOf(root.kids));
     return {
       answer: [
         ...syntax,
@@ -1207,7 +1385,7 @@ const check = async (
       ].join(""),
     };
   } finally {
-    hook.BEND_LINT_SEE = undefined;
+    untrace();
   }
 };
 
@@ -1252,7 +1430,7 @@ const question = ({ Bend }: Loaded, q: string): string => {
       Bend.term_show(
         written(Bend.term_lower(t.ty, t.dep), t.bok),
         -1,
-        levels(t.scope, t.dep, (at) => at.name),
+        levels(Bend, t.scope, t.dep, (entry) => entry.k),
         t.file,
       ),
     ]);
@@ -1280,8 +1458,7 @@ const numbered = (answer: string, number: number): string =>
 // Where the cache keeps the check of `path` in mode `facts`.
 const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
-    url.fileURLToPath(SERVER_CACHE_DIR),
-    "checks",
+    CHECKS_DIR,
     getSha256Hex([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
   );
 
@@ -1314,13 +1491,11 @@ const prune = (dir: string): void => {
   );
 };
 
-// Keeps `entry` at `file`, whole or not at all, after pruning its folder. A
-// cache that cannot be written is skipped: the next run checks again.
+// Keeps `entry` at `file`, whole or not at all. A cache that cannot be
+// written is skipped: the next run checks again.
 const keep = (file: string, entry: Entry): void => {
   tryGetOrUndefined(() => {
-    const dir = nodePath.dirname(file);
-    nodeFs.mkdirSync(dir, { recursive: true });
-    prune(dir);
+    nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
     writeFileAtomically(file, JSON.stringify(entry));
   });
 };
@@ -1485,4 +1660,5 @@ const child = spawn(command, commandArgs, {
 });
 const [code] = (await once(child, "exit")) as [number | null];
 server.close();
+prune(CHECKS_DIR);
 process.exit(code ?? 1);
