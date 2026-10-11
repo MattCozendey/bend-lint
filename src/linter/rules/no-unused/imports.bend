@@ -7,7 +7,7 @@ import ../../lint.bend as Lint
 import ../../shared.bend as Shared
 
 # The fix that deletes the import's line.
-def deleted(+text: String, +path: String, +at: U32) -> List<&2, Lint.Fix>:
+def deleted(+text: String, path: String, at: U32) -> List<&2, Lint.Fix>:
   +beg = Shared.line_start(text, at)
   [
     Lint.Fix{
@@ -16,7 +16,7 @@ def deleted(+text: String, +path: String, +at: U32) -> List<&2, Lint.Fix>:
     }
   ]
 
-def unused(+text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
+def unused(text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
   match d:
     case Lint.Declaration{
       Lint.Node{

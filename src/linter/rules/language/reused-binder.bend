@@ -77,7 +77,7 @@ def bare(nodes: List<&2, Lint.Node>, +children: Lint.Children, out: List<&2, U32
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{+i, p, +o, Lint.Parameter{}, n, b, q, s, t}, rest}:
+    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, b, q, s, t}, rest}:
       bare(
         rest,
         children,
@@ -107,7 +107,7 @@ def Use.all(
   match nodes:
     case Nil{}:
       (List.reverse(&2, Use, uses), matched)
-    case Con{Lint.Node{+i, +p, +o, Lint.Variable{}, n, Some{+b}, q, s, t}, rest}:
+    case Con{Lint.Node{+i, p, +o, Lint.Variable{}, n, Some{+b}, q, s, t}, rest}:
       +scrutinee = is_match(Lint.Here.node(here, p))
       Use.all(
         rest,
@@ -126,7 +126,7 @@ def Use.of(uses: List<&2, Use>, +binder: U32, +owner: U32, out: List<&2, U32>) -
   match uses:
     case Nil{}:
       List.reverse(&2, U32, out)
-    case Con{Use{b, o, +i}, rest}:
+    case Con{Use{b, o, i}, rest}:
       Use.of(
         rest,
         binder,
@@ -205,7 +205,7 @@ def twice(uses: List<&2, U32>, found: Maybe<&2, U32>, +here: Lint.Here) -> Maybe
       Some{u}
     case Nil{} None{}:
       None{}
-    case Con{+u, +rest} None{}:
+    case Con{u, +rest} None{}:
       twice(rest, twice.with(rest, None{}, u, here), here)
 
 def message(+name: String) -> String:
@@ -214,16 +214,16 @@ def message(+name: String) -> String:
     ++ name
     ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied. This is a false positive if one of the uses is an argument for an erased parameter (`-x`, as a proof's motive often is): that is dead code."
 
-def finding.at(span: Maybe<&2, Lint.Span>, +name: String) -> List<&2, Lint.Finding>:
+def finding.at(span: Maybe<&2, Lint.Span>, name: String) -> List<&2, Lint.Finding>:
   match span:
     case Some{s}:
       [Lint.Finding{Lint.Warning{}, s, message(name), []}]
     case None{}:
       []
 
-def finding(second: Maybe<&2, U32>, +name: String, +here: Lint.Here) -> List<&2, Lint.Finding>:
+def finding(second: Maybe<&2, U32>, name: String, here: Lint.Here) -> List<&2, Lint.Finding>:
   match second:
-    case Some{+u}:
+    case Some{u}:
       finding.at(Lint.Node.span(Lint.Here.node(here, u)), name)
     case None{}:
       []
@@ -231,10 +231,10 @@ def finding(second: Maybe<&2, U32>, +name: String, +here: Lint.Here) -> List<&2,
 # The finding about the binder `b` of `o`, unless a match takes it apart.
 def unmatched(
   matched: Bool,
-  +b: U32,
-  +o: U32,
-  +n: String,
-  +uses: List<&2, Use>,
+  b: U32,
+  o: U32,
+  n: String,
+  uses: List<&2, Use>,
   +here: Lint.Here
 ) -> List<&2, Lint.Finding>:
   match matched:
@@ -253,7 +253,7 @@ def judge(
   match onces:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Once{+b, +o, +n}, rest}:
+    case Con{Once{+b, +o, n}, rest}:
       judge(
         rest,
         uses,
@@ -277,15 +277,15 @@ def judge(
 def judged(
   found: List<&2, Use> & List<&2, Use>,
   onces: List<&2, Once>,
-  +here: Lint.Here
+  here: Lint.Here
 ) -> List<&2, Lint.Finding>:
   match found:
-    case Tuple{+uses, +matched}:
+    case Tuple{uses, matched}:
       judge(onces, uses, matched, here, [])
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  +children = Lint.Children.of(nodes)
+  children = Lint.Children.of(nodes)
   Lint.done(
     judged(Use.all(nodes, here, [], []), Once.all(nodes, bare(nodes, children, []), here, []), here)
   )

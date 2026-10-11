@@ -94,11 +94,11 @@ def Runs.extend(
   run: Run,
   comment: Directives.Comment,
   +key: String,
-  +path: String,
+  path: String,
   out: List<&2, Lint.Finding>
 ) -> Runs:
   match continues run comment:
-    case True{} Run{beg, end, line, +last, sorted, slots} Directives.Comment{+b, +e, l, t, body}:
+    case True{} Run{beg, end, line, last, sorted, slots} Directives.Comment{b, +e, l, t, body}:
       Runs{
         Some{
           Run{
@@ -119,12 +119,12 @@ def Runs.extend(
 def Runs.step(
   key: Maybe<&2, String>,
   comment: Directives.Comment,
-  +path: String,
+  path: String,
   runs: Runs
 ) -> Runs:
   match key comment runs:
     case Some{
-      +k
+      k
     } Directives.Comment{b, e, +l, False{}, body} Runs{Some{Run{rb, re, +rl, rk, rs, slots}}, out}:
       Runs.extend(
         U32.is_eq(l, (rl + 1: U32)),
@@ -159,13 +159,13 @@ def Runs.go(
         )
       )
 
-def stacks(scanned: Directives.Scanned, +path: String) -> List<&2, Lint.Finding>:
+def stacks(scanned: Directives.Scanned, path: String) -> List<&2, Lint.Finding>:
   match scanned:
     case Directives.Scanned{comments, lines}:
       Runs.go(comments, path, Runs{None{}, []})
 
 # The stacks out of order in a file that has a directive's mark.
-def found(marked: Bool, +text: String, +path: String) -> List<&2, Lint.Finding>:
+def found(marked: Bool, text: String, path: String) -> List<&2, Lint.Finding>:
   match marked:
     case True{}:
       stacks(Directives.Scan.of(text), path)

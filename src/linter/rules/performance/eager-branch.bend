@@ -58,8 +58,8 @@ def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
         Con{
           c,
           Con{
-            Lint.Node{+x, xp, xo, xs, xn, xb, xq, xsp, xt},
-            Con{Lint.Node{+y, yp, yo, ys, yn, yb, yq, ysp, yt}, rest}
+            Lint.Node{x, xp, xo, xs, xn, xb, xq, xsp, xt},
+            Con{Lint.Node{y, yp, yo, ys, yn, yb, yq, ysp, yt}, rest}
           }
         }
       }
@@ -72,7 +72,7 @@ def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
       )
     case Con{
       Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, +t},
-      Con{left, Con{Lint.Node{+r, rp, ro, rs, rn, rb, rq, rsp, rt}, Nil{}}}
+      Con{left, Con{Lint.Node{r, rp, ro, rs, rn, rb, rq, rsp, rt}, Nil{}}}
     }:
       Bool.pick(
         String,
@@ -88,7 +88,7 @@ def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
     case _:
       ""
 
-def Eager.of(+kind: String, +value: U32) -> Maybe<&2, Eager>:
+def Eager.of(+kind: String, value: U32) -> Maybe<&2, Eager>:
   Shared.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
 
 # The eager value a call, the node before `chain` (numbered `prev`), is in, if one is above it and no
@@ -128,7 +128,7 @@ def why(+kind: String, +callee: String) -> String:
       ++ " runs even then"
   )
 
-def message(+kind: String, +callee: String, +own: Bool) -> String:
+def message(kind: String, +callee: String, own: Bool) -> String:
   why(
     kind,
     callee
@@ -152,12 +152,12 @@ def judged.at(span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lint.Finding
 
 def judged(
   eager: Maybe<&2, Eager>,
-  +callee: String,
-  +own: Bool,
-  +here: Lint.Here
+  callee: String,
+  own: Bool,
+  here: Lint.Here
 ) -> List<&2, Lint.Finding>:
   match eager:
-    case Some{Eager{+kind, +v}}:
+    case Some{Eager{kind, v}}:
       judged.at(Lint.Node.span(Lint.Here.node(here, v)), message(kind, callee, own))
     case None{}:
       []
@@ -165,10 +165,10 @@ def judged(
 def looping(
   hit: Bool,
   +id: U32,
-  +callee: String,
-  +own: Bool,
+  callee: String,
+  own: Bool,
   +here: Lint.Here,
-  +children: Lint.Children
+  children: Lint.Children
 ) -> List<&2, Lint.Finding>:
   match hit:
     case True{}:
@@ -183,14 +183,14 @@ def looping(
 
 def call(
   nodes: List<&2, Lint.Node>,
-  +id: U32,
-  +owner: U32,
-  +loops: List<&2, String>,
+  id: U32,
+  owner: U32,
+  loops: List<&2, String>,
   +here: Lint.Here,
-  +children: Lint.Children
+  children: Lint.Children
 ) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, +callee, b, q, s, +target}, args}:
+    case Con{Lint.Node{i, p, o, Lint.Reference{}, callee, b, q, s, +target}, args}:
       looping(
         List.contains(~String, ~String.eq, loops, target),
         id,
@@ -212,7 +212,7 @@ def scan(
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{+i, p, +o, Lint.Application{}, n, b, q, s, t}, rest}:
+    case Con{Lint.Node{+i, p, o, Lint.Application{}, n, b, q, s, t}, rest}:
       scan(
         rest,
         loops,

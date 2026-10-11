@@ -2,7 +2,7 @@
 import Base
 import ../lint.bend as Lint
 
-def shown(syntax: Lint.Syntax, +name: String) -> Maybe<&2, String>:
+def shown(syntax: Lint.Syntax, name: String) -> Maybe<&2, String>:
   match syntax:
     case Lint.Reference{}:
       Some{"reference " ++ name}

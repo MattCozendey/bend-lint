@@ -32,7 +32,7 @@ def tail(above: List<&2, Lint.Node>, ok: Bool, cur: U32, +children: Lint.Childre
     case _ True{}:
       False{}
 
-def tail.of(chain: List<&2, Lint.Node>, +children: Lint.Children) -> Bool:
+def tail.of(chain: List<&2, Lint.Node>, children: Lint.Children) -> Bool:
   match chain:
     case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, above}:
       tail(above, True{}, i, children)
@@ -43,11 +43,11 @@ def deep.add(
   recursive: Bool,
   node: Lint.Node,
   +here: Lint.Here,
-  +children: Lint.Children,
+  children: Lint.Children,
   out: List<&2, String>
 ) -> List<&2, String>:
   match recursive node:
-    case True{} Lint.Node{+id, p, owner, s, n, b, q, sp, t}:
+    case True{} Lint.Node{id, p, owner, s, n, b, q, sp, t}:
       Shared.push(
         String,
         Shared.when(
@@ -146,7 +146,7 @@ def before(
 def forks.of(
   fork: Bool,
   +id: U32,
-  +here: Lint.Here,
+  here: Lint.Here,
   +children: Lint.Children,
   out: List<&2, U32>
 ) -> List<&2, U32>:
@@ -198,7 +198,7 @@ def inside(chain: List<&2, Lint.Node>, hit: Bool, +values: List<&2, U32>) -> Boo
     case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest} False{}:
       inside(rest, List.contains(~U32, ~U32.is_eq, values, i), values)
 
-def message(+callee: String, +loop: String) -> String:
+def message(+callee: String, loop: String) -> String:
   callee
     ++ " calls itself outside a tail position: Bend runs such a call with a frame per call (\"bend guide shaders\"). "
     ++ loop
@@ -218,12 +218,12 @@ def finding(hit: Bool, span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lin
 # The finding about a call of a deep definition (if `deep`), when the call is in a fork.
 def forked(
   deep: Bool,
-  +id: U32,
-  +owner: U32,
-  +callee: String,
+  id: U32,
+  owner: U32,
+  callee: String,
   span: Maybe<&2, Lint.Span>,
   +here: Lint.Here,
-  +forks: List<&2, U32>
+  forks: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
   match deep:
     case True{}:
@@ -237,15 +237,15 @@ def forked(
 
 def judge.call(
   nodes: List<&2, Lint.Node>,
-  +id: U32,
+  id: U32,
   +owner: U32,
   span: Maybe<&2, Lint.Span>,
   +here: Lint.Here,
-  +deeps: List<&2, String>,
-  +forks: List<&2, U32>
+  deeps: List<&2, String>,
+  forks: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, +callee, b, q, s, +called}, args}:
+    case Con{Lint.Node{i, p, o, Lint.Reference{}, callee, b, q, s, +called}, args}:
       forked(
         List.contains(
           ~String,
@@ -266,10 +266,10 @@ def judge.call(
 
 def judge(
   node: Lint.Node,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +deeps: List<&2, String>,
-  +forks: List<&2, U32>
+  here: Lint.Here,
+  children: Lint.Children,
+  deeps: List<&2, String>,
+  forks: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
   match node:
     case Lint.Node{+id, p, owner, Lint.Application{}, n, b, q, span, t}:

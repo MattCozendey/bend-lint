@@ -127,7 +127,7 @@ def Scan.in_comment(
   glyph: Glyph,
   c: Char,
   +at: U32,
-  +line: U32,
+  line: U32,
   code: Bool,
   open: Comment,
   comments: List<&2, Comment>,
@@ -170,11 +170,11 @@ def Scan.quote(string: Bool, double: Bool) -> Mode:
 # A step in a string or a char literal (`string`): a \ escapes the next character, its closing quote ends it, and a
 # line it spans holds code.
 def Scan.in_quote(
-  +string: Bool,
+  string: Bool,
   escaped: Bool,
   glyph: Glyph,
-  +at: U32,
-  +line: U32,
+  at: U32,
+  line: U32,
   code: Bool,
   open: Comment,
   comments: List<&2, Comment>,
@@ -220,7 +220,7 @@ def Scan.go(text: String, s: Scan) -> Scan:
 
 def Scan.done(s: Scan) -> Scanned:
   match s:
-    case Scan{InComment{}, +at, line, code, open, comments, lines}:
+    case Scan{InComment{}, at, line, code, open, comments, lines}:
       Scanned{
         List.reverse(&2, Comment, Comment.closed(open, at) <> comments),
         List.reverse(&2, Bool, code <> lines)
@@ -379,7 +379,7 @@ def Draft.part(part: List<&2, String>, out: List<&2, String>) -> List<&2, String
 # The reason so far (last first) and those before it (last first), with `word` read: the label starts another.
 def Draft.reasons.step(
   dash: Bool,
-  +word: String,
+  word: String,
   read: List<&2, String> & List<&2, String>
 ) -> List<&2, String>
   & List<&2, String>:
@@ -405,7 +405,7 @@ def Draft.reason(rest: List<&2, String>) -> Maybe<&2, List<&2, String>>:
   match rest:
     case Nil{}:
       Some{[]}
-    case Con{+dash, more}:
+    case Con{dash, more}:
       Shared.when(List<&2, String>, String.eq(dash, "--"), Draft.reasons(more, ([], [])))
 
 # The draft of a directive's words, after `bend-lint:`.
@@ -431,7 +431,7 @@ def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
     case None{}:
       None{}
 
-def Problem.severity(action: Action, pinned: Bool, +rule: String) -> Maybe<&2, String>:
+def Problem.severity(action: Action, pinned: Bool, rule: String) -> Maybe<&2, String>:
   match action pinned:
     case Disable{} True{}:
       Some{"A disable takes no severity."}
@@ -446,7 +446,7 @@ def Problem.reason(scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>
       None{}
     case End{} _:
       Some{"An end takes no reason; the begin has it."}
-    case _ Con{+r, more}:
+    case _ Con{r, more}:
       Shared.when(String, String.is_empty(r), "A reason is required, after `--`.")
     case _ Nil{}:
       Some{"A reason is required, after `--`."}
@@ -455,7 +455,7 @@ def Problem.because(action: Action, scope: Scope, reasons: List<&2, String>) -> 
   match action scope reasons:
     case Disable{} End{} _:
       None{}
-    case Disable{} _ Con{r, Con{+b, more}}:
+    case Disable{} _ Con{r, Con{b, more}}:
       Shared.when(
         String,
         String.is_empty(b),
@@ -512,9 +512,9 @@ def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: 
 # What a comment that holds `draft` (or not) says, checked against the rules there are.
 def Said.of(
   draft: Maybe<&2, Draft>,
-  +trailing: Bool,
-  +comment: Comment,
-  +known: List<&2, String>,
+  trailing: Bool,
+  comment: Comment,
+  known: List<&2, String>,
   index: U32
 ) -> Said:
   match draft:
@@ -551,7 +551,7 @@ def Said.of(
         index
       )
 
-def Draft.read.if(marked: Bool, +text: String) -> Maybe<&2, Maybe<&2, Draft>>:
+def Draft.read.if(marked: Bool, text: String) -> Maybe<&2, Maybe<&2, Draft>>:
   match marked:
     case True{}:
       Some{Draft.of(Words.of(String.drop(text, 10n)))}
@@ -565,7 +565,7 @@ def Draft.read(+body: String) -> Maybe<&2, Maybe<&2, Draft>>:
 def Said.read.of(
   draft: Maybe<&2, Maybe<&2, Draft>>,
   +comment: Comment,
-  +known: List<&2, String>,
+  known: List<&2, String>,
   index: U32
 ) -> Maybe<&2, Said>:
   match draft comment:
@@ -575,7 +575,7 @@ def Said.read.of(
       None{}
 
 # What a comment says, if it says bend-lint:.
-def Said.read(+comment: Comment, +known: List<&2, String>, index: U32) -> Maybe<&2, Said>:
+def Said.read(+comment: Comment, known: List<&2, String>, index: U32) -> Maybe<&2, Said>:
   match comment:
     case Comment{beg, end, line, trailing, +body}:
       Said.read.of(Draft.read(body), Comment{beg, end, line, trailing, body}, known, index)
@@ -616,7 +616,7 @@ def Open.latest(
       Some{d}
     case Nil{} None{}:
       None{}
-    case Con{Directive{+a, s, +r, +sev, +c, +i}, rest} None{}:
+    case Con{Directive{+a, s, +r, sev, c, i}, rest} None{}:
       Open.latest(
         rest,
         Shared.when(
@@ -660,8 +660,8 @@ def Pairing.closing(
 def Pairing.close(begin: Maybe<&2, Directive>, end: Directive, p: Pairing) -> Pairing:
   match begin end p:
     case Some{
-      Directive{a, s, r, sev, c, +i}
-    } Directive{ea, es, er, esev, Comment{b, e, +line, t, body}, ei} Pairing{+open, closed, wrong}:
+      Directive{a, s, r, sev, c, i}
+    } Directive{ea, es, er, esev, Comment{b, e, +line, t, body}, ei} Pairing{open, closed, wrong}:
       Pairing.closing(
         Severity.same(sev, esev),
         i,
@@ -729,7 +729,7 @@ def Closed.find(closed: List<&2, Closed>, found: Maybe<&2, U32>, +index: U32) ->
       Some{line}
     case Nil{} None{}:
       None{}
-    case Con{Closed{+i, line}, rest} None{}:
+    case Con{Closed{i, line}, rest} None{}:
       Closed.find(rest, Shared.when(U32, U32.is_eq(i, index), line), index)
 
 def Covering.next(d: Directive, found: Maybe<&2, U32>) -> Covering:
@@ -742,9 +742,9 @@ def Covering.next(d: Directive, found: Maybe<&2, U32>) -> Covering:
 # The lines a directive covers; `last` is the file's last line.
 def Covering.of(
   said: Said,
-  +lines: List<&2, Bool>,
-  +closed: List<&2, Closed>,
-  +last: U32
+  lines: List<&2, Bool>,
+  closed: List<&2, Closed>,
+  last: U32
 ) -> Maybe<&2, Covering>:
   match said:
     case Said{Directive{a, WholeFile{}, r, sev, c, i}}:
@@ -800,9 +800,9 @@ def Covering.pins(
       Severity.same(pinned, Some{severity})
 
 # Whether a covering covers a finding of `rule` and `severity` on line `row`.
-def Covering.covers(+rule: String, +severity: Lint.Severity, +row: U32, covering: Covering) -> Bool:
+def Covering.covers(rule: String, severity: Lint.Severity, +row: U32, covering: Covering) -> Bool:
   match covering:
-    case Covering{Directive{action, scope, r, sev, c, i}, +from, +to}:
+    case Covering{Directive{action, scope, r, sev, c, i}, from, to}:
       String.eq(
         r,
         rule
@@ -931,7 +931,7 @@ def Unmet.go(
   match coverings:
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
-    case Con{Covering{Directive{a, s, r, sev, Comment{b, e, l, t, body}, +i}, from, to}, rest}:
+    case Con{Covering{Directive{a, s, r, sev, Comment{b, e, l, t, body}, i}, from, to}, rest}:
       Unmet.go(
         rest,
         used,
@@ -1018,9 +1018,9 @@ def Covering.ran(
 
 def done(
   a: Applied,
-  +coverings: List<&2, Covering>,
+  coverings: List<&2, Covering>,
   unpaired: List<&2, Said>,
-  +saids: List<&2, Said>,
+  saids: List<&2, Said>,
   +linted: Linted
 ) -> Suppressed:
   match a:
@@ -1042,7 +1042,7 @@ def done(
 def covered(
   +coverings: List<&2, Covering>,
   unpaired: List<&2, Said>,
-  +saids: List<&2, Said>,
+  saids: List<&2, Said>,
   +linted: Linted,
   +founds: List<&2, Lint.Found>
 ) -> Suppressed:
@@ -1063,7 +1063,7 @@ def paired(
   p: Pairing,
   +saids: List<&2, Said>,
   +lines: List<&2, Bool>,
-  +linted: Linted,
+  linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Suppressed:
   match p:
@@ -1084,15 +1084,15 @@ def paired(
 
 def said(
   +saids: List<&2, Said>,
-  +lines: List<&2, Bool>,
-  +linted: Linted,
+  lines: List<&2, Bool>,
+  linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Suppressed:
   paired(Pairing.go(saids, Pairing{[], [], []}), saids, lines, linted, founds)
 
 def scanned(scanned: Scanned, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
   match scanned:
-    case Scanned{comments, +lines}:
+    case Scanned{comments, lines}:
       said(Said.all(comments, Linted.known(linted), 0, []), lines, linted, founds)
 
 def when(has: Bool, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:

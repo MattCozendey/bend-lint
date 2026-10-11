@@ -272,7 +272,7 @@ def head_is(~test: @+c: Char -> Bool, s: String) -> Bool:
   match s:
     case SNil{}:
       False{}
-    case SCon{+c, rest}:
+    case SCon{c, rest}:
       test(c)
 
 def char(c: Char) -> String:
@@ -339,7 +339,7 @@ def digit_at(s: String) -> Bool:
     case SCon{c, rest}:
       Char.is_digit(c)
 
-def ident_at.of(dot: Bool, +c: Char, rest: String) -> Bool:
+def ident_at.of(dot: Bool, c: Char, rest: String) -> Bool:
   match dot:
     case True{}:
       head_is(~is_head, rest)
@@ -391,7 +391,7 @@ def tok(r: Run, sym: Sym, name: Bool) -> Scan:
 def fixed(text: String, len: U32, rest: String, last: Char, sym: Sym) -> Scan:
   Tok{text, len, rest, last, Code{}, sym, False{}, None{}}
 
-def keyword.is(+text: String, word: String, sym: Sym) -> Sym:
+def keyword.is(text: String, word: String, sym: Sym) -> Sym:
   Bool.pick(Sym, same(text, word), sym, Word{})
 
 def keyword(text: String, +keep: String) -> Sym:
@@ -429,10 +429,10 @@ def exponent.digits(
   go: Bool,
   +rest: String,
   mark: String,
-  +k: U32,
+  k: U32,
   keep: String,
   text: String,
-  +n: U32,
+  n: U32,
   last: Char,
   signed: Bool
 ) -> Scan:
@@ -450,9 +450,9 @@ def exponent.sign(
   rest: String,
   +again: String,
   mark: String,
-  +keep: String,
+  keep: String,
   text: String,
-  +n: U32,
+  n: U32,
   last: Char
 ) -> Scan:
   match rest:
@@ -463,7 +463,7 @@ def exponent.sign(
     case _:
       exponent.digits(digit_at(again), again, mark, 1, keep, text, n, last, False{})
 
-def exponent.of(s: String, +keep: String, text: String, +n: U32, last: Char) -> Scan:
+def exponent.of(s: String, keep: String, text: String, n: U32, last: Char) -> Scan:
   match s:
     case SCon{'e', +rest}:
       exponent.sign(rest, rest, "e", keep, text, n, last)
@@ -478,7 +478,7 @@ def exponent(r: Run) -> Scan:
     case Run{text, n, +s, last}:
       exponent.of(s, s, text, n, last)
 
-def fraction(go: Bool, +rest: String, keep: String, text: String, +n: U32, last: Char) -> Scan:
+def fraction(go: Bool, +rest: String, keep: String, text: String, n: U32, last: Char) -> Scan:
   match go:
     case True{}:
       exponent(scan(~digit_at, rest, rest, True{}, text ++ ".", (n + 1: U32), '.'))
@@ -486,14 +486,14 @@ def fraction(go: Bool, +rest: String, keep: String, text: String, +n: U32, last:
       number.tok(Run{text, n, keep, last}, False{}, True{})
 
 # After "n": n+, or n alone.
-def number.inc(s: String, +keep: String, text: String, +n: U32) -> Scan:
+def number.inc(s: String, keep: String, text: String, n: U32) -> Scan:
   match s:
     case SCon{'+', rest}:
       number.tok(Run{text ++ "n+", (n + 2: U32), rest, '+'}, True{}, False{})
     case _:
       number.tok(Run{text ++ "n", (n + 1: U32), keep, 'n'}, False{}, True{})
 
-def number.of(s: String, +keep: String, text: String, +n: U32, last: Char) -> Scan:
+def number.of(s: String, keep: String, text: String, n: U32, last: Char) -> Scan:
   match s:
     case SCon{'n', +rest}:
       number.inc(rest, rest, text, n)
@@ -517,7 +517,7 @@ def tail_after(c: Char, tail: Maybe<&2, U32>) -> Maybe<&2, U32>:
     case _ None{}:
       None{}
 
-def quote_after(+c: Char, +quote: Char) -> Quote:
+def quote_after(+c: Char, quote: Char) -> Quote:
   Bool.pick(
     Quote,
     Char.is_eq(c, '\\'),
@@ -556,7 +556,7 @@ def literal.go(
 def literal(
   s: String,
   keep: String,
-  +quote: Char,
+  quote: Char,
   at: Quote,
   text: String,
   n: U32,
@@ -637,7 +637,7 @@ def lex.dash(word: Bool, keep: String, r: String) -> Scan:
     case False{}:
       fixed("<-", 2, r, '-', Word{})
 
-def lex.lt(rest: String, +keep: String, +prev: Char) -> Scan:
+def lex.lt(rest: String, keep: String, +prev: Char) -> Scan:
   match rest:
     case SCon{'&', SCon{'>', r}}:
       fixed("<&>", 3, r, '>', Meet{})
@@ -659,7 +659,7 @@ def lex.shr(blank: Bool, keep: String, r: String) -> Scan:
     case False{}:
       fixed(">", 1, keep, '>', Gt{})
 
-def lex.gt(rest: String, +keep: String, +prev: Char) -> Scan:
+def lex.gt(rest: String, keep: String, prev: Char) -> Scan:
   match rest:
     case SCon{'>', r}:
       lex.shr(is_blank(prev), keep, r)
@@ -668,7 +668,7 @@ def lex.gt(rest: String, +keep: String, +prev: Char) -> Scan:
     case _:
       fixed(">", 1, keep, '>', Gt{})
 
-def lex.dot(rest: String, +keep: String) -> Scan:
+def lex.dot(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'&', SCon{'.', r}}:
       fixed(".&.", 3, r, '.', BitAnd{})
@@ -679,14 +679,14 @@ def lex.dot(rest: String, +keep: String) -> Scan:
     case _:
       Tok{".", 1, keep, '.', Code{}, Dot{}, True{}, None{}}
 
-def lex.minus(rest: String, +keep: String) -> Scan:
+def lex.minus(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'>', r}:
       fixed("->", 2, r, '>', Arrow{})
     case _:
       fixed("-", 1, keep, '-', Minus{})
 
-def lex.eq(rest: String, +keep: String) -> Scan:
+def lex.eq(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'=', r}:
       fixed("==", 2, r, '=', EqEq{})
@@ -695,14 +695,14 @@ def lex.eq(rest: String, +keep: String) -> Scan:
     case _:
       fixed("=", 1, keep, '=', Assign{})
 
-def lex.bang(rest: String, +keep: String) -> Scan:
+def lex.bang(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'=', r}:
       fixed("!=", 2, r, '=', Ne{})
     case _:
       fixed("!", 1, keep, '!', Bang{})
 
-def lex.amp(rest: String, +keep: String) -> Scan:
+def lex.amp(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'&', r}:
       fixed("&&", 2, r, '&', AndAnd{})
@@ -715,14 +715,14 @@ def lex.amp(rest: String, +keep: String) -> Scan:
     case _:
       fixed("&", 1, keep, '&', Amp{})
 
-def lex.bar(rest: String, +keep: String) -> Scan:
+def lex.bar(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'|', r}:
       fixed("||", 2, r, '|', OrOr{})
     case _:
       fixed("|", 1, keep, '|', Bar{})
 
-def lex.plus(rest: String, +keep: String) -> Scan:
+def lex.plus(rest: String, keep: String) -> Scan:
   match rest:
     case SCon{'+', r}:
       fixed("++", 2, r, '+', Concat{})
@@ -749,7 +749,7 @@ def blanks(s: String, keep: String, n: U32, last: Char) -> Scan:
     case _:
       Blank{keep, last, n}
 
-def lex.token(s: String, +keep: String, +prev: Char) -> Scan:
+def lex.token(s: String, keep: String, prev: Char) -> Scan:
   match s:
     case SNil{}:
       Eof{}
@@ -784,7 +784,7 @@ def lex.token(s: String, +keep: String, +prev: Char) -> Scan:
     case _:
       lex.char(keep)
 
-def next_col(lex: Lex, tail: Maybe<&2, U32>, +col: U32, +len: U32) -> U32:
+def next_col(lex: Lex, tail: Maybe<&2, U32>, col: U32, len: U32) -> U32:
   match lex tail:
     case Newline{} _:
       0
@@ -859,7 +859,7 @@ def Token.from(t: Token) -> String:
 
 def is_comment(t: Token) -> Bool:
   match t:
-    case Token{+text, beg, end, col, Comment{}, sym, name, tail, from}:
+    case Token{text, beg, end, col, Comment{}, sym, name, tail, from}:
       True{}
     case _:
       False{}
@@ -1169,7 +1169,7 @@ def closer(s: Sym) -> Sym:
     case _:
       Word{}
 
-def angled(prev: Maybe<&2, Token>, +t: Token) -> Bool:
+def angled(prev: Maybe<&2, Token>, t: Token) -> Bool:
   match prev:
     case Some{+p}:
       U32.is_eq(Token.end(p), Token.beg(t)) && Token.name(p)
@@ -1177,7 +1177,7 @@ def angled(prev: Maybe<&2, Token>, +t: Token) -> Bool:
       False{}
 
 # Whether t opens a group: a glued < opens type arguments.
-def opens.of(s: Sym, +t: Token, prev: Maybe<&2, Token>) -> Bool:
+def opens.of(s: Sym, t: Token, prev: Maybe<&2, Token>) -> Bool:
   match s:
     case Lpar{}:
       True{}
@@ -1221,7 +1221,7 @@ def pop(t: Token, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
     case Con{Open{open, close, children, block}, rest}:
       add(Group{open, t, List.reverse(&2, Tree, children), block}, rest, root)
 
-def tree.close(closes: Bool, +t: Token, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
+def tree.close(closes: Bool, t: Token, stack: List<&2, Open>, root: List<&2, Tree>) -> Built:
   match closes:
     case True{}:
       pop(t, stack, root)
@@ -1265,7 +1265,7 @@ def str.split(whole: Bool, +s: String, width: U32, tail: Maybe<&2, U32>, +keep: 
     case False{}:
       Str{Shared.take(s, U32.to_nat(keep)), String.drop(s, U32.to_nat(keep)), width, tail}
 
-def str.of(+s: String, m: Measure) -> Doc:
+def str.of(s: String, m: Measure) -> Doc:
   match m:
     case Measure{+width, tail, +keep}:
       str.split(U32.is_eq(width, keep), s, width, tail, keep)
@@ -1338,7 +1338,7 @@ def cat(docs: List<&2, Doc>) -> Doc:
 
 def code(t: Token) -> Doc:
   match t:
-    case Token{text, +beg, end, col, lex, sym, name, tail, from}:
+    case Token{text, beg, end, col, lex, sym, name, tail, from}:
       Str{text, "", (end - beg: U32), None{}}
 
 def glued_prefix(+a: Token, b: Maybe<&2, Tree>) -> Bool:
@@ -1366,7 +1366,7 @@ def is_inc(s: Sym) -> Bool:
 # is glued to its name; a brace after a space can instead be the next
 # (annotated) argument of a call without commas, so the space stays. Other
 # atoms need a space.
-def separator.of(+x: Token, +y: Token, +group: Bool, +b: Tree) -> Doc:
+def separator.of(+x: Token, +y: Token, +group: Bool, b: Tree) -> Doc:
   Bool.pick(
     Doc,
     is_comment(y),
@@ -1446,7 +1446,7 @@ def leaf_doc(+t: Token) -> Doc:
 
 # Levels
 # ------
-def should_pop(levels: List<&2, U32>, +col: U32) -> Bool:
+def should_pop(levels: List<&2, U32>, col: U32) -> Bool:
   match levels:
     case Con{top, Con{x, xs}}:
       U32.is_lt(col, top)
@@ -1486,7 +1486,7 @@ def depth(levels: List<&2, U32>) -> U32:
 
 # Sequences
 # ---------
-def fresh(+base: U32) -> Seq:
+def fresh(base: U32) -> Seq:
   Seq{[], None{}, None{}, [base], False{}}
 
 def Seq.put(s: Seq, d: Doc) -> Seq:
@@ -1503,7 +1503,7 @@ def Seq.chain(s: Seq) -> Seq:
     case Seq{out, Some{chain}, prev, levels, skip}:
       Seq{out, Some{Con{soft(" ", 1), chain}}, prev, levels, skip}
 
-def Seq.doc(s: Seq, +tab: U32) -> Doc:
+def Seq.doc(s: Seq, tab: U32) -> Doc:
   match s:
     case Seq{out, None{}, prev, levels, skip}:
       grp(cat_rev(out))
@@ -1520,7 +1520,7 @@ def prev_comment(prev: Maybe<&2, Tree>) -> Bool:
 # A run of newlines breaks the line at the next tree's level.
 def Seq.level(
   +levels: List<&2, U32>,
-  +tab: U32,
+  tab: U32,
   out: List<&2, Doc>,
   chain: Maybe<&2, List<&2, Doc>>
 ) -> Seq:
@@ -1533,35 +1533,35 @@ def Seq.end(comment: Bool, s: Seq) -> Seq:
     case False{}:
       s
 
-def Seq.break(up: Maybe<&2, Tree>, +tab: U32, s: Seq) -> Seq:
+def Seq.break(up: Maybe<&2, Tree>, tab: U32, s: Seq) -> Seq:
   match up s:
     case Some{u} Seq{out, chain, prev, levels, skip}:
       Seq.level(indented(levels, Token.col(first(u))), tab, out, chain)
-    case None{} Seq{out, chain, +prev, levels, skip}:
+    case None{} Seq{out, chain, prev, levels, skip}:
       Seq.end(prev_comment(prev), Seq{out, chain, None{}, levels, True{}})
 
-def Seq.newline.if(trigger: Bool, +rest: List<&2, Tree>, +tab: U32, s: Seq) -> Seq:
+def Seq.newline.if(trigger: Bool, rest: List<&2, Tree>, tab: U32, s: Seq) -> Seq:
   match trigger:
     case True{}:
       Seq.break(upcoming(rest), tab, s)
     case False{}:
       s
 
-def Seq.newline(+rest: List<&2, Tree>, +tab: U32, +raw: Bool, s: Seq) -> Seq:
+def Seq.newline(rest: List<&2, Tree>, tab: U32, raw: Bool, s: Seq) -> Seq:
   match s:
     case Seq{out, chain, prev, levels, True{}}:
       Seq{out, chain, prev, levels, True{}}
     case Seq{out, chain, +prev, levels, False{}}:
       Seq.newline.if(raw || prev_comment(prev), rest, tab, Seq{out, chain, prev, levels, False{}})
 
-def Seq.joint(chain: Bool, +p: Tree, +n: Tree, s: Seq) -> Seq:
+def Seq.joint(chain: Bool, p: Tree, n: Tree, s: Seq) -> Seq:
   match chain:
     case True{}:
       Seq.chain(s)
     case False{}:
       Seq.put(s, separator(p, n))
 
-def Seq.tree(+n: Tree, d: Doc, next: Maybe<&2, Tree>, +raw: Bool, s: Seq) -> Seq:
+def Seq.tree(+n: Tree, d: Doc, next: Maybe<&2, Tree>, raw: Bool, s: Seq) -> Seq:
   match s:
     case Seq{out, chain, None{}, levels, skip}:
       Seq.put(Seq{out, chain, Some{n}, levels, False{}}, d)
@@ -1583,11 +1583,11 @@ def Seq.tree(+n: Tree, d: Doc, next: Maybe<&2, Tree>, +raw: Bool, s: Seq) -> Seq
 
 def Seq.step(
   newline: Bool,
-  +n: Tree,
+  n: Tree,
   d: Doc,
-  +rest: List<&2, Tree>,
-  +tab: U32,
-  +raw: Bool,
+  rest: List<&2, Tree>,
+  tab: U32,
+  raw: Bool,
   s: Seq
 ) -> Seq:
   match newline:
@@ -1596,7 +1596,7 @@ def Seq.step(
     case False{}:
       Seq.tree(n, d, head(rest), raw, s)
 
-def Seq.visit(+n: Tree, d: Doc, +rest: List<&2, Tree>, +tab: U32, +raw: Bool, s: Seq) -> Seq:
+def Seq.visit(+n: Tree, d: Doc, rest: List<&2, Tree>, tab: U32, raw: Bool, s: Seq) -> Seq:
   Seq.step(is_newline(n), n, d, rest, tab, raw, s)
 
 # Parts
@@ -1615,7 +1615,7 @@ def Split.track(+n: Tree, attach: Bool, sp: Split) -> Split:
         comments
       }
 
-def Split.end(+tab: U32, +base: U32, st: State) -> State:
+def Split.end(tab: U32, base: U32, st: State) -> State:
   match st:
     case State{seq, Split{parts, newlines, comment, attach, comments}}:
       State{
@@ -1629,7 +1629,7 @@ def Split.end(+tab: U32, +base: U32, st: State) -> State:
         }
       }
 
-def Split.comments(+n: Tree, sp: Split) -> Split:
+def Split.comments(n: Tree, sp: Split) -> Split:
   match sp:
     case Split{parts, newlines, comment, attach, comments}:
       Split{parts, newlines, comment, attach, comments || is_comment(first(n))}
@@ -1641,7 +1641,7 @@ def head_comment(xs: List<&2, Tree>) -> Bool:
     case Nil{}:
       False{}
 
-def Split.act(+n: Tree, +rest: List<&2, Tree>, sp: Split) -> Act:
+def Split.act(n: Tree, rest: List<&2, Tree>, sp: Split) -> Act:
   match sp:
     case Split{parts, newlines, comment, True{}, comments}:
       AddEnd{}
@@ -1657,9 +1657,9 @@ def Split.apply(
   act: Act,
   +n: Tree,
   d: Doc,
-  +rest: List<&2, Tree>,
+  rest: List<&2, Tree>,
   +tab: U32,
-  +base: U32,
+  base: U32,
   st: State
 ) -> State:
   match act st:
@@ -1676,7 +1676,7 @@ def Split.apply(
     case End{} State{seq, sp}:
       Split.end(tab, base, State{seq, sp})
 
-def Split.visit(+n: Tree, d: Doc, +rest: List<&2, Tree>, +tab: U32, +base: U32, st: State) -> State:
+def Split.visit(+n: Tree, d: Doc, +rest: List<&2, Tree>, tab: U32, base: U32, st: State) -> State:
   match st:
     case State{seq, +sp}:
       Split.apply(Split.act(n, rest, sp), n, d, rest, tab, base, State{seq, Split.comments(n, sp)})
@@ -1729,10 +1729,10 @@ def opening(comments: Bool) -> Doc:
 
 # A generic's closing > stays glued to the term before it: Bend parses a
 # spaced > as a comparison, even across a newline.
-def closing(+close: Token, comments: Bool) -> Doc:
+def closing(close: Token, comments: Bool) -> Doc:
   Bool.pick(Doc, is_sym(Token.sym(close), Gt{}), nothing(), opening(comments))
 
-def Split.doc(+open: Token, +close: Token, +tab: U32, st: State) -> Doc:
+def Split.doc(open: Token, +close: Token, tab: U32, st: State) -> Doc:
   match st:
     case State{seq, Split{+parts, newlines, comment, attach, +comments}}:
       grp(
@@ -1756,7 +1756,7 @@ def Split.doc(+open: Token, +close: Token, +tab: U32, st: State) -> Doc:
 
 # Build
 # -----
-def mode_of(+open: Token, +close: Token, children: List<&2, Tree>, block: Bool) -> Mode:
+def mode_of(open: Token, close: Token, children: List<&2, Tree>, block: Bool) -> Mode:
   match children block:
     case Nil{} _:
       Bare{open, close}
@@ -1765,16 +1765,16 @@ def mode_of(+open: Token, +close: Token, children: List<&2, Tree>, block: Bool) 
     case _ False{}:
       Parts{open, close}
 
-def start(+base: U32) -> State:
+def start(base: U32) -> State:
   State{fresh(base), Split.fresh()}
 
 def visit(
   +mode: Mode,
-  +n: Tree,
+  n: Tree,
   d: Doc,
-  +rest: List<&2, Tree>,
-  +tab: U32,
-  +base: U32,
+  rest: List<&2, Tree>,
+  tab: U32,
+  base: U32,
   st: State
 ) -> State:
   match mode st:
@@ -1787,7 +1787,7 @@ def visit(
     case Bare{open, close} st2:
       st2
 
-def finish(mode: Mode, st: State, +tab: U32, +base: U32) -> Doc:
+def finish(mode: Mode, st: State, +tab: U32, base: U32) -> Doc:
   match mode st:
     case Plain{} State{seq, sp}:
       Seq.doc(seq, tab)
@@ -1823,7 +1823,7 @@ def build(nodes: List<&2, Tree>, +tab: U32, +base: U32, +mode: Mode, st: State) 
         )
       )
 
-def sequence(nodes: List<&2, Tree>, +tab: U32, +base: U32) -> Doc:
+def sequence(nodes: List<&2, Tree>, tab: U32, +base: U32) -> Doc:
   build(nodes, tab, base, Plain{}, start(base))
 
 # Printer
@@ -1865,7 +1865,7 @@ def is_some(m: Maybe<&2, U32>) -> Bool:
     case None{}:
       False{}
 
-def fits.step(jobs: List<&2, Job>, +left: U32) -> Fit:
+def fits.step(jobs: List<&2, Job>, left: U32) -> Fit:
   match jobs:
     case Nil{}:
       Stop{True{}}
@@ -1899,10 +1899,10 @@ def fits.from(over: Bool, fuel: Nat, left: U32, jobs: List<&2, Job>) -> Bool:
       fits.go(fuel, Go{jobs, left})
 
 # Whether the jobs fit before their first break, from col.
-def fits(+fuel: Nat, +width: U32, +col: U32, jobs: List<&2, Job>) -> Bool:
+def fits(fuel: Nat, +width: U32, +col: U32, jobs: List<&2, Job>) -> Bool:
   fits.from(U32.is_gt(col, width), fuel, (width - col: U32), jobs)
 
-def col_of(tail: Maybe<&2, U32>, +col: U32, +width: U32) -> U32:
+def col_of(tail: Maybe<&2, U32>, col: U32, width: U32) -> U32:
   match tail:
     case Some{t}:
       t
@@ -1914,7 +1914,7 @@ def col_of(tail: Maybe<&2, U32>, +col: U32, +width: U32) -> U32:
 def print.str(
   body: String,
   keep: String,
-  +blank: String,
+  blank: String,
   jobs: List<&2, Job>,
   out: List<&2, String>,
   pending: String,
@@ -1933,8 +1933,8 @@ def print.line(
   jobs: List<&2, Job>,
   out: List<&2, String>,
   pending: String,
-  +col: U32,
-  +width: U32,
+  col: U32,
+  width: U32,
   newline: String
 ) -> Print:
   match flat:
@@ -1945,9 +1945,9 @@ def print.line(
 
 def print.flat(
   flat: Bool,
-  +fuel: Nat,
+  fuel: Nat,
   +width: Maybe<&2, U32>,
-  +col: U32,
+  col: U32,
   jobs: List<&2, Job>
 ) -> Bool:
   match flat width:
@@ -1970,9 +1970,9 @@ def print.step(
   out: List<&2, String>,
   pending: String,
   +col: U32,
-  +width: Maybe<&2, U32>,
-  +newline: String,
-  +fuel: Nat
+  width: Maybe<&2, U32>,
+  newline: String,
+  fuel: Nat
 ) -> Print:
   match jobs:
     case Nil{}:
@@ -2035,7 +2035,7 @@ def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +bud
 # A group is all flat if it fits; else its separators break together.
 # Nesting is relative, never aligned under a function name. The width is a
 # target, not a license to split atoms.
-def print(doc: Doc, +width: Maybe<&2, U32>, +indent: U32, +newline: String, +fuel: Nat) -> String:
+def print(doc: Doc, width: Maybe<&2, U32>, +indent: U32, newline: String, +fuel: Nat) -> String:
   print.go(
     fuel,
     Print{[Job{doc, indent, False{}}], [], pad(U32.to_nat(indent), ""), indent},
@@ -2080,7 +2080,7 @@ def records.newline(join: Bool, done: List<&2, List<&2, Tree>>, current: List<&2
 def records.step(
   newline: Bool,
   n: Tree,
-  +rest: List<&2, Tree>,
+  rest: List<&2, Tree>,
   done: List<&2, List<&2, Tree>>,
   +current: List<&2, Tree>
 ) -> Recs:
@@ -2108,7 +2108,7 @@ def cut.go(xs: List<&2, Tree>, c: Cut) -> Cut:
   match xs c:
     case Nil{} Cut{before, after, found}:
       Cut{List.reverse(&2, Tree, before), List.reverse(&2, Tree, after), found}
-    case Con{+n, rest} c2:
+    case Con{n, rest} c2:
       cut.go(rest, cut.step(n, c2))
 
 # Whether the cut has a body after its colon that is not a comment.
@@ -2204,21 +2204,21 @@ def decl_doc.of(inline: Bool, c: Cut, record: List<&2, Tree>, +tab: U32, +col: U
     case False{} c2:
       sequence(record, tab, col)
 
-def decl_doc.cut(+c: Cut, record: List<&2, Tree>, +declaration: Bool, +tab: U32, +col: U32) -> Doc:
+def decl_doc.cut(+c: Cut, record: List<&2, Tree>, declaration: Bool, tab: U32, +col: U32) -> Doc:
   decl_doc.of(U32.is_zero(col) && declaration && cut.inline(c), c, record, tab, col)
 
 # A declaration's body on the line of its colon moves to the next line,
 # indented.
-def decl_doc(+record: List<&2, Tree>, +declaration: Bool, +tab: U32, +col: U32) -> Doc:
+def decl_doc(+record: List<&2, Tree>, declaration: Bool, tab: U32, col: U32) -> Doc:
   decl_doc.cut(cut.go(record, Cut{[], [], False{}}), record, declaration, tab, col)
 
 def record_doc(
   is_import: Bool,
-  +head: Token,
-  +record: List<&2, Tree>,
-  +declaration: Bool,
-  +tab: U32,
-  +col: U32
+  head: Token,
+  record: List<&2, Tree>,
+  declaration: Bool,
+  tab: U32,
+  col: U32
 ) -> Doc:
   match is_import:
     case True{}:
@@ -2235,7 +2235,7 @@ def joined(xs: List<&2, Tree>, acc: List<&2, String>) -> String:
       joined(rest, Token.text(first(x)) <> acc)
 
 # Whether the record's tokens spell @unsafe.
-def is_unsafe(at: Bool, +record: List<&2, Tree>) -> Bool:
+def is_unsafe(at: Bool, record: List<&2, Tree>) -> Bool:
   match at:
     case True{}:
       same(joined(record, []), "@unsafe")
@@ -2251,19 +2251,19 @@ def gapped(gap: Bool, rows: List<&2, String>) -> List<&2, String>:
 
 def rows.line(+head: Token, +record: List<&2, Tree>, +set: Settings, r: Rows) -> Rows:
   match set r:
-    case Settings{+tab, +width, +newline} Rows{levels, +blank, unsafe, prior, rows}:
+    case Settings{+tab, width, newline} Rows{levels, +blank, unsafe, prior, rows}:
       +col = Token.col(head)
       +levels2 = indented(levels, col)
       +declaration = is_declaration(Token.sym(head))
       +comment = is_comment(head)
-      +gap = Bool.pick(
+      gap = Bool.pick(
         Bool,
         U32.is_zero(col),
         (declaration && Bool.not(prior) && Bool.not(unsafe)) || (comment && blank),
         blank
       )
-      +doc = record_doc(is_import(Token.sym(head)), head, record, declaration, tab, col)
-      +fuel = U32.to_nat(
+      doc = record_doc(is_import(Token.sym(head)), head, record, declaration, tab, col)
+      fuel = U32.to_nat(
         (fuel_per_point() * ((record_end(head, record) - Token.beg(head): U32) + 1): U32)
       )
       Rows{
@@ -2274,7 +2274,7 @@ def rows.line(+head: Token, +record: List<&2, Tree>, +set: Settings, r: Rows) ->
         Con{print(doc, width, (depth(levels2) * tab: U32), newline, fuel), gapped(gap, rows)}
       }
 
-def rows.step(record: List<&2, Tree>, +set: Settings, r: Rows) -> Rows:
+def rows.step(record: List<&2, Tree>, set: Settings, r: Rows) -> Rows:
   match record r:
     case Nil{} Rows{levels, blank, unsafe, comment, rows}:
       Rows{levels, True{}, unsafe, comment, rows}
@@ -2318,10 +2318,10 @@ def text_of.trimmed(rows: List<&2, String>, +newline: String) -> String:
     case Con{row, rest}:
       join(rest, newline, row ++ newline)
 
-def text_of(+rows: List<&2, String>, +newline: String) -> String:
+def text_of(+rows: List<&2, String>, newline: String) -> String:
   text_of.trimmed(drop_empty(rows, head_empty(rows)), newline)
 
-def format.text(r: Rows, +newline: String) -> String:
+def format.text(r: Rows, newline: String) -> String:
   match r:
     case Rows{levels, blank, unsafe, comment, rows}:
       text_of(rows, newline)
@@ -2343,14 +2343,14 @@ def format.of(nodes: Maybe<&2, List<&2, Tree>>, +set: Settings) -> Maybe<&2, Str
       }
 
 # The formatted text, or None{} if its delimiters do not balance.
-def format(source: String, +set: Settings) -> Maybe<&2, String>:
+def format(source: String, set: Settings) -> Maybe<&2, String>:
   format.of(tree.go(tokens(source), None{}, Built{[], []}), set)
 
 # Rule
 # ====
 
 # Where `a` and `b` first differ: `same` is whether the characters before `at` were the same.
-def differ(a: String, b: String, +at: U32, same: Bool) -> U32:
+def differ(a: String, b: String, at: U32, same: Bool) -> U32:
   match a b same:
     case _ _ False{}:
       (at - 1: U32)
@@ -2360,7 +2360,7 @@ def differ(a: String, b: String, +at: U32, same: Bool) -> U32:
       at
 
 # Where the line that `s` starts, at `i`, ends: before its newline, or at the end of the text.
-def line_end(s: String, +i: U32) -> U32:
+def line_end(s: String, i: U32) -> U32:
   match s:
     case SNil{}:
       i
@@ -2389,7 +2389,7 @@ def judged(same: Bool, +out: String, +text: String, +path: String) -> List<&2, L
         }
       ]
 
-def judge(formatted: Maybe<&2, String>, +text: String, +path: String) -> List<&2, Lint.Finding>:
+def judge(formatted: Maybe<&2, String>, +text: String, path: String) -> List<&2, Lint.Finding>:
   match formatted:
     case None{}:
       [
@@ -2421,7 +2421,7 @@ def newline.preserve(preserve: Bool, source: String) -> String:
     case False{}:
       "\n"
 
-def newline.crlf(crlf: Bool, +eol: String, source: String) -> String:
+def newline.crlf(crlf: Bool, eol: String, source: String) -> String:
   match crlf:
     case True{}:
       "\r\n"

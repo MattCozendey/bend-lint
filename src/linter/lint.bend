@@ -156,7 +156,7 @@ def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
       None{}
 
 # The text of `source`, a file's text, at `span`; "" for none.
-def Span.text(+source: String, span: Maybe<&2, Span>) -> String:
+def Span.text(source: String, span: Maybe<&2, Span>) -> String:
   match span:
     case Some{Span{path, beg, end}}:
       Shared.slice(source, beg, end)
@@ -429,7 +429,7 @@ def Answer.same(answers: List<&2, Answer>) -> Bool:
     case _:
       False{}
 
-def Answer.type(+fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
+def Answer.type(fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
   match answers:
     case Con{Normalized{to}, rest}:
       to
@@ -541,9 +541,9 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
       declarations
 
 # The node with id `id`, of the file a rule runs on: a node's parent, say.
-def Here.node(here: Here, +id: U32) -> Maybe<&2, Node>:
+def Here.node(here: Here, id: U32) -> Maybe<&2, Node>:
   match here:
-    case Here{program, source, declarations, Index{+first, nodes}, options}:
+    case Here{program, source, declarations, Index{first, nodes}, options}:
       Shared.Indexed.get(Node, nodes, (id - first: U32))
 
 def Here.up(fuel: Nat, +here: Here, node: Maybe<&2, Node>, out: List<&2, Node>) -> List<&2, Node>:
@@ -573,7 +573,7 @@ def Node.calls(nodes: List<&2, Node>, owner: Maybe<&2, Node>) -> Bool:
       False{}
 
 # Whether a node is an application of the definition it is in: a step of a loop, as Bend repeats work by recursion.
-def Here.recursive(here: Here, +children: Children, node: Node) -> Bool:
+def Here.recursive(here: Here, children: Children, node: Node) -> Bool:
   match node:
     case Node{id, parent, owner, Application{}, name, binder, quantity, span, target}:
       Node.calls(Children.get(children, id), Here.node(here, owner))
@@ -620,14 +620,14 @@ def Here.unsafes.go(
       out
     case Con{
       Node{
-        +id,
+        id,
         parent,
         owner,
         Definition{},
         name,
         binder,
         quantity,
-        Some{Span{path, +beg, +end}},
+        Some{Span{path, beg, end}},
         target
       },
       rest
@@ -649,9 +649,9 @@ def Here.unsafes.go(
     case Con{node, rest}:
       Here.unsafes.go(rest, ats, qs, out)
 
-def Here.unsafes.of(+here: Here, marks: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
+def Here.unsafes.of(here: Here, marks: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
   match marks:
-    case Tuple{+ats, +qs}:
+    case Tuple{ats, qs}:
       Here.unsafes.go(Here.nodes(here), ats, qs, [])
 
 # The ids of the file's @unsafe definitions (`@unsafe def f`, with @unsafe on its line or the line above, or `def f?`):
@@ -660,7 +660,7 @@ def Here.unsafes(+here: Here) -> List<&2, U32>:
   Here.unsafes.of(here, Here.marks(Here.text(here), 0, [], []))
 
 # Whether the node numbered `app`, an application, builds a pair type (`A & B`), whose parts are types.
-def Here.pair(+here: Here, +app: U32) -> Bool:
+def Here.pair(here: Here, app: U32) -> Bool:
   String.eq(Node.target(Here.node(here, (app + 1: U32))), "Pair")
 
 def Here.live.go(chain: List<&2, Node>, ok: Bool, prev: U32, +here: Here) -> Bool:
@@ -703,7 +703,7 @@ def Here.live(+here: Here, +id: U32) -> Bool:
   Here.live.go(List.tail(&2, Node, Here.ancestors(here, id)), True{}, id, here)
 
 # The value of the rule's option `name`: the config's, or its default.
-def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:
+def Here.option(here: Here, name: String) -> Maybe<&2, Value>:
   match here:
     case Here{program, source, declarations, index, options}:
       Shared.lookup(Value, name, options)
@@ -719,7 +719,7 @@ def Whole.sources(whole: Whole) -> List<&2, Source>:
       sources
 
 # The value of the rule's option `name`: the config's, or its default.
-def Whole.option(whole: Whole, +name: String) -> Maybe<&2, Value>:
+def Whole.option(whole: Whole, name: String) -> Maybe<&2, Value>:
   match whole:
     case Whole{program, declarations, options}:
       Shared.lookup(Value, name, options)

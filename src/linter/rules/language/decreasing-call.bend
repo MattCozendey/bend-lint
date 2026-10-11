@@ -75,7 +75,7 @@ def pairs(rs: List<&2, U32>, +fs: List<&2, U32>, out: List<&2, Smaller>) -> List
   match rs:
     case Nil{}:
       out
-    case Con{+r, rest}:
+    case Con{r, rest}:
       pairs(rest, fs, pairs.of(r, fs, out))
 
 # What a case's patterns take apart: each pattern, a constructor, makes its variables smaller than its
@@ -89,9 +89,9 @@ def taken(
 ) -> List<&2, Smaller>:
   match scrutinees patterns:
     case Con{
-      Lint.Node{i, p, o, Lint.Variable{}, n, Some{+s}, q, sp, t},
+      Lint.Node{i, p, o, Lint.Variable{}, n, Some{s}, q, sp, t},
       more
-    } Con{Lint.Node{+j, pp, po, Lint.PatternConstructor{}, pn, pb, pq, ps, pt}, rest}:
+    } Con{Lint.Node{j, pp, po, Lint.PatternConstructor{}, pn, pb, pq, ps, pt}, rest}:
       taken(
         more,
         rest,
@@ -123,7 +123,7 @@ def known(
   match chain:
     case Nil{}:
       smaller
-    case Con{Lint.Node{+i, +p, o, Lint.Case{}, n, b, q, s, t}, rest}:
+    case Con{Lint.Node{i, p, o, Lint.Case{}, n, b, q, s, t}, rest}:
       known(
         rest,
         children,
@@ -150,7 +150,7 @@ def is_smaller(smaller: List<&2, Smaller>, hit: Bool, +root: U32, +field: U32) -
 
 # What one argument, a variable, says: none to read on (it is the parameter, unchanged), else the
 # verdict: it decreases (a field a match took apart), the rule cannot tell (a let's name), or it fails.
-def step(same: Bool, smaller: Bool, local: Bool, +at: Nat, +param: String) -> Maybe<&2, Verdict>:
+def step(same: Bool, smaller: Bool, local: Bool, at: Nat, param: String) -> Maybe<&2, Verdict>:
   match same smaller local:
     case True{} _ _:
       None{}
@@ -206,7 +206,7 @@ def verdict(
 def ordinal(n: Nat) -> String:
   U32.show(U32.from_nat(1n+n))
 
-def message(verdict: Verdict, +loop: String, +source: String, +args: List<&2, Lint.Node>) -> String:
+def message(verdict: Verdict, loop: String, source: String, args: List<&2, Lint.Node>) -> String:
   match verdict:
     case Fails{+at, param}:
       loop
@@ -224,9 +224,9 @@ def message(verdict: Verdict, +loop: String, +source: String, +args: List<&2, Li
 def finding(
   verdict: Verdict,
   span: Maybe<&2, Lint.Span>,
-  +loop: String,
-  +source: String,
-  +args: List<&2, Lint.Node>
+  loop: String,
+  source: String,
+  args: List<&2, Lint.Node>
 ) -> List<&2, Lint.Finding>:
   match verdict span:
     case Fails{at, param} Some{s}:
@@ -238,16 +238,16 @@ def finding(
 
 def call(
   nodes: List<&2, Lint.Node>,
-  +lets: List<&2, U32>,
-  +owner: U32,
-  +id: U32,
+  lets: List<&2, U32>,
+  owner: U32,
+  id: U32,
   span: Maybe<&2, Lint.Span>,
   +here: Lint.Here,
   +children: Lint.Children,
-  +fuel: Nat
+  fuel: Nat
 ) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{i, p, o, s, +loop, b, q, sp, t}, +args}:
+    case Con{Lint.Node{i, p, o, s, loop, b, q, sp, t}, +args}:
       finding(
         verdict(
           Param.all(Lint.Children.get(children, owner), children, []),
@@ -270,13 +270,13 @@ def call(
 def checked(
   checks: Bool,
   nodes: List<&2, Lint.Node>,
-  +lets: List<&2, U32>,
-  +owner: U32,
-  +id: U32,
+  lets: List<&2, U32>,
+  owner: U32,
+  id: U32,
   span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +fuel: Nat
+  here: Lint.Here,
+  children: Lint.Children,
+  fuel: Nat
 ) -> List<&2, Lint.Finding>:
   match checks:
     case True{}:
@@ -287,11 +287,11 @@ def checked(
 def visit(
   recursive: Bool,
   node: Lint.Node,
-  +lets: List<&2, U32>,
-  +unsafes: List<&2, U32>,
+  lets: List<&2, U32>,
+  unsafes: List<&2, U32>,
   +here: Lint.Here,
   +children: Lint.Children,
-  +fuel: Nat
+  fuel: Nat
 ) -> List<&2, Lint.Finding>:
   match recursive node:
     case True{} Lint.Node{+id, p, +owner, s, n, b, q, span, t}:
@@ -360,7 +360,7 @@ def lets(nodes: List<&2, Lint.Node>, +children: Lint.Children, out: List<&2, U32
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t}, rest}:
+    case Con{Lint.Node{i, p, o, Lint.Destructure{}, n, b, q, s, t}, rest}:
       lets(rest, children, lets.bound(Lint.Children.get(children, i), out))
     case Con{node, rest}:
       lets(rest, children, out)

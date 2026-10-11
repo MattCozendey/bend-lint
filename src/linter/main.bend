@@ -14,6 +14,7 @@ import ./rules/performance/deep-call-in-fork.bend as DeepCallInFork
 import ./rules/performance/eager-branch.bend as EagerBranch
 import ./rules/performance/list-index-loop.bend as ListIndexLoop
 import ./rules/performance/missed-fork.bend as MissedFork
+import ./rules/performance/unneeded-plus.bend as UnneededPlus
 
 def main() -> IO(Unit):
   Cli.run(
@@ -31,6 +32,7 @@ def main() -> IO(Unit):
       DeepCallInFork.rule(),
       EagerBranch.rule(),
       ListIndexLoop.rule(),
-      MissedFork.rule()
+      MissedFork.rule(),
+      UnneededPlus.rule()
     ]
   )

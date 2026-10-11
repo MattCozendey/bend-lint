@@ -45,7 +45,7 @@ def same_note(same: Bool, span: Lint.Span) -> List<&2, Lint.Finding>:
 def compared(
   +spans: List<&2, Lint.Span>,
   types: List<&2, Lint.TypeRef>,
-  +shown: List<&2, String>
+  shown: List<&2, String>
 ) -> Lint.Ask(List<&2, Lint.Finding>):
   match spans types:
     case Con{s, ss} Con{a, Con{b, rest}}:
@@ -57,7 +57,7 @@ def compared(
 
 def described(v: Vars) -> Lint.Ask(List<&2, Lint.Finding>):
   match v:
-    case Vars{+spans, +types}:
+    case Vars{spans, +types}:
       do Lint.Ask<List<&2, Lint.Finding>>:
         shown: List<&2, String> <- Lint.show_all(types)
         compared(spans, types, shown)

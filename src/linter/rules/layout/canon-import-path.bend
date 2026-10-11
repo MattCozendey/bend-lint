@@ -89,7 +89,7 @@ def verdict(fine: Bool, +want: String, +span: Lint.Span) -> List<&2, Lint.Findin
 
 # A written path, against the one from `file` to `target`, the file its import loads.
 def judge(
-  +file: String,
+  file: String,
   +written: String,
   target: Maybe<&2, Lint.Node>,
   span: Lint.Span

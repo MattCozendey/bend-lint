@@ -58,9 +58,9 @@ def finding(live: Bool, span: Lint.Span, text: String) -> List<&2, Lint.Finding>
 # the use is live is asked only then: `&&` computes both sides.
 def below(
   hit: Bool,
-  +name: String,
-  +owner: U32,
-  +id: U32,
+  name: String,
+  owner: U32,
+  id: U32,
   span: Lint.Span,
   +here: Lint.Here
 ) -> List<&2, Lint.Finding>:
@@ -78,10 +78,10 @@ def below(
 def judged(
   used: Maybe<&2, Def>,
   +owner: U32,
-  +id: U32,
+  id: U32,
   span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  +unsafes: List<&2, U32>
+  here: Lint.Here,
+  unsafes: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
   match used span:
     case Some{Def{t, at, name}} Some{s}:
@@ -106,7 +106,7 @@ def scan(
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{+id, p, +owner, Lint.Reference{}, n, b, q, span, +target}, rest}:
+    case Con{Lint.Node{id, p, owner, Lint.Reference{}, n, b, q, span, target}, rest}:
       scan(
         rest,
         defs,

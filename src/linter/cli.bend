@@ -166,7 +166,7 @@ def Spec.one(spec: Lint.Spec, value: Lint.Value) -> Bool:
       True{}
     case Lint.TextOption{Nil{}} Lint.Text{text}:
       True{}
-    case Lint.TextOption{choices} Lint.Text{+text}:
+    case Lint.TextOption{choices} Lint.Text{text}:
       List.contains(~String, ~String.eq, choices, text)
     case _ _:
       False{}
@@ -196,14 +196,10 @@ def Declared.spec(
       Some{spec}
     case Nil{} None{}:
       None{}
-    case Con{Lint.Declared{+n, default, spec}, rest} None{}:
+    case Con{Lint.Declared{n, default, spec}, rest} None{}:
       Declared.spec(rest, Shared.when(Lint.Spec, String.eq(n, name), spec), name)
 
-def Option.problem(
-  spec: Maybe<&2, Lint.Spec>,
-  +key: String,
-  value: Lint.Value
-) -> Maybe<&2, String>:
+def Option.problem(spec: Maybe<&2, Lint.Spec>, key: String, value: Lint.Value) -> Maybe<&2, String>:
   match spec:
     case None{}:
       Some{"it has no option " ++ key}
@@ -235,7 +231,7 @@ def Option.defaults(declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
   match declared:
     case Nil{}:
       None{}
-    case Con{Lint.Declared{+name, default, spec}, rest}:
+    case Con{Lint.Declared{name, default, spec}, rest}:
       Maybe.or(
         &2,
         String,
@@ -270,7 +266,7 @@ def Option.values(
 # The first problem with a rule's options: a default its own spec does not accept, or what the config gives.
 def About.problem.of(
   about: About,
-  +settings: List<&2, Shared.Named<Config.Setting>>
+  settings: List<&2, Shared.Named<Config.Setting>>
 ) -> Maybe<&2, String>:
   match about:
     case About{+id, needs, +options, every}:
@@ -363,7 +359,7 @@ def Whole.with(whole: Lint.Whole, options: List<&2, Shared.Named<Lint.Value>>) -
 
 def Job.start(
   +id: String,
-  +settings: List<&2, Shared.Named<Config.Setting>>,
+  settings: List<&2, Shared.Named<Config.Setting>>,
   path: String,
   group: U32,
   run: Lint.Ask(List<&2, Lint.Finding>)
@@ -440,7 +436,7 @@ def Rule.all(
 def Rule.jobs(
   ~rules: List<&1, Lint.Rule>,
   +settings: List<&2, Shared.Named<Config.Setting>>,
-  +place: Place
+  place: Place
 ) -> List<&1, Job>:
   Rule.all(3n, Shared.deal(&1, Lint.Rule, Rule.on(rules, settings, [])), settings, place)
 
@@ -534,9 +530,9 @@ def Check.jobs.if(
   ~rules: List<&1, Lint.Rule>,
   whole: Bool,
   programs: List<&2, Lint.Program>,
-  +settings: List<&2, Shared.Named<Config.Setting>>,
-  +path: String,
-  +declare: Bool
+  settings: List<&2, Shared.Named<Config.Setting>>,
+  path: String,
+  declare: Bool
 ) -> List<&1, Job>:
   match whole:
     case True{}:
@@ -644,7 +640,7 @@ def Round.found(held: List<&1, Held>, out: List<&2, Tagged>) -> List<&2, Tagged>
       List.reverse(&2, Tagged, out)
     case Con{Settled{r, s, p, g, fs}, rest}:
       Round.found(rest, Found.tag(r, s, g, fs, out))
-    case Con{Held{+r, s, p, g, n, k}, rest}:
+    case Con{Held{r, s, p, g, n, k}, rest}:
       Round.found(
         rest,
         Tagged{
@@ -704,7 +700,7 @@ def Found.keys(founds: List<&2, Lint.Found>, keys: Map<&2, Unit>) -> Map<&2, Uni
       Found.keys(rest, Map.set(&2, Unit, keys, Found.key(f), Unit{}))
 
 # Whether `found`'s key is among `keys`.
-def Found.among(+keys: Map<&2, Unit>, found: Lint.Found) -> Bool:
+def Found.among(keys: Map<&2, Unit>, found: Lint.Found) -> Bool:
   Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, keys, Found.key(found)))
 
 def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
@@ -723,7 +719,7 @@ def Tagged.of(
   match tagged:
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
-    case Con{Tagged{+g, f}, rest}:
+    case Con{Tagged{g, f}, rest}:
       Tagged.of(rest, group, Found.keep(U32.is_eq(g, group), f, out))
 
 # The findings of `more` whose keys are not among `keys`, nor before them in `more`, onto `out`.
@@ -769,7 +765,7 @@ def Merge.checks(
   +tagged: List<&2, Tagged>,
   +check: U32,
   some: List<&2, Lint.Found>,
-  +every: List<&2, Lint.Found>
+  every: List<&2, Lint.Found>
 ) -> List<&2, Lint.Found>
   & List<&2, Lint.Found>:
   match fuel:
@@ -820,8 +816,8 @@ def Merge.pick(
 
 def Merge.done(
   merged: List<&2, Lint.Found> & List<&2, Lint.Found>,
-  +modes: List<&2, Shared.Named<Bool>>,
-  +partial: Bool
+  modes: List<&2, Shared.Named<Bool>>,
+  partial: Bool
 ) -> List<&2, Lint.Found>:
   match merged:
     case Tuple{some, every}:
@@ -830,9 +826,9 @@ def Merge.done(
 # What the program rules find over `checks` checks, merged as each rule's entries say.
 def Merge.program(
   +tagged: List<&2, Tagged>,
-  +checks: Nat,
-  +modes: List<&2, Shared.Named<Bool>>,
-  +partial: Bool
+  checks: Nat,
+  modes: List<&2, Shared.Named<Bool>>,
+  partial: Bool
 ) -> List<&2, Lint.Found>:
   Merge.done(Merge.checks(checks, tagged, 1, [], Tagged.of(tagged, 1, [])), modes, partial)
 
@@ -942,7 +938,7 @@ def Report.unique(report: Report) -> Report:
 
 # The report of the named file (at `path`) so far: Bend's message of each failed check of it, once, as its first
 # findings: at the failure, or at the file's start if Bend does not say where.
-def Report.failed(+path: String, failures: List<&2, Program.Failure>) -> Report:
+def Report.failed(path: String, failures: List<&2, Program.Failure>) -> Report:
   Report.unique(Report.failures(failures, path, Report{[], [], Map.new(&2, String)}))
 
 # Each linted file's findings, after `out`: those of the file rules, then those of the program rules, after its
@@ -1021,7 +1017,7 @@ def Edits.places(
 # The places a finding shows besides its start, onto `out`: in JSON, its end and its fixes' edits'.
 def Shown.more(
   json: Bool,
-  +path: String,
+  path: String,
   end: U32,
   edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>,
   out: List<&2, Shared.Place>
@@ -1056,7 +1052,7 @@ def Found.line.at(path: String, at: Shared.Position, said: String) -> String:
       path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ said
 
 # A finding as a line: path:line:column: severity rule: message.
-def Found.line(found: Lint.Found, +places: Map<&2, Shared.Position>) -> String:
+def Found.line(found: Lint.Found, places: Map<&2, Shared.Position>) -> String:
   match found:
     case Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}:
       Found.line.at(
@@ -1110,7 +1106,7 @@ def Object.fix(
   safe: Bool,
   fix: Lint.Fix,
   edits: List<&2, Fixes.Edit>,
-  +places: Map<&2, Shared.Position>
+  places: Map<&2, Shared.Position>
 ) -> Json.Json:
   match fix:
     case Lint.Fix{title, ops}:
@@ -1169,7 +1165,7 @@ def Object.finding(
 def Shown.one(
   json: Bool,
   resolved: Resolved,
-  +places: Map<&2, Shared.Position>,
+  places: Map<&2, Shared.Position>,
   comments: Map<&2, Unit>
 ) -> Shown:
   match json resolved:
@@ -1423,13 +1419,13 @@ def budget() -> Nat:
 def finish(
   linted: List<&2, Lint.Source>,
   +tagged: List<&2, Tagged>,
-  +checks: Nat,
-  +modes: List<&2, Shared.Named<Bool>>,
-  +partial: Bool,
-  +known: List<&2, String>,
-  +ran: List<&2, String>,
-  +json: Bool,
-  +fixing: Maybe<&2, Bool>,
+  checks: Nat,
+  modes: List<&2, Shared.Named<Bool>>,
+  partial: Bool,
+  known: List<&2, String>,
+  ran: List<&2, String>,
+  json: Bool,
+  fixing: Maybe<&2, Bool>,
   program: Lint.Program,
   first: Report
 ) -> IO(Outcome):
@@ -1461,12 +1457,12 @@ def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
 def lint(
   ~rules: List<&1, Lint.Rule>,
   +linted: List<&2, Lint.Source>,
-  +path: String,
+  path: String,
   +programs: List<&2, Lint.Program>,
-  +partial: Bool,
+  partial: Bool,
   +settings: List<&2, Shared.Named<Config.Setting>>,
-  +json: Bool,
-  +fixing: Maybe<&2, Bool>,
+  json: Bool,
+  fixing: Maybe<&2, Bool>,
   first: Report
 ) -> IO(Outcome):
   +abouts = About.all(rules, [])
@@ -1581,7 +1577,7 @@ def Checks.failures(
   )
 
 # The files to lint: the named file (at `path`), or, with `imports`, every own file of its check.
-def linted(imports: Bool, +path: String, +sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
+def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
   match imports:
     case True{}:
       Program.Program.own(sources)
@@ -1603,9 +1599,9 @@ def checked(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
   imports: Bool,
-  +settings: List<&2, Shared.Named<Config.Setting>>,
-  +json: Bool,
-  +fixing: Maybe<&2, Bool>,
+  settings: List<&2, Shared.Named<Config.Setting>>,
+  json: Bool,
+  fixing: Maybe<&2, Bool>,
   checks: Checks
 ) -> IO(Outcome):
   match checks:
@@ -1649,7 +1645,7 @@ def Check.own(entries: List<&2, Program.Failure>, check: Program.Check) -> Check
       }
 
 # Whether a check read the file at `path`.
-def Check.reads(+path: String, +check: Program.Check) -> Bool:
+def Check.reads(path: String, +check: Program.Check) -> Bool:
   match check:
     case Program.Passed{Lint.Program{sources}, c}:
       Maybe.is_some(&2, Lint.Source, Source.at(sources, None{}, path))
@@ -1698,7 +1694,7 @@ def Check.all(
       )
 
 # The checks to lint the named file in: those of the entries that read it and passed; if none, its own.
-def Check.chosen(sorted: Checks, +path: String, +facts: Bool) -> IO(Checks):
+def Check.chosen(sorted: Checks, path: String, facts: Bool) -> IO(Checks):
   match sorted:
     case Checks{Nil{}, entries, own, forget}:
       IO.bind(
@@ -1761,9 +1757,9 @@ def settled(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
   +imports: Bool,
-  +json: Bool,
-  +fixing: Maybe<&2, Bool>,
-  +entries: List<&2, String>,
+  json: Bool,
+  fixing: Maybe<&2, Bool>,
+  entries: List<&2, String>,
   +settings: List<&2, Shared.Named<Config.Setting>>
 ) -> IO(Outcome):
   IO.bind(
@@ -1781,9 +1777,9 @@ def settled(
 # Lints the file at `path` as its config says: `many` says whether the run lints more than one file.
 def configured(
   ~rules: List<&1, Lint.Rule>,
-  +path: String,
+  path: String,
   +options: Options,
-  +many: Bool,
+  many: Bool,
   project: Config.Project
 ) -> IO(Outcome):
   match options project:
@@ -1841,7 +1837,7 @@ def Options.input(input: String, options: Maybe<&2, Options>) -> Maybe<&2, Optio
       None{}
 
 # The options with an argument read: a flag, or a file to lint.
-def Options.arg(flag: Bool, +arg: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
+def Options.arg(flag: Bool, arg: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match flag:
     case True{}:
       Options.set(Shared.lookup(Flag, arg, flags()), options)
@@ -1875,8 +1871,8 @@ def options(args: List<String>) -> Maybe<&2, Options>:
 def File.lint(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
-  +options: Options,
-  +many: Bool
+  options: Options,
+  many: Bool
 ) -> IO(Outcome):
   IO.bind(
     Config.Project,

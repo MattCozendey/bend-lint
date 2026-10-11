@@ -48,7 +48,7 @@ def Append.at(a: Append) -> Nat:
 # What a finding says about an append of `acc` in the loop `loop`. `args` are the append's arguments.
 def Append.message(
   a: Append,
-  +loop: String,
+  loop: String,
   +acc: String,
   +source: String,
   +args: List<&2, Lint.Node>
@@ -136,11 +136,11 @@ def Loop.name(loop: Loop) -> String:
 def reported.kept(
   kept: Bool,
   a: Append,
-  +loop: Loop,
-  +name: String,
+  loop: Loop,
+  name: String,
   span: Lint.Span,
-  +args: List<&2, Lint.Node>,
-  +here: Lint.Here
+  args: List<&2, Lint.Node>,
+  here: Lint.Here
 ) -> List<&2, Lint.Finding>:
   match kept:
     case True{}:
@@ -159,14 +159,14 @@ def reported.kept(
 # keeps it.
 def reported(
   param: Bool,
-  +b: U32,
+  b: U32,
   a: Append,
   +loop: Loop,
-  +name: String,
+  name: String,
   +span: Lint.Span,
-  +args: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +us: List<&2, Use>
+  args: List<&2, Lint.Node>,
+  here: Lint.Here,
+  us: List<&2, Use>
 ) -> List<&2, Lint.Finding>:
   match param:
     case True{}:
@@ -179,16 +179,16 @@ def reported(
 def found(
   acc: Maybe<&2, Lint.Node>,
   a: Append,
-  +loop: Loop,
-  +owner: U32,
-  +span: Lint.Span,
-  +args: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Use>
+  loop: Loop,
+  owner: U32,
+  span: Lint.Span,
+  args: List<&2, Lint.Node>,
+  here: Lint.Here,
+  children: Lint.Children,
+  us: List<&2, Use>
 ) -> List<&2, Lint.Finding>:
   match acc:
-    case Some{Lint.Node{i, p, o, Lint.Variable{}, +name, Some{+b}, q, s, t}}:
+    case Some{Lint.Node{i, p, o, Lint.Variable{}, name, Some{+b}, q, s, t}}:
       reported(
         parameter(Lint.Children.get(children, owner), False{}, b),
         b,
@@ -206,12 +206,12 @@ def found(
 def appended(
   append: Maybe<&2, Append>,
   +args: List<&2, Lint.Node>,
-  +loop: Loop,
-  +owner: U32,
-  +span: Lint.Span,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Use>
+  loop: Loop,
+  owner: U32,
+  span: Lint.Span,
+  here: Lint.Here,
+  children: Lint.Children,
+  us: List<&2, Use>
 ) -> List<&2, Lint.Finding>:
   match append:
     case Some{+a}:
@@ -232,15 +232,15 @@ def appended(
 # The finding about `call`'s children, if `call` is an append to a parameter of the loop.
 def call(
   nodes: List<&2, Lint.Node>,
-  +loop: Loop,
-  +owner: U32,
-  +span: Lint.Span,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Use>
+  loop: Loop,
+  owner: U32,
+  span: Lint.Span,
+  here: Lint.Here,
+  children: Lint.Children,
+  us: List<&2, Use>
 ) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, +callee}, +args}:
+    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, callee}, +args}:
       appended(
         Append.of(callee, Shared.length(&2, Lint.Node, args)),
         args,
@@ -288,9 +288,9 @@ def step(
   nodes: List<&2, Lint.Node>,
   beg: U32,
   end: U32,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Use>,
+  here: Lint.Here,
+  children: Lint.Children,
+  us: List<&2, Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -302,9 +302,9 @@ def step(
 def visit(
   recursive: Bool,
   node: Lint.Node,
-  +here: Lint.Here,
+  here: Lint.Here,
   +children: Lint.Children,
-  +us: List<&2, Use>,
+  us: List<&2, Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match recursive node:

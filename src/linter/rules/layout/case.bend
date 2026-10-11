@@ -231,8 +231,8 @@ def typed(sorted: Maybe<&2, Bool>) -> Case:
 # The case a declaration's name takes, if the file chooses it.
 def wanted(
   syntax: Lint.Syntax,
-  +sorts: Map<&2, Maybe<&2, Bool>>,
-  +id: U32,
+  sorts: Map<&2, Maybe<&2, Bool>>,
+  id: U32,
   namespace: String,
   target: String,
   name: String
@@ -312,7 +312,7 @@ def local(syntax: Lint.Syntax) -> Bool:
       False{}
 
 # The fix that renames a local name to `to`, if recasing made one that fits.
-def renames(ok: Bool, +id: U32, +full: String, +to: String) -> List<&2, Lint.Fix>:
+def renames(ok: Bool, id: U32, full: String, to: String) -> List<&2, Lint.Fix>:
   match ok:
     case True{}:
       [Lint.Fix{"Rename to " ++ full, [Lint.Rename{id, to}]}]
@@ -326,12 +326,12 @@ def misfit(
   +want: Case,
   +name: String,
   span: Lint.Span,
-  +id: U32
+  id: U32
 ) -> List<&2, Lint.Finding>:
   +seg = segment(name, "")
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
   +ok = fits(want, recased(want, seg))
-  +rename = Bool.pick(String, ok, "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
+  rename = Bool.pick(String, ok, "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
   [
     Lint.Finding{
       Lint.Warning{},

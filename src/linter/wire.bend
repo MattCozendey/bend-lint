@@ -43,7 +43,7 @@ def mark(+c: Char) -> Mark:
 def unescaped(+c: Char) -> Char:
   Bool.pick(Char, Char.is_eq(c, 'n'), '\n', Bool.pick(Char, Char.is_eq(c, 't'), '\t', c))
 
-def read(mark: Mark, +c: Char, r: Reading) -> Reading:
+def read(mark: Mark, c: Char, r: Reading) -> Reading:
   match mark r:
     case _ Reading{True{}, field, fields, records}:
       Reading{False{}, SCon{unescaped(c), field}, fields, records}
@@ -434,7 +434,7 @@ def Check.reads(records: List<&2, List<&2, String>>, out: List<&2, String>) -> L
   match records:
     case Nil{}:
       List.reverse(&2, String, out)
-    case Con{Con{+tag, fields}, rest}:
+    case Con{Con{tag, fields}, rest}:
       Check.reads(rest, Records.path(String.eq(tag, "read"), fields, out))
     case Con{Nil{}, rest}:
       Check.reads(rest, out)
@@ -477,7 +477,7 @@ def Check.ended(
   records: List<&2, List<&2, String>>
 ) -> IO(Program.Check):
   match last:
-    case Some{Con{+tag, fields}}:
+    case Some{Con{tag, fields}}:
       Check.closed(String.eq(tag, "fail"), fields, records)
     case _:
       Check.read(records)
@@ -529,7 +529,7 @@ def Answer.normalized(check: String, id: String) -> Maybe<&2, Lint.Answer>:
     i: U32 <- U32.read(id)
     return Lint.Normalized{Lint.TypeRef{c, i}}
 
-def Answer.read.two(which: Maybe<&2, U32>, +text: String) -> Maybe<&2, Lint.Answer>:
+def Answer.read.two(which: Maybe<&2, U32>, text: String) -> Maybe<&2, Lint.Answer>:
   match which:
     case Some{0}:
       Some{Lint.Shown{text}}

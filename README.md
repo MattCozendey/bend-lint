@@ -212,6 +212,7 @@ instead.
 | `deep-call-in-fork` | a parallel let, or a let just before it, that calls a definition that calls itself outside a tail position                                                                          |
 | `missed-fork`       | calls of a definition to itself that run one after the other, in one expression or in lets that follow each other                                                                   |
 | `eager-branch`      | a value of `Bool.pick`, or the right side of `&&` or `Bool.or`, that calls a definition that loops: Bend computes it even when it is not needed                                     |
+| `unneeded-plus`     | a binder written with `+` that its body uses at most once on each path. It reads the checker's facts, which makes a run about 10% slower                                            |
 
 ### `language/...`
 

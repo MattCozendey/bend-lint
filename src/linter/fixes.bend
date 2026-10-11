@@ -468,9 +468,9 @@ def Comment.is(+text: String) -> Bool:
     && Bool.not(String.contains(text, "\n") || String.contains(text, "\r"))
 
 # Whether an operation writes a comment over a comment: one of `comments`.
-def Operation.safe(op: Lint.Operation, +comments: Map<&2, Unit>) -> Bool:
+def Operation.safe(op: Lint.Operation, comments: Map<&2, Unit>) -> Bool:
   match op:
-    case Lint.Replace{Lint.Span{path, beg, end}, +text}:
+    case Lint.Replace{Lint.Span{path, beg, end}, text}:
       Comment.is(
         text
       )
@@ -489,14 +489,14 @@ def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Map<&2, Unit>, safe: B
 
 # Whether the linter proves a fix keeps what the program does: each of its edits writes a comment over a comment
 # (`comments`, from `safety`). It proves no other fix until Bend's checker is Bend.
-def Fix.safe(fix: Lint.Fix, +comments: Map<&2, Unit>) -> Bool:
+def Fix.safe(fix: Lint.Fix, comments: Map<&2, Unit>) -> Bool:
   match fix:
     case Lint.Fix{title, Nil{}}:
       False{}
     case Lint.Fix{title, ops}:
       Fix.safe.go(ops, comments, True{})
 
-def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, +comments: Map<&2, Unit>) -> Bool:
+def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Map<&2, Unit>) -> Bool:
   match fixing:
     case None{}:
       False{}
@@ -760,7 +760,7 @@ def Spans.balance(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
   +hr = Spans.height(r)
   Spans.balance.by(U32.is_gt(hl, (hr + 1: U32)), U32.is_gt(hr, (hl + 1: U32)), l, b, e, r)
 
-def Spans.cmp.of(starts: Cmp, +e: U32, +y: U32) -> Cmp:
+def Spans.cmp.of(starts: Cmp, e: U32, y: U32) -> Cmp:
   match starts:
     case EQ{}:
       U32.cmp(e, y)
@@ -770,7 +770,7 @@ def Spans.cmp.of(starts: Cmp, +e: U32, +y: U32) -> Cmp:
       GT{}
 
 # How the span from `b` to `e` compares with the root's of `t`, by start, then end; GT past a leaf.
-def Spans.cmp(t: Spans, +b: U32, +e: U32) -> Cmp:
+def Spans.cmp(t: Spans, b: U32, e: U32) -> Cmp:
   match t:
     case SNode{h, l, x, y, r}:
       Spans.cmp.of(U32.cmp(b, x), e, y)
@@ -799,7 +799,7 @@ def Spans.has(t: Spans, +b: U32, +e: U32, side: Cmp) -> Bool:
     case SNode{h, l, x, y, +r} GT{}:
       Spans.has(r, b, e, Spans.cmp(r, b, e))
 
-def Spans.starts_before(t: Spans, +e: U32) -> Bool:
+def Spans.starts_before(t: Spans, e: U32) -> Bool:
   match t:
     case SNode{h, l, x, y, r}:
       U32.is_lt(x, e)
@@ -817,7 +817,7 @@ def Spans.last(t: Spans, +e: U32, found: Maybe<&2, U32>, before: Bool) -> Maybe<
     case SNode{h, +l, x, y, r} False{}:
       Spans.last(l, e, found, Spans.starts_before(l, e))
 
-def Spans.ends_after(last: Maybe<&2, U32>, +b: U32) -> Bool:
+def Spans.ends_after(last: Maybe<&2, U32>, b: U32) -> Bool:
   match last:
     case Some{y}:
       U32.is_lt(b, y)
@@ -832,7 +832,7 @@ def Spans.touch.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
     case False{}:
       False{}
 
-def Spans.touch.of(shares: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
+def Spans.touch.of(shares: Bool, t: Spans, +b: U32, +e: U32) -> Bool:
   match shares:
     case True{}:
       True{}
@@ -842,13 +842,13 @@ def Spans.touch.of(shares: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
 def Spans.touch(+t: Spans, +b: U32, +e: U32) -> Bool:
   Spans.touch.of(Spans.ends_after(Spans.last(t, e, None{}, Spans.starts_before(t, e)), b), t, b, e)
 
-def Spans.of(+spans: Map<&2, Spans>, path: String) -> Spans:
+def Spans.of(spans: Map<&2, Spans>, path: String) -> Spans:
   Pair.snd(Map<&2, Spans>, Spans, Map.get(Spans, SLeaf{}, spans, path))
 
 # Whether the first of `edits` touches a planned one.
-def Spans.clash(edits: List<&2, Edit>, +spans: Map<&2, Spans>) -> Bool:
+def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Spans>) -> Bool:
   match edits:
-    case Con{Edit{path, +beg, +end, text}, rest}:
+    case Con{Edit{path, beg, end, text}, rest}:
       Spans.touch(Spans.of(spans, path), beg, end)
     case Nil{}:
       False{}
@@ -959,7 +959,7 @@ def Safety.ops(ops: List<&2, Lint.Operation>, out: Map<&2, Unit>) -> Map<&2, Uni
   match ops:
     case Nil{}:
       out
-    case Con{Lint.Replace{Lint.Span{+path, beg, end}, +text}, rest}:
+    case Con{Lint.Replace{Lint.Span{path, beg, end}, text}, rest}:
       Safety.ops(
         rest,
         Map.set(&2, Unit, out, Bool.pick(String, Comment.is(text), path, ""), Unit{})
@@ -986,7 +986,7 @@ def Safety.keys(
     case Con{Directives.Comment{beg, end, line, trailing, body}, rest}:
       Safety.keys(rest, path, Map.set(&2, Unit, out, Comment.key(path, beg, end), Unit{}))
 
-def Safety.scanned(scanned: Directives.Scanned, +path: String, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Safety.scanned(scanned: Directives.Scanned, path: String, out: Map<&2, Unit>) -> Map<&2, Unit>:
   match scanned:
     case Directives.Scanned{comments, lines}:
       Safety.keys(comments, path, out)
@@ -1079,7 +1079,7 @@ def Text.edited(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, St
         text <> Shared.take(rest, U32.to_nat((beg - at: U32))) <> out
       )
 
-def write.closed(+path: String, written: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
+def write.closed(path: String, written: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
   match written:
     case Tuple{f, Done{u}}:
       File.close(f)
@@ -1089,7 +1089,7 @@ def write.closed(+path: String, written: File & Result<&1, &1, U32 & String, Uni
         IO.die(Unit, 2, "bend-lint: could not write " ++ path)
 
 def write.opened(
-  +path: String,
+  path: String,
   text: String,
   opened: Result<&1, &1, U32 & String, File>
 ) -> IO(Unit):
@@ -1112,7 +1112,7 @@ def write(+path: String, text: String) -> IO(Unit):
     opened => write.opened(path, text, opened)
   )
 
-def write.edited(+path: String, text: String, edits: List<&2, Edit>) -> IO(Unit):
+def write.edited(path: String, text: String, edits: List<&2, Edit>) -> IO(Unit):
   match edits:
     case Nil{}:
       IO.pure(Unit, Unit{})

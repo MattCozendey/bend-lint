@@ -68,7 +68,7 @@ def Key.declared.of(
 # The key of what a node declares, if it declares a global or a named binder.
 def Key.declared(node: Lint.Node) -> Maybe<&2, String>:
   match node:
-    case Lint.Node{id, parent, owner, syntax, +name, binder, quantity, span, target}:
+    case Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target}:
       Key.declared.of(Syntax.declares(syntax), owner, binder, String.eq(name, "_"), target)
 
 # The key of what a node uses, if it uses a global or a binder.
@@ -115,7 +115,7 @@ def Imports.namespace(
       namespace
     case Nil{} None{}:
       ""
-    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest} None{}:
+    case Con{Lint.Source{p, namespace, text, nodes, facts}, rest} None{}:
       Imports.namespace(rest, Shared.when(String, String.eq(p, path), namespace), path)
 
 # The global names a file's own top-level declarations declare, as a set.
@@ -139,14 +139,14 @@ def Imports.not_own(got: Map<&2, Unit> & Bool) -> Bool:
     case Tuple{m, has}:
       Bool.not(has)
 
-def Imports.base_name(bare: Bool, +own: Map<&2, Unit>, name: String) -> Bool:
+def Imports.base_name(bare: Bool, own: Map<&2, Unit>, name: String) -> Bool:
   match bare:
     case True{}:
       Imports.not_own(Map.has(&2, Unit, own, name))
     case False{}:
       False{}
 
-def Imports.base_uses(+own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
+def Imports.base_uses(own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
       Imports.base_name(String.is_empty(Lint.Name.namespace(name)), own, name)
@@ -172,7 +172,7 @@ def Imports.base(hit: Bool, node: Lint.Node, base: List<&2, Lint.Node>) -> List<
     case False{}:
       base
 
-def Imports.add(+own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> ImportUses:
+def Imports.add(own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> ImportUses:
   match node uses:
     case Lint.Node{
       id,
@@ -217,9 +217,9 @@ def Imports.of(base: Bool, alias: String, imports: ImportUses) -> List<&2, Lint.
 # A node's declaration, if it declares a name, with its uses: `uses` indexes them, and `imports` the uses of the file's
 # imports; `sources` says which import loads Base.
 def Declarations.of.node(
-  +sources: List<&2, Lint.Source>,
-  +imports: ImportUses,
-  +uses: Map<&2, List<&2, Lint.Node>>,
+  sources: List<&2, Lint.Source>,
+  imports: ImportUses,
+  uses: Map<&2, List<&2, Lint.Node>>,
   node: Lint.Node
 ) -> Maybe<&2, Lint.Declaration>:
   match node:
@@ -260,9 +260,9 @@ def Declarations.of.go(
 
 # The declarations of a file's nodes, in order, with their uses that `uses` indexes.
 def Declarations.of(
-  +sources: List<&2, Lint.Source>,
+  sources: List<&2, Lint.Source>,
   +nodes: List<&2, Lint.Node>,
-  +uses: Map<&2, List<&2, Lint.Node>>
+  uses: Map<&2, List<&2, Lint.Node>>
 ) -> List<&2, Lint.Declaration>:
   Declarations.of.go(nodes, sources, Imports.uses_of(nodes), uses, [])
 
@@ -283,7 +283,7 @@ def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
 # A file's declarations, with their uses in it, if a rule needs them (`declare`); else none.
 def Declarations.when(
   declare: Bool,
-  +sources: List<&2, Lint.Source>,
+  sources: List<&2, Lint.Source>,
   +nodes: List<&2, Lint.Node>
 ) -> List<&2, Lint.Declaration>:
   match declare:
@@ -296,7 +296,7 @@ def Declarations.when(
 # if a rule needs declarations (`declare`). The runner gives each rule its options.
 def Here.of(program: Lint.Program, source: Lint.Source, declare: Bool) -> Lint.Here:
   match program source:
-    case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes, +facts}:
+    case Lint.Program{+sources} Lint.Source{path, namespace, text, +nodes, facts}:
       Lint.Here{
         Lint.Program{sources},
         Lint.Source{path, namespace, text, nodes, facts},

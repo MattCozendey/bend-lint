@@ -37,7 +37,7 @@ def named(~A: Data, ~show: A -> String, xs: List<&2, A>) -> List<&2, Named<A>>:
       Named{show(x), x} <> named(~A, ~show, rest)
 
 # The value `key` names in `table`: the first, read no further.
-def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
+def lookup(-A: Data, key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
   lookup.go(A, key, table, None{})
 
 # The values of `named`, by name, onto `out`: a table for `find`, which reads a name in one pass over it, however many
@@ -95,7 +95,7 @@ def line_start.go(s: String, +i: U32, +at: U32, start: U32, going: Bool) -> U32:
 def line_start(text: String, +at: U32) -> U32:
   line_start.go(text, 0, at, 0, U32.is_lt(0, at))
 
-def line_end.go(s: String, +i: U32) -> U32:
+def line_end.go(s: String, i: U32) -> U32:
   match s:
     case SNil{}:
       i
@@ -303,7 +303,7 @@ def Placed.of(offsets: List<&2, U32>, +index: U32, out: List<&2, Placed>) -> Lis
       Placed.of(rest, (index + 1: U32), Placed{index, o} <> out)
 
 # Whether the next offset to place is at or before `at`.
-def Walk.due(pending: List<&2, Placed>, +at: U32) -> Bool:
+def Walk.due(pending: List<&2, Placed>, at: U32) -> Bool:
   match pending:
     case Con{Placed{i, offset}, rest}:
       U32.is_le(offset, at)
@@ -338,7 +338,7 @@ def Walk.done(w: Walk) -> List<&2, Located>:
       out
 
 # The offsets placed, one character of `text` at a time; offsets past its end are placed at its end.
-def Walk.go(text: String, +at: U32, +line: U32, +column: U32, w: Walk) -> List<&2, Located>:
+def Walk.go(text: String, +at: U32, +line: U32, column: U32, w: Walk) -> List<&2, Located>:
   match text w:
     case _ Walk{Nil{}, out}:
       out
@@ -383,7 +383,7 @@ def positions(text: String, offsets: List<&2, U32>) -> List<&2, Position>:
     []
   )
 
-def Place.key(path: String, +offset: U32) -> String:
+def Place.key(path: String, offset: U32) -> String:
   path ++ "\t" ++ U32.show(offset)
 
 # Where the offset `offset` of the file at `path` is, among `places` (what `places` gives); 1:1 if it is not there.
@@ -444,7 +444,7 @@ def places.walk(
 
 # Where each requested offset is, by key (read with `Place.at`): one pass over each file asked about, whatever the
 # number of requests. `texts` holds the files' texts, by path.
-def places(+texts: Map<&2, String>, requests: List<&2, Place>) -> Map<&2, Position>:
+def places(texts: Map<&2, String>, requests: List<&2, Place>) -> Map<&2, Position>:
   +groups = places.group(requests, Map.new(&2, List<&2, Placed>))
   places.walk(Map.keys(&2, List<&2, Placed>, groups), groups, texts, Map.new(&2, Position))
 
@@ -552,5 +552,5 @@ def Table.find(-A: Data, t: Table<A>, +i: U32, inside: Bool) -> Maybe<&2, A>:
 # The value numbered `i`, if there is one.
 def Indexed.get(-A: Data, x: Indexed<A>, +i: U32) -> Maybe<&2, A>:
   match x:
-    case Indexed{+size, table}:
+    case Indexed{size, table}:
       Table.find(A, table, i, U32.is_lt(i, size))

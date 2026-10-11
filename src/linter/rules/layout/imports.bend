@@ -101,7 +101,7 @@ def add.line(
 # The import of the node `id`, whose name is at `at`, after the block so far.
 def add(
   +text: String,
-  +at: U32,
+  at: U32,
   id: U32,
   base: Bool,
   path: String,
@@ -203,13 +203,13 @@ def verdict(
       ]
 
 # The block as written (`written`, at `span`), against its imports in order, each file once.
-def judged(+span: Lint.Span, written: String, d: Deduped) -> List<&2, Lint.Finding>:
+def judged(span: Lint.Span, written: String, d: Deduped) -> List<&2, Lint.Finding>:
   match d:
     case Deduped{seen, kept, renames}:
       +ordered = texts(Shared.sort(~Entry, ~before, List.reverse(&2, Entry, kept)), [])
       verdict(String.eq(ordered, written), span, ordered, renames)
 
-def judge(+path: String, +text: String, b: Block) -> List<&2, Lint.Finding>:
+def judge(path: String, text: String, b: Block) -> List<&2, Lint.Finding>:
   match b:
     case Block{beg, end, Nil{}}:
       []

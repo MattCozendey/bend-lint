@@ -78,7 +78,7 @@ def boundary(syntax: Lint.Syntax) -> Bool:
 def root(
   chain: List<&2, Lint.Node>,
   stopped: Bool,
-  +top: U32,
+  top: U32,
   nested: Bool,
   +here: Lint.Here,
   +children: Lint.Children
@@ -104,7 +104,7 @@ def returns_io.type(nodes: List<&2, Lint.Node>) -> Bool:
     case _:
       False{}
 
-def returns_io.of(nodes: List<&2, Lint.Node>, +children: Lint.Children) -> Bool:
+def returns_io.of(nodes: List<&2, Lint.Node>, children: Lint.Children) -> Bool:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Application{}, n, b, q, s, t}, rest}:
       returns_io.type(Lint.Children.get(children, i))
@@ -144,7 +144,7 @@ def Call.of(
   out: List<&2, Call>
 ) -> List<&2, Call>:
   match recursive node:
-    case True{} Lint.Node{+i, p, +owner, s, n, b, q, span, t}:
+    case True{} Lint.Node{+i, p, owner, s, n, b, q, span, t}:
       Call.add(
         Bool.not(returns_io(Lint.Children.get(children, owner), children)),
         root(
@@ -227,7 +227,7 @@ def caveat() -> String:
 def count(texts: List<&2, String>) -> String:
   U32.show(U32.from_nat(Shared.length(&2, String, texts)))
 
-def Call.message(+loop: String, +texts: List<&2, String>) -> String:
+def Call.message(loop: String, +texts: List<&2, String>) -> String:
   loop
     ++ " calls itself "
     ++ count(texts)
@@ -243,10 +243,10 @@ def Call.message(+loop: String, +texts: List<&2, String>) -> String:
 def Call.finding(
   node: Maybe<&2, Lint.Node>,
   +texts: List<&2, String>,
-  +here: Lint.Here
+  here: Lint.Here
 ) -> List<&2, Lint.Finding>:
   match node:
-    case Some{Lint.Node{i, p, +o, s, n, b, q, Some{span}, t}}:
+    case Some{Lint.Node{i, p, o, s, n, b, q, Some{span}, t}}:
       Bool.pick(
         List<&2, Lint.Finding>,
         Nat.is_gt(Shared.length(&2, String, texts), 1n),
@@ -291,8 +291,8 @@ def Call.findings(
 
 def called.first(
   nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children
+  here: Lint.Here,
+  children: Lint.Children
 ) -> Maybe<&2, Lint.Node>:
   match nodes:
     case Con{+node, rest}:
@@ -301,7 +301,7 @@ def called.first(
       None{}
 
 # The call of a let's value, if the value is a call of its definition to itself, typed or not.
-def called(+value: Lint.Node, +here: Lint.Here, +children: Lint.Children) -> Maybe<&2, Lint.Node>:
+def called(+value: Lint.Node, here: Lint.Here, +children: Lint.Children) -> Maybe<&2, Lint.Node>:
   match value:
     case Lint.Node{i, p, o, Lint.Annotation{}, n, b, q, s, t}:
       called.first(Lint.Children.get(children, i), here, children)
@@ -310,16 +310,16 @@ def called(+value: Lint.Node, +here: Lint.Here, +children: Lint.Children) -> May
 
 def Bound.make(
   call: Maybe<&2, Lint.Node>,
-  +id: U32,
-  +binder: U32,
-  +written: String,
-  +from: U32,
-  +body: U32,
-  +source: String,
+  id: U32,
+  binder: U32,
+  written: String,
+  from: U32,
+  body: U32,
+  source: String,
   out: List<&2, Bound>
 ) -> List<&2, Bound>:
   match call:
-    case Some{Lint.Node{i, p, o, s, n, b, q, Some{Lint.Span{+path, +beg, +end}}, t}}:
+    case Some{Lint.Node{i, p, o, s, n, b, q, Some{Lint.Span{path, +beg, +end}}, t}}:
       Bound{
         id,
         o,
@@ -338,10 +338,10 @@ def Bound.make(
 # itself.
 def Bound.of(
   nodes: List<&2, Lint.Node>,
-  +id: U32,
-  +body: U32,
+  id: U32,
+  body: U32,
   +here: Lint.Here,
-  +children: Lint.Children,
+  children: Lint.Children,
   out: List<&2, Bound>
 ) -> List<&2, Bound>:
   match nodes:
@@ -352,9 +352,9 @@ def Bound.of(
         o,
         Lint.PatternVariable{},
         n,
-        Some{+binder},
+        Some{binder},
         q,
-        Some{Lint.Span{path, +from, +end}},
+        Some{Lint.Span{path, +from, end}},
         t
       },
       Con{value, Con{rest, more}}
@@ -436,7 +436,7 @@ def Bound.find(bounds: List<&2, Bound>, found: Maybe<&2, Bound>, +id: U32) -> Ma
       Bound.find(rest, Shared.when(Bound, U32.is_eq(i, id), Bound{i, o, b, w, f, x, s, y}), id)
 
 # The let after a let of a run, if the run goes on (`free`: its call uses no binder of the run).
-def Bound.next(free: Bool, +bounds: List<&2, Bound>, +body: U32) -> Maybe<&2, Bound>:
+def Bound.next(free: Bool, bounds: List<&2, Bound>, body: U32) -> Maybe<&2, Bound>:
   match free:
     case True{}:
       Bound.find(bounds, None{}, body)
@@ -454,7 +454,7 @@ def run.go(
   out: List<&2, Bound>
 ) -> List<&2, Bound>:
   match fuel next:
-    case 1n+f Some{Bound{i, o, +b, w, fr, x, Lint.Span{+path, +beg, +end}, +body}}:
+    case 1n+f Some{Bound{i, o, +b, w, fr, x, Lint.Span{path, +beg, +end}, +body}}:
       +free = Bool.not(uses(us, False{}, binders, beg, end))
       run.go(
         f,
@@ -501,7 +501,7 @@ def Run.lets(
     case _ _:
       List.reverse(&2, String, out)
 
-def Run.message(+loop: String, texts: List<&2, String> & List<&2, String>) -> String:
+def Run.message(loop: String, texts: List<&2, String> & List<&2, String>) -> String:
   match texts:
     case Tuple{+written, +called}:
       loop
@@ -520,7 +520,7 @@ def Run.spanned(
   run: List<&2, Bound>,
   path: String,
   end: U32,
-  +loop: String
+  loop: String
 ) -> List<&2, Lint.Finding>:
   match run:
     case Con{Bound{i, o, b, w, +from, x, s, y}, rest}:
@@ -543,7 +543,7 @@ def Run.spanned(
       []
 
 # The finding about a run of lets, last first, if it has two lets or more.
-def Run.finding(run: List<&2, Bound>, +here: Lint.Here) -> List<&2, Lint.Finding>:
+def Run.finding(run: List<&2, Bound>, here: Lint.Here) -> List<&2, Lint.Finding>:
   match run:
     case Con{Bound{i, +o, b, w, fr, x, Lint.Span{+path, beg, +end}, y}, Con{second, more}}:
       Run.spanned(
@@ -564,7 +564,7 @@ def run.from(
   consumed: Bool,
   bound: Bound,
   +bounds: List<&2, Bound>,
-  +us: List<&2, Use>
+  us: List<&2, Use>
 ) -> List<&2, Bound>:
   match consumed:
     case True{}:

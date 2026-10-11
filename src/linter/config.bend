@@ -39,7 +39,7 @@ def Setting.severities(
 def Setting.names() -> List<&2, Shared.Named<Setting>>:
   Shared.Named{"off", RuleOff{}} <> Setting.severities(Lint.Severity.names())
 
-def Parsed.entry(+folder: String, item: Json.Json) -> Maybe<&2, String>:
+def Parsed.entry(folder: String, item: Json.Json) -> Maybe<&2, String>:
   match item:
     case Json.JString{path}:
       Some{folder ++ "/" ++ path}
@@ -75,7 +75,7 @@ def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
 
 def Parsed.option(
   severity: Bool,
-  +key: String,
+  key: String,
   value: Json.Json,
   out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>
 ) -> Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
@@ -105,7 +105,7 @@ def Parsed.severity.of(
   found: Maybe<&2, Maybe<&2, Lint.Severity>>
 ) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
   match here value:
-    case True{} Json.JString{+s}:
+    case True{} Json.JString{s}:
       Maybe.map(
         &2,
         Lint.Severity,
@@ -126,13 +126,13 @@ def Parsed.severity(
   match fields:
     case Nil{}:
       found
-    case Con{Json.JField{+key, value}, rest}:
+    case Con{Json.JField{key, value}, rest}:
       Parsed.severity(rest, Parsed.severity.of(String.eq(key, "severity"), value, found))
 
 # A rule's setting: "off", a severity, or an object of a severity (if any) and option values.
 def Parsed.rule(field: Json.JField) -> Maybe<&2, Shared.Named<Setting>>:
   match field:
-    case Json.JField{+id, Json.JString{+s}}:
+    case Json.JField{id, Json.JString{s}}:
       Maybe.map(
         &2,
         Setting,
@@ -179,7 +179,7 @@ def Key.names() -> List<&2, Shared.Named<Key>>:
 def Parsed.set(
   which: Maybe<&2, Key>,
   key: String,
-  +folder: String,
+  folder: String,
   value: Json.Json,
   config: Project
 ) -> Result<&2, &2, String, Project>:
@@ -227,7 +227,7 @@ def Parsed.set(
 
 # A config with one field more: `key` set to `value`.
 def Parsed.field(
-  +folder: String,
+  folder: String,
   field: Json.JField,
   parsed: Result<&2, &2, String, Project>
 ) -> Result<&2, &2, String, Project>:
@@ -255,7 +255,7 @@ def Parsed.fields(
       Parsed.fields(folder, rest, Parsed.field(folder, f, parsed))
 
 # The config a JSON value says, in the folder `folder`.
-def Parsed.of(+folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, String, Project>:
+def Parsed.of(folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, String, Project>:
   match json:
     case Some{Json.JObject{fields}}:
       Parsed.fields(folder, fields, Done{Project{[], None{}, []}})
@@ -320,7 +320,7 @@ def Text.read(
         File.close(f)
         IO.die(String, 2, "bend-lint: a config is too long")
 
-def parsed(+path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project):
+def parsed(path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project):
   match parsed:
     case Done{config}:
       IO.pure(Project, config)
@@ -345,7 +345,7 @@ def read(+folder: String, file: File) -> IO(Project):
 def search(
   folders: List<&2, String>,
   opened: Result<&1, &1, U32 & String, File>,
-  +folder: String
+  folder: String
 ) -> IO(Project):
   match folders opened:
     case _ Done{file}:

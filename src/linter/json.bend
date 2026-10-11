@@ -127,7 +127,7 @@ def Lex.between(glyph: JGlyph, c: Char, tokens: List<&2, Token>) -> Lex:
     case _:
       Lex{Between{}, "", Token.of(glyph) <> tokens}
 
-def Lex.step(lex: Lex, glyph: JGlyph, +c: Char) -> Lex:
+def Lex.step(lex: Lex, glyph: JGlyph, c: Char) -> Lex:
   match lex glyph:
     case Lex{Between{}, text, tokens} _:
       Lex.between(glyph, c, tokens)
