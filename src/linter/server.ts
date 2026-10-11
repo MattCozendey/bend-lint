@@ -15,6 +15,28 @@
 // checker lowers it. Facts are read after the check, from each def's
 // elaborated body (`e`, what Bend compiles) and each declaration's type, with
 // what the checker passed each judgment.
+//
+// Bootstrap: what a rule sees is lint.bend's contract, not Bend's. When
+// Bend's checker is Bend, each field comes from what it gives, or bend-lint
+// computes it. Bend has no private defs: whatever the checker computes, Bend
+// code can import. The worst case is more code of ours, not a lost field.
+//
+// | What a rule sees               | Now, from                         | Risk   |
+// | ------------------------------ | --------------------------------- | ------ |
+// | spans, names, binders, targets | the parser                        | low    |
+// | types: show, same, normal      | term_show, term_compare, term_snf | low    |
+// | declarations and their uses    | program.bend, our own code        | none   |
+// | syntax before lowering         | the parser's frames (KEPT)        | medium |
+// | quantity, used                 | the judgments (JUDGED)            | high   |
+// | which node a fact is on        | Span objects as Map keys          | medium |
+//
+// - Syntax before lowering: if Bend's parser builds no tree before it lowers,
+//   bend-lint calls its parse functions itself, as KEPT follows them now.
+// - Quantity and used: a checker in Bend cannot be hooked. It gives them, or
+//   bend-lint computes them again, with a walker in Bend.
+// - Which node a fact is on: Bend values have no identity, so a fact finds its
+//   node by span value, kind, name and children. Sugar that shares a span is
+//   then ambiguous.
 
 // Imports
 // =======
