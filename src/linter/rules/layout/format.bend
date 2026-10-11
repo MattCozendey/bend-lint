@@ -354,6 +354,22 @@ def ident_at(s: String) -> Bool:
     case SCon{+c, rest}:
       ident_at.of(Char.is_eq(c, '.'), c, rest)
 
+# `scan`, with the text so far last character first: on the C lane, ++ copies its left side.
+def scan.go(
+  ~test: String -> Bool,
+  s: String,
+  keep: String,
+  ok: Bool,
+  text: String,
+  n: U32,
+  last: Char
+) -> Run:
+  match s ok:
+    case SCon{+c, +rest} True{}:
+      scan.go(~test, rest, rest, test(rest), SCon{c, text}, (n + 1: U32), c)
+    case _ _:
+      Run{String.reverse(text), n, keep, last}
+
 # Reads characters while test holds, after text; test sees the text from
 # each character on, so it can look ahead.
 def scan(
@@ -365,11 +381,7 @@ def scan(
   n: U32,
   last: Char
 ) -> Run:
-  match s ok:
-    case SCon{+c, +rest} True{}:
-      scan(~test, rest, rest, test(rest), text ++ char(c), (n + 1: U32), c)
-    case _ _:
-      Run{text, n, keep, last}
+  scan.go(~test, s, keep, ok, String.reverse(text), n, last)
 
 def tok(r: Run, sym: Sym, name: Bool) -> Scan:
   match r:
@@ -513,7 +525,8 @@ def quote_after(+c: Char, +quote: Char) -> Quote:
     Bool.pick(Quote, Char.is_eq(c, quote), Shut{}, Inside{})
   )
 
-def literal(
+# `literal`, with the text so far last character first: on the C lane, ++ copies its left side.
+def literal.go(
   s: String,
   keep: String,
   +quote: Char,
@@ -525,20 +538,32 @@ def literal(
 ) -> Scan:
   match s at:
     case SCon{+c, +rest} Inside{}:
-      literal(
+      literal.go(
         rest,
         rest,
         quote,
         quote_after(c, quote),
-        text ++ char(c),
+        SCon{c, text},
         (n + 1: U32),
         c,
         tail_after(c, tail)
       )
     case SCon{+c, +rest} Escaped{}:
-      literal(rest, rest, quote, Inside{}, text ++ char(c), (n + 1: U32), c, tail_after(c, tail))
+      literal.go(rest, rest, quote, Inside{}, SCon{c, text}, (n + 1: U32), c, tail_after(c, tail))
     case _ _:
-      Tok{text, n, keep, last, Literal{}, Word{}, False{}, tail}
+      Tok{String.reverse(text), n, keep, last, Literal{}, Word{}, False{}, tail}
+
+def literal(
+  s: String,
+  keep: String,
+  +quote: Char,
+  at: Quote,
+  text: String,
+  n: U32,
+  last: Char,
+  tail: Maybe<&2, U32>
+) -> Scan:
+  literal.go(s, keep, quote, at, String.reverse(text), n, last, tail)
 
 def class_of(+c: Char) -> Class:
   Bool.pick(
@@ -2201,18 +2226,19 @@ def record_doc(
     case False{}:
       decl_doc(record, declaration, tab, col)
 
-def joined(xs: List<&2, Tree>, acc: String) -> String:
+# The text of the first tokens of `xs`, after `acc`, the texts so far, last first.
+def joined(xs: List<&2, Tree>, acc: List<&2, String>) -> String:
   match xs:
     case Nil{}:
-      acc
+      Shared.joined(acc, "")
     case Con{x, rest}:
-      joined(rest, acc ++ Token.text(first(x)))
+      joined(rest, Token.text(first(x)) <> acc)
 
 # Whether the record's tokens spell @unsafe.
 def is_unsafe(at: Bool, +record: List<&2, Tree>) -> Bool:
   match at:
     case True{}:
-      same(joined(record, ""), "@unsafe")
+      same(joined(record, []), "@unsafe")
     case False{}:
       False{}
 

@@ -346,6 +346,11 @@ const GLOB = /[*?[{]/;
 // a week, in milliseconds.
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
+// How old a kept build gets before a run that uses it marks it as used again:
+// a day, in milliseconds. Touching an executable makes a virus scanner check
+// it again before it runs (about 0.2 s on Windows), so not on every run.
+const USED = 24 * 60 * 60 * 1000;
+
 // Functions
 // =========
 
@@ -1562,32 +1567,33 @@ const builder = (dir: URL): string => {
 
 // The executable of the rules program `source`, built by the `bend` on PATH
 // with the bend2 sources in `dir`. A build is kept, and used again until a
-// file the program imports, or the bend that builds it, changes; each use
-// keeps it from prune. It goes to a folder of its own first, so a kept
-// executable is never partial, and runs that build one program at once
-// share one executable.
+// file the program imports, or the bend that builds it, changes; its use
+// keeps it from prune (see USED). It goes to a folder of its own first, so
+// a kept executable is never partial, and runs that build one program at
+// once share one executable.
 export const built = async (source: string, dir: URL): Promise<string> => {
-  const from = nodePath.dirname(nodePath.resolve(source));
+  const file = nodePath.resolve(source);
+  const from = nodePath.dirname(file);
   const key = getSha256Hex(
     [
       builder(dir),
-      ...closure(nodePath.resolve(source)).flatMap((f) => [
-        nodePath.relative(from, f),
-        nodeFs.readFileSync(f, "utf8"),
-      ]),
+      ...closure(file).flatMap((f) => [nodePath.relative(from, f), nodeFs.readFileSync(f, "utf8")]),
     ].join("\0"),
   ).slice(0, 16);
   const name = `${nodePath.basename(source, ".bend")}.${key}`;
   const exe = nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
-  if (nodeFs.existsSync(exe)) {
-    nodeFs.utimesSync(exe, new Date(), new Date());
+  const kept = nodeFs.statSync(exe, { throwIfNoEntry: false });
+  if (kept !== undefined) {
+    if (Date.now() - kept.mtimeMs > USED) {
+      nodeFs.utimesSync(exe, new Date(), new Date());
+    }
     return exe;
   }
   nodeFs.mkdirSync(PROGRAMS_DIR, { recursive: true });
   const part = nodeFs.mkdtempSync(nodePath.join(PROGRAMS_DIR, ".part-"));
   try {
     const out = nodePath.join(part, nodePath.basename(exe));
-    const ran = await getCommandOutcome(["bend", source, "-o", out], from);
+    const ran = await getCommandOutcome(["bend", file, "-o", out], from);
     if (ran.code !== 0) {
       throw new Error(`could not build ${source}:\n${ran.out}${ran.err}`);
     }

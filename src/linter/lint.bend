@@ -131,6 +131,38 @@ type Program is Data:
 type Declaration is Data:
   Declaration{node: Node, references: List<&2, Node>}
 
+# A node's name as written, or "" for no node.
+def Node.name(node: Maybe<&2, Node>) -> String:
+  match node:
+    case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
+      name
+    case None{}:
+      ""
+
+# The global name a node declares or uses, as the check names it, or "" for no node.
+def Node.target(node: Maybe<&2, Node>) -> String:
+  match node:
+    case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
+      target
+    case None{}:
+      ""
+
+# Where a node is, if there is a node and it says.
+def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
+  match node:
+    case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
+      span
+    case None{}:
+      None{}
+
+# The text of `source`, a file's text, at `span`; "" for none.
+def Span.text(+source: String, span: Maybe<&2, Span>) -> String:
+  match span:
+    case Some{Span{path, beg, end}}:
+      Shared.slice(source, beg, end)
+    case None{}:
+      ""
+
 # The global name a node uses, if it uses one.
 def Node.used(node: Node) -> Maybe<&2, String>:
   match node:
@@ -152,6 +184,36 @@ def Node.used(node: Node) -> Maybe<&2, String>:
 # The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
 def Name.namespace(name: String) -> String:
   Shared.before(name, ':')
+
+# The nodes of a file under each node, by the node's id, each in order: an application's function, then its arguments;
+# a block's binders, then their values, then the rest of the block.
+type Children is Data:
+  Children{groups: Map<&2, List<&2, Node>>}
+
+def Node.parent_key(node: Node) -> String:
+  match node:
+    case Node{id, parent, owner, syntax, name, binder, quantity, span, target}:
+      U32.show(parent)
+
+def Children.of(nodes: List<&2, Node>) -> Children:
+  Children{Shared.Group.of(~Node, ~Node.parent_key, nodes, Map.new(&2, List<&2, Node>))}
+
+# The nodes directly under the node numbered `id`, in order.
+def Children.get(children: Children, id: U32) -> List<&2, Node>:
+  match children:
+    case Children{groups}:
+      Shared.Group.get(Node, groups, U32.show(id))
+
+def Children.last.go(nodes: List<&2, Node>, last: U32) -> U32:
+  match nodes:
+    case Nil{}:
+      last
+    case Con{Node{id, parent, owner, syntax, name, binder, quantity, span, target}, rest}:
+      Children.last.go(rest, id)
+
+# The id of the last node directly under the node numbered `id`: a block's rest, after its lets. 0 for none.
+def Children.last(children: Children, id: U32) -> U32:
+  Children.last.go(Children.get(children, id), 0)
 
 # Rules
 # =====
@@ -429,6 +491,40 @@ def Here.node(here: Here, +id: U32) -> Maybe<&2, Node>:
   match here:
     case Here{program, source, declarations, Index{+first, nodes}, options}:
       Shared.Indexed.get(Node, nodes, (id - first: U32))
+
+def Here.up(fuel: Nat, +here: Here, node: Maybe<&2, Node>, out: List<&2, Node>) -> List<&2, Node>:
+  match fuel node:
+    case 1n+f Some{Node{id, +parent, owner, syntax, name, binder, quantity, span, target}}:
+      Here.up(
+        f,
+        here,
+        Here.node(here, parent),
+        Node{id, parent, owner, syntax, name, binder, quantity, span, target} <> out
+      )
+    case _ _:
+      List.reverse(&2, Node, out)
+
+# The node numbered `id`, then each node above it, innermost first. A parent's id is smaller, so `id` bounds the steps.
+def Here.ancestors(+here: Here, +id: U32) -> List<&2, Node>:
+  Here.up(U32.to_nat(id), here, Here.node(here, id), [])
+
+def Node.calls(nodes: List<&2, Node>, owner: Maybe<&2, Node>) -> Bool:
+  match nodes owner:
+    case Con{
+      Node{i, p, o, Reference{}, n, b, q, s, called},
+      rest
+    } Some{Node{j, r, w, Definition{}, m, c, x, t, declared}}:
+      String.eq(called, declared)
+    case _ _:
+      False{}
+
+# Whether a node is an application of the definition it is in: a step of a loop, as Bend repeats work by recursion.
+def Here.recursive(here: Here, +children: Children, node: Node) -> Bool:
+  match node:
+    case Node{id, parent, owner, Application{}, name, binder, quantity, span, target}:
+      Node.calls(Children.get(children, id), Here.node(here, owner))
+    case _:
+      False{}
 
 # The value of the rule's option `name`: the config's, or its default.
 def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:

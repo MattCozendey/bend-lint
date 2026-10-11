@@ -51,13 +51,13 @@ def kept(+line: String) -> String:
   Bool.pick(String, blank(line), "", line ++ "\n")
 
 # The comment lines of `s`, a run of whole lines, each with its newline; blank lines dropped. `line` is the current
-# line, last character first.
-def comments(s: String, line: String, acc: String) -> String:
+# line, last character first; `acc` the lines so far, last first.
+def comments(s: String, line: String, acc: List<&2, String>) -> String:
   match s:
     case SNil{}:
-      acc ++ kept(String.reverse(line))
+      Shared.joined(kept(String.reverse(line)) <> acc, "")
     case SCon{'\n', rest}:
-      comments(rest, "", acc ++ kept(String.reverse(line)))
+      comments(rest, "", kept(String.reverse(line)) <> acc)
     case SCon{c, rest}:
       comments(rest, SCon{c, line}, acc)
 
@@ -93,7 +93,7 @@ def add.line(
           path,
           alias,
           loads,
-          comments(slice(text, last, beg), "", "") ++ ended(slice(text, beg, end))
+          comments(slice(text, last, beg), "", []) ++ ended(slice(text, beg, end))
         }
           <> entries
       }
@@ -173,12 +173,13 @@ def before(a: Entry, b: Entry) -> Bool:
     case Entry{i, False{}, +p, x, l, t} Entry{j, False{}, +q, y, m, u}:
       Bool.pick(Bool, String.eq(p, q), String.is_le(x, y), String.is_lt(p, q))
 
-def texts(es: List<&2, Entry>, acc: String) -> String:
+# The texts of `es`, after `acc`, the texts so far, last first.
+def texts(es: List<&2, Entry>, acc: List<&2, String>) -> String:
   match es:
     case Nil{}:
-      acc
+      Shared.joined(acc, "")
     case Con{Entry{id, base, path, alias, loads, text}, rest}:
-      texts(rest, acc ++ text)
+      texts(rest, text <> acc)
 
 # Rule
 # ====
@@ -205,7 +206,7 @@ def verdict(
 def judged(+span: Lint.Span, written: String, d: Deduped) -> List<&2, Lint.Finding>:
   match d:
     case Deduped{seen, kept, renames}:
-      +ordered = texts(Shared.sort(~Entry, ~before, List.reverse(&2, Entry, kept)), "")
+      +ordered = texts(Shared.sort(~Entry, ~before, List.reverse(&2, Entry, kept)), [])
       verdict(String.eq(ordered, written), span, ordered, renames)
 
 def judge(+path: String, +text: String, b: Block) -> List<&2, Lint.Finding>:

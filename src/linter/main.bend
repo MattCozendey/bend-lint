@@ -6,6 +6,10 @@ import ./rules/layout/directive-order.bend as DirectiveOrder
 import ./rules/layout/format.bend as Format
 import ./rules/layout/imports.bend as Imports
 import ./rules/no-unused/imports.bend as UnusedImports
+import ./rules/performance/append-in-loop.bend as AppendInLoop
+import ./rules/performance/deep-call-in-fork.bend as DeepCallInFork
+import ./rules/performance/list-index-loop.bend as ListIndexLoop
+import ./rules/performance/missed-fork.bend as MissedFork
 
 def main() -> IO(Unit):
   Cli.run(
@@ -15,6 +19,10 @@ def main() -> IO(Unit):
       DirectiveOrder.rule(),
       Format.rule(),
       Imports.rule(),
-      UnusedImports.rule()
+      UnusedImports.rule(),
+      AppendInLoop.rule(),
+      DeepCallInFork.rule(),
+      ListIndexLoop.rule(),
+      MissedFork.rule()
     ]
   )

@@ -72,6 +72,10 @@ def take.go(n: Nat, s: String, acc: String) -> String:
 def take(s: String, n: Nat) -> String:
   take.go(n, s, "")
 
+# The text of `text` from `beg` to `end`, in code points.
+def slice(text: String, +beg: U32, end: U32) -> String:
+  take(String.drop(text, U32.to_nat(beg)), U32.to_nat((end - beg: U32)))
+
 def line_start.go(s: String, +i: U32, +at: U32, start: U32, going: Bool) -> U32:
   match s going:
     case _ False{}:
@@ -509,6 +513,7 @@ def Table.grow(-A: Data, +depth: Nat, halves: List<&2, A> & List<&2, A>) -> Tabl
     case 0n Tuple{e, o}:
       TNode{TLeaf{List.head(&2, A, e)}, TLeaf{List.head(&2, A, o)}}
     case 1n+d Tuple{e, o}:
+      # bend-lint: expect-next performance/missed-fork@information -- measured: forking the halves made no run faster, as the table is a small part of a run
       TNode{Table.grow(A, d, deal(&2, A, e)), Table.grow(A, d, deal(&2, A, o))}
 
 def Table.root(-A: Data, depth: Nat, xs: List<&2, A>) -> Table<A>:
