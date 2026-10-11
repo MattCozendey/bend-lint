@@ -1,24 +1,3 @@
-import type { RuleTester } from "oxlint/plugins-dev";
+import { noTypeSynonyms } from "./no-type-synonyms";
 
-export default {
-  meta: { name: "custom-oxlint-plugins" },
-  rules: {
-    "no-type-synonyms": {
-      meta: {
-        type: "suggestion",
-        schema: [],
-        messages: { synonym: "Use the original type directly instead of renaming it." },
-      },
-      create: (context) => ({
-        TSTypeAliasDeclaration: (node) => {
-          if (
-            node.typeAnnotation.type === "TSTypeReference" &&
-            !node.typeAnnotation.typeArguments
-          ) {
-            context.report({ node, messageId: "synonym" });
-          }
-        },
-      }),
-    } satisfies Parameters<RuleTester["run"]>[1],
-  },
-};
+export default { meta: { name: "custom-oxlint-plugins" }, rules: noTypeSynonyms };
