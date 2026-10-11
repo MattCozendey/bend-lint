@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { createLinter } from "../../src/lint.ts";
 import type { LintResult } from "../../src/lint.ts";
 import { unwrap } from "../../src/result.ts";

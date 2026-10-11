@@ -3,5 +3,8 @@
   "ignorePatterns": ["**/*.bend"],
   "sortPackageJson": {
     "sortScripts": true
+  },
+  "sortImports": {
+    "sortSideEffects": true
   }
 }

@@ -9,8 +9,8 @@
 // keyword. Only linted files' comments count. The checker's and bend-lint's
 // own findings cannot be suppressed.
 
-import { SOURCE_TOKEN, line, starts } from "./seam.ts";
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
+import { SOURCE_TOKEN, line, starts } from "./seam.ts";
 
 // Types
 // =====

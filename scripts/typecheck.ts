@@ -1,4 +1,5 @@
 import { resolve, relative } from "node:path";
+
 import { API, DiagnosticCategory } from "typescript/unstable/async";
 
 const root = resolve(import.meta.dir, "..");

@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
 import { applyFixes, createLinter } from "../../src/lint.ts";
 import type { LintOptions, LintResult, LintRule, Options } from "../../src/lint.ts";
 import { unwrap } from "../../src/result.ts";

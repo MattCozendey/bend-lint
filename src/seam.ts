@@ -9,12 +9,12 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
-import pkg from "../package.json" with { type: "json" };
-
 import type { Book, Ctx, Err, HTerm, LTerm, Name, Parse, Quant, Uses } from "bend2/bend.ts";
 import type { Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
+
+import pkg from "../package.json" with { type: "json" };
 import type {
   Diag,
   Declaration,

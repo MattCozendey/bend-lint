@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
+
 import * as api from "./lint.ts";
 import { applyFixes, createLinter } from "./lint.ts";
 import type {
