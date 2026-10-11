@@ -17,12 +17,6 @@ import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 // Constants
 // =========
 
-// What a download holds besides base.bend and the effs/ files Base imports.
-const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
-
-// How long `bend version` may run, in ms.
-const VERSION_TIMEOUT = 10_000;
-
 // How to name a bend2 folder, for a caller that takes only BEND_DIR.
 export const GIVE = "set BEND_DIR to a bend checkout";
 
@@ -47,19 +41,26 @@ export const CACHE: string = nodePath.join(
 // if it failed or ran too long.
 const runBendVersion = (): Promise<Result<string | undefined, string>> =>
   new Promise((resolve) => {
-    execFile("bend", ["version"], { encoding: "utf8", timeout: VERSION_TIMEOUT }, (e, stdout) => {
-      resolve(
-        e === null
-          ? ok(stdout)
-          : e.code === "ENOENT"
-            ? ok(undefined)
-            : error(
-                e.killed
-                  ? `bend version ran over ${VERSION_TIMEOUT / 1000} s`
-                  : `bend version failed (${e.message})`,
-              ),
-      );
-    });
+    const VERSION_CHECK_TIMEOUT_IN_MS = 10_000;
+
+    execFile(
+      "bend",
+      ["version"],
+      { encoding: "utf8", timeout: VERSION_CHECK_TIMEOUT_IN_MS },
+      (e, stdout) => {
+        resolve(
+          e === null
+            ? ok(stdout)
+            : e.code === "ENOENT"
+              ? ok(undefined)
+              : error(
+                  e.killed
+                    ? `bend version ran over ${VERSION_CHECK_TIMEOUT_IN_MS / 1000} s`
+                    : `bend version failed (${e.message})`,
+                ),
+        );
+      },
+    );
   });
 
 // The installed bend's release ("v2.0.36"), or undefined if bend is not
@@ -85,6 +86,8 @@ export const fetchBend = async (tag: string, downloadDir: string = CACHE): Promi
     throw new Error("not a bend release: " + tag);
   }
   const dir = nodePath.join(downloadDir, tag, "bend2");
+  // What a download holds besides base.bend and the effs/ files Base imports.
+  const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
   const whole = (): boolean =>
     [...FILES, "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
   if (whole()) {
