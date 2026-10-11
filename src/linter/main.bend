@@ -1,5 +1,8 @@
 import Base
 import ./cli.bend as Cli
+import ./rules/language/decreasing-call.bend as DecreasingCall
+import ./rules/language/forward-reference.bend as ForwardReference
+import ./rules/language/reused-binder.bend as ReusedBinder
 import ./rules/layout/canon-import-path.bend as CanonImportPath
 import ./rules/layout/case.bend as Case
 import ./rules/layout/directive-order.bend as DirectiveOrder
@@ -19,6 +22,9 @@ def main() -> IO(Unit):
       DirectiveOrder.rule(),
       Format.rule(),
       Imports.rule(),
+      DecreasingCall.rule(),
+      ForwardReference.rule(),
+      ReusedBinder.rule(),
       UnusedImports.rule(),
       AppendInLoop.rule(),
       DeepCallInFork.rule(),

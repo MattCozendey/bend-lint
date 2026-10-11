@@ -215,6 +215,60 @@ def Children.last.go(nodes: List<&2, Node>, last: U32) -> U32:
 def Children.last(children: Children, id: U32) -> U32:
   Children.last.go(Children.get(children, id), 0)
 
+def Children.bare.go(nodes: List<&2, Node>) -> Bool:
+  match nodes:
+    case Con{Node{id, parent, owner, QuantityType{}, name, binder, quantity, span, target}, rest}:
+      True{}
+    case _:
+      False{}
+
+# Whether the parameter numbered `id` is written bare (`def f(x)`, filling a law): its quantity is the law's, which
+# its node does not give.
+def Children.bare(children: Children, id: U32) -> Bool:
+  Children.bare.go(Children.get(children, id))
+
+# The binders of the pattern variables in `nodes`, a pattern's nodes, and below them, onto `out`. `fuel` bounds the
+# depth: a file's node count is enough.
+def Children.bound(
+  fuel: Nat,
+  nodes: List<&2, Node>,
+  +children: Children,
+  out: List<&2, U32>
+) -> List<&2, U32>:
+  match fuel nodes:
+    case 1n++f Con{
+      Node{id, parent, owner, PatternVariable{}, name, Some{b}, quantity, span, target},
+      rest
+    }:
+      Children.bound(f, rest, children, b <> out)
+    case 1n++f Con{
+      Node{+id, parent, owner, PatternConstructor{}, name, binder, quantity, span, target},
+      rest
+    }:
+      Children.bound(
+        f,
+        rest,
+        children,
+        Children.bound(f, Children.get(children, id), children, out)
+      )
+    case 1n++f Con{node, rest}:
+      Children.bound(f, rest, children, out)
+    case _ _:
+      out
+
+def Children.scrutinees.go(nodes: List<&2, Node>, out: List<&2, Node>) -> List<&2, Node>:
+  match nodes:
+    case Con{Node{id, parent, owner, Case{}, name, binder, quantity, span, target}, rest}:
+      List.reverse(&2, Node, out)
+    case Con{node, rest}:
+      Children.scrutinees.go(rest, node <> out)
+    case Nil{}:
+      List.reverse(&2, Node, out)
+
+# The scrutinees of the match numbered `id`, in order: its nodes before its first case.
+def Children.scrutinees(children: Children, id: U32) -> List<&2, Node>:
+  Children.scrutinees.go(Children.get(children, id), [])
+
 # Rules
 # =====
 type Severity is Data:
@@ -525,6 +579,70 @@ def Here.recursive(here: Here, +children: Children, node: Node) -> Bool:
       Node.calls(Children.get(children, id), Here.node(here, owner))
     case _:
       False{}
+
+# Whether the line of `text` that starts at `start`, the one before the line that starts at `next`, starts with `@`.
+def Here.unsafe.above(+text: String, +start: U32, +next: U32) -> Bool:
+  U32.is_gt(next, 0) && Shared.starts(Shared.slice(text, start, next), '@')
+
+# Whether a definition is @unsafe (`@unsafe def f`, with @unsafe on its line or the line above, or `def f?`): Bend's
+# checker trusts its body.
+def Here.unsafe(+here: Here, node: Maybe<&2, Node>) -> Bool:
+  match node:
+    case Some{
+      Node{
+        id,
+        parent,
+        owner,
+        Definition{},
+        name,
+        binder,
+        quantity,
+        Some{Span{path, +beg, +end}},
+        target
+      }
+    }:
+      +text = Here.text(here)
+      +line = Shared.line_start(text, beg)
+      Shared.starts(
+        Shared.slice(text, line, beg),
+        '@'
+      )
+        || Here.unsafe.above(text, Shared.line_start(text, (line - 1: U32)), line)
+        || String.eq(Shared.slice(text, end, (end + 1: U32)), "?")
+    case _:
+      False{}
+
+# Whether the node numbered `app`, an application, builds a pair type (`A & B`), whose parts are types.
+def Here.pair(+here: Here, +app: U32) -> Bool:
+  String.eq(Node.target(Here.node(here, (app + 1: U32))), "Pair")
+
+def Here.live.go(chain: List<&2, Node>, prev: U32, +here: Here) -> Bool:
+  match chain:
+    case Con{Node{id, parent, owner, Body{}, name, binder, quantity, span, target}, rest}:
+      True{}
+    case Con{Node{+id, parent, owner, Annotation{}, name, binder, quantity, span, target}, rest}:
+      U32.is_eq(prev, (id + 1: U32)) && Here.live.go(rest, id, here)
+    case Con{Node{+id, parent, owner, Application{}, name, binder, quantity, span, target}, rest}:
+      Bool.not(Here.pair(here, id)) && Here.live.go(rest, id, here)
+    case Con{Node{id, parent, owner, Equality{}, name, binder, quantity, span, target}, rest}:
+      False{}
+    case Con{Node{id, parent, owner, Forall{}, name, binder, quantity, span, target}, rest}:
+      False{}
+    case Con{
+      Node{id, parent, owner, TypeApplication{}, name, binder, quantity, span, target},
+      rest
+    }:
+      False{}
+    case Con{Node{id, parent, owner, syntax, name, binder, quantity, span, target}, rest}:
+      Here.live.go(rest, id, here)
+    case Nil{}:
+      False{}
+
+# Whether the node numbered `id` is in live code: a definition's body, outside types: an annotation's type, an
+# equality, a function or pair type, a type's arguments. Types and equations are dead: the checker sees them, the
+# program does not run them.
+def Here.live(+here: Here, +id: U32) -> Bool:
+  Here.live.go(List.tail(&2, Node, Here.ancestors(here, id)), id, here)
 
 # The value of the rule's option `name`: the config's, or its default.
 def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:
