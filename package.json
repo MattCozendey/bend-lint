@@ -15,7 +15,7 @@
     "lint": "bun scripts/link-bend.ts && oxlint .",
     "sync-bend": "bun scripts/sync-bend.ts",
     "test": "bun test",
-    "typecheck": "bun scripts/link-bend.ts && bun scripts/typecheck.ts"
+    "typecheck": "bun scripts/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "dependencies": {
     "@oxlint/plugins": "1.87.0",

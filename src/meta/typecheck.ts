@@ -2,7 +2,7 @@ import { relative, resolve } from "node:path";
 
 import { API, DiagnosticCategory } from "typescript/unstable/async";
 
-const root = resolve(import.meta.dir, "..");
+const root = resolve(import.meta.dir, "..", "..");
 const config = resolve(root, "tsconfig.json");
 const api = new API({ cwd: root });
 
