@@ -3,7 +3,7 @@
 A linter and formatter for Bend 2.
 
 ```sh
-bun src/lint.ts main.bend --rules rules/layout/format.bend --fix
+bun src/legacy/lint.ts main.bend --rules src/legacy/rules/layout/format.bend --fix
 ```
 
 ## What it does
@@ -31,19 +31,19 @@ bun install
 ## Run it
 
 ```sh
-bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <file>]... [--config <file>]
+bun src/legacy/lint.ts <glob>... [--imports | --no-imports] [--rules <file>]... [--config <file>]
                 [--fix | --fix-suggested | --fix-dangerously]
                 [--json] [--show-suppressed] [--bend <dir>]
 ```
 
-| To lint         | Command                                                                |
-| --------------- | ---------------------------------------------------------------------- |
-| One file        | `bun src/lint.ts main.bend --rules rules/layout/format.bend`           |
-| Many files      | `bun src/lint.ts "src/**/*.bend" --rules rules/layout/format.bend`     |
-| A whole program | `bun src/lint.ts main.bend --imports --rules rules/layout/format.bend` |
+| To lint         | Command                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| One file        | `bun src/legacy/lint.ts main.bend --rules src/legacy/rules/layout/format.bend`           |
+| Many files      | `bun src/legacy/lint.ts "src/**/*.bend" --rules src/legacy/rules/layout/format.bend`     |
+| A whole program | `bun src/legacy/lint.ts main.bend --imports --rules src/legacy/rules/layout/format.bend` |
 
-The `samples/` folder holds `.bend` files to try bend-lint on, for example
-`bun src/lint.ts "samples/*.bend" --rules rules/layout/format.bend`.
+The `src/legacy/samples/` folder holds `.bend` files to try bend-lint on, for example
+`bun src/legacy/lint.ts "src/legacy/samples/*.bend" --rules src/legacy/rules/layout/format.bend`.
 
 ### Inputs
 
@@ -119,7 +119,7 @@ bend-lint reads one config file:
 
 ```json
 {
-  "load": ["./rules/layout/format.bend"],
+  "load": ["./src/legacy/rules/layout/format.bend"],
   "rules": { "layout/format": { "tabWidth": 2, "wrapAtWidth": 100, "severity": "warning" } }
 }
 ```
@@ -142,7 +142,7 @@ export const config = { rules: { "layout/format": { tabWidth: 4 } } };
 
 ## Bundled rules
 
-### `layout/format` (`rules/layout/format.bend`)
+### `layout/format` (`src/legacy/rules/layout/format.bend`)
 
 The formatter. It fixes indentation, spacing, comments, blank lines between declarations, line
 wrapping and the final newline. Its fix is `safe`.
@@ -161,7 +161,7 @@ wrapping and the final newline. Its fix is `safe`.
 - It parses its own output and compares it with the original. If they differ, you get a warning and
   no fix.
 
-### `layout/canon-import-path` (`rules/layout/canon-import-path.bend`)
+### `layout/canon-import-path` (`src/legacy/rules/layout/canon-import-path.bend`)
 
 Each import path must be the shortest path from the importing file to the file it names, and start
 with `./` or `../`. Its fix is `safe`.
@@ -178,7 +178,7 @@ with `./` or `../`. Its fix is `safe`.
   folder gets the real folder's path.
 - A file that fails Bend's check gets no findings from this rule.
 
-### `layout/imports` (`rules/layout/imports.bend`)
+### `layout/imports` (`src/legacy/rules/layout/imports.bend`)
 
 The import block. Its fix is `safe`.
 
@@ -190,7 +190,7 @@ The import block. Its fix is `safe`.
   it. Blank lines between imports go. Comments above the first import stay where they are.
 - A file that fails Bend's check gets no findings from this rule.
 
-### `no-unused/imports` (`rules/no-unused/imports.bend`)
+### `no-unused/imports` (`src/legacy/rules/no-unused/imports.bend`)
 
 Each import must be used. Its fix, `safe`, removes the import's line, with a comment on that line.
 
@@ -268,7 +268,7 @@ Downloads and compiled Bend rules go to `~/.cache/bend-lint/` (`$XDG_CACHE_HOME`
 Save this as `no-tabs.ts` in the repo root:
 
 ```ts
-import type { LintRule } from "./src/lint.ts";
+import type { LintRule } from "./src/legacy/lint.ts";
 
 export const rules: LintRule[] = [
   {
@@ -287,7 +287,7 @@ export const rules: LintRule[] = [
 Run it:
 
 ```sh
-bun src/lint.ts file.bend --rules no-tabs.ts
+bun src/legacy/lint.ts file.bend --rules no-tabs.ts
 ```
 
 This rule reads raw text, so it also finds tabs in literals and comments. To read types and scope, a

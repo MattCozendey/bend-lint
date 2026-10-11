@@ -10,7 +10,7 @@
 // own findings cannot be suppressed.
 
 import type { Diag, Fix, Severity, Source } from "./lint.ts";
-import { SOURCE_TOKEN, line, starts } from "./seam.ts";
+import { line, SOURCE_TOKEN, starts } from "./seam.ts";
 
 // Types
 // =====

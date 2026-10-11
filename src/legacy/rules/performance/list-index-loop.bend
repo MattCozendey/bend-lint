@@ -5,9 +5,9 @@
 # of those walks the list from its head, so the loop is O(n²) where a walk
 # of the list is O(n). The finding has no fix: the rewrite changes the
 # loop's parameters.
-# Run: bun src/lint.ts file.bend --rules rules/performance/list-index-loop.bend
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/performance/list-index-loop.bend
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

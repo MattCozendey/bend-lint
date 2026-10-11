@@ -4,9 +4,9 @@
 # is not in tail position. In our tests, on the native lane, such a call
 # at each fork cut the 16-thread speedup from 10x to 1.9x; the same def
 # with a tail call kept it. The finding has no fix.
-# Run: bun src/lint.ts file.bend --rules rules/performance/deep-call-in-fork.bend
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/performance/deep-call-in-fork.bend
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

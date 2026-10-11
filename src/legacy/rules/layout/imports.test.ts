@@ -4,8 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { applyFixes, createLinter } from "../../src/lint.ts";
-import { unwrap } from "../../src/shared/result.ts";
+import { unwrap } from "../../../shared/result.ts";
+import { applyFixes, createLinter } from "../../lint.ts";
 
 const linter = unwrap(await createLinter());
 const rules = unwrap(

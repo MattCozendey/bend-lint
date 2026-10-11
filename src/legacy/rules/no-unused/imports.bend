@@ -1,9 +1,9 @@
 # no-unused/imports: an import that nothing uses. An import is used when its
 # alias is referenced, or when the file it loads, or a file that file
 # imports, fills a law of another file. The fix removes the import's line.
-# Run: bun src/lint.ts file.bend --rules rules/no-unused/imports.bend --fix
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/no-unused/imports.bend --fix
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

@@ -5,9 +5,9 @@
 # run in sequence. Bend is pure, so the calls are independent: the fix moves
 # them into a parallel let, and keeps behavior. A def that returns IO is
 # skipped: its calls build effects, they do not run them.
-# Run: bun src/lint.ts file.bend --rules rules/performance/missed-fork.bend --fix
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/performance/missed-fork.bend --fix
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

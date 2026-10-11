@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { bendDir } from "../src/seam.ts";
+import { bendDir } from "../src/legacy/seam.ts";
 
 // Constants
 // =========

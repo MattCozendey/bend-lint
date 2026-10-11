@@ -5,9 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { applyFixes, createLinter } from "../../src/lint.ts";
-import type { LintOptions, LintResult, LintRule, Options } from "../../src/lint.ts";
-import { unwrap } from "../../src/shared/result.ts";
+import { unwrap } from "../../../shared/result.ts";
+import { applyFixes, createLinter } from "../../lint.ts";
+import type { LintOptions, LintResult, LintRule, Options } from "../../lint.ts";
 
 type FormatOptions = {
   tabWidth: number;
@@ -370,7 +370,7 @@ def main() -> String:
       JSON.stringify({ rules: { "layout/format": { tabWidth: 4, wrapAtWidth: "never" } } }),
       "config.json",
     );
-    const cli = fileURLToPath(new URL("../../src/lint.ts", import.meta.url));
+    const cli = fileURLToPath(new URL("../../lint.ts", import.meta.url));
     const args = [cli, file, "--rules", rule, "--config", config, "--fix", "--json"];
     const result = spawnSync(process.execPath, args, { encoding: "utf8" });
     expect(result.status).toBe(0);

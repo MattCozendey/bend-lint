@@ -19,8 +19,13 @@ The rules in sections 0 to 2 have priority over all other instructions, except s
 
 ## 2. Code
 
-bend-lint is written in TypeScript. It lints Bend code with rules written in Bend or TypeScript. The
-TypeScript code, rules included, must pass this repo's lint and type check.
+bend-lint lints Bend code with rules written in Bend or TypeScript. The TypeScript code, rules
+included, must pass this repo's lint and type check.
+
+- `src/legacy/` holds the TypeScript version. It is being retired. The rest of this file describes
+  it.
+- `BEND-REWRITE-2/` holds the Bend version that replaces it.
+- `src/shared/` holds code that both versions use.
 
 ### Tools
 
@@ -37,7 +42,7 @@ TypeScript code, rules included, must pass this repo's lint and type check.
 ### Tests
 
 - A new rule gets behavior tests, without asking, in its test file. See [Names](#names).
-- Any other test, `src/lint.test.ts` included, needs my approval first.
+- Any other test, `src/legacy/lint.test.ts` included, needs my approval first.
 - Never test implementation details. Do not even suggest such tests.
 
 ### Style
@@ -58,7 +63,7 @@ TypeScript code, rules included, must pass this repo's lint and type check.
 
 ### Where code goes
 
-- Everything that touches Bend's internals goes in `src/seam.ts`.
+- Everything that touches Bend's internals goes in `src/legacy/seam.ts`.
 - A `safe` fix must keep what the program does.
 
 ### Changes
@@ -92,19 +97,19 @@ git diff --check
 
 ## Files
 
-| File                  | Holds                                                           |
-| --------------------- | --------------------------------------------------------------- |
-| `src/lint.ts`         | the rule runner, findings, fixes, library API and CLI           |
-| `src/seam.ts`         | everything about Bend's internals (see [Internals](#internals)) |
-| `src/suppress.ts`     | `# bend-lint:` directives                                       |
-| `src/result.ts`       | the `Result` that entry points return                           |
-| `src/bend/lint.bend`  | what a Bend rule imports                                        |
-| `src/bend/effects.js` | the effects a Bend rule calls                                   |
-| `samples/`            | `.bend` files to lint by hand                                   |
-| `samples/sample.bend` | the program the startup self-check reads                        |
-| `rules/`              | bundled rules, one folder per namespace, each with its tests    |
-| `rules/shared.ts`     | logic that more than one TypeScript rule uses                   |
-| `rules/shared.bend`   | logic that more than one Bend rule uses                         |
+| File                                 | Holds                                                           |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `src/legacy/lint.ts`                 | the rule runner, findings, fixes, library API and CLI           |
+| `src/legacy/seam.ts`                 | everything about Bend's internals (see [Internals](#internals)) |
+| `src/legacy/suppress.ts`             | `# bend-lint:` directives                                       |
+| `src/shared/result.ts`               | the `Result` that entry points return                           |
+| `src/legacy/bend/lint.bend`          | what a Bend rule imports                                        |
+| `src/legacy/bend/effects/effects.js` | the effects a Bend rule calls. oxlint skips `effects/` folders  |
+| `src/legacy/samples/`                | `.bend` files to lint by hand                                   |
+| `src/legacy/samples/sample.bend`     | the program the startup self-check reads                        |
+| `src/legacy/rules/`                  | bundled rules, one folder per namespace, each with its tests    |
+| `src/legacy/rules/shared.ts`         | logic that more than one TypeScript rule uses                   |
+| `src/legacy/rules/shared.bend`       | logic that more than one Bend rule uses                         |
 
 ## How a run works
 
@@ -186,29 +191,30 @@ If you change any of these, change the tests and these docs with it:
 ### Names
 
 A rule ID is parts separated by `/`. Each part is kebab-case. The last part is the rule's name. The
-parts before it are namespaces, and namespaces can nest. The folders under `rules/` mirror the ID.
+parts before it are namespaces, and namespaces can nest. The folders under `src/legacy/rules/`
+mirror the ID.
 
-| What      | Form                                 | Example                       |
-| --------- | ------------------------------------ | ----------------------------- |
-| rule ID   | `namespace/…/name`                   | `layout/canon-import-path`    |
-| rule file | `rules/namespace/…/name.ts`, `.bend` | `rules/layout/format.bend`    |
-| test file | `rules/namespace/…/name.test.ts`     | `rules/layout/format.test.ts` |
+| What      | Form                                            | Example                                  |
+| --------- | ----------------------------------------------- | ---------------------------------------- |
+| rule ID   | `namespace/…/name`                              | `layout/canon-import-path`               |
+| rule file | `src/legacy/rules/namespace/…/name.ts`, `.bend` | `src/legacy/rules/layout/format.bend`    |
+| test file | `src/legacy/rules/namespace/…/name.test.ts`     | `src/legacy/rules/layout/format.test.ts` |
 
 - The rule ID is the `code` of its findings.
 - Make rules idempotent.
 
 ### Shared logic
 
-- Logic that more than one rule uses goes in `rules/shared.ts` or `rules/shared.bend`. Rules import
-  it from there, and keep no copy.
+- Logic that more than one rule uses goes in `src/legacy/rules/shared.ts` or
+  `src/legacy/rules/shared.bend`. Rules import it from there, and keep no copy.
 - These two files are not rules. Do not load them as rules.
 
 ### TypeScript
 
-A module exports `rules: LintRule[]`. Saved as `rules/demo/var-types.ts`:
+A module exports `rules: LintRule[]`. Saved as `src/legacy/rules/demo/var-types.ts`:
 
 ```ts
-import type { LintRule } from "../../src/lint.ts";
+import type { LintRule } from "../../lint.ts";
 
 export const rules: LintRule[] = [
   {
@@ -260,7 +266,7 @@ What is on `cx`:
 | `unstable`               | Bend's own objects: `Bend`, the checked `book`, `raw(fact)`              |
 
 - Only code that uses `unstable` can break when Bend changes.
-- The exported types in [src/lint.ts](src/lint.ts) are the full contract.
+- The exported types in [src/legacy/lint.ts](src/legacy/lint.ts) are the full contract.
 - Types and nodes are handles. Only `cx` can read them.
 
 #### Fixes
@@ -388,11 +394,11 @@ facts: {
 #### Options
 
 Each option is a JSON Schema with a `default`. Use `defineRule` to get the types of `cx.options`
-from the schemas. Saved as `rules/demo/width.ts`:
+from the schemas. Saved as `src/legacy/rules/demo/width.ts`:
 
 ```ts
-import { defineRule } from "../../src/lint.ts";
-import type { LintRule } from "../../src/lint.ts";
+import { defineRule } from "../../lint.ts";
+import type { LintRule } from "../../lint.ts";
 
 export const rules: LintRule[] = [
   defineRule({
@@ -423,12 +429,12 @@ export const rules: LintRule[] = [
 
 ### Bend
 
-A `.bend` rule imports [src/bend/lint.bend](src/bend/lint.bend). This one, saved as
-`rules/demo/nothing.bend`, reports nothing:
+A `.bend` rule imports [src/legacy/bend/lint.bend](src/legacy/bend/lint.bend). This one, saved as
+`src/legacy/rules/demo/nothing.bend`, reports nothing:
 
 ```python
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 
 def id() -> String:
   "demo/nothing"
@@ -519,29 +525,29 @@ Read them with `Lint.option_number`, `Lint.option_flag` and `Lint.option_text`, 
   reads one character and slices off the rest.
 - A branch that uses a string or character its match took apart gets it rebuilt: a string as a rope
   of the whole rest, which the next read copies. Take the value twice and match one copy (`keep` in
-  [rules/layout/format.bend](rules/layout/format.bend)).
+  [src/legacy/rules/layout/format.bend](src/legacy/rules/layout/format.bend)).
 - `Bool.pick` evaluates both branches. Match on a `Bool` parameter when a branch is costly.
 
 #### Examples
 
-- The formatter: [rules/layout/format.bend](rules/layout/format.bend)
-- In [src/lint.test.ts](src/lint.test.ts): `COMMA_BEND` (fixes), `TYPES_BEND` (facts), `COUNT_BEND`
-  (earlier findings) and `PARITY_BEND` (the guard and union options).
+- The formatter: [src/legacy/rules/layout/format.bend](src/legacy/rules/layout/format.bend)
+- In [src/legacy/lint.test.ts](src/legacy/lint.test.ts): `COMMA_BEND` (fixes), `TYPES_BEND` (facts),
+  `COUNT_BEND` (earlier findings) and `PARITY_BEND` (the guard and union options).
 
 ## As a library
 
 From a file in the repo root:
 
 ```ts
-import { applyFixes, createLinter } from "./src/lint.ts";
-import { ERROR, ERROR_METADATA } from "./src/result.ts";
+import { applyFixes, createLinter } from "./src/legacy/lint.ts";
+import { ERROR, ERROR_METADATA } from "./src/shared/result.ts";
 
 const made = await createLinter();
 if (ERROR in made) throw new Error(made[ERROR][ERROR_METADATA].message);
 const linter = made.OK;
-const rules = await linter.loadRules(["rules/layout/format.bend"]);
+const rules = await linter.loadRules(["src/legacy/rules/layout/format.bend"]);
 if (ERROR in rules) throw new Error(rules[ERROR][ERROR_METADATA].message);
-const res = await linter.lint("samples/sample.bend", rules.OK);
+const res = await linter.lint("src/legacy/samples/sample.bend", rules.OK);
 if (ERROR in res) {
   console.error(res[ERROR].type, res[ERROR][ERROR_METADATA].message);
 } else {
@@ -556,7 +562,7 @@ if (ERROR in res) {
 
 ### Results
 
-Entry points return a `Result` ([src/result.ts](src/result.ts)). They do not throw.
+Entry points return a `Result` ([src/shared/result.ts](src/shared/result.ts)). They do not throw.
 
 - Success: `{ OK: value }`.
 - Failure: `{ ERROR: { type, ERROR_METADATA: { message, cause } } }`.
@@ -651,7 +657,7 @@ still go to stderr. A finding with a fix:
 
 ## Internals
 
-All of this lives in `src/seam.ts`.
+All of this lives in `src/legacy/seam.ts`.
 
 bend-lint works in three layers, however Bend is built:
 
@@ -665,8 +671,8 @@ bend-lint works in three layers, however Bend is built:
   the rules stay.
 - When Bend is written in Bend, the seam goes. Something fills the same contract, and the rules
   stay.
-- Put logic in rules (`rules/shared.*`), not in the seam. The seam only passes on what Bend knows.
-  Logic there is rewritten when the seam goes.
+- Put logic in rules (`src/legacy/rules/shared.*`), not in the seam. The seam only passes on what
+  Bend knows. Logic there is rewritten when the seam goes.
 
 ### Finding Bend
 
@@ -750,12 +756,12 @@ Only the fallback download is pinned. Each load, of a checkout or a download, ch
 - The compiler exports and runtime names bend-lint needs are there once.
 - Wrapper signatures match, at type-check time. Argument counts match, at run time.
 - `book_read`, `book_err` and `Check_Fail` take the arguments bend-lint gives them.
-- A self-check runs `samples/sample.bend`:
+- A self-check runs `src/legacy/samples/sample.bend`:
   - in `def id(x: N) -> N: x`, `x` has the right type, binder, quantity, uses and span;
   - each checker wrapper reports the terms only it sees;
   - the source metadata reports `id`, its parameter `x`, and the constructor `Z` of `N`, each with
     one reference.
 
 Any mismatch throws a drift error, and loading stops. The error's `name` is `DriftError`, and
-`e[DRIFT]` is true, with `DRIFT` from `src/seam.ts`. The tests add more checks, including Bend's own
-tests from the chosen checkout.
+`e[DRIFT]` is true, with `DRIFT` from `src/legacy/seam.ts`. The tests add more checks, including
+Bend's own tests from the chosen checkout.

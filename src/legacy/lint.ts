@@ -13,11 +13,13 @@ import * as util from "node:util";
 import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
+import { ERROR, error, ERROR_METADATA, ok, unwrap } from "../shared/result.ts";
+import type { Result } from "../shared/result.ts";
 import {
-  DRIFT,
   cachedRule,
   check,
   compile,
+  DRIFT,
   foreign,
   fs,
   layout,
@@ -31,8 +33,6 @@ import {
   unstable,
 } from "./seam.ts";
 import type { Checked, Compiled, Loaded, Operations, Unstable } from "./seam.ts";
-import { ERROR, ERROR_METADATA, error, ok, unwrap } from "./shared/result.ts";
-import type { Result } from "./shared/result.ts";
 import { suppress } from "./suppress.ts";
 
 // Types
@@ -338,7 +338,7 @@ const OPTIONS = {
 } as const;
 
 const USAGE =
-  "usage: bun src/lint.ts <glob>... [--imports | --no-imports] [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
+  "usage: bun src/legacy/lint.ts <glob>... [--imports | --no-imports] [--rules <rules.ts|rule.bend>]... [--config <config.json|config.js|config.ts>] [--fix | --fix-suggested | --fix-dangerously] [--json] [--show-suppressed] [--bend <dir>]";
 
 // A path part with one of these is a glob.
 const GLOB = /[*?[\]{}!]/;

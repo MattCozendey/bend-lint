@@ -5,10 +5,10 @@
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "Apache-2.0",
   "bin": {
-    "bend-lint": "src/lint.ts"
+    "bend-lint": "src/legacy/lint.ts"
   },
   "type": "module",
-  "exports": "./src/lint.ts",
+  "exports": "./src/legacy/lint.ts",
   "scripts": {
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",

@@ -2,9 +2,9 @@
 # importer to the file it names, and starts with ./ or ../. Base and hub
 # imports are not paths, so the rule skips them. It compares with the real
 # path of the file the import loads, symlinks resolved.
-# Run: bun src/lint.ts file.bend --rules rules/layout/canon-import-path.bend --fix
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/layout/canon-import-path.bend --fix
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Paths

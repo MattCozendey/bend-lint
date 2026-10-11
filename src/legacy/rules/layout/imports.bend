@@ -3,9 +3,9 @@
 # is imported once. The fix rewrites the block: a comment line moves with
 # the import below it, blank lines go, and a duplicate's uses are renamed to
 # the alias that stays.
-# Run: bun src/lint.ts file.bend --rules rules/layout/imports.bend --fix
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/layout/imports.bend --fix
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

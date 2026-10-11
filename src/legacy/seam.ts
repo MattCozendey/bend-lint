@@ -9,15 +9,25 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
-import type { Book, Ctx, Err, HTerm, LTerm, Name, Parse, Quant, Uses } from "bend2/bend.ts";
-import type { Span as BendSpan } from "bend2/bend.ts";
+import type {
+  Span as BendSpan,
+  Book,
+  Ctx,
+  Err,
+  HTerm,
+  LTerm,
+  Name,
+  Parse,
+  Quant,
+  Uses,
+} from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
-import pkg from "../package.json" with { type: "json" };
+import pkg from "../../package.json" with { type: "json" };
 import type {
-  Diag,
   Declaration,
+  Diag,
   Fact,
   FactFilter,
   LintRule,
@@ -175,7 +185,7 @@ export const DRIFT = Symbol("DriftError");
 const HERE = url.fileURLToPath(new URL(".", import.meta.url));
 const DRIVE = /^[A-Za-z]:(?=\/)/;
 const SHIM = JSON.stringify(url.pathToFileURL(nodePath.join(HERE, "seam.ts")).href);
-const SAMPLE = nodePath.join(HERE, "..", "samples", "sample.bend");
+const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
 
@@ -408,7 +418,7 @@ export const path = {
 const arity = (f: (...args: never[]) => unknown, n: number, name: string): void => {
   if (f.length !== n) {
     throw drift(
-      `${name} takes ${f.length} parameters, not ${n}; update the observers in src/seam.ts`,
+      `${name} takes ${f.length} parameters, not ${n}; update the observers in src/legacy/seam.ts`,
     );
   }
 };
@@ -488,7 +498,7 @@ export const patch = (file: string, src: string): string => {
   const { edits, needs = [], tail, exports } = PATCHES[file];
   const mismatch = (what: string, n: number): never => {
     throw drift(
-      `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in src/seam.ts.`,
+      `cannot patch bend2/${file}: found ${n} of ${what}, expected 1. Update PATCHES in src/legacy/seam.ts.`,
     );
   };
   const edited = [...edits, ...needs.map((t): [string, string] => [t, t])].reduce(
@@ -635,7 +645,7 @@ export function* walk(tm: LTerm): Generator<LTerm> {
 const children = (t: LTerm): LTerm[] => {
   const of = (CHILDREN as Record<string, ((tm: LTerm) => LTerm[]) | undefined>)[t.$];
   if (of === undefined) {
-    throw drift(`unknown term kind ${t.$}; update CHILDREN in src/seam.ts`);
+    throw drift(`unknown term kind ${t.$}; update CHILDREN in src/legacy/seam.ts`);
   }
   return of(t);
 };
@@ -1799,10 +1809,10 @@ export const guardMain = (Main: Main): void =>
         typeof Main.Check_Fail === "function" && new Main.Check_Fail(MARK).why === MARK,
       ],
     ],
-    (wrong) => `bend2/main.ts no longer has ${wrong}; update PATCHES in src/seam.ts`,
+    (wrong) => `bend2/main.ts no longer has ${wrong}; update PATCHES in src/legacy/seam.ts`,
   );
 
-// Checks samples/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
+// Checks src/legacy/samples/sample.bend as a rule sees it. `x` in `def id(x: N) -> N: x`
 // must be a Var typed N, bound as an N, used once, at its own span; `id` in
 // main is reported only by term_infer, and the Lam only by term_check.
 const selfCheck = async (m: Loaded): Promise<void> => {
@@ -1848,7 +1858,7 @@ const selfCheck = async (m: Loaded): Promise<void> => {
       ],
     ],
     (wrong) =>
-      `self-check failed: the patched bend2 gave the wrong ${wrong} for samples/sample.bend; update src/seam.ts`,
+      `self-check failed: the patched bend2 gave the wrong ${wrong} for src/legacy/samples/sample.bend; update src/legacy/seam.ts`,
   );
 };
 

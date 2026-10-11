@@ -17,9 +17,9 @@
 # parameter or variable and its uses, when each use is written as the name
 # and the new name is not in use in its def. Other names can be used by
 # other files, so they get no fix.
-# Run: bun src/lint.ts file.bend --rules rules/layout/case.bend --fix-suggested
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/layout/case.bend --fix-suggested
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

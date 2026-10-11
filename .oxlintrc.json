@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "options": { "typeAware": true },
-  "ignorePatterns": ["**/*.bend"],
+  "ignorePatterns": ["**/*.bend", "**/effects/**"],
   "jsPlugins": ["./scripts/oxlint.ts"],
   "rules": {
     "typescript/consistent-type-definitions": ["error", "type"],

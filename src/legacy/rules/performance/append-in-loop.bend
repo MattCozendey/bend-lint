@@ -3,9 +3,9 @@
 # its parameter `acc`. Each append copies `acc`, so building it is O(n²)
 # where building it at its head is O(n). The finding has no fix: the
 # rewrite changes the loop's end.
-# Run: bun src/lint.ts file.bend --rules rules/performance/append-in-loop.bend
+# Run: bun src/legacy/lint.ts file.bend --rules src/legacy/rules/performance/append-in-loop.bend
 import Base
-import ../../src/bend/lint.bend as Lint
+import ../../bend/lint.bend as Lint
 import ../shared.bend as Shared
 
 # Types

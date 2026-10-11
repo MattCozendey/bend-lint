@@ -1,7 +1,7 @@
 # Logic that more than one Bend rule uses. A rule imports it with
 # import ../shared.bend as Shared
 import Base
-import ../src/bend/lint.bend as Lint
+import ../bend/lint.bend as Lint
 
 # Types
 # =====

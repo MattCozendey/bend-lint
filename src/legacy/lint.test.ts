@@ -4,9 +4,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import type { Book, LTerm, Span as BendSpan } from "bend2/bend.ts";
+import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
+import { ERROR, unwrap } from "../shared/result.ts";
+import type { Result } from "../shared/result.ts";
 import * as api from "./lint.ts";
 import { applyFixes, createLinter } from "./lint.ts";
 import type {
@@ -23,14 +25,14 @@ import type {
   Source,
 } from "./lint.ts";
 import {
-  DRIFT,
-  PIN,
   bendDir,
+  DRIFT,
   fetchBend,
   guardMain,
   installedTag,
   mapper,
   patch,
+  PIN,
   relative,
   resolve,
   seeCheck,
@@ -38,8 +40,6 @@ import {
   walk,
 } from "./seam.ts";
 import type { Raw } from "./seam.ts";
-import { ERROR, unwrap } from "./shared/result.ts";
-import type { Result } from "./shared/result.ts";
 
 // Types
 // =====
@@ -52,7 +52,7 @@ type Seen = { kind: string; def: string; name: string; path: string };
 
 const linter = unwrap(await createLinter());
 const { BEND2, render } = linter;
-const formatRule = fileURLToPath(new URL("../rules/layout/format.bend", import.meta.url));
+const formatRule = fileURLToPath(new URL("./rules/layout/format.bend", import.meta.url));
 const formatRules = unwrap(await linter.loadRules([formatRule]));
 
 // bend2's modules as bend-lint patched them, for what the tests inspect.

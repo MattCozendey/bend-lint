@@ -149,14 +149,14 @@ def diag(severity: Severity, message: String, span: Span) -> Diag:
   Diag{severity, message, Some{span}, [], None{}}
 
 def input() -> IO(Input):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def report(diags: List<&2, Diag>) -> IO(Unit):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The next fact the rule asked for, or None{} when none are left.
 def next_fact() -> IO(Maybe<&2, Fact>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # One step of fold_facts: stop at None{}, else run step and go on.
 def fold_next(~A: Type, ~step: A -> @+f: Fact -> IO(A), m: Maybe<&2, Fact>, acc: A, again: A -> IO(A)) -> IO(A):
@@ -178,65 +178,65 @@ def fold_facts(~A: Type, ~step: A -> @+f: Fact -> IO(A), acc: A) -> IO(A):
 # Whether `text` declares what the linted file declares, compared as
 # parsed, not checked: a formatter's guard.
 def same_declarations(text: String) -> IO(Bool):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # Whether the run was aborted; a long rule can stop early.
 def aborted() -> IO(Bool):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The text under a span, in the file on disk.
 def text(span: Span) -> IO(String):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def declarations() -> IO(List<&2, Declaration>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The declarations of the file at `path`, as that file spells them; none
 # for Base, or a file the check did not read.
 def declarations_of(path: String) -> IO(List<&2, Declaration>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # A def's checked body, if it has one.
 def body(name: String) -> IO(Maybe<&2, Node>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def shape(n: Node) -> IO(Shape):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The node and every node under it, parents first.
 def nodes(n: Node) -> IO(List<&2, Node>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def parent(n: Node) -> IO(Maybe<&2, Node>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The node without its annotations.
 def strip(n: Node) -> IO(Node):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The node's fact, if the rule asked for it.
 def fact(n: Node) -> IO(Maybe<&2, Fact>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The type of the binder a Var fact refers to.
 def binder(f: Fact) -> IO(Maybe<&2, Term>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The variables the fact's term uses, each with how many times.
 def uses(f: Fact) -> IO(List<&2, Use>):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # Whether two types are equal, as the checker compares them in the scope
 # of the first.
 def same(a: Term, b: Term) -> IO(Bool):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def show(t: Term) -> IO(String):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 # The normal form of a type, in its scope.
 def normal(t: Term) -> IO(Term):
-  import "./effects.js"
+  import "./effects/effects.js"
 
 def pick(hit: Bool, v: Value, later: Maybe<&2, Value>) -> Maybe<&2, Value>:
   match hit:
