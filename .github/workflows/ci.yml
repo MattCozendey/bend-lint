@@ -33,6 +33,13 @@ jobs:
           esac
           git clone --depth 1 --branch "$ref" https://github.com/bendlang/bend "$RUNNER_TEMP/bend"
           echo "BEND_DIR=$RUNNER_TEMP/bend" >> "$GITHUB_ENV"
+      - name: Put the cloned Bend's CLI on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexec bun "%s/bend2/main.ts" "$@"\n' "$BEND_DIR" > "$RUNNER_TEMP/bin/bend"
+          chmod +x "$RUNNER_TEMP/bin/bend"
+          printf '@bun "%s/bend2/main.ts" %%*\r\n' "$BEND_DIR" > "$RUNNER_TEMP/bin/bend.cmd"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run typecheck
