@@ -38,8 +38,12 @@ def binders(facts: List<&2, Lint.Fact>, acc: Binders) -> Binders:
     case Con{f, rest} _:
       binders(rest, acc)
 
-def zip(spans: List<&2, Lint.Span>, names: List<&2, String>, shown: List<&2, String>, out: List<&2, Lint.Finding>) ->
-  List<&2, Lint.Finding>:
+def zip(
+  spans: List<&2, Lint.Span>,
+  names: List<&2, String>,
+  shown: List<&2, String>,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match spans names shown:
     case Con{s, ss} Con{n, ns} Con{t, ts}:
       zip(ss, ns, ts, Lint.Finding{Lint.Hint{}, s, n ++ ": " ++ t, []} <> out)
@@ -50,7 +54,7 @@ def described(b: Binders) -> Lint.Ask(List<&2, Lint.Finding>):
   match b:
     case Binders{spans, names, types}:
       do Lint.Ask<List<&2, Lint.Finding>>:
-        shown : List<&2, String> <- Lint.show_all(types)
+        shown: List<&2, String> <- Lint.show_all(types)
         return zip(spans, names, shown, [])
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):

@@ -2323,9 +2323,9 @@ def format(source: String, +set: Settings) -> Maybe<&2, String>:
 def differ(a: String, b: String, +at: U32, same: Bool) -> U32:
   match a b same:
     case _ _ False{}:
-      (at - 1 : U32)
+      (at - 1: U32)
     case SCon{x, xs} SCon{y, ys} True{}:
-      differ(xs, ys, (at + 1 : U32), Char.is_eq(x, y))
+      differ(xs, ys, (at + 1: U32), Char.is_eq(x, y))
     case _ _ True{}:
       at
 
@@ -2337,7 +2337,7 @@ def line_end(s: String, +i: U32) -> U32:
     case SCon{'\n', rest}:
       i
     case SCon{c, rest}:
-      line_end(rest, (i + 1 : U32))
+      line_end(rest, (i + 1: U32))
 
 def judged(same: Bool, +out: String, +text: String, +path: String) -> List<&2, Lint.Finding>:
   match same:
@@ -2350,14 +2350,26 @@ def judged(same: Bool, +out: String, +text: String, +path: String) -> List<&2, L
           Lint.Warning{},
           Lint.Span{path, at, line_end(String.drop(text, U32.to_nat(at)), at)},
           "Apply canonical formatting.",
-          [Lint.Fix{"Format the file", [Lint.Replace{Lint.Span{path, 0, U32.from_nat(String.length(text))}, out}]}]
+          [
+            Lint.Fix{
+              "Format the file",
+              [Lint.Replace{Lint.Span{path, 0, U32.from_nat(String.length(text))}, out}]
+            }
+          ]
         }
       ]
 
 def judge(formatted: Maybe<&2, String>, +text: String, +path: String) -> List<&2, Lint.Finding>:
   match formatted:
     case None{}:
-      [Lint.Finding{Lint.Warning{}, Lint.Span{path, 0, 0}, "Cannot format this file: unbalanced delimiters.", []}]
+      [
+        Lint.Finding{
+          Lint.Warning{},
+          Lint.Span{path, 0, 0},
+          "Cannot format this file: unbalanced delimiters.",
+          []
+        }
+      ]
     case Some{+out}:
       judged(same(out, text), out, text, path)
 
@@ -2395,12 +2407,18 @@ def settings(+here: Lint.Here) -> Settings:
   }
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(judge(format(Lint.Here.text(here), settings(here)), Lint.Here.text(here), Lint.Here.path(here)))
+  Lint.done(
+    judge(format(Lint.Here.text(here), settings(here)), Lint.Here.text(here), Lint.Here.path(here))
+  )
 
 def options() -> List<&2, Lint.Declared>:
   [
     Lint.Declared{"tabWidth", Lint.Num{2}, Lint.NumberOption{1, 4294967295}},
-    Lint.Declared{"wrapAtWidth", Lint.Num{100}, Lint.AnyOption{[Lint.NumberOption{1, 4294967295}, Lint.TextOption{["never"]}]}},
+    Lint.Declared{
+      "wrapAtWidth",
+      Lint.Num{100},
+      Lint.AnyOption{[Lint.NumberOption{1, 4294967295}, Lint.TextOption{["never"]}]}
+    },
     Lint.Declared{"endOfLine", Lint.Text{"lf"}, Lint.TextOption{["lf", "crlf", "preserve"]}}
   ]
 

@@ -16,7 +16,11 @@ type Entry is Data:
 # The imports read so far, each file's first only: the files they load, each with its alias; the imports kept (last
 # first); and the operations that point a dropped import's uses at the kept one's alias.
 type Deduped is Data:
-  Deduped{seen: List<&2, Shared.Named<String>>, kept: List<&2, Entry>, renames: List<&2, Lint.Operation>}
+  Deduped{
+    seen: List<&2, Shared.Named<String>>,
+    kept: List<&2, Entry>,
+    renames: List<&2, Lint.Operation>
+  }
 
 # The block, as written: where it starts and ends, and its imports, last first.
 type Block is Data:
@@ -24,7 +28,6 @@ type Block is Data:
 
 # Text
 # ====
-
 def slice(text: String, +beg: U32, end: U32) -> String:
   String.take(String.drop(text, U32.to_nat(beg)), U32.to_nat(U32.sub(end, beg)))
 
@@ -63,8 +66,17 @@ def ended(+s: String) -> String:
 # =====
 
 # The import on the line from `beg` to `end`, after the block so far.
-def add.line(+text: String, +beg: U32, +end: U32, id: U32, base: Bool, path: String, alias: String, loads: String, b: Block) ->
-  Block:
+def add.line(
+  +text: String,
+  +beg: U32,
+  +end: U32,
+  id: U32,
+  base: Bool,
+  path: String,
+  alias: String,
+  loads: String,
+  b: Block
+) -> Block:
   match b:
     case Block{first, last, Nil{}}:
       Block{beg, end, [Entry{id, base, path, alias, loads, ended(slice(text, beg, end))}]}
@@ -72,27 +84,49 @@ def add.line(+text: String, +beg: U32, +end: U32, id: U32, base: Bool, path: Str
       Block{
         first,
         end,
-        Entry{id, base, path, alias, loads, comments(slice(text, last, beg), "", "") ++ ended(slice(text, beg, end))} <> entries
+        Entry{
+          id,
+          base,
+          path,
+          alias,
+          loads,
+          comments(slice(text, last, beg), "", "") ++ ended(slice(text, beg, end))
+        }
+          <> entries
       }
 
 # The import of the node `id`, whose name is at `at`, after the block so far.
-def add(+text: String, +at: U32, id: U32, base: Bool, path: String, alias: String, loads: String, b: Block) -> Block:
+def add(
+  +text: String,
+  +at: U32,
+  id: U32,
+  base: Bool,
+  path: String,
+  alias: String,
+  loads: String,
+  b: Block
+) -> Block:
   +beg = Shared.line_start(text, at)
   add.line(text, beg, Shared.line_end(text, beg), id, base, path, alias, loads, b)
 
 # The block of the imports among `nodes`. A file's imports come first, so the first node of another kind ends them.
 def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
   match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads}, Con{Lint.Node{i2, p2, o2, Lint.ImportPath{}, path, n2, q2, s2, t2}, rest}}:
+    case Con{
+      Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads},
+      Con{Lint.Node{i2, p2, o2, Lint.ImportPath{}, path, n2, q2, s2, t2}, rest}
+    }:
       block(rest, text, add(text, beg, i, False{}, path, alias, loads, b))
-    case Con{Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads}, rest}:
+    case Con{
+      Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads},
+      rest
+    }:
       block(rest, text, add(text, beg, i, True{}, "Base", alias, loads, b))
     case _:
       b
 
 # Duplicates and order
 # ====================
-
 def loads_of(e: Entry) -> String:
   match e:
     case Entry{id, base, path, alias, loads, text}:
@@ -103,7 +137,11 @@ def loads_of(e: Entry) -> String:
 def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
   match first e d:
     case None{} Entry{id, base, path, +alias, +loads, text} Deduped{seen, kept, renames}:
-      Deduped{Shared.Named{loads, alias} <> seen, Entry{id, base, path, alias, loads, text} <> kept, renames}
+      Deduped{
+        Shared.Named{loads, alias} <> seen,
+        Entry{id, base, path, alias, loads, text} <> kept,
+        renames
+      }
     case Some{a} Entry{id, False{}, path, alias, loads, text} Deduped{seen, kept, renames}:
       Deduped{seen, kept, Lint.RenameUses{id, a} <> renames}
     case Some{a} Entry{id, True{}, path, alias, loads, text} _:
@@ -141,8 +179,12 @@ def texts(es: List<&2, Entry>, acc: String) -> String:
 
 # Rule
 # ====
-
-def verdict(same: Bool, +span: Lint.Span, ordered: String, renames: List<&2, Lint.Operation>) -> List<&2, Lint.Finding>:
+def verdict(
+  same: Bool,
+  +span: Lint.Span,
+  ordered: String,
+  renames: List<&2, Lint.Operation>
+) -> List<&2, Lint.Finding>:
   match same:
     case True{}:
       []
@@ -168,10 +210,20 @@ def judge(+path: String, +text: String, b: Block) -> List<&2, Lint.Finding>:
     case Block{beg, end, Nil{}}:
       []
     case Block{+beg, +end, entries}:
-      judged(Lint.Span{path, beg, end}, slice(text, beg, end), dedupe(List.reverse(&2, Entry, entries), Deduped{[], [], []}))
+      judged(
+        Lint.Span{path, beg, end},
+        slice(text, beg, end),
+        dedupe(List.reverse(&2, Entry, entries), Deduped{[], [], []})
+      )
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(judge(Lint.Here.path(here), Lint.Here.text(here), block(Lint.Here.nodes(here), Lint.Here.text(here), Block{0, 0, []})))
+  Lint.done(
+    judge(
+      Lint.Here.path(here),
+      Lint.Here.text(here),
+      block(Lint.Here.nodes(here), Lint.Here.text(here), Block{0, 0, []})
+    )
+  )
 
 def rule() -> Lint.Rule:
   Lint.Rule{"layout/imports", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

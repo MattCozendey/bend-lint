@@ -8,4 +8,13 @@ import ./rules/layout/imports.bend as Imports
 import ./rules/no-unused/imports.bend as UnusedImports
 
 def main() -> IO(Unit):
-  Cli.run(~[CanonImportPath.rule(), Case.rule(), DirectiveOrder.rule(), Format.rule(), Imports.rule(), UnusedImports.rule()])
+  Cli.run(
+    ~[
+      CanonImportPath.rule(),
+      Case.rule(),
+      DirectiveOrder.rule(),
+      Format.rule(),
+      Imports.rule(),
+      UnusedImports.rule()
+    ]
+  )

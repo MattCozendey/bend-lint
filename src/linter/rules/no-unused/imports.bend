@@ -7,11 +7,29 @@ import ../../shared.bend as Shared
 # The fix that deletes the import's line.
 def deleted(+text: String, +path: String, +at: U32) -> List<&2, Lint.Fix>:
   +beg = Shared.line_start(text, at)
-  [Lint.Fix{"Remove the import", [Lint.Replace{Lint.Span{path, beg, Shared.line_end(text, beg)}, ""}]}]
+  [
+    Lint.Fix{
+      "Remove the import",
+      [Lint.Replace{Lint.Span{path, beg, Shared.line_end(text, beg)}, ""}]
+    }
+  ]
 
 def unused(+text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
   match d:
-    case Lint.Declaration{Lint.Node{id, parent, owner, Lint.Import{}, name, binder, quantity, Some{Lint.Span{+path, +beg, end}}, target}, Nil{}}:
+    case Lint.Declaration{
+      Lint.Node{
+        id,
+        parent,
+        owner,
+        Lint.Import{},
+        name,
+        binder,
+        quantity,
+        Some{Lint.Span{+path, +beg, end}},
+        target
+      },
+      Nil{}
+    }:
       [
         Lint.Finding{
           Lint.Warning{},
@@ -23,7 +41,11 @@ def unused(+text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
     case _:
       []
 
-def findings(declarations: List<&2, Lint.Declaration>, +text: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def findings(
+  declarations: List<&2, Lint.Declaration>,
+  +text: String,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match declarations:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)

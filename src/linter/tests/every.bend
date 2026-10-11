@@ -4,7 +4,11 @@ import Base
 import ../lint.bend as Lint
 import ../shared.bend as Shared
 
-def marks(sources: List<&2, Lint.Source>, +n: U32, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def marks(
+  sources: List<&2, Lint.Source>,
+  +n: U32,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match sources:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
@@ -12,13 +16,24 @@ def marks(sources: List<&2, Lint.Source>, +n: U32, out: List<&2, Lint.Finding>) 
       marks(
         rest,
         n,
-        Lint.Finding{Lint.Hint{}, Lint.Span{path, n, (n + 1 : U32)}, "at the count", []}
+        Lint.Finding{
+          Lint.Hint{},
+          Lint.Span{path, n, (n + 1: U32)},
+          "at the count",
+          []
+        }
           <> Lint.Finding{Lint.Hint{}, Lint.Span{path, 0, 1}, "at 0", []}
           <> out
       )
 
 def run(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(marks(Lint.Whole.sources(whole), U32.from_nat(Shared.length(&2, Lint.Source, Lint.Whole.sources(whole))), []))
+  Lint.done(
+    marks(
+      Lint.Whole.sources(whole),
+      U32.from_nat(Shared.length(&2, Lint.Source, Lint.Whole.sources(whole))),
+      []
+    )
+  )
 
 def rule() -> Lint.Rule:
   Lint.Rule{"tests/every", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{True{}, run}}

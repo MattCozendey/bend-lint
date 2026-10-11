@@ -14,14 +14,24 @@ type Mark is Data:
 # An answer read so far: whether a \ came just before, the field, the record's fields and the records, each last
 # first.
 type Reading is Data:
-  Reading{escaped: Bool, field: String, fields: List<&2, String>, records: List<&2, List<&2, String>>}
+  Reading{
+    escaped: Bool,
+    field: String,
+    fields: List<&2, String>,
+    records: List<&2, List<&2, String>>
+  }
 
 def mark(+c: Char) -> Mark:
   Bool.pick(
     Mark,
     Char.is_eq(c, '\\'),
     Slash{},
-    Bool.pick(Mark, Char.is_eq(c, '\t'), Tab{}, Bool.pick(Mark, Char.is_eq(c, '\n'), Newline{}, Plain{}))
+    Bool.pick(
+      Mark,
+      Char.is_eq(c, '\t'),
+      Tab{},
+      Bool.pick(Mark, Char.is_eq(c, '\n'), Newline{}, Plain{})
+    )
   )
 
 # A field's character with its escape undone: the character after a \.
@@ -132,19 +142,23 @@ def port.of(port: Maybe<&2, U32>) -> IO(U32):
     case Some{p}:
       IO.pure(U32, p)
     case None{}:
-      IO.die(U32, 2, "bend-lint: BEND_LINT_PORT is not a port; run this program with `bun server.ts`")
+      IO.die(
+        U32,
+        2,
+        "bend-lint: BEND_LINT_PORT is not a port; run this program with `bun server.ts`"
+      )
 
 # The server's port, from BEND_LINT_PORT.
 def port() -> IO(U32):
   do IO<U32>:
-    text : String <- IO.try(String, IO.get_env("BEND_LINT_PORT"))
+    text: String <- IO.try(String, IO.get_env("BEND_LINT_PORT"))
     port.of(U32.read(text))
 
 # Asks the server, and gives its answer's records.
 def ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
   do IO<List<&2, List<&2, String>>>:
-    p : U32 <- port()
-    sock : Socket <- IO.try(Socket, TCP.connect("127.0.0.1", p))
-    s : Socket & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(sock, line(request, ""))
-    got : List<&2, String> <- sent(s)
+    p: U32 <- port()
+    sock: Socket <- IO.try(Socket, TCP.connect("127.0.0.1", p))
+    s: Socket & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(sock, line(request, ""))
+    got: List<&2, String> <- sent(s)
     return records(List.reverse(&2, String, got), Reading{False{}, "", [], []})

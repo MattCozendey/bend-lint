@@ -8,8 +8,20 @@ def used(facts: List<&2, Lint.Fact>, out: List<&2, Lint.Finding>) -> List<&2, Li
   match facts:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Fact{Lint.Node{id, p, o, syntax, name, b, q, Some{span}, target}, Lint.OfBinder{}, nq, Some{u}, t}, rest}:
-      used(rest, Lint.Finding{Lint.Hint{}, span, name ++ ": used " ++ Binders.quantity(u), []} <> out)
+    case Con{
+      Lint.Fact{
+        Lint.Node{id, p, o, syntax, name, b, q, Some{span}, target},
+        Lint.OfBinder{},
+        nq,
+        Some{u},
+        t
+      },
+      rest
+    }:
+      used(
+        rest,
+        Lint.Finding{Lint.Hint{}, span, name ++ ": used " ++ Binders.quantity(u), []} <> out
+      )
     case Con{f, rest}:
       used(rest, out)
 

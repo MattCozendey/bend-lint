@@ -4,7 +4,6 @@ import ./shared.bend as Shared
 
 # Types
 # =====
-
 type Json is Data:
   JNull{}
   JTrue{}
@@ -19,7 +18,6 @@ type JField is Data:
 
 # Reading
 # =======
-
 type Token is Data:
   TOpen{}
   TClose{}
@@ -176,7 +174,15 @@ def Json.word(+w: String) -> Json:
   Maybe.default(
     &2,
     Json,
-    Shared.lookup(Json, w, [Shared.Named{"true", JTrue{}}, Shared.Named{"false", JFalse{}}, Shared.Named{"null", JNull{}}]),
+    Shared.lookup(
+      Json,
+      w,
+      [
+        Shared.Named{"true", JTrue{}},
+        Shared.Named{"false", JFalse{}},
+        Shared.Named{"null", JNull{}}
+      ]
+    ),
     JNumber{w}
   )
 
@@ -242,13 +248,13 @@ type Piece is Data:
   PText{text: String}
 
 def hex(+n: U32) -> Char:
-  Bool.pick(Char, U32.is_lt(n, 10), Char.from_u32((48 + n : U32)), Char.from_u32((87 + n : U32)))
+  Bool.pick(Char, U32.is_lt(n, 10), Char.from_u32((48 + n: U32)), Char.from_u32((87 + n: U32)))
 
 # A character of a string, escaped if it is a control character (as \u00XX), onto `out` (last first).
 def escaped.char(control: Bool, +c: Char, out: String) -> String:
   match control:
     case True{}:
-      SCon{hex((Char.to_u32(c) % 16 : U32)), SCon{hex((Char.to_u32(c) / 16 : U32)), "00u\\" ++ out}}
+      SCon{hex((Char.to_u32(c) % 16: U32)), SCon{hex((Char.to_u32(c) / 16: U32)), "00u\\" ++ out}}
     case False{}:
       SCon{c, out}
 

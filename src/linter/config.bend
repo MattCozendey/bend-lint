@@ -20,10 +20,16 @@ type Setting is Data:
 
 # What a project's config says: the entries (paths), whether to lint imports (unless the command line says), and each rule's setting.
 type Project is Data:
-  Project{entries: List<&2, String>, imports: Maybe<&2, Bool>, rules: List<&2, Shared.Named<Setting>>}
+  Project{
+    entries: List<&2, String>,
+    imports: Maybe<&2, Bool>,
+    rules: List<&2, Shared.Named<Setting>>
+  }
 
 # A severity's setting, by its name.
-def Setting.severities(names: List<&2, Shared.Named<Lint.Severity>>) -> List<&2, Shared.Named<Setting>>:
+def Setting.severities(
+  names: List<&2, Shared.Named<Lint.Severity>>
+) -> List<&2, Shared.Named<Setting>>:
   match names:
     case Nil{}:
       []
@@ -40,13 +46,17 @@ def Parsed.entry(+folder: String, item: Json.Json) -> Maybe<&2, String>:
     case _:
       None{}
 
-def Parsed.entries(+folder: String, items: List<&2, Json.Json>, out: List<&2, String>) -> Maybe<&2, List<&2, String>>:
+def Parsed.entries(
+  +folder: String,
+  items: List<&2, Json.Json>,
+  out: List<&2, String>
+) -> Maybe<&2, List<&2, String>>:
   match items:
     case Nil{}:
       Some{List.reverse(&2, String, out)}
     case Con{i, rest}:
       do Maybe<&2, List<&2, String>>:
-        e : String <- Parsed.entry(folder, i)
+        e: String <- Parsed.entry(folder, i)
         Parsed.entries(folder, rest, e <> out)
 
 # An option's value: a whole number, a flag or text.
@@ -63,38 +73,56 @@ def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
     case _:
       None{}
 
-def Parsed.option(severity: Bool, +key: String, value: Json.Json, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
-  Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
+def Parsed.option(
+  severity: Bool,
+  +key: String,
+  value: Json.Json,
+  out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>
+) -> Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
   match severity:
     case True{}:
       out
     case False{}:
       do Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
-        values : List<&2, Shared.Named<Lint.Value>> <- out
-        v : Lint.Value <- Parsed.value(value)
+        values: List<&2, Shared.Named<Lint.Value>> <- out
+        v: Lint.Value <- Parsed.value(value)
         return Shared.Named{key, v} <> values
 
 # The option values of a rule's object, last first: every field but "severity".
-def Parsed.options(fields: List<&2, Json.JField>, out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>) ->
-  Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
+def Parsed.options(
+  fields: List<&2, Json.JField>,
+  out: Maybe<&2, List<&2, Shared.Named<Lint.Value>>>
+) -> Maybe<&2, List<&2, Shared.Named<Lint.Value>>>:
   match fields:
     case Nil{}:
       out
     case Con{Json.JField{+key, value}, rest}:
       Parsed.options(rest, Parsed.option(String.eq(key, "severity"), key, value, out))
 
-def Parsed.severity.of(here: Bool, value: Json.Json, found: Maybe<&2, Maybe<&2, Lint.Severity>>) ->
-  Maybe<&2, Maybe<&2, Lint.Severity>>:
+def Parsed.severity.of(
+  here: Bool,
+  value: Json.Json,
+  found: Maybe<&2, Maybe<&2, Lint.Severity>>
+) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
   match here value:
     case True{} Json.JString{+s}:
-      Maybe.map(&2, Lint.Severity, Maybe<&2, Lint.Severity>, sev => Some{sev}, Shared.lookup(Lint.Severity, s, Lint.Severity.names()))
+      Maybe.map(
+        &2,
+        Lint.Severity,
+        Maybe<&2, Lint.Severity>,
+        sev => Some{sev},
+        Shared.lookup(Lint.Severity, s, Lint.Severity.names())
+      )
     case True{} _:
       None{}
     case False{} _:
       found
 
 # The severity a rule's object gives in "severity": none if it gives none (Some{None{}}), or None{} if it is not one.
-def Parsed.severity(fields: List<&2, Json.JField>, found: Maybe<&2, Maybe<&2, Lint.Severity>>) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
+def Parsed.severity(
+  fields: List<&2, Json.JField>,
+  found: Maybe<&2, Maybe<&2, Lint.Severity>>
+) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
   match fields:
     case Nil{}:
       found
@@ -105,22 +133,34 @@ def Parsed.severity(fields: List<&2, Json.JField>, found: Maybe<&2, Maybe<&2, Li
 def Parsed.rule(field: Json.JField) -> Maybe<&2, Shared.Named<Setting>>:
   match field:
     case Json.JField{+id, Json.JString{+s}}:
-      Maybe.map(&2, Setting, Shared.Named<Setting>, setting => Shared.Named{id, setting}, Shared.lookup(Setting, s, Setting.names()))
+      Maybe.map(
+        &2,
+        Setting,
+        Shared.Named<Setting>,
+        setting => Shared.Named{id, setting},
+        Shared.lookup(Setting, s, Setting.names())
+      )
     case Json.JField{+id, Json.JObject{+fields}}:
       do Maybe<&2, Shared.Named<Setting>>:
-        severity : Maybe<&2, Lint.Severity> <- Parsed.severity(fields, Some{None{}})
-        options : List<&2, Shared.Named<Lint.Value>> <- Parsed.options(fields, Some{[]})
-        return Shared.Named{id, RuleOn{severity, List.reverse(&2, Shared.Named<Lint.Value>, options)}}
+        severity: Maybe<&2, Lint.Severity> <- Parsed.severity(fields, Some{None{}})
+        options: List<&2, Shared.Named<Lint.Value>> <- Parsed.options(fields, Some{[]})
+        return Shared.Named{
+          id,
+          RuleOn{severity, List.reverse(&2, Shared.Named<Lint.Value>, options)}
+        }
     case _:
       None{}
 
-def Parsed.rules(fields: List<&2, Json.JField>, out: List<&2, Shared.Named<Setting>>) -> Maybe<&2, List<&2, Shared.Named<Setting>>>:
+def Parsed.rules(
+  fields: List<&2, Json.JField>,
+  out: List<&2, Shared.Named<Setting>>
+) -> Maybe<&2, List<&2, Shared.Named<Setting>>>:
   match fields:
     case Nil{}:
       Some{List.reverse(&2, Shared.Named<Setting>, out)}
     case Con{f, rest}:
       do Maybe<&2, List<&2, Shared.Named<Setting>>>:
-        r : Shared.Named<Setting> <- Parsed.rule(f)
+        r: Shared.Named<Setting> <- Parsed.rule(f)
         Parsed.rules(rest, r <> out)
 
 # A config's keys.
@@ -130,18 +170,52 @@ type Key is Data:
   Rules{}
 
 def Key.names() -> List<&2, Shared.Named<Key>>:
-  [Shared.Named{"entries", Entries{}}, Shared.Named{"imports", Imports{}}, Shared.Named{"rules", Rules{}}]
+  [
+    Shared.Named{"entries", Entries{}},
+    Shared.Named{"imports", Imports{}},
+    Shared.Named{"rules", Rules{}}
+  ]
 
-def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json.Json, config: Project) -> Result<&2, &2, String, Project>:
+def Parsed.set(
+  which: Maybe<&2, Key>,
+  key: String,
+  +folder: String,
+  value: Json.Json,
+  config: Project
+) -> Result<&2, &2, String, Project>:
   match which value config:
     case Some{Entries{}} Json.JArray{items} Project{entries, imports, rules}:
-      Maybe.default(&2, Result<&2, &2, String, Project>, Maybe.map(&2, List<&2, String>, Result<&2, &2, String, Project>, es => Done{Project{es, imports, rules}}, Parsed.entries(folder, items, [])), Fail{"entries must be a list of paths"})
+      Maybe.default(
+        &2,
+        Result<&2, &2, String, Project>,
+        Maybe.map(
+          &2,
+          List<&2, String>,
+          Result<&2, &2, String, Project>,
+          es => Done{Project{es, imports, rules}},
+          Parsed.entries(folder, items, [])
+        ),
+        Fail{"entries must be a list of paths"}
+      )
     case Some{Imports{}} Json.JTrue{} Project{entries, imports, rules}:
       Done{Project{entries, Some{True{}}, rules}}
     case Some{Imports{}} Json.JFalse{} Project{entries, imports, rules}:
       Done{Project{entries, Some{False{}}, rules}}
     case Some{Rules{}} Json.JObject{fields} Project{entries, imports, rules}:
-      Maybe.default(&2, Result<&2, &2, String, Project>, Maybe.map(&2, List<&2, Shared.Named<Setting>>, Result<&2, &2, String, Project>, rs => Done{Project{entries, imports, rs}}, Parsed.rules(fields, [])), Fail{"a rule's setting is \"off\", a severity, or an object of a severity and option values"})
+      Maybe.default(
+        &2,
+        Result<&2, &2, String, Project>,
+        Maybe.map(
+          &2,
+          List<&2, Shared.Named<Setting>>,
+          Result<&2, &2, String, Project>,
+          rs => Done{Project{entries, imports, rs}},
+          Parsed.rules(fields, [])
+        ),
+        Fail{
+          "a rule's setting is \"off\", a severity, or an object of a severity and option values"
+        }
+      )
     case Some{Entries{}} _ _:
       Fail{"entries must be a list of paths"}
     case Some{Imports{}} _ _:
@@ -152,14 +226,28 @@ def Parsed.set(which: Maybe<&2, Key>, key: String, +folder: String, value: Json.
       Fail{"unknown key " ++ key}
 
 # A config with one field more: `key` set to `value`.
-def Parsed.field(+folder: String, field: Json.JField, parsed: Result<&2, &2, String, Project>) -> Result<&2, &2, String, Project>:
+def Parsed.field(
+  +folder: String,
+  field: Json.JField,
+  parsed: Result<&2, &2, String, Project>
+) -> Result<&2, &2, String, Project>:
   match field parsed:
     case _ Fail{why}:
       Fail{why}
     case Json.JField{+key, value} Done{Project{entries, imports, rules}}:
-      Parsed.set(Shared.lookup(Key, key, Key.names()), key, folder, value, Project{entries, imports, rules})
+      Parsed.set(
+        Shared.lookup(Key, key, Key.names()),
+        key,
+        folder,
+        value,
+        Project{entries, imports, rules}
+      )
 
-def Parsed.fields(+folder: String, fields: List<&2, Json.JField>, parsed: Result<&2, &2, String, Project>) -> Result<&2, &2, String, Project>:
+def Parsed.fields(
+  +folder: String,
+  fields: List<&2, Json.JField>,
+  parsed: Result<&2, &2, String, Project>
+) -> Result<&2, &2, String, Project>:
   match fields:
     case Nil{}:
       parsed
@@ -206,7 +294,11 @@ def Folders.of(path: String) -> List<&2, String>:
   Folders.from(Folders.parts(List.reverse(&2, String, String.split(path, '/'))))
 
 # A file's text: the chunks read so far (last first), from the last read `step`. `fuel` bounds the reads.
-def Text.read(fuel: Nat, step: File & Result<&1, &1, U32 & String, String>, got: List<&2, String>) -> IO(String):
+def Text.read(
+  fuel: Nat,
+  step: File & Result<&1, &1, U32 & String, String>,
+  got: List<&2, String>
+) -> IO(String):
   match fuel step:
     case 1n+k Tuple{f, Done{SCon{h, t}}}:
       IO.bind(
@@ -240,12 +332,21 @@ def read(+folder: String, file: File) -> IO(Project):
   IO.bind(
     String,
     Project,
-    IO.bind(File & Result<&1, &1, U32 & String, String>, String, File.read(file, 65536), r => Text.read(4294967295n, r, [])),
+    IO.bind(
+      File & Result<&1, &1, U32 & String, String>,
+      String,
+      File.read(file, 65536),
+      r => Text.read(4294967295n, r, [])
+    ),
     text => parsed(folder ++ "/bend-lint.json", Parsed.of(folder, Json.read(text)))
   )
 
 # The config of the nearest folder of `folders` that has one, from the last attempt to open one (in `folder`).
-def search(folders: List<&2, String>, opened: Result<&1, &1, U32 & String, File>, +folder: String) -> IO(Project):
+def search(
+  folders: List<&2, String>,
+  opened: Result<&1, &1, U32 & String, File>,
+  +folder: String
+) -> IO(Project):
   match folders opened:
     case _ Done{file}:
       read(folder, file)

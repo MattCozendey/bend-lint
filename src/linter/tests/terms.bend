@@ -45,8 +45,12 @@ def terms(facts: List<&2, Lint.Fact>, acc: Terms) -> Terms:
     case Con{f, rest} _:
       terms(rest, acc)
 
-def zip(spans: List<&2, Lint.Span>, kinds: List<&2, String>, shown: List<&2, String>, out: List<&2, Lint.Finding>) ->
-  List<&2, Lint.Finding>:
+def zip(
+  spans: List<&2, Lint.Span>,
+  kinds: List<&2, String>,
+  shown: List<&2, String>,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match spans kinds shown:
     case Con{s, ss} Con{k, ks} Con{t, ts}:
       zip(ss, ks, ts, Lint.Finding{Lint.Hint{}, s, k ++ ": " ++ t, []} <> out)
@@ -57,7 +61,7 @@ def described(v: Terms) -> Lint.Ask(List<&2, Lint.Finding>):
   match v:
     case Terms{spans, kinds, types}:
       do Lint.Ask<List<&2, Lint.Finding>>:
-        shown : List<&2, String> <- Lint.show_all(types)
+        shown: List<&2, String> <- Lint.show_all(types)
         return zip(spans, kinds, shown, [])
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):

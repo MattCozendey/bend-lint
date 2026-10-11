@@ -20,7 +20,6 @@ import ../../shared.bend as Shared
 
 # Types
 # =====
-
 type Case is Data:
   Pascal{}
   Snake{}
@@ -28,7 +27,6 @@ type Case is Data:
 
 # Case
 # ====
-
 def no_underscore(s: String) -> Bool:
   match s:
     case SNil{}:
@@ -107,7 +105,11 @@ def snake(s: String, capital: Bool, +prev: U32, acc: String) -> String:
         rest,
         capital_head(rest),
         2,
-        snake_cap(Bool.or(U32.is_eq(prev, 1), Bool.and(U32.is_eq(prev, 2), small_head(rest))), c, acc)
+        snake_cap(
+          Bool.or(U32.is_eq(prev, 1), Bool.and(U32.is_eq(prev, 2), small_head(rest))),
+          c,
+          acc
+        )
       )
     case SCon{+c, +rest} False{}:
       snake(rest, capital_head(rest), Bool.pick(U32, Char.is_eq(c, '_'), 0, 1), SCon{c, acc})
@@ -151,16 +153,24 @@ def Sorts.at(sorts: Map<&2, Maybe<&2, Bool>>, key: String) -> Maybe<&2, Bool>:
 def Sorts.returns_of(def_id: String) -> String:
   "r" ++ def_id
 
-def Sorts.first(sorts: Map<&2, Maybe<&2, Bool>>, key: String, x: Bool, got: Maybe<&2, Bool>) ->
-  Map<&2, Maybe<&2, Bool>>:
+def Sorts.first(
+  sorts: Map<&2, Maybe<&2, Bool>>,
+  key: String,
+  x: Bool,
+  got: Maybe<&2, Bool>
+) -> Map<&2, Maybe<&2, Bool>>:
   match got:
     case None{}:
       Map.set(&2, Maybe<&2, Bool>, sorts, key, Some{x})
     case Some{y}:
       sorts
 
-def Sorts.returns(syntax: Lint.Syntax, sorts: Map<&2, Maybe<&2, Bool>>, parent: String, last: Maybe<&2, Bool>) ->
-  Map<&2, Maybe<&2, Bool>>:
+def Sorts.returns(
+  syntax: Lint.Syntax,
+  sorts: Map<&2, Maybe<&2, Bool>>,
+  parent: String,
+  last: Maybe<&2, Bool>
+) -> Map<&2, Maybe<&2, Bool>>:
   match syntax:
     case Lint.Returns{}:
       Map.set(&2, Maybe<&2, Bool>, sorts, Sorts.returns_of(parent), last)
@@ -178,7 +188,10 @@ def Sorts.step(+sorts: Map<&2, Maybe<&2, Bool>>, node: Lint.Node) -> Map<&2, May
 
 # For each node, whether its last child's written type ends in a sort: for a parameter or field, its own type. `nodes`
 # go children first.
-def Sorts.of(nodes: List<&2, Lint.Node>, sorts: Map<&2, Maybe<&2, Bool>>) -> Map<&2, Maybe<&2, Bool>>:
+def Sorts.of(
+  nodes: List<&2, Lint.Node>,
+  sorts: Map<&2, Maybe<&2, Bool>>
+) -> Map<&2, Maybe<&2, Bool>>:
   match nodes:
     case Nil{}:
       sorts
@@ -187,7 +200,6 @@ def Sorts.of(nodes: List<&2, Lint.Node>, sorts: Map<&2, Maybe<&2, Bool>>) -> Map
 
 # Rule
 # ====
-
 def typed(sorted: Maybe<&2, Bool>) -> Case:
   match sorted:
     case Some{True{}}:
@@ -290,7 +302,13 @@ def renames(ok: Bool, +id: U32, +full: String, +to: String) -> List<&2, Lint.Fix
 
 # The finding for a name that does not fit: it says the new name when recasing makes one that fits, and, for a local
 # name, offers the rename.
-def misfit(+syntax: Lint.Syntax, +want: Case, +name: String, span: Lint.Span, +id: U32) -> List<&2, Lint.Finding>:
+def misfit(
+  +syntax: Lint.Syntax,
+  +want: Case,
+  +name: String,
+  span: Lint.Span,
+  +id: U32
+) -> List<&2, Lint.Finding>:
   +seg = segment(name, "")
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
   +ok = fits(want, recased(want, seg))
@@ -304,14 +322,27 @@ def misfit(+syntax: Lint.Syntax, +want: Case, +name: String, span: Lint.Span, +i
     }
   ]
 
-def verdict(fit: Bool, syntax: Lint.Syntax, want: Case, name: String, span: Lint.Span, id: U32) -> List<&2, Lint.Finding>:
+def verdict(
+  fit: Bool,
+  syntax: Lint.Syntax,
+  want: Case,
+  name: String,
+  span: Lint.Span,
+  id: U32
+) -> List<&2, Lint.Finding>:
   match fit:
     case True{}:
       []
     case False{}:
       misfit(syntax, want, name, span, id)
 
-def judged(want: Maybe<&2, Case>, syntax: Lint.Syntax, +name: String, span: Lint.Span, id: U32) -> List<&2, Lint.Finding>:
+def judged(
+  want: Maybe<&2, Case>,
+  syntax: Lint.Syntax,
+  +name: String,
+  span: Lint.Span,
+  id: U32
+) -> List<&2, Lint.Finding>:
   match want:
     case Some{+w}:
       verdict(fits(w, segment(name, "")), syntax, w, name, span, id)
@@ -328,12 +359,23 @@ def judge(
   match declarations:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Declaration{Lint.Node{+id, parent, owner, +syntax, +name, binder, quantity, Some{span}, target}, uses}, rest}:
+    case Con{
+      Lint.Declaration{
+        Lint.Node{+id, parent, owner, +syntax, +name, binder, quantity, Some{span}, target},
+        uses
+      },
+      rest
+    }:
       judge(
         sorts,
         namespace,
         rest,
-        Shared.onto(&2, Lint.Finding, judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span, id), out)
+        Shared.onto(
+          &2,
+          Lint.Finding,
+          judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span, id),
+          out
+        )
       )
     case Con{d, rest}:
       judge(sorts, namespace, rest, out)

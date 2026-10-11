@@ -14,7 +14,12 @@ def when(-A: Data, hit: Bool, v: A) -> Maybe<&2, A>:
     case False{}:
       None{}
 
-def lookup.go(-A: Data, +key: String, table: List<&2, Named<A>>, found: Maybe<&2, A>) -> Maybe<&2, A>:
+def lookup.go(
+  -A: Data,
+  +key: String,
+  table: List<&2, Named<A>>,
+  found: Maybe<&2, A>
+) -> Maybe<&2, A>:
   match table found:
     case _ Some{v}:
       Some{v}
@@ -76,10 +81,10 @@ def line_start.go(s: String, +i: U32, +at: U32, start: U32, going: Bool) -> U32:
     case SCon{c, rest} True{}:
       line_start.go(
         rest,
-        (i + 1 : U32),
+        (i + 1: U32),
         at,
-        Bool.pick(U32, Char.is_eq(c, '\n'), (i + 1 : U32), start),
-        U32.is_lt((i + 1 : U32), at)
+        Bool.pick(U32, Char.is_eq(c, '\n'), (i + 1: U32), start),
+        U32.is_lt((i + 1: U32), at)
       )
 
 # Where the line of `text` that holds the offset `at` starts: after the last newline before it.
@@ -91,9 +96,9 @@ def line_end.go(s: String, +i: U32) -> U32:
     case SNil{}:
       i
     case SCon{'\n', rest}:
-      (i + 1 : U32)
+      (i + 1: U32)
     case SCon{c, rest}:
-      line_end.go(rest, (i + 1 : U32))
+      line_end.go(rest, (i + 1: U32))
 
 # Where the line of `text` that starts at `beg` ends: after its newline, or at the end of the text.
 def line_end(text: String, +beg: U32) -> U32:
@@ -191,7 +196,13 @@ def sort.pass(
       sort.pass(~A, ~le, n, rest, List.merge.go(~A, ~le, n, (Nil{}, r1, r2)) <> out)
 
 # Passes until one run is left; each pass halves the runs, so `fuel` (the length) is more than enough.
-def sort.go(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +n: Nat, runs: List<&2, List<&2, A>>) -> List<&2, A>:
+def sort.go(
+  ~A: Data,
+  ~le: A -> A -> Bool,
+  fuel: Nat,
+  +n: Nat,
+  runs: List<&2, List<&2, A>>
+) -> List<&2, A>:
   match fuel runs:
     case _ Nil{}:
       []
@@ -204,11 +215,16 @@ def sort.go(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +n: Nat, runs: List<&2, Li
 
 # `xs` in `le` order, stable: a bottom-up merge sort.
 def sort(~A: Data, ~le: A -> A -> Bool, xs: List<&2, A>) -> List<&2, A>:
-  +ys = {xs : List<&2, A>}
+  +ys = {xs: List<&2, A>}
   +n = length(&2, A, ys)
   sort.go(~A, ~le, n, n, sort.runs(A, ys, []))
 
-def Group.add.to(-A: Data, got: Map<&2, List<&2, A>> & List<&2, A>, key: String, x: A) -> Map<&2, List<&2, A>>:
+def Group.add.to(
+  -A: Data,
+  got: Map<&2, List<&2, A>> & List<&2, A>,
+  key: String,
+  x: A
+) -> Map<&2, List<&2, A>>:
   match got:
     case Tuple{groups, old}:
       Map.set(&2, List<&2, A>, groups, key, x <> old)
@@ -219,10 +235,19 @@ def Group.add(-A: Data, groups: Map<&2, List<&2, A>>, +key: String, x: A) -> Map
 
 # What is added under `key`, in the order added.
 def Group.get(-A: Data, groups: Map<&2, List<&2, A>>, key: String) -> List<&2, A>:
-  List.reverse(&2, A, Pair.snd(Map<&2, List<&2, A>>, List<&2, A>, Map.get(List<&2, A>, [], groups, key)))
+  List.reverse(
+    &2,
+    A,
+    Pair.snd(Map<&2, List<&2, A>>, List<&2, A>, Map.get(List<&2, A>, [], groups, key))
+  )
 
 # Each `x` of `xs` added to `groups` under `key(x)`.
-def Group.of(~A: Data, ~key: A -> String, xs: List<&2, A>, groups: Map<&2, List<&2, A>>) -> Map<&2, List<&2, A>>:
+def Group.of(
+  ~A: Data,
+  ~key: A -> String,
+  xs: List<&2, A>,
+  groups: Map<&2, List<&2, A>>
+) -> Map<&2, List<&2, A>>:
   match xs:
     case Nil{}:
       groups
@@ -271,7 +296,7 @@ def Placed.of(offsets: List<&2, U32>, +index: U32, out: List<&2, Placed>) -> Lis
     case Nil{}:
       out
     case Con{o, rest}:
-      Placed.of(rest, (index + 1 : U32), Placed{index, o} <> out)
+      Placed.of(rest, (index + 1: U32), Placed{index, o} <> out)
 
 # Whether the next offset to place is at or before `at`.
 def Walk.due(pending: List<&2, Placed>, +at: U32) -> Bool:
@@ -282,10 +307,24 @@ def Walk.due(pending: List<&2, Placed>, +at: U32) -> Bool:
       False{}
 
 # The offsets due at `at`, placed at `line` and `column`.
-def Walk.emit(pending: List<&2, Placed>, due: Bool, +at: U32, +line: U32, +column: U32, out: List<&2, Located>) -> Walk:
+def Walk.emit(
+  pending: List<&2, Placed>,
+  due: Bool,
+  +at: U32,
+  +line: U32,
+  +column: U32,
+  out: List<&2, Located>
+) -> Walk:
   match pending due:
     case Con{Placed{i, offset}, +rest} True{}:
-      Walk.emit(rest, Walk.due(rest, at), at, line, column, Located{i, Position{line, column}} <> out)
+      Walk.emit(
+        rest,
+        Walk.due(rest, at),
+        at,
+        line,
+        column,
+        Located{i, Position{line, column}} <> out
+      )
     case _ _:
       Walk{pending, out}
 
@@ -303,9 +342,20 @@ def Walk.go(text: String, +at: U32, +line: U32, +column: U32, w: Walk) -> List<&
       Walk.done(Walk.emit(pending, True{}, 4294967295, line, column, out))
     case SCon{+c, t} Walk{+pending, out}:
       +ends = Char.is_eq(c, '\n')
-      +l = Bool.pick(U32, ends, (line + 1 : U32), line)
-      +col = Bool.pick(U32, ends, 1, (column + Bool.pick(U32, U32.is_ge(Char.to_u32(c), 65536), 2, 1) : U32))
-      Walk.go(t, (at + 1 : U32), l, col, Walk.emit(pending, Walk.due(pending, (at + 1 : U32)), (at + 1 : U32), l, col, out))
+      +l = Bool.pick(U32, ends, (line + 1: U32), line)
+      +col = Bool.pick(
+        U32,
+        ends,
+        1,
+        (column + Bool.pick(U32, U32.is_ge(Char.to_u32(c), 65536), 2, 1): U32)
+      )
+      Walk.go(
+        t,
+        (at + 1: U32),
+        l,
+        col,
+        Walk.emit(pending, Walk.due(pending, (at + 1: U32)), (at + 1: U32), l, col, out)
+      )
 
 def Walk.positions(located: List<&2, Located>, out: List<&2, Position>) -> List<&2, Position>:
   match located:
@@ -320,17 +370,31 @@ def Walk.located(+sorted: List<&2, Placed>, text: String) -> List<&2, Located>:
 
 # Where each offset of `offsets` is in `text`, in order: one pass over the text, whatever the number of offsets.
 def positions(text: String, offsets: List<&2, U32>) -> List<&2, Position>:
-  Walk.positions(sort(~Located, ~Located.le, Walk.located(sort(~Placed, ~Placed.le, Placed.of(offsets, 0, [])), text)), [])
+  Walk.positions(
+    sort(
+      ~Located,
+      ~Located.le,
+      Walk.located(sort(~Placed, ~Placed.le, Placed.of(offsets, 0, [])), text)
+    ),
+    []
+  )
 
 def Place.key(path: String, +offset: U32) -> String:
   path ++ "\t" ++ U32.show(offset)
 
 # Where the offset `offset` of the file at `path` is, among `places` (what `places` gives); 1:1 if it is not there.
 def Place.at(places: Map<&2, Position>, path: String, offset: U32) -> Position:
-  Pair.snd(Map<&2, Position>, Position, Map.get(Position, Position{1, 1}, places, Place.key(path, offset)))
+  Pair.snd(
+    Map<&2, Position>,
+    Position,
+    Map.get(Position, Position{1, 1}, places, Place.key(path, offset))
+  )
 
 # The requests by file, each offset numbered by itself, onto `groups`.
-def places.group(requests: List<&2, Place>, groups: Map<&2, List<&2, Placed>>) -> Map<&2, List<&2, Placed>>:
+def places.group(
+  requests: List<&2, Place>,
+  groups: Map<&2, List<&2, Placed>>
+) -> Map<&2, List<&2, Placed>>:
   match requests:
     case Nil{}:
       groups
@@ -338,7 +402,11 @@ def places.group(requests: List<&2, Place>, groups: Map<&2, List<&2, Placed>>) -
       places.group(rest, Group.add(Placed, groups, path, Placed{offset, offset}))
 
 # The places found in the file at `path`, by key, onto `out`.
-def places.keep(located: List<&2, Located>, +path: String, out: Map<&2, Position>) -> Map<&2, Position>:
+def places.keep(
+  located: List<&2, Located>,
+  +path: String,
+  out: Map<&2, Position>
+) -> Map<&2, Position>:
   match located:
     case Nil{}:
       out
@@ -346,8 +414,12 @@ def places.keep(located: List<&2, Located>, +path: String, out: Map<&2, Position
       places.keep(rest, path, Map.set(&2, Position, out, Place.key(path, offset), at))
 
 # The requests of each file of `paths` placed in its text, onto `out`; a file `texts` lacks places them at its start.
-def places.walk(paths: List<&2, String>, +groups: Map<&2, List<&2, Placed>>, +texts: Map<&2, String>, out: Map<&2, Position>) ->
-  Map<&2, Position>:
+def places.walk(
+  paths: List<&2, String>,
+  +groups: Map<&2, List<&2, Placed>>,
+  +texts: Map<&2, String>,
+  out: Map<&2, Position>
+) -> Map<&2, Position>:
   match paths:
     case Nil{}:
       out
@@ -357,7 +429,10 @@ def places.walk(paths: List<&2, String>, +groups: Map<&2, List<&2, Placed>>, +te
         groups,
         texts,
         places.keep(
-          Walk.located(sort(~Placed, ~Placed.le, Group.get(Placed, groups, path)), Pair.snd(Map<&2, String>, String, Map.get(String, "", texts, path))),
+          Walk.located(
+            sort(~Placed, ~Placed.le, Group.get(Placed, groups, path)),
+            Pair.snd(Map<&2, String>, String, Map.get(String, "", texts, path))
+          ),
           path,
           out
         )
@@ -369,7 +444,15 @@ def places(+texts: Map<&2, String>, requests: List<&2, Place>) -> Map<&2, Positi
   +groups = places.group(requests, Map.new(&2, List<&2, Placed>))
   places.walk(Map.keys(&2, List<&2, Placed>, groups), groups, texts, Map.new(&2, Position))
 
-def deal.go(a, -A: Kind(a), xs: List<a, A>, even: Bool, l: List<a, A>, r: List<a, A>) -> List<a, A> & List<a, A>:
+def deal.go(
+  a,
+  -A: Kind(a),
+  xs: List<a, A>,
+  even: Bool,
+  l: List<a, A>,
+  r: List<a, A>
+) -> List<a, A>
+  & List<a, A>:
   match xs even:
     case Nil{} _:
       (List.reverse(a, A, l), List.reverse(a, A, r))
@@ -382,7 +465,14 @@ def deal.go(a, -A: Kind(a), xs: List<a, A>, even: Bool, l: List<a, A>, r: List<a
 def deal(a, -A: Kind(a), xs: List<a, A>) -> List<a, A> & List<a, A>:
   deal.go(a, A, xs, True{}, [], [])
 
-def interleave.go(a, -A: Kind(a), fuel: Nat, xs: List<a, A>, ys: List<a, A>, out: List<a, A>) -> List<a, A>:
+def interleave.go(
+  a,
+  -A: Kind(a),
+  fuel: Nat,
+  xs: List<a, A>,
+  ys: List<a, A>,
+  out: List<a, A>
+) -> List<a, A>:
   match fuel xs:
     case 1n+k Con{x, rest}:
       interleave.go(a, A, k, ys, rest, x <> out)
@@ -411,7 +501,7 @@ def Table.fit(fuel: Nat, +n: U32, +size: U32, depth: Nat, fits: Bool) -> U32 & N
     case 0n False{}:
       (size, depth)
     case 1n+f False{}:
-      Table.fit(f, n, (size * 2 : U32), 1n+depth, U32.is_le(n, (size * 2 : U32)))
+      Table.fit(f, n, (size * 2: U32), 1n+depth, U32.is_le(n, (size * 2: U32)))
 
 # The node over the values parted in `halves` (those at even places, and those at odd), `depth` levels above its leaves.
 def Table.grow(-A: Data, +depth: Nat, halves: List<&2, A> & List<&2, A>) -> Table<A>:

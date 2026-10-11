@@ -5,13 +5,30 @@ import ../lint.bend as Lint
 def offer(foo: Bool, id: U32, span: Lint.Span) -> List<&2, Lint.Finding>:
   match foo:
     case True{}:
-      [Lint.Finding{Lint.Hint{}, span, "foo", [Lint.Fix{"Rename to bar", [Lint.Rename{id, "bar"}]}]}]
+      [
+        Lint.Finding{
+          Lint.Hint{},
+          span,
+          "foo",
+          [Lint.Fix{"Rename to bar", [Lint.Rename{id, "bar"}]}]
+        }
+      ]
     case False{}:
       []
 
 def judge(node: Lint.Node) -> List<&2, Lint.Finding>:
   match node:
-    case Lint.Node{id, parent, owner, Lint.Definition{}, name, binder, quantity, Some{span}, target}:
+    case Lint.Node{
+      id,
+      parent,
+      owner,
+      Lint.Definition{},
+      name,
+      binder,
+      quantity,
+      Some{span},
+      target
+    }:
       offer(String.eq(name, "foo"), id, span)
     case Lint.Node{id, parent, owner, Lint.Parameter{}, name, binder, quantity, Some{span}, target}:
       offer(String.eq(name, "foo"), id, span)

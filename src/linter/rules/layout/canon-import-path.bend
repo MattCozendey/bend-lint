@@ -7,7 +7,6 @@ import ../../shared.bend as Shared
 
 # Paths
 # =====
-
 def segments.step(p: String, acc: List<&2, String>) -> List<&2, String>:
   match p:
     case SNil{}:
@@ -87,7 +86,12 @@ def verdict(fine: Bool, +want: String, +span: Lint.Span) -> List<&2, Lint.Findin
       ]
 
 # A written path, against the one from `file` to `target`, the file its import loads.
-def judge(+file: String, +written: String, target: Maybe<&2, Lint.Node>, span: Lint.Span) -> List<&2, Lint.Finding>:
+def judge(
+  +file: String,
+  +written: String,
+  target: Maybe<&2, Lint.Node>,
+  span: Lint.Span
+) -> List<&2, Lint.Finding>:
   match target:
     case Some{Lint.Node{id, p, o, Lint.Import{}, name, b, q, sp, loads}}:
       +want = canon(relative(segments(file ++ "/.."), segments(loads)))
@@ -97,11 +101,20 @@ def judge(+file: String, +written: String, target: Maybe<&2, Lint.Node>, span: L
 
 # The findings on the import paths among `nodes`, onto `out`. A file's imports come first, so the first node of another
 # kind ends them.
-def paths(nodes: List<&2, Lint.Node>, +here: Lint.Here, +file: String, out: List<&2, Lint.Finding>) ->
-  List<&2, Lint.Finding>:
+def paths(
+  nodes: List<&2, Lint.Node>,
+  +here: Lint.Here,
+  +file: String,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
     case Con{Lint.Node{id, parent, o, Lint.ImportPath{}, written, b, q, Some{span}, t}, rest}:
-      paths(rest, here, file, Shared.onto(&2, Lint.Finding, judge(file, written, Lint.Here.node(here, parent), span), out))
+      paths(
+        rest,
+        here,
+        file,
+        Shared.onto(&2, Lint.Finding, judge(file, written, Lint.Here.node(here, parent), span), out)
+      )
     case Con{Lint.Node{id, parent, o, Lint.Import{}, name, b, q, sp, t}, rest}:
       paths(rest, here, file, out)
     case _:

@@ -16,7 +16,6 @@ type Check is Data:
 
 # Decoding
 # ========
-
 def Syntax.names() -> List<&2, Shared.Named<Lint.Syntax>>:
   [
     Shared.Named{"Variable", Lint.Variable{}},
@@ -68,19 +67,32 @@ def Quantity.names() -> List<&2, Shared.Named<Lint.Quantity>>:
 
 def Span.read(path: String, beg: String, end: String) -> Maybe<&2, Lint.Span>:
   do Maybe<&2, Lint.Span>:
-    b : U32 <- U32.read(beg)
-    e : U32 <- U32.read(end)
+    b: U32 <- U32.read(beg)
+    e: U32 <- U32.read(end)
     return Lint.Span{path, b, e}
 
 # A node from the fields of its record, in the file at `path`; `kinds` is `Syntax.names` as a table.
-def Node.read(path: String, kinds: Map<&2, Maybe<&2, Lint.Syntax>>, fields: List<&2, String>) -> Maybe<&2, Lint.Node>:
+def Node.read(
+  path: String,
+  kinds: Map<&2, Maybe<&2, Lint.Syntax>>,
+  fields: List<&2, String>
+) -> Maybe<&2, Lint.Node>:
   match fields:
-    case Con{id, Con{parent, Con{owner, Con{syntax, Con{name, Con{binder, Con{quantity, Con{beg, Con{end, Con{target, Nil{}}}}}}}}}}}:
+    case Con{
+      id,
+      Con{
+        parent,
+        Con{
+          owner,
+          Con{syntax, Con{name, Con{binder, Con{quantity, Con{beg, Con{end, Con{target, Nil{}}}}}}}}
+        }
+      }
+    }:
       do Maybe<&2, Lint.Node>:
-        i : U32 <- U32.read(id)
-        p : U32 <- U32.read(parent)
-        o : U32 <- U32.read(owner)
-        s : Lint.Syntax <- Shared.find(Lint.Syntax, kinds, syntax)
+        i: U32 <- U32.read(id)
+        p: U32 <- U32.read(parent)
+        o: U32 <- U32.read(owner)
+        s: Lint.Syntax <- Shared.find(Lint.Syntax, kinds, syntax)
         return Lint.Node{
           i,
           p,
@@ -102,7 +114,11 @@ type Record is Data:
   FactRecord{}
 
 def Record.names() -> List<&2, Shared.Named<Record>>:
-  [Shared.Named{"node", NodeRecord{}}, Shared.Named{"fact", FactRecord{}}, Shared.Named{"file", SourceRecord{}}]
+  [
+    Shared.Named{"node", NodeRecord{}},
+    Shared.Named{"fact", FactRecord{}},
+    Shared.Named{"file", SourceRecord{}}
+  ]
 
 def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
   [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
@@ -113,11 +129,17 @@ def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>
   match fields:
     case Con{role, Con{check, Con{id, Con{quantity, Con{used, Nil{}}}}}}:
       do Maybe<&2, Lint.Fact>:
-        r : Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
-        c : U32 <- U32.read(check)
-        i : U32 <- U32.read(id)
-        q : Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
-        return Lint.Fact{node, r, q, Shared.lookup(Lint.Quantity, used, Quantity.names()), Lint.TypeRef{c, i}}
+        r: Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
+        c: U32 <- U32.read(check)
+        i: U32 <- U32.read(id)
+        q: Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
+        return Lint.Fact{
+          node,
+          r,
+          q,
+          Shared.lookup(Lint.Quantity, used, Quantity.names()),
+          Lint.TypeRef{c, i}
+        }
     case _:
       None{}
 
@@ -131,11 +153,13 @@ def Program.add(
   match kind fields sources:
     case Some{NodeRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
-        n : Lint.Node <- Node.read(path, kinds, fields)
+        n: Lint.Node <- Node.read(path, kinds, fields)
         return Lint.Source{path, namespace, text, n <> nodes, facts} <> rest
-    case Some{FactRecord{}} _ Con{Lint.Source{path, namespace, text, Con{+node, nodes}, facts}, rest}:
+    case Some{
+      FactRecord{}
+    } _ Con{Lint.Source{path, namespace, text, Con{+node, nodes}, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
-        f : Lint.Fact <- Fact.read(node, fields)
+        f: Lint.Fact <- Fact.read(node, fields)
         return Lint.Source{path, namespace, text, node <> nodes, f <> facts} <> rest
     case Some{SourceRecord{}} Con{path, Con{namespace, Con{text, Nil{}}}} _:
       Some{Lint.Source{path, namespace, text, [], []} <> sources}
@@ -143,38 +167,66 @@ def Program.add(
       None{}
 
 # The sources in order, each with its nodes and facts in order.
-def Program.in_order(sources: List<&2, Lint.Source>, done: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
+def Program.in_order(
+  sources: List<&2, Lint.Source>,
+  done: List<&2, Lint.Source>
+) -> List<&2, Lint.Source>:
   match sources:
     case Nil{}:
       done
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Program.in_order(
         rest,
-        Lint.Source{path, namespace, text, List.reverse(&2, Lint.Node, nodes), List.reverse(&2, Lint.Fact, facts)} <> done
+        Lint.Source{
+          path,
+          namespace,
+          text,
+          List.reverse(&2, Lint.Node, nodes),
+          List.reverse(&2, Lint.Fact, facts)
+        }
+          <> done
       )
 
 # The program of an answer's records: a source record, then its nodes and facts, for each source. `kinds` is
 # `Syntax.names` as a table.
-def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Lint.Source>, +kinds: Map<&2, Maybe<&2, Lint.Syntax>>) ->
-  Maybe<&2, Lint.Program>:
+def Program.read(
+  records: List<&2, List<&2, String>>,
+  sources: List<&2, Lint.Source>,
+  +kinds: Map<&2, Maybe<&2, Lint.Syntax>>
+) -> Maybe<&2, Lint.Program>:
   match records:
     case Nil{}:
       Some{Lint.Program{Program.in_order(sources, [])}}
     case Con{Con{tag, fields}, rest}:
       do Maybe<&2, Lint.Program>:
-        added : List<&2, Lint.Source> <- Program.add(Shared.lookup(Record, tag, Record.names()), fields, sources, kinds)
+        added: List<
+          &2,
+          Lint.Source> <- Program.add(
+          Shared.lookup(Record, tag, Record.names()),
+          fields,
+          sources,
+          kinds
+        )
         Program.read(rest, added, kinds)
     case Con{Nil{}, rest}:
       None{}
 
 # The program of an answer's records.
 def Program.of(records: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
-  Program.read(records, [], Shared.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>)))
+  Program.read(
+    records,
+    [],
+    Shared.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>))
+  )
 
 def Check.malformed(-A: Type) -> IO(A):
   IO.die(A, 1, "bend-lint: the checker's answer is malformed")
 
-def Check.passed(tagged: Bool, check: Maybe<&2, U32>, program: Maybe<&2, Lint.Program>) -> IO(Check):
+def Check.passed(
+  tagged: Bool,
+  check: Maybe<&2, U32>,
+  program: Maybe<&2, Lint.Program>
+) -> IO(Check):
   match tagged check program:
     case True{} Some{c} Some{p}:
       IO.pure(Check, Passed{p, c})
@@ -189,7 +241,11 @@ def Check.read(records: List<&2, List<&2, String>>) -> IO(Check):
     case _:
       Check.malformed(Check)
 
-def Records.keep(hit: Bool, record: List<&2, String>, out: List<&2, List<&2, String>>) -> List<&2, List<&2, String>>:
+def Records.keep(
+  hit: Bool,
+  record: List<&2, String>,
+  out: List<&2, List<&2, String>>
+) -> List<&2, List<&2, String>>:
   match hit:
     case True{}:
       record <> out
@@ -197,12 +253,18 @@ def Records.keep(hit: Bool, record: List<&2, String>, out: List<&2, List<&2, Str
       out
 
 # The records of the parsed files and their nodes, in order.
-def Records.syntax(records: List<&2, List<&2, String>>, out: List<&2, List<&2, String>>) -> List<&2, List<&2, String>> :
+def Records.syntax(
+  records: List<&2, List<&2, String>>,
+  out: List<&2, List<&2, String>>
+) -> List<&2, List<&2, String>>:
   match records:
     case Nil{}:
       List.reverse(&2, List<&2, String>, out)
     case Con{Con{+tag, fields}, rest}:
-      Records.syntax(rest, Records.keep(String.eq(tag, "file") || String.eq(tag, "node"), Con{tag, fields}, out))
+      Records.syntax(
+        rest,
+        Records.keep(String.eq(tag, "file") || String.eq(tag, "node"), Con{tag, fields}, out)
+      )
     case Con{Nil{}, rest}:
       Records.syntax(rest, out)
 
@@ -232,10 +294,17 @@ def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
       Program.of(syntax)
 
 def Check.failed(failure: Failure, +records: List<&2, List<&2, String>>) -> IO(Check):
-  IO.pure(Check, Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))})
+  IO.pure(
+    Check,
+    Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))}
+  )
 
 # What an answer whose last record has `fields` says: if it is a `fail` record, why and maybe where the check failed.
-def Check.closed(fail: Bool, fields: List<&2, String>, records: List<&2, List<&2, String>>) -> IO(Check):
+def Check.closed(
+  fail: Bool,
+  fields: List<&2, String>,
+  records: List<&2, List<&2, String>>
+) -> IO(Check):
   match fail fields:
     case True{} Con{message, Nil{}}:
       Check.failed(Failure{message, None{}, ""}, records)
@@ -246,7 +315,10 @@ def Check.closed(fail: Bool, fields: List<&2, String>, records: List<&2, List<&2
     case False{} _:
       Check.read(records)
 
-def Check.ended(last: Maybe<&2, List<&2, String>>, records: List<&2, List<&2, String>>) -> IO(Check):
+def Check.ended(
+  last: Maybe<&2, List<&2, String>>,
+  records: List<&2, List<&2, String>>
+) -> IO(Check):
   match last:
     case Some{Con{+tag, fields}}:
       Check.closed(String.eq(tag, "fail"), fields, records)
@@ -269,7 +341,12 @@ def Check.run(path: String, facts: Bool) -> IO(Check):
 
 # Frees what the server holds for the passed check numbered `check`: no rule asks about its types again.
 def Check.forget(check: U32) -> IO(Unit):
-  IO.bind(List<&2, List<&2, String>>, Unit, Wire.ask(["forget", U32.show(check)]), records => IO.pure(Unit, Unit{}))
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Unit,
+    Wire.ask(["forget", U32.show(check)]),
+    records => IO.pure(Unit, Unit{})
+  )
 
 # Declarations
 # ============
@@ -308,8 +385,13 @@ def Syntax.declares(syntax: Lint.Syntax) -> Maybe<&2, Bool>:
     case _:
       None{}
 
-def Key.declared.of(global: Maybe<&2, Bool>, owner: U32, binder: Maybe<&2, U32>, anonymous: Bool, target: String) ->
-  Maybe<&2, String>:
+def Key.declared.of(
+  global: Maybe<&2, Bool>,
+  owner: U32,
+  binder: Maybe<&2, U32>,
+  anonymous: Bool,
+  target: String
+) -> Maybe<&2, String>:
   match global binder anonymous:
     case Some{True{}} _ _:
       Some{Key.global(target)}
@@ -332,7 +414,11 @@ def Key.used(node: Lint.Node) -> Maybe<&2, String>:
     case _:
       Maybe.map(&2, String, String, Key.global, Lint.Node.used(node))
 
-def Uses.add(m: Map<&2, List<&2, Lint.Node>>, key: Maybe<&2, String>, node: Lint.Node) -> Map<&2, List<&2, Lint.Node>>:
+def Uses.add(
+  m: Map<&2, List<&2, Lint.Node>>,
+  key: Maybe<&2, String>,
+  node: Lint.Node
+) -> Map<&2, List<&2, Lint.Node>>:
   match key:
     case None{}:
       m
@@ -340,7 +426,10 @@ def Uses.add(m: Map<&2, List<&2, Lint.Node>>, key: Maybe<&2, String>, node: Lint
       Shared.Group.add(Lint.Node, m, k, node)
 
 # The uses of each key.
-def Uses.of(nodes: List<&2, Lint.Node>, m: Map<&2, List<&2, Lint.Node>>) -> Map<&2, List<&2, Lint.Node>>:
+def Uses.of(
+  nodes: List<&2, Lint.Node>,
+  m: Map<&2, List<&2, Lint.Node>>
+) -> Map<&2, List<&2, Lint.Node>>:
   match nodes:
     case Nil{}:
       m
@@ -394,7 +483,11 @@ def Imports.base_uses(+own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
       False{}
 
 # `aliases` with `node`, under `prefix`, the part of its name before the first `.`, if any.
-def Imports.alias(prefix: String, node: Lint.Node, aliases: Map<&2, List<&2, Lint.Node>>) -> Map<&2, List<&2, Lint.Node>>:
+def Imports.alias(
+  prefix: String,
+  node: Lint.Node,
+  aliases: Map<&2, List<&2, Lint.Node>>
+) -> Map<&2, List<&2, Lint.Node>>:
   match prefix:
     case SNil{}:
       aliases
@@ -410,9 +503,22 @@ def Imports.base(hit: Bool, node: Lint.Node, base: List<&2, Lint.Node>) -> List<
 
 def Imports.add(+own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> ImportUses:
   match node uses:
-    case Lint.Node{id, parent, owner, syntax, +name, binder, quantity, span, target} ImportUses{aliases, base}:
-      +n = {Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target} : Lint.Node}
-      ImportUses{Imports.alias(Shared.before(name, '.'), n, aliases), Imports.base(Imports.base_uses(own, Lint.Node.used(n)), n, base)}
+    case Lint.Node{
+      id,
+      parent,
+      owner,
+      syntax,
+      +name,
+      binder,
+      quantity,
+      span,
+      target
+    } ImportUses{aliases, base}:
+      +n = {Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target}: Lint.Node}
+      ImportUses{
+        Imports.alias(Shared.before(name, '.'), n, aliases),
+        Imports.base(Imports.base_uses(own, Lint.Node.used(n)), n, base)
+      }
 
 def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUses) -> ImportUses:
   match nodes:
@@ -423,7 +529,11 @@ def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUs
 
 # What uses each import of a file with `nodes`.
 def Imports.uses_of(+nodes: List<&2, Lint.Node>) -> ImportUses:
-  Imports.scan(nodes, Imports.own(nodes, Map.new(&2, Unit)), ImportUses{Map.new(&2, List<&2, Lint.Node>), []})
+  Imports.scan(
+    nodes,
+    Imports.own(nodes, Map.new(&2, Unit)),
+    ImportUses{Map.new(&2, List<&2, Lint.Node>), []}
+  )
 
 # The uses of an import, in order: of Base (`base`), or of the alias `alias`.
 def Imports.of(base: Bool, alias: String, imports: ImportUses) -> List<&2, Lint.Node>:
@@ -450,7 +560,13 @@ def Declarations.of.node(
         }
       }
     case +n:
-      Maybe.map(&2, String, Lint.Declaration, k => Lint.Declaration{n, Shared.Group.get(Lint.Node, uses, k)}, Key.declared(n))
+      Maybe.map(
+        &2,
+        String,
+        Lint.Declaration,
+        k => Lint.Declaration{n, Shared.Group.get(Lint.Node, uses, k)},
+        Key.declared(n)
+      )
 
 def Declarations.of.go(
   rest: List<&2, Lint.Node>,
@@ -472,8 +588,11 @@ def Declarations.of.go(
       )
 
 # The declarations of a file's nodes, in order, with their uses that `uses` indexes.
-def Declarations.of(+sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>, +uses: Map<&2, List<&2, Lint.Node>>) ->
-  List<&2, Lint.Declaration>:
+def Declarations.of(
+  +sources: List<&2, Lint.Source>,
+  +nodes: List<&2, Lint.Node>,
+  +uses: Map<&2, List<&2, Lint.Node>>
+) -> List<&2, Lint.Declaration>:
   Declarations.of.go(nodes, sources, Imports.uses_of(nodes), uses, [])
 
 def Index.first(nodes: List<&2, Lint.Node>) -> U32:
@@ -491,7 +610,11 @@ def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
   }
 
 # A file's declarations, with their uses in it, if a rule needs them (`declare`); else none.
-def Declarations.when(declare: Bool, +sources: List<&2, Lint.Source>, +nodes: List<&2, Lint.Node>) -> List<&2, Lint.Declaration>:
+def Declarations.when(
+  declare: Bool,
+  +sources: List<&2, Lint.Source>,
+  +nodes: List<&2, Lint.Node>
+) -> List<&2, Lint.Declaration>:
   match declare:
     case True{}:
       Declarations.of(sources, nodes, Uses.of(nodes, Map.new(&2, List<&2, Lint.Node>)))
@@ -522,7 +645,10 @@ def Program.own(sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
   List.filter(~Lint.Source, ~Source.own, sources)
 
 # The nodes of every file, in order.
-def Program.nodes(sources: List<&2, Lint.Source>, out: List<&2, List<&2, Lint.Node>>) -> List<&2, Lint.Node>:
+def Program.nodes(
+  sources: List<&2, Lint.Source>,
+  out: List<&2, List<&2, Lint.Node>>
+) -> List<&2, Lint.Node>:
   match sources:
     case Nil{}:
       Shared.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
@@ -546,7 +672,12 @@ def Whole.declarations(
 def Whole.when(declare: Bool, +sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
   match declare:
     case True{}:
-      Whole.declarations(sources, sources, Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)), [])
+      Whole.declarations(
+        sources,
+        sources,
+        Uses.of(Program.nodes(sources, []), Map.new(&2, List<&2, Lint.Node>)),
+        []
+      )
     case False{}:
       []
 

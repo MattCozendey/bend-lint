@@ -114,7 +114,13 @@ type Fact is Data:
 # A file the check parsed: its path, its namespace in the check, its text, its nodes (parents first), and the
 # checker's facts on its terms, if a rule needs them.
 type Source is Data:
-  Source{path: String, namespace: String, text: String, nodes: List<&2, Node>, facts: List<&2, Fact>}
+  Source{
+    path: String,
+    namespace: String,
+    text: String,
+    nodes: List<&2, Node>,
+    facts: List<&2, Fact>
+  }
 
 type Program is Data:
   Program{sources: List<&2, Source>}
@@ -147,7 +153,6 @@ def Name.namespace(name: String) -> String:
 
 # Rules
 # =====
-
 type Severity is Data:
   Error{}
   Warning{}
@@ -240,7 +245,11 @@ type Here is Data:
 # What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
 # uses in all of them, if a rule needs them; and the rule's options.
 type Whole is Data:
-  Whole{program: Program, declarations: List<&2, Declaration>, options: List<&2, Shared.Named<Value>>}
+  Whole{
+    program: Program,
+    declarations: List<&2, Declaration>,
+    options: List<&2, Shared.Named<Value>>
+  }
 
 # Asking the checker
 # ==================
@@ -311,15 +320,30 @@ def Answer.type(+fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
 
 # How a type is shown, as the file it came from spells it.
 def show(t: TypeRef) -> Ask(String):
-  Ask.bind(List<&2, Answer>, String, ask([Show{t}]), answers => Ask.pure(String, Answer.text(answers)))
+  Ask.bind(
+    List<&2, Answer>,
+    String,
+    ask([Show{t}]),
+    answers => Ask.pure(String, Answer.text(answers))
+  )
 
 # Whether two types are the same, as the checker compares them.
 def same(a: TypeRef, b: TypeRef) -> Ask(Bool):
-  Ask.bind(List<&2, Answer>, Bool, ask([Same{a, b}]), answers => Ask.pure(Bool, Answer.same(answers)))
+  Ask.bind(
+    List<&2, Answer>,
+    Bool,
+    ask([Same{a, b}]),
+    answers => Ask.pure(Bool, Answer.same(answers))
+  )
 
 # A type's normal form.
 def normal(+t: TypeRef) -> Ask(TypeRef):
-  Ask.bind(List<&2, Answer>, TypeRef, ask([Normal{t}]), answers => Ask.pure(TypeRef, Answer.type(t, answers)))
+  Ask.bind(
+    List<&2, Answer>,
+    TypeRef,
+    ask([Normal{t}]),
+    answers => Ask.pure(TypeRef, Answer.type(t, answers))
+  )
 
 def Question.shows(types: List<&2, TypeRef>, out: List<&2, Question>) -> List<&2, Question>:
   match types:
@@ -402,7 +426,7 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
 def Here.node(here: Here, +id: U32) -> Maybe<&2, Node>:
   match here:
     case Here{program, source, declarations, Index{+first, nodes}, options}:
-      Shared.Indexed.get(Node, nodes, (id - first : U32))
+      Shared.Indexed.get(Node, nodes, (id - first: U32))
 
 # The value of the rule's option `name`: the config's, or its default.
 def Here.option(here: Here, +name: String) -> Maybe<&2, Value>:
@@ -448,7 +472,12 @@ def Value.text(value: Maybe<&2, Value>) -> String:
     case _:
       ""
 
-def findings.go(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>, out: List<&2, Finding>) -> List<&2, Finding>:
+def findings.go(
+  ~A: Data,
+  ~f: A -> List<&2, Finding>,
+  xs: List<&2, A>,
+  out: List<&2, Finding>
+) -> List<&2, Finding>:
   match xs:
     case Nil{}:
       List.reverse(&2, Finding, out)
