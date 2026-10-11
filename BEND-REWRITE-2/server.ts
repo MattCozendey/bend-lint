@@ -28,7 +28,7 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { CACHE, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
+import { BEND_LINT_CACHE_DIR, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
 import { unwrap } from "../src/shared/result.ts";
 import { digest, getErrorMessageFromUnknown } from "../src/shared/utils.ts";
 
@@ -119,7 +119,7 @@ type Tree = {
 
 const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n" };
 
-const KEPT = nodePath.join(CACHE, "server");
+const SERVER_CACHE_DIR = nodePath.join(BEND_LINT_CACHE_DIR, "server");
 
 // The fs and path that bend.ts gets instead of Node's.
 const PATHS = url.fileURLToPath(new URL("../src/shared/paths.ts", import.meta.url));
@@ -298,7 +298,7 @@ const copied = (dir: URL): string => {
     url.fileURLToPath(dir).replaceAll("\\", "/"),
     nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
-  const file = nodePath.join(KEPT, digest(text).slice(0, 16), "bend.ts");
+  const file = nodePath.join(SERVER_CACHE_DIR, digest(text).slice(0, 16), "bend.ts");
   if (!nodeFs.existsSync(file)) {
     nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
     nodeFs.writeFileSync(file, text);
@@ -1288,7 +1288,7 @@ const numbered = (answer: string, number: number): string =>
 // Where the cache keeps the check of `path` in mode `facts`.
 const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
-    KEPT,
+    SERVER_CACHE_DIR,
     "checks",
     digest([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
   );

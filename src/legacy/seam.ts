@@ -23,7 +23,7 @@ import type {
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
-import { CACHE, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { BEND_LINT_CACHE_DIR, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
 import { path, resolve, slash } from "../shared/paths.ts";
 import { mapError, unwrap } from "../shared/result.ts";
@@ -184,7 +184,7 @@ const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 export const MARK = "BEND_LINT_PATCH";
 
 // Compiled Bend rules.
-const KEPT = nodePath.join(CACHE, "rules");
+const RULES_CACHE_DIR = nodePath.join(BEND_LINT_CACHE_DIR, "rules");
 
 // Each loaded bend2's compiler hash, made once.
 const COMPILERS = new WeakMap<Loaded, string>();
@@ -1476,7 +1476,7 @@ const effectsOf = (book: Book): string[] => [
 ];
 
 const keptPath = (file: string): string =>
-  nodePath.join(KEPT, digest(slash(nodePath.resolve(file))) + ".json");
+  nodePath.join(RULES_CACHE_DIR, digest(slash(nodePath.resolve(file))) + ".json");
 
 const unchanged = (m: Loaded, kept: Kept): boolean =>
   kept.compiler === compilerOf(m) && kept.files.every(([p, h]) => hashed(p) === h);
@@ -1496,9 +1496,9 @@ const made = (m: Loaded, kept: Kept): Compiled => {
 // that are gone. A cache that cannot be written is skipped.
 const keep = (kept: Kept): void => {
   tried(() => {
-    nodeFs.mkdirSync(KEPT, { recursive: true });
-    for (const name of nodeFs.readdirSync(KEPT)) {
-      const at = nodePath.join(KEPT, name);
+    nodeFs.mkdirSync(RULES_CACHE_DIR, { recursive: true });
+    for (const name of nodeFs.readdirSync(RULES_CACHE_DIR)) {
+      const at = nodePath.join(RULES_CACHE_DIR, name);
       const old = tried(() => JSON.parse(nodeFs.readFileSync(at, "utf8")) as Kept);
       if (old === undefined || !nodeFs.existsSync(old.file)) tried(() => nodeFs.rmSync(at));
     }

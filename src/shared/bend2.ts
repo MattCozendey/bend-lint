@@ -23,7 +23,7 @@ export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
 
 // bend-lint's cache: downloaded bends, one folder per release, and what each
 // version keeps.
-export const CACHE: string = nodePath.join(
+export const BEND_LINT_CACHE_DIR: string = nodePath.join(
   process.env.XDG_CACHE_HOME ??
     (process.platform === "win32"
       ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
@@ -73,7 +73,10 @@ export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
 // bend2 at a release, kept in <downloadDir>/<tag>/bend2.
 // A download goes to a temporary folder first, so `downloadDir` never holds a
 // partial one.
-export const fetchBend = async (tag: string, downloadDir: string = CACHE): Promise<string> => {
+export const fetchBend = async (
+  tag: string,
+  downloadDir: string = BEND_LINT_CACHE_DIR,
+): Promise<string> => {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
