@@ -3,19 +3,18 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "./testing.ts";
+import { build, BUILDS, lint, run } from "./testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const given = process.env.BEND_DIR !== undefined;
-const PARENTS = given ? build("tests/parents.bend") : "";
-const WRITTEN = given ? build("tests/written.bend") : "";
-const SOME = given ? build("tests/some.bend") : "";
-const EVERY = given ? build("tests/every.bend") : "";
-const ACROSS = given ? build("tests/across.bend") : "";
-const RENAME = given ? build("tests/rename.bend") : "";
+// Built once, before the tests; nothing to build when bend does not run.
+const PARENTS = BUILDS ? build("tests/parents.bend") : "";
+const WRITTEN = BUILDS ? build("tests/written.bend") : "";
+const SOME = BUILDS ? build("tests/some.bend") : "";
+const EVERY = BUILDS ? build("tests/every.bend") : "";
+const ACROSS = BUILDS ? build("tests/across.bend") : "";
+const RENAME = BUILDS ? build("tests/rename.bend") : "";
 
 // A file with sugar the parser expands: a do-block, `A & B`, an operator.
 const SUGARED =
@@ -42,7 +41,7 @@ const found = (program: string, files: Record<string, string>, named: string): s
 
 setDefaultTimeout(120_000);
 
-(given ? describe : describe.skip)("run", () => {
+(BUILDS ? describe : describe.skip)("run", () => {
   test("a rule finds any node of its file by id", () => {
     expect(found(PARENTS, { "main.bend": SUGARED }, "main.bend")).toEqual([
       "1:1 every parent is found",

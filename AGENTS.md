@@ -103,6 +103,7 @@ git diff --check
 | `src/legacy/seam.ts`                 | everything about Bend's internals (see [Internals](#internals)) |
 | `src/legacy/suppress.ts`             | `# bend-lint:` directives                                       |
 | `src/shared/result.ts`               | the `Result` that entry points return                           |
+| `src/shared/bend2.ts`                | finding Bend (see [Finding Bend](#finding-bend))                |
 | `src/legacy/bend/lint.bend`          | what a Bend rule imports                                        |
 | `src/legacy/bend/effects/effects.js` | the effects a Bend rule calls. oxlint skips `effects/` folders  |
 | `src/legacy/samples/`                | `.bend` files to lint by hand                                   |
@@ -657,7 +658,7 @@ still go to stderr. A finding with a fix:
 
 ## Internals
 
-All of this lives in `src/legacy/seam.ts`.
+All of this lives in `src/legacy/seam.ts`, except [Finding Bend](#finding-bend).
 
 bend-lint works in three layers, however Bend is built:
 
@@ -675,6 +676,8 @@ bend-lint works in three layers, however Bend is built:
   Bend knows. Logic there is rewritten when the seam goes.
 
 ### Finding Bend
+
+`src/shared/bend2.ts` finds Bend for both versions. The Bend version takes no `--bend`.
 
 1. `--bend <dir>`, or else `$BEND_DIR`: a checkout or its `bend2` folder.
 2. A downloaded release: the one `bend version` names, or, if Bend is not installed, the pinned one

@@ -3,14 +3,13 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "../../testing.ts";
+import { build, BUILDS, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const PROGRAM =
-  process.env.BEND_DIR === undefined ? "" : build("rules/layout/canon-import-path.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const PROGRAM = BUILDS ? build("rules/layout/canon-import-path.bend") : "";
 
 const LEAF = "import Base\n\ndef one() -> U32:\n  1\n";
 
@@ -34,7 +33,7 @@ const found = (named: string, imports: string): string[] =>
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)("layout/canon-import-path", () => {
+(BUILDS ? describe : describe.skip)("layout/canon-import-path", () => {
   test("shortest paths that start with ./ or ../ pass, and so does Base", () => {
     expect(found("main.bend", "import ./x.bend as X\nimport ./sub/y.bend as Y\n")).toEqual([]);
     expect(found("sub/main.bend", "import ../x.bend as X\nimport ./y.bend as Y\n")).toEqual([]);

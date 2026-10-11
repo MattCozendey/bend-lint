@@ -3,14 +3,14 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "../../testing.ts";
+import { build, BUILDS, lint, run } from "../../testing.ts";
 import type { Found } from "../../testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const PROGRAM = process.env.BEND_DIR === undefined ? "" : build("rules/no-unused/imports.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const PROGRAM = BUILDS ? build("rules/no-unused/imports.bend") : "";
 
 const UTIL = "import Base\n\ndef two() -> U32:\n  2\n\nlaw two_is_two:\n  {two() == 2 : U32}\n";
 
@@ -25,7 +25,7 @@ const found = (main: string): Found[] =>
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)("no-unused/imports", () => {
+(BUILDS ? describe : describe.skip)("no-unused/imports", () => {
   test("an alias that names nothing is reported, at the alias", () => {
     expect(
       found(

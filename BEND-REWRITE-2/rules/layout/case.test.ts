@@ -3,13 +3,13 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "../../testing.ts";
+import { build, BUILDS, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const PROGRAM = process.env.BEND_DIR === undefined ? "" : build("rules/layout/case.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const PROGRAM = BUILDS ? build("rules/layout/case.bend") : "";
 
 const LEAF = "import Base\n\ndef one() -> U32:\n  1\n";
 
@@ -29,7 +29,7 @@ const flagged = (main: string): string[][] =>
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)(() => {
+(BUILDS ? describe : describe.skip)(() => {
   test("names whose case follows their kind pass", () => {
     expect(
       flagged(`import Base

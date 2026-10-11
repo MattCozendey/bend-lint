@@ -13,7 +13,7 @@ import * as util from "node:util";
 import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
-import { ERROR, error, ERROR_METADATA, ok, unwrap } from "../shared/result.ts";
+import { ERROR, error, ERROR_METADATA, message, ok, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import {
   cachedRule,
@@ -25,7 +25,6 @@ import {
   layout,
   line,
   load,
-  message,
   operations,
   path,
   select,

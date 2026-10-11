@@ -3,13 +3,13 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "../../testing.ts";
+import { build, BUILDS, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const PROGRAM = process.env.BEND_DIR === undefined ? "" : build("rules/layout/imports.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const PROGRAM = BUILDS ? build("rules/layout/imports.bend") : "";
 
 const LEAF = "import Base\n\ndef one() -> U32:\n  1\n";
 
@@ -31,7 +31,7 @@ const found = (text: string, named = "main.bend"): string[] =>
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)("layout/imports", () => {
+(BUILDS ? describe : describe.skip)("layout/imports", () => {
   test("Base first, then sorted by path, passes", () => {
     expect(
       found("import Base\nimport ../a.bend as A\nimport ./c.bend as C\n" + MAIN, "sub/main.bend"),

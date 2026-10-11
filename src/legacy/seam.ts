@@ -1,11 +1,10 @@
-// Everything bend-lint knows about bend2's internals: finding (or
-// downloading) bend2, patching it as Bun loads it, and every call into it.
+// Everything bend-lint knows about bend2's internals: patching it as Bun
+// loads it, and every call into it.
 // The docs say what the patch does and how drift stops it. Each text edit
 // must match exactly once; the wrappers pass every argument through, so
 // bend computes what it would without them.
 
 import * as nodeFs from "node:fs";
-import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as url from "node:url";
 
@@ -24,8 +23,8 @@ import type {
 import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
-import pkg from "../../package.json" with { type: "json" };
-import { bend2In } from "../shared/bend2.ts";
+import { CACHE, findBend2 } from "../shared/bend2.ts";
+import type { FindOptions } from "../shared/bend2.ts";
 import type {
   Declaration,
   Diag,
@@ -49,17 +48,6 @@ import type {
 // tail appended to the file, and names it must declare once and export (the
 // tail exports those it does not).
 type Patch = { edits: Array<[string, string]>; needs?: string[]; tail: string; exports: string[] };
-
-export type Get = (url: string) => Promise<Response>;
-
-// How bendDir reaches the network, runs `bend`, and where it caches;
-// tests give their own. run gives a command's stdout, or undefined if it
-// fails.
-export type FindOptions = {
-  get?: Get;
-  run?: (cmd: string[]) => string | undefined;
-  cache?: string;
-};
 
 // comp.ts as the patch exports it.
 type Comp = typeof CompModule & { RUNTIME_MAIN: string; js_sat(k: Name): string };
@@ -190,24 +178,9 @@ const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
 
-const RAW = "https://raw.githubusercontent.com/bendlang/bend/";
-const RELEASE = /^v\d+\.\d+\.\d+$/;
-const EFF = /^effs\/[\w.-]+$/;
 const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
 
-// The newest bend release this repo's checks passed with; scripts/sync-bend.ts
-// moves it.
-export const PIN: string = pkg.bendRelease;
-
-// Downloaded bends, one folder per release, and compiled Bend rules.
-const CACHE = nodePath.join(
-  process.env.XDG_CACHE_HOME ??
-    (process.platform === "win32"
-      ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
-      : nodePath.join(os.homedir(), ".cache")),
-  "bend-lint",
-);
-
+// Compiled Bend rules.
 const KEPT = nodePath.join(CACHE, "rules");
 
 // Each loaded bend2's compiler hash, made once.
@@ -524,103 +497,9 @@ export const patch = (file: string, src: string): string => {
 export const drift = (message: string): Error =>
   Object.assign(new Error(message), { name: "DriftError", [DRIFT]: true });
 
-export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
-// A response's text, or a rejection naming its status.
-const text = (res: Response, what: string): Promise<string> =>
-  res.ok ? res.text() : Promise.reject(new Error(`GitHub answered ${res.status}${what}`));
-
-// fetch, given up after 30 seconds.
-const download = (url: string): Promise<Response> =>
-  fetch(url, { signal: AbortSignal.timeout(30_000) });
-
-// A command's stdout, or undefined if it does not run or fails.
-const spawn = (cmd: string[]): string | undefined => {
-  try {
-    const r = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "ignore" });
-    return r.exitCode === 0 ? r.stdout.toString() : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-// The installed bend's release ("v2.0.36"), or undefined if `bend version`
-// does not run.
-export const installedTag = (
-  run: (cmd: string[]) => string | undefined = spawn,
-): string | undefined => {
-  const version = run(["bend", "version"])?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
-  return version === undefined ? undefined : "v" + version;
-};
-
-// bend2 at a release (the PATCHED files, safe.ts, base.bend and the effs/
-// files Base imports), kept in <cache>/<tag>/bend2.
-// A download goes to a temporary folder first, so the cache never holds a
-// partial one.
-export const fetchBend = async (
-  tag: string,
-  cache: string = CACHE,
-  get: Get = download,
-): Promise<string> => {
-  if (!RELEASE.test(tag)) {
-    throw new Error("not a bend release: " + tag);
-  }
-  const dir = nodePath.join(cache, tag, "bend2");
-  const whole = (): boolean =>
-    [...PATCHED, "safe.ts", "base.bend"].every((f) => nodeFs.existsSync(nodePath.join(dir, f)));
-  if (whole()) {
-    return dir;
-  }
-  const fetched = (file: string): Promise<[string, string]> =>
-    get(`${RAW}${tag}/bend2/${file}`)
-      .then((res) => text(res, ` for bend2/${file}`))
-      .then((body) => [file, body]);
-  const base = await fetched("base.bend");
-  const effs = [
-    ...new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1])),
-  ];
-  const odd = effs.find((f) => !EFF.test(f));
-  if (odd !== undefined) {
-    throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
-  }
-  const files = [base, ...(await Promise.all([...PATCHED, "safe.ts", ...effs].map(fetched)))];
-  nodeFs.mkdirSync(nodePath.join(cache, tag), { recursive: true });
-  const part = nodeFs.mkdtempSync(nodePath.join(cache, tag, ".part-"));
-  files.forEach(([file, body]) => {
-    nodeFs.mkdirSync(nodePath.dirname(nodePath.join(part, file)), { recursive: true });
-    nodeFs.writeFileSync(nodePath.join(part, file), body);
-  });
-  try {
-    nodeFs.rmSync(dir, { recursive: true, force: true });
-    nodeFs.renameSync(part, dir);
-  } catch (e) {
-    nodeFs.rmSync(part, { recursive: true, force: true });
-    if (!whole()) {
-      throw e;
-    }
-  }
-  return dir;
-};
-
-// The bend2 folder to load, found in the order the docs give.
-export const bendDir = async (
-  given: string | undefined,
-  { get = download, run = spawn, cache = CACHE }: FindOptions = {},
-): Promise<string> => {
-  const chosen = given ?? process.env.BEND_DIR;
-  if (chosen !== undefined) {
-    return fs.realpathSync(bend2In(chosen, GIVE));
-  }
-  const tag = installedTag(run) ?? PIN;
-  const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
-  const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
-    throw new Error(`could not download bend ${tag} (${message(e)}); ${GIVE}`);
-  });
-  if (fresh) {
-    console.error("bend-lint: downloaded bend " + tag + " to " + got);
-  }
-  return fs.realpathSync(got);
-};
+// The bend2 folder to load: --bend's, else BEND_DIR's, else a download.
+export const bendDir = async (given: string | undefined, options?: FindOptions): Promise<string> =>
+  slash(await findBend2(given ?? process.env.BEND_DIR, GIVE, options));
 
 // Every sub-term, parents first, with an explicit stack: linear in the
 // size of the term, at any depth.

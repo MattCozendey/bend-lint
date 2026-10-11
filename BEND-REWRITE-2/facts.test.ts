@@ -3,17 +3,17 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "./testing.ts";
+import { build, BUILDS, lint, run } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const TYPES = process.env.BEND_DIR === undefined ? "" : build("tests/types.bend");
-const BUDGET = process.env.BEND_DIR === undefined ? "" : build("tests/budget.bend");
-const BINDERS = process.env.BEND_DIR === undefined ? "" : build("tests/binders.bend");
-const TERMS = process.env.BEND_DIR === undefined ? "" : build("tests/terms.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const TYPES = BUILDS ? build("tests/types.bend") : "";
+const BUDGET = BUILDS ? build("tests/budget.bend") : "";
+const BINDERS = BUILDS ? build("tests/binders.bend") : "";
+const TERMS = BUILDS ? build("tests/terms.bend") : "";
 
 const UTIL = "import Base\n\ntype T is Data:\n  A{}\n  B{}\n";
 
@@ -34,7 +34,7 @@ const found = (program: string, main: string): Array<Pick<Found, "at" | "message
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)("facts", () => {
+(BUILDS ? describe : describe.skip)("facts", () => {
   test("a later run sees each file as it is now, the checker's types included", () => {
     const add = (t: string): string =>
       `import Base\n\ndef add(a: ${t}, b: ${t}) -> ${t}:\n  (a + b : ${t})\n`;

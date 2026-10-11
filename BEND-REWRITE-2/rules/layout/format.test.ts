@@ -3,13 +3,13 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint, run } from "../../testing.ts";
+import { build, BUILDS, lint, run } from "../../testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when Bend is not given.
-const PROGRAM = process.env.BEND_DIR === undefined ? "" : build("rules/layout/format.bend");
+// Built once, before the tests; nothing to build when bend does not run.
+const PROGRAM = BUILDS ? build("rules/layout/format.bend") : "";
 
 const MESSAGE = "Apply canonical formatting.";
 
@@ -50,7 +50,7 @@ const refused = (options: Record<string, unknown>): string => {
 
 setDefaultTimeout(120_000);
 
-(process.env.BEND_DIR === undefined ? describe.skip : describe)("layout/format", () => {
+(BUILDS ? describe : describe.skip)("layout/format", () => {
   test("a formatted file passes; spacing, indentation, gaps, CRLF and the final newline are reported", () => {
     expect(
       found(

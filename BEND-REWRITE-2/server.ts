@@ -22,7 +22,6 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import * as nodeFs from "node:fs";
 import * as net from "node:net";
-import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as readline from "node:readline";
 import * as url from "node:url";
@@ -30,7 +29,8 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { bend2In } from "../src/shared/bend2.ts";
+import { CACHE, findBend2 } from "../src/shared/bend2.ts";
+import { message } from "../src/shared/result.ts";
 
 // Types
 // =====
@@ -121,14 +121,7 @@ const GIVE = "set BEND_DIR to a bend checkout";
 
 const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n" };
 
-const CACHE = nodePath.join(
-  process.env.XDG_CACHE_HOME ??
-    (process.platform === "win32"
-      ? (process.env.LOCALAPPDATA ?? nodePath.join(os.homedir(), "AppData", "Local"))
-      : nodePath.join(os.homedir(), ".cache")),
-  "bend-lint",
-  "server",
-);
+const KEPT = nodePath.join(CACHE, "server");
 
 // The edits that make bend.ts report what it parses to PROBES.
 const EDITS: Edit[] = [
@@ -246,8 +239,6 @@ const STALE = 7 * 24 * 60 * 60 * 1000;
 // Functions
 // =========
 
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 const field = (text: string): string => text.replace(/[\\\t\n]/g, (c) => ESCAPES[c]);
 
 const unfield = (text: string): string =>
@@ -257,15 +248,6 @@ const record = (fields: string[]): string => fields.map(field).join("\t") + "\n"
 
 const isErr = (e: unknown): e is Err =>
   typeof e === "object" && e !== null && (e as { $?: unknown }).$ === "Err";
-
-// The bend2 folder that BEND_DIR names.
-const bendDir = (): string => {
-  const chosen = process.env.BEND_DIR;
-  if (chosen === undefined) {
-    throw new Error("no BEND_DIR; " + GIVE);
-  }
-  return bend2In(chosen, GIVE);
-};
 
 // A fresh book that holds Base, as main.ts's book_seed makes it.
 const seeded = (Bend: Bend, base: Book): Book => ({
@@ -306,7 +288,7 @@ const copied = (dir: string): string => {
     nodeFs.readFileSync(nodePath.join(dir, "bend.ts"), "utf8"),
   );
   const file = nodePath.join(
-    CACHE,
+    KEPT,
     createHash("sha256").update(text).digest("hex").slice(0, 16),
     "bend.ts",
   );
@@ -321,8 +303,8 @@ const digest = (text: string): string => createHash("sha256").update(text).diges
 
 // The checker. The patched bend.ts is written now, so a drift stops the run
 // at once; Bend loads, and checks Base, once, when first needed.
-const load = (): Checker => {
-  const dir = bendDir();
+const load = async (): Promise<Checker> => {
+  const dir = await findBend2(process.env.BEND_DIR, GIVE);
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {
@@ -1300,7 +1282,7 @@ const numbered = (answer: string, number: number): string =>
 // Where the cache keeps the check of `path` in mode `facts`.
 const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
-    CACHE,
+    KEPT,
     "checks",
     digest([version, facts ? "facts" : "syntax", path].join("\n")) + ".json",
   );
@@ -1485,16 +1467,10 @@ if (program === undefined) {
   process.exit(2);
 }
 
-const started = (): Checker => {
-  try {
-    return load();
-  } catch (e) {
-    console.error("bend-lint: " + message(e));
-    return process.exit(2);
-  }
-};
-
-const checker = started();
+const checker = await load().catch((e: unknown) => {
+  console.error("bend-lint: " + message(e));
+  return process.exit(2);
+});
 
 const server = net.createServer((socket) => void serve(checker, socket));
 server.listen(0, "127.0.0.1");

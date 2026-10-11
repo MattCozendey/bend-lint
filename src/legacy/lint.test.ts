@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
+import { fetchBend, installedTag, PIN } from "../shared/bend2.ts";
 import { ERROR, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import * as api from "./lint.ts";
@@ -27,12 +28,9 @@ import type {
 import {
   bendDir,
   DRIFT,
-  fetchBend,
   guardMain,
-  installedTag,
   mapper,
   patch,
-  PIN,
   relative,
   resolve,
   seeCheck,
