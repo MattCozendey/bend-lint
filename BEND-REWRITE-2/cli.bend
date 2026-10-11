@@ -897,18 +897,23 @@ def Object.fix(safe: Bool, fix: Lint.Fix, edits: List<&2, Fixes.Edit>, +places: 
       }
 
 # The fixes the linter can make, as JSON, onto `out`: `edits` says each one's edits.
-def Object.fixes(fixes: List<&2, Lint.Fix>, edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>, +places: Map<&2, Shared.Position>, out: List<&2, Json.Json>) ->
-  List<&2, Json.Json>:
+def Object.fixes(
+  fixes: List<&2, Lint.Fix>,
+  edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>,
+  +places: Map<&2, Shared.Position>,
+  +comments: Map<&2, Unit>,
+  out: List<&2, Json.Json>
+) -> List<&2, Json.Json>:
   match fixes edits:
     case Con{+fix, rest} Con{Some{es}, more}:
-      Object.fixes(rest, more, places, Object.fix(Fixes.Fix.safe(fix), fix, es, places) <> out)
+      Object.fixes(rest, more, places, comments, Object.fix(Fixes.Fix.safe(fix, comments), fix, es, places) <> out)
     case Con{fix, rest} Con{None{}, more}:
-      Object.fixes(rest, more, places, out)
+      Object.fixes(rest, more, places, comments, out)
     case _ _:
       List.reverse(&2, Json.Json, out)
 
-# A finding as JSON: what the TS version's --json shows, but `def`.
-def Object.finding(resolved: Resolved, +places: Map<&2, Shared.Position>) -> Json.Json:
+# A finding as JSON: what the TS version's --json shows, but `def`. `comments` says where a safe fix may write.
+def Object.finding(resolved: Resolved, +places: Map<&2, Shared.Position>, comments: Map<&2, Unit>) -> Json.Json:
   match resolved:
     case Resolved{Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}, edits}:
       Json.JObject{
@@ -918,25 +923,31 @@ def Object.finding(resolved: Resolved, +places: Map<&2, Shared.Position>) -> Jso
           Json.JField{"message", Json.JString{message}},
           Json.JField{"path", Json.JString{path}},
           Json.JField{"range", Object.range(places, path, beg, end)},
-          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, [])}}
+          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, comments, [])}}
         ]
       }
 
-def Shown.one(format: Format, resolved: Resolved, +places: Map<&2, Shared.Position>) -> Shown:
+def Shown.one(format: Format, resolved: Resolved, +places: Map<&2, Shared.Position>, comments: Map<&2, Unit>) -> Shown:
   match format resolved:
     case TextFormat{} Resolved{found, edits}:
       Line{Found.line(found, places)}
     case JsonFormat{} _:
-      Object{Object.finding(resolved, places)}
+      Object{Object.finding(resolved, places, comments)}
 
-# The findings as the run shows them in `format`, onto `out` (last first): `places` holds where they are.
-def Shown.of(+format: Format, resolved: List<&2, Resolved>, +places: Map<&2, Shared.Position>, out: List<&2, Shown>) ->
-  List<&2, Shown>:
+# The findings as the run shows them in `format`, onto `out` (last first): `places` holds where they are, and
+# `comments` where a safe fix may write.
+def Shown.of(
+  +format: Format,
+  resolved: List<&2, Resolved>,
+  +places: Map<&2, Shared.Position>,
+  +comments: Map<&2, Unit>,
+  out: List<&2, Shown>
+) -> List<&2, Shown>:
   match resolved:
     case Nil{}:
       out
     case Con{r, rest}:
-      Shown.of(format, rest, places, Shown.one(format, r, places) <> out)
+      Shown.of(format, rest, places, comments, Shown.one(format, r, places, comments) <> out)
 
 def Shown.text(shown: Shown) -> String:
   match shown:
@@ -960,6 +971,14 @@ def Shown.edits(format: Format, founds: List<&2, Lint.Found>, declarations: List
       []
     case JsonFormat{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
+
+# Where a safe fix of `founds` may write, if `format` shows fixes.
+def Shown.safety(format: Format, founds: List<&2, Lint.Found>, sources: List<&2, Lint.Source>) -> Map<&2, Unit>:
+  match format:
+    case TextFormat{}:
+      Map.new(&2, Unit)
+    case JsonFormat{}:
+      Fixes.safety(Found.fixes(founds, []), sources)
 
 # The declarations of the program's files (`sources`), if the run needs them: to show fixes, or to make them.
 def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
@@ -1096,7 +1115,17 @@ def outcome(report: Report, +format: Format, +fixing: Fixes.Fixing, program: Lin
       +declarations = Declarations.of(Declarations.needed(format, fixing), sources)
       +resolved = Resolved.of(all, Shown.edits(format, all, declarations, sources), [])
       +n = Shared.length(&2, Lint.Found, founds)
-      +shown = List.reverse(&2, Shown, Shown.of(format, resolved, Shared.places(Fixes.texts(sources, extra), Shown.places(format, resolved, [])), []))
+      +shown = List.reverse(
+        &2,
+        Shown,
+        Shown.of(
+          format,
+          resolved,
+          Shared.places(Fixes.texts(sources, extra), Shown.places(format, resolved, [])),
+          Shown.safety(format, all, sources),
+          []
+        )
+      )
       do IO<Outcome>:
         say(Shown.printed(format, List.take(&2, Shown, shown, n)))
         fixed : U32 <- Fixes.apply(fixing, founds, declarations, sources)

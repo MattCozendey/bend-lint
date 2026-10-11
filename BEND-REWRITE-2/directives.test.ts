@@ -139,15 +139,22 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("--fix-dangerously sorts a stack of directives in place", () => {
+  test("--fix sorts a stack of directives in place: it only rewrites comments, so it is safe", () => {
     const stack = (first: string, second: string): string =>
-      ["import Base", first, second, "import ./util.bend as V", TAIL].join("\n");
+      [
+        "import Base",
+        first,
+        second,
+        "import ./util.bend as V",
+        "import ./util.bend as W",
+        TAIL,
+      ].join("\n");
     const b = "# bend-lint: expect-next no-unused/imports@warning -- b";
     const a = "# bend-lint: disable-next no-unused/imports -- a";
     const ran = run(PROGRAM, { "main.bend": stack(b, a), "util.bend": UTIL }, "main.bend", [
-      "--fix-dangerously",
+      "--fix",
     ]);
-    expect(ran.files["main.bend"]).toBe(stack(a, b));
+    expect([ran.files["main.bend"], ran.code]).toEqual([stack(a, b), 1]);
   });
 
   test("begin and end pair; an end that closes nothing, an open begin, and an unsorted stack are reported", () => {

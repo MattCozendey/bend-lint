@@ -12,8 +12,8 @@
 #   first; the file's declarations with their uses, built once; and, if it needs them, the checker's facts on the
 #   source's terms, each tied to its node.
 # - Findings come first. A fix is a list of typed operations that the rule requests, in any of the program's own files;
-#   the linter plans them and decides their safety. Until Bend's checker is Bend, every fix is Dangerous
-#   (`--fix-dangerously`).
+#   the linter plans them and decides their safety. Until Bend's checker is Bend, it proves only a fix that writes
+#   comments over comments safe (`--fix`); every other fix is dangerous (`--fix-dangerously`).
 #
 # Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (the server), program.bend (the
 # program a check gives, and its declarations), directives.bend (bend-lint: comments), config.bend (bend-lint.json),
@@ -176,8 +176,7 @@ type Operation is Data:
   RenameUses{node: U32, to: String}
 
 # A way to fix a finding: what it does, and its operations, in any of the program's own files (not Base, nor a hub
-# package). The linter decides whether a fix is safe; until Bend's checker is Bend it can prove none, so every fix is
-# dangerous (`--fix-dangerously`).
+# package). The linter decides whether a fix is safe (`--fix`): see the design notes above.
 type Fix is Data:
   Fix{title: String, operations: List<&2, Operation>}
 
