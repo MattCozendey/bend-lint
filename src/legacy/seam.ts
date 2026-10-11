@@ -25,6 +25,7 @@ import type * as BendModule from "bend2/bend.ts";
 import type * as CompModule from "bend2/comp.ts";
 
 import pkg from "../../package.json" with { type: "json" };
+import { bend2In } from "../shared/bend2.ts";
 import type {
   Declaration,
   Diag,
@@ -608,14 +609,7 @@ export const bendDir = async (
 ): Promise<string> => {
   const chosen = given ?? process.env.BEND_DIR;
   if (chosen !== undefined) {
-    const dir = path.resolve(chosen);
-    const found = [path.join(dir, "bend2"), dir].find((d) =>
-      nodeFs.existsSync(path.join(d, "bend.ts")),
-    );
-    if (found === undefined) {
-      throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${GIVE}`);
-    }
-    return fs.realpathSync(found);
+    return fs.realpathSync(bend2In(chosen, GIVE));
   }
   const tag = installedTag(run) ?? PIN;
   const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));

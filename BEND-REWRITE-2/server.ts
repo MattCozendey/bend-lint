@@ -30,6 +30,8 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
+import { bend2In } from "../src/shared/bend2.ts";
+
 // Types
 // =====
 
@@ -256,20 +258,13 @@ const record = (fields: string[]): string => fields.map(field).join("\t") + "\n"
 const isErr = (e: unknown): e is Err =>
   typeof e === "object" && e !== null && (e as { $?: unknown }).$ === "Err";
 
-// The bend2 folder: BEND_DIR, a checkout or its bend2 folder.
+// The bend2 folder that BEND_DIR names.
 const bendDir = (): string => {
   const chosen = process.env.BEND_DIR;
   if (chosen === undefined) {
     throw new Error("no BEND_DIR; " + GIVE);
   }
-  const dir = nodePath.resolve(chosen);
-  const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
-    nodeFs.existsSync(nodePath.join(d, "bend.ts")),
-  );
-  if (found === undefined) {
-    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${GIVE}`);
-  }
-  return found;
+  return bend2In(chosen, GIVE);
 };
 
 // A fresh book that holds Base, as main.ts's book_seed makes it.
