@@ -317,7 +317,7 @@ const digest = (text: string): string => createHash("sha256").update(text).diges
 // The checker. The patched bend.ts is written now, so a drift stops the run
 // at once; Bend loads, and checks Base, once, when first needed.
 const load = async (): Promise<Checker> => {
-  const dir = await findBend2(process.env.BEND_DIR, GIVE);
+  const dir = await findBend2(GIVE);
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {

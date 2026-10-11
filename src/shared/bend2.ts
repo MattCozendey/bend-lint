@@ -15,16 +15,9 @@ import { getErrorMessageFromUnknown } from "./result.ts";
 // Types
 // =====
 
-export type Get = (url: string) => Promise<Response>;
-
-// How findBend2 reaches the network, runs `bend`, and where it caches;
-// tests give their own. run gives a command's stdout, or undefined if it
-// fails.
-export type FindOptions = {
-  get?: Get;
-  run?: (cmd: string[]) => string | undefined;
-  cache?: string;
-};
+// The bend2 folder or checkout to use, else BEND_DIR. Tests replace
+// `bend version` and the cache.
+export type FindOptions = { bend?: string; run?: () => string | undefined; cache?: string };
 
 // Constants
 // =========
@@ -53,53 +46,25 @@ export const CACHE: string = nodePath.join(
 // Functions
 // =========
 
-// A response's text, or a rejection naming its status.
-const text = (res: Response, what: string): Promise<string> =>
-  res.ok ? res.text() : Promise.reject(new Error(`GitHub answered ${res.status}${what}`));
-
-// fetch, given up after 30 seconds.
-const download = (url: string): Promise<Response> =>
-  fetch(url, { signal: AbortSignal.timeout(30_000) });
-
-// A command's stdout, or undefined if it does not run or fails.
-const spawn = (cmd: string[]): string | undefined => {
-  const r = spawnSync(cmd[0], cmd.slice(1), {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  return r.error === undefined && r.status === 0 ? r.stdout : undefined;
-};
-
-// The bend2 folder in `chosen`, a checkout or its bend2 folder: the first
-// that holds bend.ts. A throw ends with `give`, which tells how to name one.
-const bend2In = (chosen: string, give: string): string => {
-  const dir = nodePath.resolve(chosen);
-  const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
-    nodeFs.existsSync(nodePath.join(d, "bend.ts")),
-  );
-  if (found === undefined) {
-    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${give}`);
-  }
-  return found;
-};
-
 // The installed bend's release ("v2.0.36"), or undefined if `bend version`
-// does not run.
+// fails. `run` gives its stdout.
 export const installedTag = (
-  run: (cmd: string[]) => string | undefined = spawn,
+  run = (): string | undefined => {
+    const r = spawnSync("bend", ["version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return r.status === 0 ? r.stdout : undefined;
+  },
 ): string | undefined => {
-  const version = run(["bend", "version"])?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
+  const version = run()?.match(/^bend (\d+\.\d+\.\d+)\b/)?.[1];
   return version === undefined ? undefined : "v" + version;
 };
 
 // bend2 at a release, kept in <cache>/<tag>/bend2.
 // A download goes to a temporary folder first, so the cache never holds a
 // partial one.
-export const fetchBend = async (
-  tag: string,
-  cache: string = CACHE,
-  get: Get = download,
-): Promise<string> => {
+export const fetchBend = async (tag: string, cache: string = CACHE): Promise<string> => {
   if (!RELEASE.test(tag)) {
     throw new Error("not a bend release: " + tag);
   }
@@ -109,15 +74,16 @@ export const fetchBend = async (
   if (whole()) {
     return dir;
   }
-  const fetched = (file: string): Promise<[string, string]> =>
-    get(`${RAW}${tag}/bend2/${file}`)
-      .then((res) => text(res, ` for bend2/${file}`))
-      .then((body) => [file, body]);
+  const fetched = async (file: string): Promise<[string, string]> => {
+    const res = await fetch(`${RAW}${tag}/bend2/${file}`, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) {
+      throw new Error(`GitHub answered ${res.status} for bend2/${file}`);
+    }
+    return [file, await res.text()];
+  };
   const base = await fetched("base.bend");
-  const effs = [
-    ...new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1])),
-  ];
-  const odd = effs.find((f) => !EFF.test(f));
+  const effs = new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1]));
+  const odd = [...effs].find((f) => !EFF.test(f));
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
@@ -137,26 +103,30 @@ export const fetchBend = async (
       throw e;
     }
   }
+  console.error("bend-lint: downloaded bend " + tag + " to " + dir);
   return dir;
 };
 
-// The real path of the bend2 folder to load: `chosen`, else a download. A
-// throw ends with `give`, which tells how to name one.
+// The real path of the bend2 folder to load: in `bend`, a checkout or its
+// bend2 folder, else a download. A throw ends with `give`, which tells how
+// to name one.
 export const findBend2 = async (
-  chosen: string | undefined,
   give: string,
-  { get = download, run = spawn, cache = CACHE }: FindOptions = {},
+  { bend = process.env.BEND_DIR, run, cache }: FindOptions = {},
 ): Promise<string> => {
-  if (chosen !== undefined) {
-    return nodeFs.realpathSync(bend2In(chosen, give));
+  if (bend === undefined) {
+    const tag = installedTag(run) ?? PIN;
+    const got = await fetchBend(tag, cache).catch((e: unknown) => {
+      throw new Error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`);
+    });
+    return nodeFs.realpathSync(got);
   }
-  const tag = installedTag(run) ?? PIN;
-  const fresh = !nodeFs.existsSync(nodePath.join(cache, tag, "bend2"));
-  const got = await fetchBend(tag, cache, get).catch((e: unknown) => {
-    throw new Error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)}); ${give}`);
-  });
-  if (fresh) {
-    console.error("bend-lint: downloaded bend " + tag + " to " + got);
+  const dir = nodePath.resolve(bend);
+  const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
+    nodeFs.existsSync(nodePath.join(d, "bend.ts")),
+  );
+  if (found === undefined) {
+    throw new Error(`no bend2 at ${dir} (it needs bend.ts); ${give}`);
   }
-  return nodeFs.realpathSync(got);
+  return nodeFs.realpathSync(found);
 };

@@ -474,8 +474,8 @@ export const drift = (message: string): Error =>
   Object.assign(new Error(message), { name: "DriftError", [DRIFT]: true });
 
 // The bend2 folder to load: --bend's, else BEND_DIR's, else a download.
-export const bendDir = async (given: string | undefined, options?: FindOptions): Promise<string> =>
-  slash(await findBend2(given ?? process.env.BEND_DIR, GIVE, options));
+export const bendDir = async (given?: string, options?: FindOptions): Promise<string> =>
+  slash(await findBend2(GIVE, { ...options, bend: given }));
 
 // Every sub-term, parents first, with an explicit stack: linear in the
 // size of the term, at any depth.

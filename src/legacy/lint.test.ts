@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -708,11 +708,22 @@ async function seen(file: string, want: LintRule["facts"]): Promise<Seen[]> {
   return got;
 }
 
-// A GitHub that serves this checkout's bend2 at any release; it records
-// the URLs it is asked for.
-function github(): { get: (url: string) => Promise<Response>; asked: string[] } {
+// Makes fetch answer each URL with `respond`, until mock.restore().
+function fakeFetch(respond: (url: string) => Promise<Response>) {
+  return spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(
+      (input: string | URL | Request) =>
+        respond(input instanceof Request ? input.url : input.toString()),
+      { preconnect: fetch.preconnect },
+    ),
+  );
+}
+
+// Makes fetch a GitHub that serves this checkout's bend2 at any release;
+// gives the URLs it is asked for.
+function github(): string[] {
   const asked: string[] = [];
-  const get = async (url: string): Promise<Response> => {
+  fakeFetch(async (url) => {
     asked.push(url);
     const file = url.match(
       /^https:\/\/raw\.githubusercontent\.com\/bendlang\/bend\/v[\d.]+\/bend2\/(.+)$/,
@@ -720,8 +731,8 @@ function github(): { get: (url: string) => Promise<Response>; asked: string[] } 
     return file !== undefined && fs.existsSync(path.join(BEND2, file))
       ? new Response(fs.readFileSync(path.join(BEND2, file), "utf8"))
       : new Response("", { status: 404 });
-  };
-  return { get, asked };
+  });
+  return asked;
 }
 
 function run(...args: string[]) {
@@ -876,7 +887,9 @@ describe("patch", () => {
 
 describe("downloading bend", () => {
   const cache = () => fs.mkdtempSync(path.join(DIR, "cache-"));
-  const offline = () => Promise.reject(new Error("offline"));
+  const offline = () => fakeFetch(() => Promise.reject(new Error("offline")));
+
+  afterEach(() => mock.restore());
 
   test("the installed bend's version is read from bend version", () => {
     expect([
@@ -888,9 +901,9 @@ describe("downloading bend", () => {
   });
 
   test("a release downloads once and whole, and bend-lint runs on it", async () => {
-    const gh = github();
+    const asked = github();
     const at = cache();
-    const dir = await fetchBend(PIN, at, gh.get);
+    const dir = await fetchBend(PIN, at);
     const effs = fs.readdirSync(path.join(BEND2, "effs"));
     expect(fs.readFileSync(path.join(dir, "bend.ts"), "utf8")).toBe(
       fs.readFileSync(path.join(BEND2, "bend.ts"), "utf8"),
@@ -899,12 +912,12 @@ describe("downloading bend", () => {
       fs.readFileSync(path.join(BEND2, "main.ts"), "utf8"),
     );
     expect(fs.readdirSync(path.join(dir, "effs")).sort()).toEqual(effs.sort());
-    expect(gh.asked.length).toBe(5 + effs.length);
-    expect(await fetchBend(PIN, at, gh.get)).toBe(dir);
-    expect(gh.asked.length).toBe(5 + effs.length);
+    expect(asked.length).toBe(5 + effs.length);
+    expect(await fetchBend(PIN, at)).toBe(dir);
+    expect(asked.length).toBe(5 + effs.length);
     fs.rmSync(path.join(dir, "main.ts")); // a cache from before main.ts was patched
-    expect(await fetchBend(PIN, at, gh.get)).toBe(dir);
-    expect(gh.asked.length).toBe(2 * (5 + effs.length));
+    expect(await fetchBend(PIN, at)).toBe(dir);
+    expect(asked.length).toBe(2 * (5 + effs.length));
     expect(fs.existsSync(path.join(dir, "main.ts"))).toBe(true);
     expect(fs.readdirSync(path.join(at, PIN))).toEqual(["bend2"]);
     const out = spawnSync(process.execPath, [CLI, fixture("downloaded.bend", USERLAND)], {
@@ -912,29 +925,26 @@ describe("downloading bend", () => {
       env: { ...process.env, BEND_DIR: dir },
     });
     expect([out.status, out.stderr]).toEqual([0, ""]);
-    expect((await rejection(fetchBend("../x", at, gh.get))).message).toMatch(/not a bend release/);
+    expect((await rejection(fetchBend("../x", at))).message).toMatch(/not a bend release/);
   });
 
   test("bendDir downloads only when no bend is given", async () => {
     const saved = process.env.BEND_DIR;
     delete process.env.BEND_DIR; // a given bend would win over all below
     try {
-      const gh = github();
+      github();
       const at = cache();
-      const away = { get: gh.get, cache: at };
       const got = (tag: string) =>
         fs.realpathSync(path.join(at, tag, "bend2")).replaceAll("\\", "/");
-      expect(await bendDir(undefined, { ...away, run: () => "bend 1.2.3\n" })).toBe(got("v1.2.3"));
-      expect(await bendDir(undefined, { ...away, run: () => undefined })).toBe(got(PIN));
-      expect(await bendDir(undefined, { get: offline, cache: at, run: () => undefined })).toBe(
-        got(PIN),
+      expect(await bendDir(undefined, { cache: at, run: () => "bend 1.2.3\n" })).toBe(
+        got("v1.2.3"),
       );
+      expect(await bendDir(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
+      mock.restore();
+      offline();
+      expect(await bendDir(undefined, { cache: at, run: () => undefined })).toBe(got(PIN));
       expect(
-        (
-          await rejection(
-            bendDir(undefined, { get: offline, cache: at, run: () => "bend 1.2.4\n" }),
-          )
-        ).message,
+        (await rejection(bendDir(undefined, { cache: at, run: () => "bend 1.2.4\n" }))).message,
       ).toMatch(/could not download bend v1\.2\.4 \(offline\)/);
     } finally {
       if (saved !== undefined) {

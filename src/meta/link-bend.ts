@@ -17,7 +17,7 @@ const LINK = path.resolve(import.meta.dir, "..", "..", ".bend2");
 // Side effects
 // ============
 
-const dir = await bendDir(undefined);
+const dir = await bendDir();
 const now = fs.lstatSync(LINK, { throwIfNoEntry: false });
 if (now !== undefined && !now.isSymbolicLink()) {
   throw new Error(LINK + " is not a link; move it away");
