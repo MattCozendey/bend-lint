@@ -1,3 +1,3 @@
 import { noTypeSynonyms } from "./no-type-synonyms";
 
-export default { meta: { name: "custom-oxlint-plugins" }, rules: noTypeSynonyms };
+export default { meta: { name: "custom-oxlint-plugins" }, rules: { ...noTypeSynonyms } };
