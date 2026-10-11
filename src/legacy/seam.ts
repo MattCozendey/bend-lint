@@ -25,7 +25,7 @@ import type * as CompModule from "bend2/comp.ts";
 
 import { BEND_LINT_CACHE_DIR, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import * as Paths from "../shared/paths.ts";
-import { path, resolve, slash } from "../shared/paths.ts";
+import { resolve, slash } from "../shared/paths.ts";
 import { mapError, unwrap } from "../shared/result.ts";
 import { digest } from "../shared/utils.ts";
 import type {
@@ -1707,18 +1707,15 @@ const selfCheck = async (m: Loaded): Promise<void> => {
 // Finds bend2, patches its PATCHED files as Bun loads them, imports them,
 // and checks them (guardMain, selfCheck).
 export const load = async (given: string | undefined): Promise<Loaded> => {
-  const dir = path.resolve(
-    url.fileURLToPath(
-      unwrap(
-        mapError(
-          await tryGetBend2SourceUrl({ bendDir: given }),
-          (e) => e + ", or pass --bend <dir>",
-        ),
-      ),
-    ),
+  const dirUrl = unwrap(
+    mapError(await tryGetBend2SourceUrl({ bendDir: given }), (e) => e + ", or pass --bend <dir>"),
   );
+  const dir = slash(url.fileURLToPath(dirUrl));
   const patched = new Map(
-    PATCHED.map((f) => [path.join(dir, f), patch(f, fs.readFileSync(path.join(dir, f), "utf8"))]),
+    PATCHED.map((f): [string, string] => {
+      const file = new URL(f, dirUrl);
+      return [file.href, patch(f, nodeFs.readFileSync(file, "utf8"))];
+    }),
   );
   const exact = dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("/", "[\\\\/]");
   const names = PATCHED.map((f) => f.replace(/\.ts$/, "")).join("|");
@@ -1730,7 +1727,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
     name: "bend-lint",
     setup: (build) => {
       build.onLoad({ filter }, (args) => {
-        const contents = patched.get(fs.realpathSync(args.path));
+        const contents = patched.get(url.pathToFileURL(nodeFs.realpathSync(args.path)).href);
         if (contents === undefined) {
           throw drift(`bend-lint matched ${args.path} but did not patch it`);
         }
@@ -1738,9 +1735,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
       });
     },
   });
-  const modules = await Promise.all(
-    PATCHED.map((f) => import(url.pathToFileURL(path.join(dir, f)).href)),
-  );
+  const modules = await Promise.all(PATCHED.map((f) => import(new URL(f, dirUrl).href)));
   if (modules.some((module) => module[MARK] !== 1)) {
     throw drift("bend2 was loaded before bend-lint could patch it; call createLinter first");
   }
