@@ -398,6 +398,30 @@ def Check.jobs(
         Shared.onto(&1, Job, Rule.jobs(~rules, settings, AtProgram{Program.Whole.of(p), path, check}), out)
       )
 
+def Rule.whole(rule: Lint.Rule) -> Bool:
+  match rule:
+    case Lint.ProgramRule{id, entries, needs, options, run}:
+      True{}
+    case Lint.FileRule{id, needs, options, run}:
+      False{}
+
+# Whether one of `rules` runs on whole programs.
+def Rule.any_whole(rules: List<&1, Lint.Rule>) -> Bool:
+  match rules:
+    case Nil{}:
+      False{}
+    case Con{r, rest}:
+      Rule.whole(r) || Rule.any_whole(rest)
+
+# The jobs of the program rules on each check, if one is on (`whole`): else none, and no whole program is built.
+def Check.jobs.if(~rules: List<&1, Lint.Rule>, whole: Bool, programs: List<&2, Lint.Program>, +settings: List<&2, Shared.Named<Config.Setting>>, +path: String) ->
+  List<&1, Job>:
+  match whole:
+    case True{}:
+      Check.jobs(~rules, programs, settings, path, 1, [])
+    case False{}:
+      []
+
 # Rounds
 # ======
 
@@ -1213,7 +1237,7 @@ def lint(
             settings,
             Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]})
           ),
-          Check.jobs(~rules, programs, settings, path, 1, [])
+          Check.jobs.if(~rules, Rule.any_whole(Rule.on(rules, settings, [])), programs, settings, path)
         ),
         [],
         []
