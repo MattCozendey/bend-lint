@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { tryGetBend2SourceUrl, tryGetInstalledBendTagFromCliOrUndefined } from "../shared/bend2.ts";
 import { getPathWithForwardSlashes } from "../shared/paths.ts";
 import { ERROR, OK } from "../shared/result.ts";
-import { getSha256Hex } from "../shared/utils.ts";
+import { getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
 
 // Types
 // =====
@@ -97,7 +97,8 @@ const getBuilderText = async (): Promise<string> => {
 // The program that lints with the rule in `rule` (a path under this
 // folder); the path of its executable. A build is kept, and used again until
 // the rule, a file it imports or the bend that builds it changes. It goes to
-// a folder of its own first, so a kept executable is never partial.
+// a folder of its own first, so a kept executable is never partial, and
+// test files that build the same rule at once share one executable.
 export const build = async (rule: string): Promise<string> => {
   const name = rule.replace(/\.bend$/, "").replace(/\W/g, "_");
   const source = path.join(BUILD, name + ".bend");
@@ -118,7 +119,7 @@ export const build = async (rule: string): Promise<string> => {
     return exe;
   }
   fs.mkdirSync(BUILD, { recursive: true });
-  fs.writeFileSync(source, text);
+  writeFileAtomically(source, text);
   const part = fs.mkdtempSync(path.join(BUILD, ".part-"));
   const out = path.join(part, path.basename(exe));
   const run = Bun.spawn(["bend", source, "-o", out], {
@@ -136,10 +137,17 @@ export const build = async (rule: string): Promise<string> => {
     throw new Error(`could not build ${source}:\n${stdout}${stderr}`);
   }
   fs.readdirSync(BUILD)
-    .filter((f) => f.startsWith(name + ".") && f !== name + ".bend")
+    .filter((f) => f.startsWith(name + ".") && ![name + ".bend", path.basename(exe)].includes(f))
     .forEach((f) => fs.rmSync(path.join(BUILD, f), { force: true }));
-  fs.renameSync(out, exe);
-  fs.rmSync(part, { recursive: true, force: true });
+  try {
+    fs.renameSync(out, exe);
+  } catch (e) {
+    if (!fs.existsSync(exe)) {
+      throw e;
+    }
+  } finally {
+    fs.rmSync(part, { recursive: true, force: true });
+  }
   return exe;
 };
 

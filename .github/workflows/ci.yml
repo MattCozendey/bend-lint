@@ -41,7 +41,7 @@ jobs:
           printf '@bun "%s/bend2/main.ts" %%*\r\n' "$BEND_DIR" > "$RUNNER_TEMP/bin/bend.cmd"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
-      - run: bun test
+      - run: bun test --parallel
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check

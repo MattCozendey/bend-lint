@@ -11,7 +11,7 @@
     "format:check": "oxfmt --check --disable-nested-config .",
     "lint": "bun ./src/meta/link-bend.ts && oxlint .",
     "sync-bend": "bun ./src/meta/sync-bend.ts",
-    "test": "bun test",
+    "test": "bun test --parallel",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "dependencies": {
