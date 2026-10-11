@@ -202,7 +202,7 @@ Base declares. The fix removes the import.
 
 ### `performance/...`
 
-These four report only; they have no fixes. Each finding says why the code is slow and what to write
+These report only; they have no fixes. Each finding says why the code is slow and what to write
 instead.
 
 | Rule                | Reports                                                                                                                                                                             |
@@ -211,6 +211,18 @@ instead.
 | `list-index-loop`   | a loop that passes a list unchanged to its own call and reads it with `List.get`, `drop`, `take`, `last` or `length` (or a helper of the file that does), in the same branch: O(n²) |
 | `deep-call-in-fork` | a parallel let, or a let just before it, that calls a definition that calls itself outside a tail position                                                                          |
 | `missed-fork`       | calls of a definition to itself that run one after the other, in one expression or in lets that follow each other                                                                   |
+| `eager-branch`      | a value of `Bool.pick`, or the right side of `&&` or `Bool.or`, that calls a definition that loops: Bend computes it even when it is not needed                                     |
+
+### `language/...`
+
+Bend's checker stops at its first error. These rules report every case of three of its errors at
+once, as warnings. A real one also fails the check.
+
+| Rule                | Reports                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `forward-reference` | live code that uses a definition defined below it                                                         |
+| `decreasing-call`   | a call of a definition to itself whose arguments, read left to right, are not unchanged until one shrinks |
+| `reused-binder`     | a parameter or a let's name written without `+` that is used twice on one path                            |
 
 ## Suppress findings
 

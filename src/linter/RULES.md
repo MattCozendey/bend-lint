@@ -122,6 +122,8 @@ A file rule reads `Lint.Here`:
 | `Here.node(here, id)`                  | its node `id`, if there is one (a parent, say)                     |
 | `Here.ancestors(here, id)`             | node `id`, then each node above it, innermost first                |
 | `Here.recursive(here, children, node)` | whether `node` is a call of the definition it is in                |
+| `Here.live(here, id)`                  | whether node `id` is in live code: a body, outside types           |
+| `Here.unsafes(here)`                   | the ids of its @unsafe definitions                                 |
 | `Here.declarations(here)`              | each name it declares, with its uses in it, if the rule needs them |
 | `Here.facts(here)`                     | the checker's facts on its nodes, if the rule needs them           |
 | `Here.option(here, name)`              | an option's value                                                  |
@@ -147,6 +149,10 @@ A node is a piece of the source as Bend's parser reads it:
 - `Children.of(nodes)` indexes the nodes under each node; `Children.get(children, id)` gives them in
   order: an application's function, then its arguments; a block's binders, values, then its rest.
   `Children.last(children, id)` is the last one's id. Build it once per run.
+- `Children.scrutinees(children, id)` are a match's scrutinees;
+  `Children.bound(fuel, nodes, children, [])` the binders a pattern binds;
+  `Children.bare(children, id)` whether a parameter is written bare (`def f(x)`, filling a law), its
+  quantity then being the law's.
 - `Node.name`, `Node.target` and `Node.span` read a `Maybe<Node>` (as `Here.node` gives);
   `Span.text(source, span)` is the text at a span.
 
