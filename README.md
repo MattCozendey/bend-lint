@@ -205,14 +205,15 @@ Base declares. The fix removes the import.
 These report only; they have no fixes. Each finding says why the code is slow and what to write
 instead.
 
-| Rule                | Reports                                                                                                                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `append-in-loop`    | a loop that passes `List.append(.., acc, ..)` or `acc ++ ..` to its own call: O(n²). `++` copies only on the C lane                                                                 |
-| `list-index-loop`   | a loop that passes a list unchanged to its own call and reads it with `List.get`, `drop`, `take`, `last` or `length` (or a helper of the file that does), in the same branch: O(n²) |
-| `deep-call-in-fork` | a parallel let, or a let just before it, that calls a definition that calls itself outside a tail position                                                                          |
-| `missed-fork`       | calls of a definition to itself that run one after the other, in one expression or in lets that follow each other                                                                   |
-| `eager-branch`      | a value of `Bool.pick`, or the right side of `&&` or `Bool.or`, that calls a definition that loops: Bend computes it even when it is not needed                                     |
-| `unneeded-plus`     | a binder written with `+` that its body uses at most once on each path. It reads the checker's facts, which makes a run about 10% slower                                            |
+| Rule                | Reports                                                                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `append-in-loop`    | a loop that passes `List.append(.., acc, ..)` or `acc ++ ..` to its own call: O(n²). `++` copies only on the C lane                                                                                                                     |
+| `list-index-loop`   | a loop that passes a list unchanged to its own call and reads it with `List.get`, `drop`, `take`, `last` or `length` (or a helper of the file that does), in the same branch: O(n²)                                                     |
+| `deep-call-in-fork` | a parallel let, or a let just before it, that calls a definition that calls itself outside a tail position                                                                                                                              |
+| `missed-fork`       | calls of a definition to itself that run one after the other, in one expression or in lets that follow each other                                                                                                                       |
+| `eager-branch`      | a value of `Bool.pick`, or the right side of `&&` or `Bool.or`, that calls a definition that loops: Bend computes it even when it is not needed                                                                                         |
+| `unneeded-plus`     | a binder written with `+` that its body uses at most once on each path. It reads the checker's facts, which makes a run about 10% slower                                                                                                |
+| `gpu-fit`           | a `!` call whose definition receives data, not only numbers: it may run slower on a discrete GPU than with `--gpu off`; and a fork over numbers called without `!`, which may run faster on the GPU. Its messages give the measurements |
 
 ### `language/...`
 

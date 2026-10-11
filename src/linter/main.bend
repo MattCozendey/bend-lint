@@ -12,6 +12,7 @@ import ./rules/no-unused/imports.bend as UnusedImports
 import ./rules/performance/append-in-loop.bend as AppendInLoop
 import ./rules/performance/deep-call-in-fork.bend as DeepCallInFork
 import ./rules/performance/eager-branch.bend as EagerBranch
+import ./rules/performance/gpu-fit.bend as GpuFit
 import ./rules/performance/list-index-loop.bend as ListIndexLoop
 import ./rules/performance/missed-fork.bend as MissedFork
 import ./rules/performance/unneeded-plus.bend as UnneededPlus
@@ -31,6 +32,7 @@ def main() -> IO(Unit):
       AppendInLoop.rule(),
       DeepCallInFork.rule(),
       EagerBranch.rule(),
+      GpuFit.rule(),
       ListIndexLoop.rule(),
       MissedFork.rule(),
       UnneededPlus.rule()

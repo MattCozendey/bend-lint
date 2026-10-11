@@ -535,6 +535,12 @@ def Here.facts(here: Here) -> List<&2, Fact>:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       facts
 
+# Every file of the check, the one a rule runs on among them, hub packages aside.
+def Here.sources(here: Here) -> List<&2, Source>:
+  match here:
+    case Here{Program{sources}, source, declarations, index, options}:
+      sources
+
 def Here.declarations(here: Here) -> List<&2, Declaration>:
   match here:
     case Here{program, source, declarations, index, options}:
