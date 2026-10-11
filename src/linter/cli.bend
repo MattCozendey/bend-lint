@@ -650,77 +650,6 @@ def Round.found(held: List<&1, Held>, out: List<&2, Tagged>) -> List<&2, Tagged>
           <> out
       )
 
-def Question.field(q: Lint.Question) -> String:
-  match q:
-    case Lint.Show{Lint.TypeRef{c, i}}:
-      "show:" ++ U32.show(c) ++ ":" ++ U32.show(i)
-    case Lint.Same{Lint.TypeRef{c, i}, Lint.TypeRef{d, j}}:
-      "same:" ++ U32.show(c) ++ ":" ++ U32.show(i) ++ ":" ++ U32.show(d) ++ ":" ++ U32.show(j)
-    case Lint.Normal{Lint.TypeRef{c, i}}:
-      "normal:" ++ U32.show(c) ++ ":" ++ U32.show(i)
-
-def Question.fields(questions: List<&2, Lint.Question>, out: List<&2, String>) -> List<&2, String>:
-  match questions:
-    case Nil{}:
-      List.reverse(&2, String, out)
-    case Con{q, rest}:
-      Question.fields(rest, Question.field(q) <> out)
-
-def Answer.normalized(check: String, id: String) -> Maybe<&2, Lint.Answer>:
-  do Maybe<&2, Lint.Answer>:
-    c: U32 <- U32.read(check)
-    i: U32 <- U32.read(id)
-    return Lint.Normalized{Lint.TypeRef{c, i}}
-
-def Answer.read.two(which: Maybe<&2, U32>, +text: String) -> Maybe<&2, Lint.Answer>:
-  match which:
-    case Some{0}:
-      Some{Lint.Shown{text}}
-    case Some{1}:
-      Some{Lint.Equal{String.eq(text, "true")}}
-    case _:
-      None{}
-
-def Answer.read(record: List<&2, String>) -> Maybe<&2, Lint.Answer>:
-  match record:
-    case Con{tag, Con{text, Nil{}}}:
-      Answer.read.two(
-        Shared.lookup(U32, tag, [Shared.Named{"shown", 0}, Shared.Named{"same", 1}]),
-        text
-      )
-    case Con{tag, Con{check, Con{id, Nil{}}}}:
-      Answer.normalized(check, id)
-    case _:
-      None{}
-
-def Answer.all(
-  records: List<&2, List<&2, String>>,
-  out: List<&2, Lint.Answer>
-) -> Maybe<&2, List<&2, Lint.Answer>>:
-  match records:
-    case Nil{}:
-      Some{List.reverse(&2, Lint.Answer, out)}
-    case Con{r, rest}:
-      do Maybe<&2, List<&2, Lint.Answer>>:
-        a: Lint.Answer <- Answer.read(r)
-        Answer.all(rest, a <> out)
-
-def Answer.got(answers: Maybe<&2, List<&2, Lint.Answer>>) -> IO(List<&2, Lint.Answer>):
-  match answers:
-    case Some{a}:
-      IO.pure(List<&2, Lint.Answer>, a)
-    case None{}:
-      IO.die(List<&2, Lint.Answer>, 1, "bend-lint: the checker's answers are malformed")
-
-# The checker's answers to `questions`, in order, in one request.
-def Round.ask(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
-  IO.bind(
-    List<&2, List<&2, String>>,
-    List<&2, Lint.Answer>,
-    Wire.ask("ask" <> Question.fields(questions, [])),
-    records => Answer.got(Answer.all(records, []))
-  )
-
 # What the jobs find: each round asks all their questions at once, and resumes them with the answers, until none asks
 # or `budget` runs out.
 def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
@@ -733,7 +662,7 @@ def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
       IO.bind(
         List<&2, Lint.Answer>,
         List<&2, Tagged>,
-        Round.ask(Con{q, qs}),
+        Wire.answers(Con{q, qs}),
         answers => Rounds.go(b, Round.hold(Round.resume(held, answers, []), [], []))
       )
 
@@ -1512,7 +1441,7 @@ def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
     case Nil{}:
       IO.pure(Outcome, outcome)
     case Con{c, rest}:
-      IO.bind(Unit, Outcome, Program.Check.forget(c), done => forgotten(rest, outcome))
+      IO.bind(Unit, Outcome, Wire.forget(c), done => forgotten(rest, outcome))
 
 # Lints `linted`, files of the first of `programs` (the checks of the named file, at `path`), with the rules the
 # config leaves on, after the report so far (`first`). Program rules run on each check; `partial` says whether an entry
@@ -1741,7 +1670,7 @@ def Check.all(
       IO.bind(
         Program.Check,
         List<&2, Program.Check>,
-        Program.Check.run(e, facts),
+        Wire.check(e, facts),
         c => Check.all(rest, facts, c <> out)
       )
 
@@ -1752,7 +1681,7 @@ def Check.chosen(sorted: Checks, +path: String, +facts: Bool) -> IO(Checks):
       IO.bind(
         Program.Check,
         Checks,
-        Program.Check.run(path, facts),
+        Wire.check(path, facts),
         c => IO.pure(Checks, Check.own(entries, c))
       )
     case _:
@@ -1773,7 +1702,7 @@ def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bo
       IO.bind(
         Program.Check,
         Checks,
-        Program.Check.run(path, facts),
+        Wire.check(path, facts),
         c => IO.pure(Checks, Check.own([], c))
       )
 
@@ -1967,55 +1896,13 @@ def Files.lint(
         o => Files.lint(~rules, rest, options, many, Outcome.add(total, o))
       )
 
-# Whether an answer's first record names a file.
-def named.file(records: List<&2, List<&2, String>>) -> Bool:
-  match records:
-    case Con{Con{tag, Con{path, Nil{}}}, rest}:
-      String.eq(tag, "file")
-    case _:
-      False{}
-
-# The paths of a `files` answer, in order, onto `out`; or why an input names no file. `file` says whether its first
-# record names one.
-def named.paths(
-  records: List<&2, List<&2, String>>,
-  file: Bool,
-  out: List<&2, String>
-) -> Result<&2, &2, String, List<&2, String>>:
-  match records file:
-    case Nil{} _:
-      Done{List.reverse(&2, String, out)}
-    case Con{Con{tag, Con{path, Nil{}}}, +rest} True{}:
-      named.paths(rest, named.file(rest), path <> out)
-    case Con{Con{tag, Con{why, Nil{}}}, rest} False{}:
-      Fail{why}
-    case _ _:
-      Fail{"the checker's answer is malformed"}
-
-def named.of(paths: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
-  match paths:
-    case Done{p}:
-      IO.pure(List<&2, String>, p)
-    case Fail{why}:
-      IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
-
-# The files the inputs name (paths or globs), each once, as real paths: absolute, links resolved, "/" between parts.
-# The server reads the folders.
-def named(inputs: List<&2, String>) -> IO(List<&2, String>):
-  IO.bind(
-    List<&2, List<&2, String>>,
-    List<&2, String>,
-    Wire.ask("files" <> inputs),
-    +records => named.of(named.paths(records, named.file(records), []))
-  )
-
 def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
     case Some{Options{+inputs, flag, fixing, shown, json}}:
       IO.bind(
         List<&2, String>,
         Unit,
-        named(inputs),
+        Wire.files(inputs),
         +paths => Files.lint(
           ~rules,
           paths,

@@ -15,9 +15,10 @@
 #   the linter plans them and decides their safety. Until Bend's checker is Bend, it proves only a fix that writes
 #   comments over comments safe (`--fix`); every other fix is dangerous (`--fix-dangerously`).
 #
-# Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (the server), program.bend (the
-# program a check gives, and its declarations), directives.bend (bend-lint: comments), config.bend (bend-lint.json),
-# json.bend (reading and writing JSON), fixes.bend (planning and making fixes), cli.bend (running and output).
+# Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (every request to
+# the server, and its answers), program.bend (the program a check gives, and its declarations),
+# directives.bend (bend-lint: comments), config.bend (bend-lint.json), json.bend (reading and
+# writing JSON), fixes.bend (planning and making fixes), cli.bend (running and output).
 import Base
 import ./shared.bend as Shared
 

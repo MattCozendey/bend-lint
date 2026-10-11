@@ -1,8 +1,13 @@
-# The wire to the checker server (server.ts), for as long as Bend's checker is TS.
+# The seam to the checker server (server.ts), for as long as Bend's checker is TS: each request
+# the linter makes, and its answer decoded. Four calls cross it: check, forget, answers and files.
+# When the checker is Bend, this file becomes those four calls, made directly.
 # - A request is one connection: one line out, the answer in, then the server closes.
 # - A line is fields split by a tab. A field escapes \, a tab and a newline as \\, \t and \n.
 # - The answer is one line per record. Its first field is its kind.
 import Base
+import ./lint.bend as Lint
+import ./program.bend as Program
+import ./shared.bend as Shared
 
 # What a character is to the wire.
 type Mark is Data:
@@ -162,3 +167,458 @@ def ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
     s: Socket & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(sock, line(request, ""))
     got: List<&2, String> <- sent(s)
     return records(List.reverse(&2, String, got), Reading{False{}, "", [], []})
+
+# Checks
+# ======
+def Syntax.names() -> List<&2, Shared.Named<Lint.Syntax>>:
+  [
+    Shared.Named{"Variable", Lint.Variable{}},
+    Shared.Named{"Reference", Lint.Reference{}},
+    Shared.Named{"Application", Lint.Application{}},
+    Shared.Named{"Lambda", Lint.Lambda{}},
+    Shared.Named{"Literal", Lint.Literal{}},
+    Shared.Named{"Construction", Lint.Construction{}},
+    Shared.Named{"PatternVariable", Lint.PatternVariable{}},
+    Shared.Named{"PatternConstructor", Lint.PatternConstructor{}},
+    Shared.Named{"Forall", Lint.Forall{}},
+    Shared.Named{"Annotation", Lint.Annotation{}},
+    Shared.Named{"Match", Lint.Match{}},
+    Shared.Named{"Case", Lint.Case{}},
+    Shared.Named{"Destructure", Lint.Destructure{}},
+    Shared.Named{"Let", Lint.Let{}},
+    Shared.Named{"Binding", Lint.Binding{}},
+    Shared.Named{"Parameter", Lint.Parameter{}},
+    Shared.Named{"Field", Lint.Field{}},
+    Shared.Named{"Returns", Lint.Returns{}},
+    Shared.Named{"Body", Lint.Body{}},
+    Shared.Named{"Definition", Lint.Definition{}},
+    Shared.Named{"Datatype", Lint.Datatype{}},
+    Shared.Named{"Constructor", Lint.Constructor{}},
+    Shared.Named{"Law", Lint.Law{}},
+    Shared.Named{"Import", Lint.Import{}},
+    Shared.Named{"ImportPath", Lint.ImportPath{}},
+    Shared.Named{"Substitution", Lint.Substitution{}},
+    Shared.Named{"Sort", Lint.Sort{}},
+    Shared.Named{"QuantityType", Lint.QuantityType{}},
+    Shared.Named{"QuantityLiteral", Lint.QuantityLiteral{}},
+    Shared.Named{"QuantityMinimum", Lint.QuantityMinimum{}},
+    Shared.Named{"TypeApplication", Lint.TypeApplication{}},
+    Shared.Named{"Elimination", Lint.Elimination{}},
+    Shared.Named{"Absurd", Lint.Absurd{}},
+    Shared.Named{"Equality", Lint.Equality{}},
+    Shared.Named{"Reflexivity", Lint.Reflexivity{}},
+    Shared.Named{"Rewrite", Lint.Rewrite{}},
+    Shared.Named{"Hole", Lint.Hole{}}
+  ]
+
+def Quantity.names() -> List<&2, Shared.Named<Lint.Quantity>>:
+  [
+    Shared.Named{"Once", Lint.Once{}},
+    Shared.Named{"Many", Lint.Many{}},
+    Shared.Named{"Erased", Lint.Erased{}},
+    Shared.Named{"Template", Lint.Template{}}
+  ]
+
+def Span.read(path: String, beg: String, end: String) -> Maybe<&2, Lint.Span>:
+  do Maybe<&2, Lint.Span>:
+    b: U32 <- U32.read(beg)
+    e: U32 <- U32.read(end)
+    return Lint.Span{path, b, e}
+
+# A node from the fields of its record, in the file at `path`; `kinds` is `Syntax.names` as a table.
+def Node.read(
+  path: String,
+  kinds: Map<&2, Maybe<&2, Lint.Syntax>>,
+  fields: List<&2, String>
+) -> Maybe<&2, Lint.Node>:
+  match fields:
+    case Con{
+      id,
+      Con{
+        parent,
+        Con{
+          owner,
+          Con{syntax, Con{name, Con{binder, Con{quantity, Con{beg, Con{end, Con{target, Nil{}}}}}}}}
+        }
+      }
+    }:
+      do Maybe<&2, Lint.Node>:
+        i: U32 <- U32.read(id)
+        p: U32 <- U32.read(parent)
+        o: U32 <- U32.read(owner)
+        s: Lint.Syntax <- Shared.find(Lint.Syntax, kinds, syntax)
+        return Lint.Node{
+          i,
+          p,
+          o,
+          s,
+          name,
+          U32.read(binder),
+          Shared.lookup(Lint.Quantity, quantity, Quantity.names()),
+          Span.read(path, beg, end),
+          target
+        }
+    case _:
+      None{}
+
+# What a record of the answer is: a source, a node of the latest source, or a fact on the latest node.
+type Record is Data:
+  SourceRecord{}
+  NodeRecord{}
+  FactRecord{}
+
+def Record.names() -> List<&2, Shared.Named<Record>>:
+  [
+    Shared.Named{"node", NodeRecord{}},
+    Shared.Named{"fact", FactRecord{}},
+    Shared.Named{"file", SourceRecord{}}
+  ]
+
+def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
+  [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
+
+# A fact on `node` from the fields of its record: its role, the check and handle of its type, its quantity, and how
+# often its binder is used, if the checker says.
+def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>:
+  match fields:
+    case Con{role, Con{check, Con{id, Con{quantity, Con{used, Nil{}}}}}}:
+      do Maybe<&2, Lint.Fact>:
+        r: Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
+        c: U32 <- U32.read(check)
+        i: U32 <- U32.read(id)
+        q: Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
+        return Lint.Fact{
+          node,
+          r,
+          q,
+          Shared.lookup(Lint.Quantity, used, Quantity.names()),
+          Lint.TypeRef{c, i}
+        }
+    case _:
+      None{}
+
+# The sources read so far, last first, each with its nodes and facts last first.
+def Decode.add(
+  kind: Maybe<&2, Record>,
+  fields: List<&2, String>,
+  sources: List<&2, Lint.Source>,
+  kinds: Map<&2, Maybe<&2, Lint.Syntax>>
+) -> Maybe<&2, List<&2, Lint.Source>>:
+  match kind fields sources:
+    case Some{NodeRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+      do Maybe<&2, List<&2, Lint.Source>>:
+        n: Lint.Node <- Node.read(path, kinds, fields)
+        return Lint.Source{path, namespace, text, n <> nodes, facts} <> rest
+    case Some{
+      FactRecord{}
+    } _ Con{Lint.Source{path, namespace, text, Con{+node, nodes}, facts}, rest}:
+      do Maybe<&2, List<&2, Lint.Source>>:
+        f: Lint.Fact <- Fact.read(node, fields)
+        return Lint.Source{path, namespace, text, node <> nodes, f <> facts} <> rest
+    case Some{SourceRecord{}} Con{path, Con{namespace, Con{text, Nil{}}}} _:
+      Some{Lint.Source{path, namespace, text, [], []} <> sources}
+    case _ _ _:
+      None{}
+
+# The sources in order, each with its nodes and facts in order.
+def Decode.in_order(
+  sources: List<&2, Lint.Source>,
+  done: List<&2, Lint.Source>
+) -> List<&2, Lint.Source>:
+  match sources:
+    case Nil{}:
+      done
+    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
+      Decode.in_order(
+        rest,
+        Lint.Source{
+          path,
+          namespace,
+          text,
+          List.reverse(&2, Lint.Node, nodes),
+          List.reverse(&2, Lint.Fact, facts)
+        }
+          <> done
+      )
+
+# The program of an answer's records: a source record, then its nodes and facts, for each source. `kinds` is
+# `Syntax.names` as a table.
+def Decode.read(
+  records: List<&2, List<&2, String>>,
+  sources: List<&2, Lint.Source>,
+  +kinds: Map<&2, Maybe<&2, Lint.Syntax>>
+) -> Maybe<&2, Lint.Program>:
+  match records:
+    case Nil{}:
+      Some{Lint.Program{Decode.in_order(sources, [])}}
+    case Con{Con{tag, fields}, rest}:
+      do Maybe<&2, Lint.Program>:
+        added: List<
+          &2,
+          Lint.Source> <- Decode.add(
+          Shared.lookup(Record, tag, Record.names()),
+          fields,
+          sources,
+          kinds
+        )
+        Decode.read(rest, added, kinds)
+    case Con{Nil{}, rest}:
+      None{}
+
+# The program of an answer's records.
+def Decode.of(records: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
+  Decode.read(
+    records,
+    [],
+    Shared.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>))
+  )
+
+def Check.malformed(-A: Type) -> IO(A):
+  IO.die(A, 1, "bend-lint: the checker's answer is malformed")
+
+def Check.passed(
+  tagged: Bool,
+  check: Maybe<&2, U32>,
+  program: Maybe<&2, Lint.Program>
+) -> IO(Program.Check):
+  match tagged check program:
+    case True{} Some{c} Some{p}:
+      IO.pure(Program.Check, Program.Passed{p, c})
+    case _ _ _:
+      Check.malformed(Program.Check)
+
+# A passed check's answer: its number, then its program.
+def Check.read(records: List<&2, List<&2, String>>) -> IO(Program.Check):
+  match records:
+    case Con{Con{tag, Con{check, Nil{}}}, rest}:
+      Check.passed(String.eq(tag, "check"), U32.read(check), Decode.of(rest))
+    case _:
+      Check.malformed(Program.Check)
+
+def Records.keep(
+  hit: Bool,
+  record: List<&2, String>,
+  out: List<&2, List<&2, String>>
+) -> List<&2, List<&2, String>>:
+  match hit:
+    case True{}:
+      record <> out
+    case False{}:
+      out
+
+# The records of the parsed files and their nodes, in order.
+def Records.syntax(
+  records: List<&2, List<&2, String>>,
+  out: List<&2, List<&2, String>>
+) -> List<&2, List<&2, String>>:
+  match records:
+    case Nil{}:
+      List.reverse(&2, List<&2, String>, out)
+    case Con{Con{+tag, fields}, rest}:
+      Records.syntax(
+        rest,
+        Records.keep(String.eq(tag, "file") || String.eq(tag, "node"), Con{tag, fields}, out)
+      )
+    case Con{Nil{}, rest}:
+      Records.syntax(rest, out)
+
+def Records.path(hit: Bool, fields: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+  match hit fields:
+    case True{} Con{path, Nil{}}:
+      path <> out
+    case _ _:
+      out
+
+# The files a failed check read: the paths of its `read` records, in order.
+def Check.reads(records: List<&2, List<&2, String>>, out: List<&2, String>) -> List<&2, String>:
+  match records:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{Con{+tag, fields}, rest}:
+      Check.reads(rest, Records.path(String.eq(tag, "read"), fields, out))
+    case Con{Nil{}, rest}:
+      Check.reads(rest, out)
+
+# The program of the files a failed check parsed, if it parsed any.
+def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
+  match syntax:
+    case Nil{}:
+      None{}
+    case _:
+      Decode.of(syntax)
+
+def Check.failed(
+  failure: Program.Failure,
+  +records: List<&2, List<&2, String>>
+) -> IO(Program.Check):
+  IO.pure(
+    Program.Check,
+    Program.Failed{failure, Check.reads(records, []), Check.parsed(Records.syntax(records, []))}
+  )
+
+# What an answer whose last record has `fields` says: if it is a `fail` record, why and maybe where the check failed.
+def Check.closed(
+  fail: Bool,
+  fields: List<&2, String>,
+  records: List<&2, List<&2, String>>
+) -> IO(Program.Check):
+  match fail fields:
+    case True{} Con{message, Nil{}}:
+      Check.failed(Program.Failure{message, None{}, ""}, records)
+    case True{} Con{message, Con{path, Con{beg, Con{end, Con{text, Nil{}}}}}}:
+      Check.failed(Program.Failure{message, Span.read(path, beg, end), text}, records)
+    case True{} _:
+      Check.malformed(Program.Check)
+    case False{} _:
+      Check.read(records)
+
+def Check.ended(
+  last: Maybe<&2, List<&2, String>>,
+  records: List<&2, List<&2, String>>
+) -> IO(Program.Check):
+  match last:
+    case Some{Con{+tag, fields}}:
+      Check.closed(String.eq(tag, "fail"), fields, records)
+    case _:
+      Check.read(records)
+
+# What an answer says: the check's number and the program; or, ending in a `fail` record, why and where the check
+# failed, the files it read (its `read` records), and what it parsed (its `file` and `node` records).
+def Check.of(+records: List<&2, List<&2, String>>) -> IO(Program.Check):
+  Check.ended(List.last(&2, List<&2, String>, records), records)
+
+# Checks the file at `path`, with the checker's facts if `facts`.
+def check(path: String, facts: Bool) -> IO(Program.Check):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Program.Check,
+    ask(["check", path, Bool.pick(String, facts, "facts", "syntax")]),
+    records => Check.of(records)
+  )
+
+# Frees what the server holds for the passed check numbered `check`: no rule asks about its types again.
+def forget(check: U32) -> IO(Unit):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Unit,
+    ask(["forget", U32.show(check)]),
+    records => IO.pure(Unit, Unit{})
+  )
+
+# Questions
+# =========
+def Question.field(q: Lint.Question) -> String:
+  match q:
+    case Lint.Show{Lint.TypeRef{c, i}}:
+      "show:" ++ U32.show(c) ++ ":" ++ U32.show(i)
+    case Lint.Same{Lint.TypeRef{c, i}, Lint.TypeRef{d, j}}:
+      "same:" ++ U32.show(c) ++ ":" ++ U32.show(i) ++ ":" ++ U32.show(d) ++ ":" ++ U32.show(j)
+    case Lint.Normal{Lint.TypeRef{c, i}}:
+      "normal:" ++ U32.show(c) ++ ":" ++ U32.show(i)
+
+def Question.fields(questions: List<&2, Lint.Question>, out: List<&2, String>) -> List<&2, String>:
+  match questions:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{q, rest}:
+      Question.fields(rest, Question.field(q) <> out)
+
+def Answer.normalized(check: String, id: String) -> Maybe<&2, Lint.Answer>:
+  do Maybe<&2, Lint.Answer>:
+    c: U32 <- U32.read(check)
+    i: U32 <- U32.read(id)
+    return Lint.Normalized{Lint.TypeRef{c, i}}
+
+def Answer.read.two(which: Maybe<&2, U32>, +text: String) -> Maybe<&2, Lint.Answer>:
+  match which:
+    case Some{0}:
+      Some{Lint.Shown{text}}
+    case Some{1}:
+      Some{Lint.Equal{String.eq(text, "true")}}
+    case _:
+      None{}
+
+def Answer.read(record: List<&2, String>) -> Maybe<&2, Lint.Answer>:
+  match record:
+    case Con{tag, Con{text, Nil{}}}:
+      Answer.read.two(
+        Shared.lookup(U32, tag, [Shared.Named{"shown", 0}, Shared.Named{"same", 1}]),
+        text
+      )
+    case Con{tag, Con{check, Con{id, Nil{}}}}:
+      Answer.normalized(check, id)
+    case _:
+      None{}
+
+def Answer.all(
+  records: List<&2, List<&2, String>>,
+  out: List<&2, Lint.Answer>
+) -> Maybe<&2, List<&2, Lint.Answer>>:
+  match records:
+    case Nil{}:
+      Some{List.reverse(&2, Lint.Answer, out)}
+    case Con{r, rest}:
+      do Maybe<&2, List<&2, Lint.Answer>>:
+        a: Lint.Answer <- Answer.read(r)
+        Answer.all(rest, a <> out)
+
+def Answer.got(answers: Maybe<&2, List<&2, Lint.Answer>>) -> IO(List<&2, Lint.Answer>):
+  match answers:
+    case Some{a}:
+      IO.pure(List<&2, Lint.Answer>, a)
+    case None{}:
+      IO.die(List<&2, Lint.Answer>, 1, "bend-lint: the checker's answers are malformed")
+
+# The checker's answers to `questions`, in order, in one request.
+def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    List<&2, Lint.Answer>,
+    ask("ask" <> Question.fields(questions, [])),
+    records => Answer.got(Answer.all(records, []))
+  )
+
+# Files
+# =====
+
+# Whether an answer's first record names a file.
+def files.file(records: List<&2, List<&2, String>>) -> Bool:
+  match records:
+    case Con{Con{tag, Con{path, Nil{}}}, rest}:
+      String.eq(tag, "file")
+    case _:
+      False{}
+
+# The paths of a `files` answer, in order, onto `out`; or why an input names no file. `file` says whether its first
+# record names one.
+def files.paths(
+  records: List<&2, List<&2, String>>,
+  file: Bool,
+  out: List<&2, String>
+) -> Result<&2, &2, String, List<&2, String>>:
+  match records file:
+    case Nil{} _:
+      Done{List.reverse(&2, String, out)}
+    case Con{Con{tag, Con{path, Nil{}}}, +rest} True{}:
+      files.paths(rest, files.file(rest), path <> out)
+    case Con{Con{tag, Con{why, Nil{}}}, rest} False{}:
+      Fail{why}
+    case _ _:
+      Fail{"the checker's answer is malformed"}
+
+def files.of(paths: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
+  match paths:
+    case Done{p}:
+      IO.pure(List<&2, String>, p)
+    case Fail{why}:
+      IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
+
+# The files the inputs name (paths or globs), each once, as real paths: absolute, links resolved, "/" between parts.
+# The server reads the folders.
+def files(inputs: List<&2, String>) -> IO(List<&2, String>):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    List<&2, String>,
+    ask("files" <> inputs),
+    +records => files.of(files.paths(records, files.file(records), []))
+  )

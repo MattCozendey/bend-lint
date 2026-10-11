@@ -124,7 +124,7 @@ git diff --check
 | `src/linter/directives.bend` | `# bend-lint:` directives                                    |
 | `src/linter/fixes.bend`      | planning and making fixes                                    |
 | `src/linter/json.bend`       | reading and writing JSON                                     |
-| `src/linter/wire.bend`       | the protocol to the server                                   |
+| `src/linter/wire.bend`       | every request to the server, and its answers decoded         |
 | `src/linter/shared.bend`     | Bend logic that more than one file uses                      |
 | `src/linter/server.ts`       | runs a rules program, and answers it with Bend's checker     |
 | `src/linter/testing.ts`      | what the tests share                                         |
