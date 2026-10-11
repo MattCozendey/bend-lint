@@ -183,8 +183,6 @@ const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
 
-const GIVE = "give a bend checkout with --bend <dir> or BEND_DIR";
-
 // Compiled Bend rules.
 const KEPT = nodePath.join(CACHE, "rules");
 
@@ -1711,7 +1709,12 @@ const selfCheck = async (m: Loaded): Promise<void> => {
 export const load = async (given: string | undefined): Promise<Loaded> => {
   const dir = path.resolve(
     url.fileURLToPath(
-      unwrap(mapError(await tryGetBend2SourceUrl({ bendDir: given }), (e) => e + "; " + GIVE)),
+      unwrap(
+        mapError(
+          await tryGetBend2SourceUrl({ bendDir: given }),
+          (e) => e + ", or pass --bend <dir>",
+        ),
+      ),
     ),
   );
   const patched = new Map(

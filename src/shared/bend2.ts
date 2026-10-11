@@ -10,15 +10,12 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 
 import pkg from "../../package.json" with { type: "json" };
-import { ERROR, error, ok } from "./result.ts";
+import { ERROR, error, mapError, ok } from "./result.ts";
 import type { Result } from "./result.ts";
 import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
 // Constants
 // =========
-
-// How to name a bend2 folder, for a caller that takes only BEND_DIR.
-export const GIVE = "set BEND_DIR to a bend checkout";
 
 // The newest bend release this repo's checks passed with; scripts/sync-bend.ts
 // moves it.
@@ -125,11 +122,11 @@ export const fetchBend = async (tag: string, downloadDir: string = CACHE): Promi
 };
 
 // The bend2 folder to load: in `bendDir`, a checkout or its bend2 folder, else
-// a download. An error does not tell how to name one; the caller does.
-export const tryGetBend2SourceUrl = async ({
-  bendDir = process.env.BEND_DIR,
-  downloadDir,
-}: { bendDir?: string; downloadDir?: string } = {}): Promise<Result<URL, string>> => {
+// a download.
+const tryFindBend2SourceUrl = async (
+  bendDir: string | undefined,
+  downloadDir: string | undefined,
+): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
     const installed = await tryGetInstalledBendTagFromCliOrUndefined();
     if (ERROR in installed) {
@@ -148,3 +145,13 @@ export const tryGetBend2SourceUrl = async ({
     ? error(`no bend2 at ${dir} (it needs bend.ts)`)
     : tryGetUrlFromFolder(found);
 };
+
+// The bend2 folder to load. An error tells how to name one.
+export const tryGetBend2SourceUrl = async ({
+  bendDir = process.env.BEND_DIR,
+  downloadDir,
+}: { bendDir?: string; downloadDir?: string } = {}): Promise<Result<URL, string>> =>
+  mapError(
+    await tryFindBend2SourceUrl(bendDir, downloadDir),
+    (e) => e + "; set BEND_DIR to a bend checkout",
+  );

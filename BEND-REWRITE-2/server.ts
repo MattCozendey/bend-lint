@@ -28,8 +28,8 @@ import * as url from "node:url";
 import type { Body, Book, Err, HTerm, LTerm, Parse, Patt, Quant, Span } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { CACHE, GIVE, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
-import { mapError, unwrap } from "../src/shared/result.ts";
+import { CACHE, tryGetBend2SourceUrl } from "../src/shared/bend2.ts";
+import { unwrap } from "../src/shared/result.ts";
 import { digest, getErrorMessageFromUnknown } from "../src/shared/utils.ts";
 
 // Types
@@ -309,7 +309,7 @@ const copied = (dir: URL): string => {
 // The checker. The patched bend.ts is written now, so a drift stops the run
 // at once; Bend loads, and checks Base, once, when first needed.
 const load = async (): Promise<Checker> => {
-  const dir = unwrap(mapError(await tryGetBend2SourceUrl(), (e) => e + "; " + GIVE));
+  const dir = unwrap(await tryGetBend2SourceUrl());
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
   const loaded = (): Promise<Loaded> => {

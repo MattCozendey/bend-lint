@@ -8,8 +8,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
 
-import { GIVE, tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import { mapError, unwrap } from "../shared/result.ts";
+import { tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { unwrap } from "../shared/result.ts";
 
 // Constants
 // =========
@@ -19,9 +19,7 @@ const LINK = path.resolve(import.meta.dir, "..", "..", ".bend2");
 // Side effects
 // ============
 
-const dir = url.fileURLToPath(
-  unwrap(mapError(await tryGetBend2SourceUrl(), (e) => e + "; " + GIVE)),
-);
+const dir = url.fileURLToPath(unwrap(await tryGetBend2SourceUrl()));
 const now = fs.lstatSync(LINK, { throwIfNoEntry: false });
 if (now !== undefined && !now.isSymbolicLink()) {
   throw new Error(LINK + " is not a link; move it away");
