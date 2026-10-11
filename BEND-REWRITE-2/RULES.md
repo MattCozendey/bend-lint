@@ -38,7 +38,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(Lint.findings(~Lint.Node, ~judge, Lint.Here.nodes(here)))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/no-foo", Lint.Needs{False{}}, [], run}
+  Lint.FileRule{"demo/no-foo", Lint.Needs{False{}, False{}}, [], run}
 ```
 
 A rule is one of two kinds:
@@ -50,8 +50,10 @@ A rule is one of two kinds:
 
 - The id is `namespace/.../name`, each part kebab-case. The rule file is
   `rules/namespace/.../name.bend`. The id is the code of its findings.
-- `needs` says whether the rule needs the checker's facts. See
-  [Facts](#facts-and-questions).
+- `needs` is `Needs{facts, declarations}`: whether the rule reads the
+  checker's facts (see [Facts](#facts-and-questions)), and the declarations
+  with their uses (see [Declarations](#declarations)). Each costs time and
+  memory, so a rule gets them only if it asks.
 - `options` lists the options the rule declares. See [Options](#options).
 - A program rule's finding in a file that is not linted is dropped.
 - `entries` matters when several entries of the config check the named
@@ -116,20 +118,20 @@ See [directives.bend](directives.bend), at the top.
 
 A file rule reads `Lint.Here`:
 
-| Accessor                  | Gives                                                    |
-| ------------------------- | -------------------------------------------------------- |
-| `Here.path(here)`         | the file's real path, with `/`                           |
-| `Here.namespace(here)`    | its namespace in the check: `""` for the checked file    |
-| `Here.text(here)`         | its text, as on disk                                     |
-| `Here.nodes(here)`        | its syntax nodes, parents first                          |
-| `Here.node(here, id)`     | its node `id`, if there is one (a parent, say)           |
-| `Here.declarations(here)` | each name it declares, with its uses in it               |
-| `Here.facts(here)`        | the checker's facts on its nodes, if the rule needs them |
-| `Here.option(here, name)` | an option's value                                        |
+| Accessor                  | Gives                                                              |
+| ------------------------- | ------------------------------------------------------------------ |
+| `Here.path(here)`         | the file's real path, with `/`                                     |
+| `Here.namespace(here)`    | its namespace in the check: `""` for the checked file              |
+| `Here.text(here)`         | its text, as on disk                                               |
+| `Here.nodes(here)`        | its syntax nodes, parents first                                    |
+| `Here.node(here, id)`     | its node `id`, if there is one (a parent, say)                     |
+| `Here.declarations(here)` | each name it declares, with its uses in it, if the rule needs them |
+| `Here.facts(here)`        | the checker's facts on its nodes, if the rule needs them           |
+| `Here.option(here, name)` | an option's value                                                  |
 
 A program rule reads `Lint.Whole`: `Whole.sources` (each file of the check,
-hub packages aside), `Whole.declarations` (with their uses in all of them)
-and `Whole.option`.
+hub packages aside), `Whole.declarations` (with their uses in all of them,
+if the rule needs them) and `Whole.option`.
 
 ### Nodes
 
@@ -156,10 +158,11 @@ A node is a piece of the source as Bend's parser reads it:
 `Declaration{node, references}`: a node that declares a name, and the nodes
 that use it, in order. A global name (def, type, constructor, law) is used
 by name; a binder by its number; an import by its alias's prefix (`U.two`).
+A rule gets them if it sets `Needs{facts, True{}}`; else the list is empty.
 
 ## Facts and questions
 
-A rule that sets `Needs{True{}}` gets facts:
+A rule that sets `Needs{True{}, declarations}` gets facts:
 `Fact{node, role, quantity, checked}`.
 
 - `role` is `OfTerm{}` (the type of the term the node is) or `OfBinder{}`
@@ -215,7 +218,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     return said(ps, shown, [])
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/param-types", Lint.Needs{True{}}, [], run}
+  Lint.FileRule{"demo/param-types", Lint.Needs{True{}, False{}}, [], run}
 ```
 
 Facts cost time and memory: ask for them only in a rule that reads them.
@@ -281,7 +284,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(judge(U32.is_gt(lines(Lint.Here.text(here), 0), max), Lint.Here.path(here), max))
 
 def rule() -> Lint.Rule:
-  Lint.FileRule{"demo/max-lines", Lint.Needs{False{}}, [Lint.Declared{"max", Lint.Num{500}, Lint.NumberOption{1, 4294967295}}], run}
+  Lint.FileRule{"demo/max-lines", Lint.Needs{False{}, False{}}, [Lint.Declared{"max", Lint.Num{500}, Lint.NumberOption{1, 4294967295}}], run}
 ```
 
 | Spec                     | Accepts                                    |
