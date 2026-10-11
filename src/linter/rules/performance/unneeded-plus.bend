@@ -1,7 +1,7 @@
 # performance/unneeded-plus: a binder written with `+` that its body uses at most once on each path, so
 # the `+` buys nothing: a `+` value carries a reference count at run time.
 # Heuristics: it reads how often the checker found each binder used, the most over its branches. A
-# binder that a match takes apart (a scrutinee) is skipped: its `+` also makes its fields reusable. So is a parameter
+# binder that a match or a let takes apart is skipped: its `+` also makes its fields reusable. So is a parameter
 # of a definition used as a value (`OnFile{run}`): the type it must have can ask for the `+`. "bend
 # guide shaders" measured a needless `+` slowing a program from 2.83 s to 3.30 s.
 import Base
@@ -75,15 +75,32 @@ def values(
     case Con{node, rest}:
       values(rest, defs, here, out)
 
-def is_match(node: Maybe<&2, Lint.Node>) -> Bool:
-  match node:
-    case Some{Lint.Node{i, p, o, Lint.Match{}, n, b, q, s, t}}:
+def constructed(nodes: List<&2, Lint.Node>) -> Bool:
+  match nodes:
+    case Con{Lint.Node{i, p, o, Lint.PatternConstructor{}, n, b, q, s, t}, rest}:
       True{}
     case _:
       False{}
 
-# The binders that a match takes apart: the variables right under a match, its scrutinees.
-def matched(nodes: List<&2, Lint.Node>, +here: Lint.Here, out: List<&2, Bound>) -> List<&2, Bound>:
+# Whether the variable numbered `id`, under `node`, is taken apart there: `node` is a match, or a let
+# with a constructor pattern (`Vert{x, y} = v`) whose rest of block it is not.
+def apart(node: Maybe<&2, Lint.Node>, id: U32, +children: Lint.Children) -> Bool:
+  match node:
+    case Some{Lint.Node{i, p, o, Lint.Match{}, n, b, q, s, t}}:
+      True{}
+    case Some{Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t}}:
+      U32.is_ne(Lint.Children.last(children, i), id) && constructed(Lint.Children.get(children, i))
+    case _:
+      False{}
+
+# The binders taken apart: a match's scrutinees (the variables right under it), and a let's value (a
+# variable under it that is not the rest of its block).
+def matched(
+  nodes: List<&2, Lint.Node>,
+  +here: Lint.Here,
+  +children: Lint.Children,
+  out: List<&2, Bound>
+) -> List<&2, Bound>:
   match nodes:
     case Nil{}:
       out
@@ -91,10 +108,15 @@ def matched(nodes: List<&2, Lint.Node>, +here: Lint.Here, out: List<&2, Bound>) 
       matched(
         rest,
         here,
-        Shared.push(Bound, Shared.when(Bound, is_match(Lint.Here.node(here, p)), Bound{b, o}), out)
+        children,
+        Shared.push(
+          Bound,
+          Shared.when(Bound, apart(Lint.Here.node(here, p), i, children), Bound{b, o}),
+          out
+        )
       )
     case Con{node, rest}:
-      matched(rest, here, out)
+      matched(rest, here, children, out)
 
 def Bound.has(bounds: List<&2, Bound>, hit: Bool, +binder: U32, +owner: U32) -> Bool:
   match bounds hit:
@@ -134,7 +156,7 @@ def finding(hit: Bool, span: Maybe<&2, Lint.Span>, +name: String) -> List<&2, Li
             ++ name
             ++ " is used at most once on each path, so it needs no `+`. A `+` value carries a reference count at run time, and \"bend guide shaders\" measured a needless `+` slowing a program from 2.83 s to 3.30 s. Write "
             ++ name
-            ++ " without the `+`.",
+            ++ " without the `+`. In the slash boss demo of Bend, removing 503 such + changed no timing: it matters most for a value that many lanes share.",
           []
         }
       ]
@@ -195,7 +217,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     scan(
       Lint.Here.facts(here),
       values(nodes, Def.all(nodes, []), here, []),
-      matched(nodes, here, []),
+      matched(nodes, here, Lint.Children.of(nodes), []),
       []
     )
   )

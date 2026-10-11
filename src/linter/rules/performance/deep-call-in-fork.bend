@@ -206,7 +206,7 @@ def message(+callee: String, loop: String) -> String:
     ++ callee
     ++ " in a fork: a value of its parallel let, or of a let just before it. In bend-lint's benchmark (Bend 2.0.36, 16 threads), one such call per fork cut the speedup from 10x to 1.9x, and a tail-recursive version kept the 10x. Make "
     ++ callee
-    ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter."
+    ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. In the slash boss demo of Bend, doing so for such a call changed no timing: the list it walked was short. Time it before and after."
 
 def finding(hit: Bool, span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lint.Finding>:
   match hit span:

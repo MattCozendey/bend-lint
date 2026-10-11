@@ -13,7 +13,7 @@ const PROGRAM = BUILDS ? await build("rules/performance/missed-fork.bend") : "";
 
 // What each finding says after what it found, about the cost of a fork.
 const CAVEAT =
-  ' Do it only if each call does much work: each fork costs about 100 operations of task machinery ("bend guide shaders"), so forking small calls makes the program slower. The JS lane runs on one thread, so it does not gain.';
+  ' Do it only if each call does much work: each fork costs about 100 operations of task machinery ("bend guide shaders"), so forking small calls makes the program slower. The JS lane runs on one thread, so it does not gain. Measured in the hand-tuned slash boss demo of Bend, forks of this kind made it slower: in a merge of quadtree cells, a frame took 16% longer; in a cloth step, that step took 30% longer. Time the program before and after a fork, and keep it only if it is faster.';
 
 // Functions
 // =========

@@ -29,7 +29,7 @@ setDefaultTimeout(120_000);
   test("a + parameter used once is reported, with what to write", async () => {
     expect(await found("import Base\n\ndef f(+x: Nat, y: Nat) -> Nat:\n  Nat.add(x, y)\n")).toEqual(
       [
-        '3:8 performance/unneeded-plus: +x is used at most once on each path, so it needs no `+`. A `+` value carries a reference count at run time, and "bend guide shaders" measured a needless `+` slowing a program from 2.83 s to 3.30 s. Write x without the `+`.',
+        '3:8 performance/unneeded-plus: +x is used at most once on each path, so it needs no `+`. A `+` value carries a reference count at run time, and "bend guide shaders" measured a needless `+` slowing a program from 2.83 s to 3.30 s. Write x without the `+`. In the slash boss demo of Bend, removing 503 such + changed no timing: it matters most for a value that many lanes share.',
       ],
     );
   });

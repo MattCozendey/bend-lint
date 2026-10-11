@@ -47,7 +47,7 @@ setDefaultTimeout(120_000);
         file(DEEP, "      a b = f(p, lo) f(p, U32.add(lo, pow2(p)))\n      U32.add(a, b)"),
       ),
     ).toEqual([
-      '16:39 performance/deep-call-in-fork: pow2 calls itself outside a tail position: Bend runs such a call with a frame per call ("bend guide shaders"). f calls pow2 in a fork: a value of its parallel let, or of a let just before it. In bend-lint\'s benchmark (Bend 2.0.36, 16 threads), one such call per fork cut the speedup from 10x to 1.9x, and a tail-recursive version kept the 10x. Make pow2 tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter.',
+      '16:39 performance/deep-call-in-fork: pow2 calls itself outside a tail position: Bend runs such a call with a frame per call ("bend guide shaders"). f calls pow2 in a fork: a value of its parallel let, or of a let just before it. In bend-lint\'s benchmark (Bend 2.0.36, 16 threads), one such call per fork cut the speedup from 10x to 1.9x, and a tail-recursive version kept the 10x. Make pow2 tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. In the slash boss demo of Bend, doing so for such a call changed no timing: the list it walked was short. Time it before and after.',
     ]);
   });
 
