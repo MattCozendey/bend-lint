@@ -123,8 +123,20 @@ const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n"
 
 const KEPT = nodePath.join(CACHE, "server");
 
-// The edits that make bend.ts report what it parses to PROBES.
+// The fs and path that bend.ts gets instead of Node's.
+const PATHS = url.fileURLToPath(new URL("../src/shared/paths.ts", import.meta.url));
+
+// The edits that make bend.ts use PATHS, and report what it parses to
+// PROBES.
 const EDITS: Edit[] = [
+  [
+    'import * as fs from "node:fs";',
+    `import { fs } from ${JSON.stringify(url.pathToFileURL(PATHS).href)};`,
+  ],
+  [
+    'import * as path from "node:path";',
+    `import { path } from ${JSON.stringify(url.pathToFileURL(PATHS).href)};`,
+  ],
   [
     'parse_book(book, dir, body.join("\\n"), ns, al);',
     'seeFile(real, text, ns, al);\n  parse_book(book, dir, body.join("\\n"), ns, al);',
@@ -321,6 +333,7 @@ const load = async (): Promise<Checker> => {
   const version = digest(
     [
       nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
+      nodeFs.readFileSync(PATHS, "utf8"),
       bend,
       nodeFs.readFileSync(nodePath.join(dir, "base.bend"), "utf8"),
     ].join("\n"),

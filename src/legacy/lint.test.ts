@@ -8,6 +8,7 @@ import type { Span as BendSpan, Book, LTerm } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
 import { fetchBend, installedTag, PIN } from "../shared/bend2.ts";
+import { relative, resolve } from "../shared/paths.ts";
 import { ERROR, unwrap } from "../shared/result.ts";
 import type { Result } from "../shared/result.ts";
 import * as api from "./lint.ts";
@@ -25,18 +26,7 @@ import type {
   Severity,
   Source,
 } from "./lint.ts";
-import {
-  bendDir,
-  DRIFT,
-  guardMain,
-  mapper,
-  patch,
-  relative,
-  resolve,
-  seeCheck,
-  seeInfer,
-  walk,
-} from "./seam.ts";
+import { bendDir, DRIFT, guardMain, mapper, patch, seeCheck, seeInfer, walk } from "./seam.ts";
 import type { Raw } from "./seam.ts";
 
 // Types

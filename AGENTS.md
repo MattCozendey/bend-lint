@@ -104,6 +104,7 @@ git diff --check
 | `src/legacy/suppress.ts`             | `# bend-lint:` directives                                       |
 | `src/shared/result.ts`               | the `Result` that entry points return                           |
 | `src/shared/bend2.ts`                | finding Bend (see [Finding Bend](#finding-bend))                |
+| `src/shared/paths.ts`                | the `/`-path `fs` and `path` that both versions give `bend.ts`  |
 | `src/legacy/bend/lint.bend`          | what a Bend rule imports                                        |
 | `src/legacy/bend/effects/effects.js` | the effects a Bend rule calls. oxlint skips `effects/` folders  |
 | `src/legacy/samples/`                | `.bend` files to lint by hand                                   |
@@ -658,7 +659,8 @@ still go to stderr. A finding with a fix:
 
 ## Internals
 
-All of this lives in `src/legacy/seam.ts`, except [Finding Bend](#finding-bend).
+All of this lives in `src/legacy/seam.ts`, except [Finding Bend](#finding-bend) and the `fs` and
+`path` adapters (`src/shared/paths.ts`).
 
 bend-lint works in three layers, however Bend is built:
 
@@ -710,7 +712,8 @@ Wrappers and probes:
 Other edits:
 
 - `fs` and `path` in `bend.ts` and `main.ts` are replaced by adapters that turn real paths into `/`
-  paths, so imports resolve on Windows.
+  paths, so imports resolve on Windows. The Bend version uses the same ones, from
+  `src/shared/paths.ts`.
 - `comp.ts` exports `RUNTIME_MAIN` and `js_sat`, to compile Bend rules.
 - `main.ts` exports `book_read`, `book_err` and `Check_Fail`. So a file is read and checked by the
   same code as `bend <file>`.

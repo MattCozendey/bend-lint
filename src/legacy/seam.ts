@@ -25,6 +25,8 @@ import type * as CompModule from "bend2/comp.ts";
 
 import { CACHE, findBend2 } from "../shared/bend2.ts";
 import type { FindOptions } from "../shared/bend2.ts";
+import * as Paths from "../shared/paths.ts";
+import { path, resolve, slash } from "../shared/paths.ts";
 import type {
   Declaration,
   Diag,
@@ -172,8 +174,10 @@ type Kept = {
 export const DRIFT = Symbol("DriftError");
 
 const HERE = url.fileURLToPath(new URL(".", import.meta.url));
-const DRIVE = /^[A-Za-z]:(?=\/)/;
 const SHIM = JSON.stringify(url.pathToFileURL(nodePath.join(HERE, "seam.ts")).href);
+const PATHS = JSON.stringify(
+  url.pathToFileURL(nodePath.join(HERE, "..", "shared", "paths.ts")).href,
+);
 const SAMPLE = nodePath.join(HERE, "samples", "sample.bend");
 
 export const MARK = "BEND_LINT_PATCH";
@@ -188,7 +192,7 @@ const COMPILERS = new WeakMap<Loaded, string>();
 
 const SHIMMED: Array<[string, string]> = [
   ['import * as fs from "node:fs";', "import { fs } from " + SHIM + ";"],
-  ['import * as path from "node:path";', "import { path } from " + SHIM + ";"],
+  ['import * as path from "node:path";', "import { path } from " + PATHS + ";"],
 ];
 
 const PATCHES: Record<string, Patch> = {
@@ -321,31 +325,14 @@ const CHILDREN: { [K in LTerm["$"]]: (tm: Extract<LTerm, { $: K }>) => LTerm[] }
 // Functions
 // =========
 
-const slash = (p: string): string => p.split(nodePath.sep).join("/");
-
 const held = (p: nodeFs.PathOrFileDescriptor): string | undefined =>
   typeof p === "string" && unsaved.size > 0 && nodeFs.existsSync(p)
     ? unsaved.get(slash(nodeFs.realpathSync(p)))
     : undefined;
 
-// path.posix.resolve from `cwd`, where a drive letter is a root.
-export const resolve = (cwd: string, ...ps: string[]): string => {
-  const all = [cwd, ...ps].map(slash);
-  const drive =
-    all
-      .filter((p) => DRIVE.test(p))
-      .at(-1)
-      ?.slice(0, 2) ?? "";
-  return drive + nodePath.posix.resolve(...all.map((p) => p.replace(DRIVE, "")));
-};
-
-export const relative = (from: string, to: string): string =>
-  nodePath.posix.relative(slash(from).replace(DRIVE, ""), slash(to).replace(DRIVE, ""));
-
-// fs and path for bend.ts and main.ts.
+// fs for bend.ts and main.ts: it also serves unsaved text, and records reads.
 export const fs = {
-  ...nodeFs,
-  realpathSync: (p: nodeFs.PathLike): string => slash(nodeFs.realpathSync(p)),
+  ...Paths.fs,
   readFileSync: ((p: nodeFs.PathOrFileDescriptor, ...rest: unknown[]) => {
     const kept = held(p);
     const stamp =
@@ -376,17 +363,6 @@ const holds = (old: Stamp | undefined, now: Stamp | undefined): boolean =>
   old.mtimeMs === now.mtimeMs &&
   old.ctimeMs === now.ctimeMs &&
   old.ino === now.ino;
-
-export const path = {
-  ...nodePath,
-  join: (...ps: string[]): string => slash(nodePath.join(...ps)),
-  resolve: (...ps: string[]): string => slash(nodePath.resolve(...ps)),
-  posix: {
-    ...nodePath.posix,
-    resolve: (...ps: string[]): string => resolve(process.cwd(), ...ps),
-    relative,
-  },
-};
 
 // f.length counts the parameters before the first default.
 const arity = (f: (...args: never[]) => unknown, n: number, name: string): void => {

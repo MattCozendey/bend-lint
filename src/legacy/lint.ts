@@ -13,6 +13,7 @@ import * as util from "node:util";
 import type { Static } from "typebox";
 import { Compile } from "typebox/schema";
 
+import { path } from "../shared/paths.ts";
 import {
   ERROR,
   error,
@@ -33,7 +34,6 @@ import {
   line,
   load,
   operations,
-  path,
   select,
   starts,
   unstable,
