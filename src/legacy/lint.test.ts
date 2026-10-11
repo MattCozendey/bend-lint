@@ -9,7 +9,7 @@ import type * as BendModule from "bend2/bend.ts";
 
 import {
   fetchBend,
-  PIN,
+  PINNED_BEND_RELEASE_TAG,
   tryGetBend2SourceUrl,
   tryGetInstalledBendTagFromCliOrUndefined,
 } from "../shared/bend2.ts";
@@ -954,7 +954,7 @@ describe("downloading bend", () => {
   test("a release downloads once and whole, and bend-lint runs on it", async () => {
     const asked = github();
     const at = cache();
-    const dir = await fetchBend(PIN, at);
+    const dir = await fetchBend(PINNED_BEND_RELEASE_TAG, at);
     const effs = fs.readdirSync(path.join(BEND2, "effs"));
     expect(fs.readFileSync(path.join(dir, "bend.ts"), "utf8")).toBe(
       fs.readFileSync(path.join(BEND2, "bend.ts"), "utf8"),
@@ -964,13 +964,13 @@ describe("downloading bend", () => {
     );
     expect(fs.readdirSync(path.join(dir, "effs")).sort()).toEqual(effs.sort());
     expect(asked.length).toBe(5 + effs.length);
-    expect(await fetchBend(PIN, at)).toBe(dir);
+    expect(await fetchBend(PINNED_BEND_RELEASE_TAG, at)).toBe(dir);
     expect(asked.length).toBe(5 + effs.length);
     fs.rmSync(path.join(dir, "main.ts")); // a cache from before main.ts was patched
-    expect(await fetchBend(PIN, at)).toBe(dir);
+    expect(await fetchBend(PINNED_BEND_RELEASE_TAG, at)).toBe(dir);
     expect(asked.length).toBe(2 * (5 + effs.length));
     expect(fs.existsSync(path.join(dir, "main.ts"))).toBe(true);
-    expect(fs.readdirSync(path.join(at, PIN))).toEqual(["bend2"]);
+    expect(fs.readdirSync(path.join(at, PINNED_BEND_RELEASE_TAG))).toEqual(["bend2"]);
     const out = spawnSync(process.execPath, [CLI, fixture("downloaded.bend", USERLAND)], {
       encoding: "utf8",
       env: { ...process.env, BEND_DIR: dir },
@@ -990,10 +990,10 @@ describe("downloading bend", () => {
       const url = (printed: string | null | undefined) =>
         withBend(printed, () => bend2Url(undefined, { downloadDir: at }));
       expect(await url("bend 1.2.3\n")).toBe(got("v1.2.3"));
-      expect(await url(undefined)).toBe(got(PIN));
+      expect(await url(undefined)).toBe(got(PINNED_BEND_RELEASE_TAG));
       mock.restore();
       offline();
-      expect(await url(undefined)).toBe(got(PIN));
+      expect(await url(undefined)).toBe(got(PINNED_BEND_RELEASE_TAG));
       expect((await rejection(url("bend 1.2.4\n"))).message).toMatch(
         /could not download bend v1\.2\.4 \(offline\)/,
       );

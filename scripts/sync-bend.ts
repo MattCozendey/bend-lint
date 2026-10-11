@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { PIN } from "../src/shared/bend2.ts";
+import { PINNED_BEND_RELEASE_TAG } from "../src/shared/bend2.ts";
 
 // Constants
 // =========
@@ -43,8 +43,8 @@ const newest = [...listed.stdout.matchAll(/refs\/tags\/v(\d+)\.(\d+)\.(\d+)$/gm)
   .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
   .map((v) => "v" + v.join("."))[0];
 if (newest === undefined) throw new Error("Bend has no release tags");
-if (newest === PIN) {
-  console.log("bendRelease is already " + PIN);
+if (newest === PINNED_BEND_RELEASE_TAG) {
+  console.log("bendRelease is already " + PINNED_BEND_RELEASE_TAG);
 } else {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-sync-"));
   try {
@@ -55,9 +55,9 @@ if (newest === PIN) {
     const text = fs.readFileSync(PACKAGE, "utf8");
     fs.writeFileSync(
       PACKAGE,
-      text.replace(`"bendRelease": "${PIN}"`, `"bendRelease": "${newest}"`),
+      text.replace(`"bendRelease": "${PINNED_BEND_RELEASE_TAG}"`, `"bendRelease": "${newest}"`),
     );
-    console.log("bendRelease moved from " + PIN + " to " + newest);
+    console.log("bendRelease moved from " + PINNED_BEND_RELEASE_TAG + " to " + newest);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

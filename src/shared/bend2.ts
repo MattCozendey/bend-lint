@@ -19,7 +19,7 @@ import { getErrorMessageFromUnknown, tryGetUrlFromFolder } from "./utils.ts";
 
 // The newest bend release this repo's checks passed with; scripts/sync-bend.ts
 // moves it.
-export const PIN: string = pkg.bendRelease;
+export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
 
 // bend-lint's cache: downloaded bends, one folder per release, and what each
 // version keeps.
@@ -132,7 +132,7 @@ const tryFindBend2SourceUrl = async (
     if (ERROR in installed) {
       return error(`could not read the installed bend's release (${installed[ERROR]})`);
     }
-    const tag = installed.OK ?? PIN;
+    const tag = installed.OK ?? PINNED_BEND_RELEASE_TAG;
     return fetchBend(tag, downloadDir).then(tryGetUrlFromFolder, (e: unknown) =>
       error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
     );
