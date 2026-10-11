@@ -96,6 +96,9 @@ git diff --check
 - CI (`.github/workflows/ci.yml`) runs all of these on Linux and Windows:
   - pushes and pull requests: against the pinned Bend release;
   - the daily run: against Bend's main.
+- `bun run c-cpu-prof-md <rules program.bend> <server args...>` profiles the C lane, like bun's
+  `--cpu-prof-md`: it writes `C-CPU.*.md`, with calls (not time) per def, and the `.c` it points
+  into. It needs clang's `llvm-profdata` and `llvm-cov`.
 
 ## Files
 

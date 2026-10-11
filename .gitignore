@@ -1,3 +1,7 @@
 node_modules/
 .bend2
 src/linter/build/
+# Profiles: bun --cpu-prof(-md), --heap-prof(-md), and bun run c-cpu-prof-md
+CPU.*
+Heap.*
+C-CPU.*

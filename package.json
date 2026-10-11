@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "c-cpu-prof-md": "bun ./src/meta/c-cpu-prof-md.ts",
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
     "lint": "bun ./src/meta/link-bend.ts && oxlint .",
