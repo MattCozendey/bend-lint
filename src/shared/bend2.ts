@@ -37,12 +37,14 @@ export const CACHE: string = nodePath.join(
 // Functions
 // =========
 
-// What `bend version` printed: undefined if bend is not installed, an error
-// if it failed or ran too long.
-const runBendVersion = (): Promise<Result<string | undefined, string>> =>
-  new Promise((resolve) => {
-    const VERSION_CHECK_TIMEOUT_IN_MS = 10_000;
-
+// The installed bend's release ("v2.0.36"), or undefined if bend is not
+// installed. An error if `bend version` fails, runs too long, or names no
+// release.
+export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
+  Result<string | undefined, string>
+> => {
+  const VERSION_CHECK_TIMEOUT_IN_MS = 10_000;
+  const read = await new Promise<Result<string | undefined, string>>((resolve) => {
     execFile(
       "bend",
       ["version"],
@@ -62,13 +64,6 @@ const runBendVersion = (): Promise<Result<string | undefined, string>> =>
       },
     );
   });
-
-// The installed bend's release ("v2.0.36"), or undefined if bend is not
-// installed. An error if bend runs but names no release.
-export const tryGetInstalledBendTagFromCliOrUndefined = async (
-  readBendVersion: () => Promise<Result<string | undefined, string>> = runBendVersion,
-): Promise<Result<string | undefined, string>> => {
-  const read = await readBendVersion();
   if (ERROR in read || read.OK === undefined) {
     return read;
   }
@@ -133,15 +128,10 @@ export const fetchBend = async (tag: string, downloadDir: string = CACHE): Promi
 // a download. An error does not tell how to name one; the caller does.
 export const tryGetBend2SourceUrl = async ({
   bendDir = process.env.BEND_DIR,
-  readBendVersion,
   downloadDir,
-}: {
-  bendDir?: string;
-  readBendVersion?: () => Promise<Result<string | undefined, string>>;
-  downloadDir?: string;
-} = {}): Promise<Result<URL, string>> => {
+}: { bendDir?: string; downloadDir?: string } = {}): Promise<Result<URL, string>> => {
   if (bendDir === undefined) {
-    const installed = await tryGetInstalledBendTagFromCliOrUndefined(readBendVersion);
+    const installed = await tryGetInstalledBendTagFromCliOrUndefined();
     if (ERROR in installed) {
       return error(`could not read the installed bend's release (${installed[ERROR]})`);
     }
