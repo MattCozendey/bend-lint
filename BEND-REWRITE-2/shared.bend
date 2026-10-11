@@ -27,6 +27,19 @@ def lookup.go(-A: Data, +key: String, table: List<&2, Named<A>>, found: Maybe<&2
 def lookup(-A: Data, +key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
   lookup.go(A, key, table, None{})
 
+# The values of `named`, by name, onto `out`: a table for `find`, which reads a name in one pass over it, however many
+# names there are.
+def table(-A: Data, named: List<&2, Named<A>>, out: Map<&2, Maybe<&2, A>>) -> Map<&2, Maybe<&2, A>>:
+  match named:
+    case Nil{}:
+      out
+    case Con{Named{name, value}, rest}:
+      table(A, rest, Map.set(&2, Maybe<&2, A>, out, name, Some{value}))
+
+# The value named `key` in `table`, if there is one.
+def find(-A: Data, table: Map<&2, Maybe<&2, A>>, key: String) -> Maybe<&2, A>:
+  Pair.snd(Map<&2, Maybe<&2, A>>, Maybe<&2, A>, Map.get(Maybe<&2, A>, None{}, table, key))
+
 # `xs`, last first, onto `out`.
 def onto(a, -A: Kind(a), xs: List<a, A>, out: List<a, A>) -> List<a, A>:
   match xs:

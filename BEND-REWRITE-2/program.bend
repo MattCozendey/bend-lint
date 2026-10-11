@@ -72,15 +72,15 @@ def Span.read(path: String, beg: String, end: String) -> Maybe<&2, Lint.Span>:
     e : U32 <- U32.read(end)
     return Lint.Span{path, b, e}
 
-# A node from the fields of its record, in the file at `path`.
-def Node.read(path: String, fields: List<&2, String>) -> Maybe<&2, Lint.Node>:
+# A node from the fields of its record, in the file at `path`; `kinds` is `Syntax.names` as a table.
+def Node.read(path: String, kinds: Map<&2, Maybe<&2, Lint.Syntax>>, fields: List<&2, String>) -> Maybe<&2, Lint.Node>:
   match fields:
     case Con{id, Con{parent, Con{owner, Con{syntax, Con{name, Con{binder, Con{quantity, Con{beg, Con{end, Con{target, Nil{}}}}}}}}}}}:
       do Maybe<&2, Lint.Node>:
         i : U32 <- U32.read(id)
         p : U32 <- U32.read(parent)
         o : U32 <- U32.read(owner)
-        s : Lint.Syntax <- Shared.lookup(Lint.Syntax, syntax, Syntax.names())
+        s : Lint.Syntax <- Shared.find(Lint.Syntax, kinds, syntax)
         return Lint.Node{
           i,
           p,
@@ -121,12 +121,16 @@ def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>
       None{}
 
 # The sources read so far, last first, each with its nodes and facts last first.
-def Program.add(kind: Maybe<&2, Record>, fields: List<&2, String>, sources: List<&2, Lint.Source>) ->
-  Maybe<&2, List<&2, Lint.Source>>:
+def Program.add(
+  kind: Maybe<&2, Record>,
+  fields: List<&2, String>,
+  sources: List<&2, Lint.Source>,
+  kinds: Map<&2, Maybe<&2, Lint.Syntax>>
+) -> Maybe<&2, List<&2, Lint.Source>>:
   match kind fields sources:
     case Some{NodeRecord{}} _ Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
-        n : Lint.Node <- Node.read(path, fields)
+        n : Lint.Node <- Node.read(path, kinds, fields)
         return Lint.Source{path, namespace, text, n <> nodes, facts} <> rest
     case Some{FactRecord{}} _ Con{Lint.Source{path, namespace, text, Con{+node, nodes}, facts}, rest}:
       do Maybe<&2, List<&2, Lint.Source>>:
@@ -148,17 +152,23 @@ def Program.in_order(sources: List<&2, Lint.Source>, done: List<&2, Lint.Source>
         Lint.Source{path, namespace, text, List.reverse(&2, Lint.Node, nodes), List.reverse(&2, Lint.Fact, facts)} <> done
       )
 
-# The program of an answer's records: a source record, then its nodes and facts, for each source.
-def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Lint.Source>) -> Maybe<&2, Lint.Program>:
+# The program of an answer's records: a source record, then its nodes and facts, for each source. `kinds` is
+# `Syntax.names` as a table.
+def Program.read(records: List<&2, List<&2, String>>, sources: List<&2, Lint.Source>, +kinds: Map<&2, Maybe<&2, Lint.Syntax>>) ->
+  Maybe<&2, Lint.Program>:
   match records:
     case Nil{}:
       Some{Lint.Program{Program.in_order(sources, [])}}
     case Con{Con{tag, fields}, rest}:
       do Maybe<&2, Lint.Program>:
-        added : List<&2, Lint.Source> <- Program.add(Shared.lookup(Record, tag, Record.names()), fields, sources)
-        Program.read(rest, added)
+        added : List<&2, Lint.Source> <- Program.add(Shared.lookup(Record, tag, Record.names()), fields, sources, kinds)
+        Program.read(rest, added, kinds)
     case Con{Nil{}, rest}:
       None{}
+
+# The program of an answer's records.
+def Program.of(records: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
+  Program.read(records, [], Shared.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>)))
 
 def Check.malformed(-A: Type) -> IO(A):
   IO.die(A, 1, "bend-lint: the checker's answer is malformed")
@@ -174,7 +184,7 @@ def Check.passed(tagged: Bool, check: Maybe<&2, U32>, program: Maybe<&2, Lint.Pr
 def Check.read(records: List<&2, List<&2, String>>) -> IO(Check):
   match records:
     case Con{Con{tag, Con{check, Nil{}}}, rest}:
-      Check.passed(String.eq(tag, "check"), U32.read(check), Program.read(rest, []))
+      Check.passed(String.eq(tag, "check"), U32.read(check), Program.of(rest))
     case _:
       Check.malformed(Check)
 
@@ -218,7 +228,7 @@ def Check.parsed(syntax: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
     case Nil{}:
       None{}
     case _:
-      Program.read(syntax, [])
+      Program.of(syntax)
 
 def Check.failed(fail: Bool, failure: Failure, +records: List<&2, List<&2, String>>) -> IO(Check):
   match fail:
