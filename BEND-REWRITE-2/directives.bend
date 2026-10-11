@@ -736,49 +736,73 @@ def Unmet.go(coverings: List<&2, Covering>, +used: List<&2, U32>, +path: String,
 def Directive.key(a: Action, s: Scope, r: String, sev: Maybe<&2, Lint.Severity>) -> String:
   r ++ "\t" ++ Severity.pinned(sev) ++ "\t" ++ Action.show(a) ++ "-" ++ Scope.show(s)
 
-# A run of directives on consecutive comment-only lines: where it starts and ends, its last line, its last key, and
-# whether it is in order.
+# A directive of a run: its key, where its comment is, and the comment's text.
+type Slot is Data:
+  Slot{key: String, beg: U32, end: U32, text: String}
+
+# A run of directives on consecutive comment-only lines: where it starts and ends, its last line, its last key, whether
+# it is in order, and its directives (last first).
 type Run is Data:
-  Run{beg: U32, end: U32, line: U32, key: String, sorted: Bool}
+  Run{beg: U32, end: U32, line: U32, key: String, sorted: Bool, slots: List<&2, Slot>}
 
 # The runs so far: the open one, and the findings about the closed ones that are out of order (last first).
 type Runs is Data:
   Runs{open: Maybe<&2, Run>, out: List<&2, Lint.Found>}
 
+def Slot.le(a: Slot, b: Slot) -> Bool:
+  match a b:
+    case Slot{k, x, y, t} Slot{j, v, w, u}:
+      String.is_le(k, j)
+
+# The edits that write the directives of `sorted` into the places of `slots` (both in order), onto `out`.
+def Slot.order(slots: List<&2, Slot>, sorted: List<&2, Slot>, +path: String, out: List<&2, Lint.Operation>) ->
+  List<&2, Lint.Operation>:
+  match slots sorted:
+    case Con{Slot{k, beg, end, t}, rest} Con{Slot{j, b, e, text}, more}:
+      Slot.order(rest, more, path, Lint.Replace{Lint.Span{path, beg, end}, text} <> out)
+    case _ _:
+      List.reverse(&2, Lint.Operation, out)
+
 def Runs.close(open: Maybe<&2, Run>, +path: String, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match open:
-    case Some{Run{beg, end, line, key, False{}}}:
+    case Some{Run{beg, end, line, key, False{}, slots}}:
+      +ordered = List.reverse(&2, Slot, slots)
       Lint.Found{
         "bend-lint/directive",
         Lint.Finding{
           Lint.Error{},
           Lint.Span{path, beg, end},
-          "Directives that stack must be in order: by rule, then severity, then keyword.", []
+          "Directives that stack must be in order: by rule, then severity, then keyword.",
+          [Lint.Fix{"Order the directives", Slot.order(ordered, Shared.sort(~Slot, ~Slot.le, ordered), path, [])}]
         }
       } <> out
     case _:
       out
 
+# A run of one directive: its key, and its comment's place, line and text after the #.
+def Run.first(+key: String, +beg: U32, +end: U32, line: U32, body: String) -> Run:
+  Run{beg, end, line, key, True{}, [Slot{key, beg, end, "#" ++ body}]}
+
 def Runs.extend(continues: Bool, run: Run, comment: Comment, +key: String, +path: String, out: List<&2, Lint.Found>) -> Runs:
   match continues run comment:
-    case True{} Run{beg, end, line, +last, sorted} Comment{b, e, l, t, body}:
-      Runs{Some{Run{beg, e, l, key, sorted && String.is_le(last, key)}}, out}
+    case True{} Run{beg, end, line, +last, sorted, slots} Comment{+b, +e, l, t, body}:
+      Runs{Some{Run{beg, e, l, key, sorted && String.is_le(last, key), Slot{key, b, e, "#" ++ body} <> slots}}, out}
     case False{} _ Comment{b, e, l, t, body}:
-      Runs{Some{Run{b, e, l, key, True{}}}, Runs.close(Some{run}, path, out)}
+      Runs{Some{Run.first(key, b, e, l, body)}, Runs.close(Some{run}, path, out)}
 
 def Runs.step(said: Said, +path: String, runs: Runs) -> Runs:
   match said runs:
-    case Said{Directive{a, s, r, sev, Comment{b, e, +l, False{}, body}, i}} Runs{Some{Run{rb, re, +rl, rk, rs}}, out}:
+    case Said{Directive{a, s, r, sev, Comment{b, e, +l, False{}, body}, i}} Runs{Some{Run{rb, re, +rl, rk, rs, slots}}, out}:
       Runs.extend(
         U32.is_eq(l, (rl + 1 : U32)),
-        Run{rb, re, rl, rk, rs},
+        Run{rb, re, rl, rk, rs, slots},
         Comment{b, e, l, False{}, body},
         Directive.key(a, s, r, sev),
         path,
         out
       )
     case Said{Directive{a, s, r, sev, Comment{b, e, l, False{}, body}, i}} Runs{None{}, out}:
-      Runs{Some{Run{b, e, l, Directive.key(a, s, r, sev), True{}}}, out}
+      Runs{Some{Run.first(Directive.key(a, s, r, sev), b, e, l, body)}, out}
     case _ _:
       runs
 
