@@ -1710,7 +1710,7 @@ export const load = async (given: string | undefined): Promise<Loaded> => {
   const dirUrl = unwrap(
     mapError(await tryGetBend2SourceUrl({ bendDir: given }), (e) => e + ", or pass --bend <dir>"),
   );
-  const dir = slash(url.fileURLToPath(dirUrl));
+  const dir = slash(nodePath.resolve(url.fileURLToPath(dirUrl)));
   const patched = new Map(
     PATCHED.map((f): [string, string] => {
       const file = new URL(f, dirUrl);
