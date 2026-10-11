@@ -23,7 +23,7 @@ const DIRECTIVE = "bend-lint/directive";
 // Functions
 // =========
 
-const found = (lines: string[]): Found[] =>
+const found = (lines: string[]): Promise<Found[]> =>
   lint(PROGRAM, { "main.bend": lines.join("\n") + "\n" + TAIL, "util.bend": UTIL }, "main.bend");
 
 const finding = (at: string, severity: string, code: string, message: string): Found => ({
@@ -40,16 +40,19 @@ const finding = (at: string, severity: string, code: string, message: string): F
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("directives", () => {
-  test("--show-suppressed lists the findings directives suppressed, before the summary", () => {
+  test("--show-suppressed lists the findings directives suppressed, before the summary", async () => {
     const text = [
       "import Base",
       "# bend-lint: disable-next no-unused/imports -- kept on purpose",
       "import ./util.bend as V",
       "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept",
     ].join("\n");
-    const ran = run(PROGRAM, { "main.bend": text + "\n" + TAIL, "util.bend": UTIL }, "main.bend", [
-      "--show-suppressed",
-    ]);
+    const ran = await run(
+      PROGRAM,
+      { "main.bend": text + "\n" + TAIL, "util.bend": UTIL },
+      "main.bend",
+      ["--show-suppressed"],
+    );
     expect(
       ran.out
         .trim()
@@ -63,9 +66,9 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("disable-next and disable-line cover their lines; a disable that covers nothing is reported", () => {
+  test("disable-next and disable-line cover their lines; a disable that covers nothing is reported", async () => {
     expect(
-      found([
+      await found([
         "import Base",
         "# bend-lint: disable-next no-unused/imports -- kept on purpose",
         "import ./util.bend as V",
@@ -82,9 +85,9 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("an expect of the finding's severity is met; one of another severity is not", () => {
+  test("an expect of the finding's severity is met; one of another severity is not", async () => {
     expect(
-      found([
+      await found([
         "import Base",
         "# bend-lint: expect-next no-unused/imports@warning -- met",
         "import ./util.bend as V",
@@ -102,9 +105,9 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("a wrong directive says what is wrong, in order of the checks", () => {
+  test("a wrong directive says what is wrong, in order of the checks", async () => {
     expect(
-      found([
+      await found([
         "import Base",
         "# bend-lint: nonsense",
         "# bend-lint: disable-next no-unused/imports",
@@ -133,13 +136,13 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("a rule id may nest namespaces", () => {
-    expect(found(["import Base", "# bend-lint: disable-next a/b/c -- nested"])).toEqual([
+  test("a rule id may nest namespaces", async () => {
+    expect(await found(["import Base", "# bend-lint: disable-next a/b/c -- nested"])).toEqual([
       finding("2:1", "error", DIRECTIVE, "There is no rule a/b/c."),
     ]);
   });
 
-  test("--fix sorts a stack of directives in place: it only rewrites comments, so it is safe", () => {
+  test("--fix sorts a stack of directives in place: it only rewrites comments, so it is safe", async () => {
     const stack = (first: string, second: string): string =>
       [
         "import Base",
@@ -151,15 +154,15 @@ setDefaultTimeout(120_000);
       ].join("\n");
     const b = "# bend-lint: expect-next no-unused/imports@warning -- b";
     const a = "# bend-lint: disable-next no-unused/imports -- a";
-    const ran = run(PROGRAM, { "main.bend": stack(b, a), "util.bend": UTIL }, "main.bend", [
+    const ran = await run(PROGRAM, { "main.bend": stack(b, a), "util.bend": UTIL }, "main.bend", [
       "--fix",
     ]);
     expect([ran.files["main.bend"], ran.code]).toEqual([stack(a, b), 1]);
   });
 
-  test("begin and end pair; an end that closes nothing, an open begin, and an unsorted stack are reported", () => {
+  test("begin and end pair; an end that closes nothing, an open begin, and an unsorted stack are reported", async () => {
     expect(
-      found([
+      await found([
         "import Base",
         "# bend-lint: disable-begin no-unused/imports -- region",
         "import ./util.bend as V",

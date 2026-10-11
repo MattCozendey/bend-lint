@@ -34,8 +34,12 @@ const ENTRIES = {
 // Functions
 // =========
 
-const found = (program: string, files: Record<string, string>, named: string): string[] =>
-  lint(program, files, named).map(({ at, message }) => at + " " + message);
+const found = async (
+  program: string,
+  files: Record<string, string>,
+  named: string,
+): Promise<string[]> =>
+  (await lint(program, files, named)).map(({ at, message }) => at + " " + message);
 
 // Side effects
 // ============
@@ -43,13 +47,13 @@ const found = (program: string, files: Record<string, string>, named: string): s
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("run", () => {
-  test("a rule finds any node of its file by id", () => {
-    expect(found(PARENTS, { "main.bend": SUGARED }, "main.bend")).toEqual([
+  test("a rule finds any node of its file by id", async () => {
+    expect(await found(PARENTS, { "main.bend": SUGARED }, "main.bend")).toEqual([
       "1:1 every parent is found",
     ]);
   });
 
-  test("a node has a range only where the file writes it", () => {
+  test("a node has a range only where the file writes it", async () => {
     const written = [
       "3:12 call",
       "3:12 reference IO",
@@ -72,26 +76,26 @@ setDefaultTimeout(120_000);
     ];
     // The do-block's `IO` is written too, but its parser keeps no term of it.
     const allowed = [...written, "4:6 reference IO"];
-    const got = found(WRITTEN, { "main.bend": SUGARED }, "main.bend");
+    const got = await found(WRITTEN, { "main.bend": SUGARED }, "main.bend");
     expect(got).toEqual(expect.arrayContaining(written));
     expect(got.filter((x) => !allowed.includes(x))).toEqual([]);
   });
 
-  test("a some-entry program rule keeps what any check finds", () => {
-    expect(found(SOME, ENTRIES, "util.bend")).toEqual([
+  test("a some-entry program rule keeps what any check finds", async () => {
+    expect(await found(SOME, ENTRIES, "util.bend")).toEqual([
       "1:1 at 0",
       "1:3 at the count",
       "1:4 at the count",
     ]);
   });
 
-  test("an every-entry program rule keeps what every check finds", () => {
-    expect(found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
+  test("an every-entry program rule keeps what every check finds", async () => {
+    expect(await found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
-  test("an entry that reads the file and fails its check shows its error, and fails the run", () => {
+  test("an entry that reads the file and fails its check shows its error, and fails the run", async () => {
     const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
-    const ran = run(PARENTS, { ...ENTRIES, "b.bend": broken }, "util.bend");
+    const ran = await run(PARENTS, { ...ENTRIES, "b.bend": broken }, "util.bend");
     expect([
       ran.code,
       ran.out.includes("b.bend:6:3: error bend/check: "),
@@ -99,8 +103,8 @@ setDefaultTimeout(120_000);
     ]).toEqual([1, true, true]);
   });
 
-  test("each file the paths and globs name is linted once, in turn, with one summary", () => {
-    const ran = run(
+  test("each file the paths and globs name is linted once, in turn, with one summary", async () => {
+    const ran = await run(
       PARENTS,
       { "a.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
       "util.bend",
@@ -122,8 +126,8 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("a file whose check fails fails the run, and the others are still linted", () => {
-    const ran = run(
+  test("a file whose check fails fails the run, and the others are still linted", async () => {
+    const ran = await run(
       PARENTS,
       { "bad.bend": "import Base\n\ndef bad(\n", "util.bend": ENTRIES["util.bend"] },
       "bad.bend",
@@ -136,12 +140,14 @@ setDefaultTimeout(120_000);
     ]).toEqual([1, true, true]);
   });
 
-  test("--json prints one object: the findings with their fixes' edits, and those suppressed", () => {
+  test("--json prints one object: the findings with their fixes' edits, and those suppressed", async () => {
     const util = "# bend-lint: disable-file tests/across -- kept\n" + ENTRIES["util.bend"];
-    const ran = run(ACROSS, { "main.bend": ENTRIES["a.bend"], "util.bend": util }, "main.bend", [
-      "util.bend",
-      "--json",
-    ]);
+    const ran = await run(
+      ACROSS,
+      { "main.bend": ENTRIES["a.bend"], "util.bend": util },
+      "main.bend",
+      ["util.bend", "--json"],
+    );
     const named = (key: string, value: unknown): unknown =>
       key === "path" && typeof value === "string" ? value.replace(/^.*\//, "") : value;
     const at = (line: number, character: number) => ({ line, character });
@@ -169,8 +175,8 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("--fix-dangerously renames a local name, but no global one: files the check did not read can use it", () => {
-    const ran = run(
+  test("--fix-dangerously renames a local name, but no global one: files the check did not read can use it", async () => {
+    const ran = await run(
       RENAME,
       { "main.bend": "import Base\n\ndef foo(foo: U32) -> U32:\n  foo\n" },
       "main.bend",
@@ -182,8 +188,8 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("--fix-dangerously makes a fix whole, in each file it edits", () => {
-    const ran = run(
+  test("--fix-dangerously makes a fix whole, in each file it edits", async () => {
+    const ran = await run(
       ACROSS,
       { "main.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
       "main.bend",

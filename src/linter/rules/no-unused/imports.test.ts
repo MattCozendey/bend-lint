@@ -17,7 +17,7 @@ const UTIL = "import Base\n\ndef two() -> U32:\n  2\n\nlaw two_is_two:\n  {two()
 // Functions
 // =========
 
-const found = (main: string): Found[] =>
+const found = (main: string): Promise<Found[]> =>
   lint(PROGRAM, { "main.bend": main, "util.bend": UTIL }, "main.bend");
 
 // Side effects
@@ -26,9 +26,9 @@ const found = (main: string): Found[] =>
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("no-unused/imports", () => {
-  test("an alias that names nothing is reported, at the alias", () => {
+  test("an alias that names nothing is reported, at the alias", async () => {
     expect(
-      found(
+      await found(
         "import Base\nimport ./util.bend as U\nimport ./util.bend as V\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
       ),
     ).toEqual([
@@ -42,14 +42,18 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("an alias a name is written through is used", () => {
+  test("an alias a name is written through is used", async () => {
     expect(
-      found("import Base\nimport ./util.bend as U\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n"),
+      await found(
+        "import Base\nimport ./util.bend as U\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
+      ),
     ).toEqual([]);
   });
 
-  test("a fill of an imported law uses its alias; Base, used by no name, is reported", () => {
-    expect(found("import Base\nimport ./util.bend as U\n\ndef U.two_is_two():\n  {==}\n")).toEqual([
+  test("a fill of an imported law uses its alias; Base, used by no name, is reported", async () => {
+    expect(
+      await found("import Base\nimport ./util.bend as U\n\ndef U.two_is_two():\n  {==}\n"),
+    ).toEqual([
       {
         file: "main.bend",
         at: "1:8",
@@ -60,8 +64,8 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("--fix-dangerously deletes the import's line", () => {
-    const ran = run(
+  test("--fix-dangerously deletes the import's line", async () => {
+    const ran = await run(
       PROGRAM,
       {
         "main.bend":

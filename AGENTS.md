@@ -81,7 +81,7 @@ and type check.
 
 ```sh
 bun install
-BEND_DIR=/path/to/bend bun test
+BEND_DIR=/path/to/bend bun test --parallel
 bun run typecheck
 bun run lint
 bun run format:check

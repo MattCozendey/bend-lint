@@ -21,10 +21,14 @@ const MESSAGE = "Order the imports: import Base first, then by path and alias, e
 // =========
 
 // What the rule finds in `named`, beside a.bend, b.bend and sub/c.bend.
-const found = (text: string, named = "main.bend"): string[] =>
-  lint(PROGRAM, { [named]: text, "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF }, named).map(
-    ({ at, message }) => at + " " + message,
-  );
+const found = async (text: string, named = "main.bend"): Promise<string[]> =>
+  (
+    await lint(
+      PROGRAM,
+      { [named]: text, "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF },
+      named,
+    )
+  ).map(({ at, message }) => at + " " + message);
 
 // Side effects
 // ============
@@ -32,53 +36,56 @@ const found = (text: string, named = "main.bend"): string[] =>
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("layout/imports", () => {
-  test("Base first, then sorted by path, passes", () => {
+  test("Base first, then sorted by path, passes", async () => {
     expect(
-      found("import Base\nimport ../a.bend as A\nimport ./c.bend as C\n" + MAIN, "sub/main.bend"),
+      await found(
+        "import Base\nimport ../a.bend as A\nimport ./c.bend as C\n" + MAIN,
+        "sub/main.bend",
+      ),
     ).toEqual([]);
   });
 
-  test("Base after another import, or paths out of order, are reported at the block", () => {
+  test("Base after another import, or paths out of order, are reported at the block", async () => {
     expect(
-      found(
+      await found(
         "import ./c.bend as C\nimport ../b.bend as B\nimport Base\nimport ../a.bend as A\n" + MAIN,
         "sub/main.bend",
       ),
     ).toEqual(["1:1 " + MESSAGE]);
   });
 
-  test("a comment line stays with the import below it; a header is not in the block", () => {
+  test("a comment line stays with the import below it; a header is not in the block", async () => {
     expect(
-      found(
+      await found(
         "# header\nimport Base\n# about a\nimport ./a.bend as A\nimport ./b.bend as B  # bee\n" +
           MAIN,
       ),
     ).toEqual([]);
   });
 
-  test("a blank line in the block is reported", () => {
-    expect(found("import Base\n\nimport ./a.bend as A\n" + MAIN)).toEqual(["1:1 " + MESSAGE]);
+  test("a blank line in the block is reported", async () => {
+    expect(await found("import Base\n\nimport ./a.bend as A\n" + MAIN)).toEqual(["1:1 " + MESSAGE]);
   });
 
-  test("a second import of a file is reported, also through another path", () => {
-    expect(found("import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN)).toEqual([
-      "1:1 " + MESSAGE,
-    ]);
-    expect(found("import Base\nimport ./a.bend as A\nimport a.bend as Again\n" + MAIN)).toEqual([
-      "1:1 " + MESSAGE,
-    ]);
-    expect(found("import Base\nimport ./a.bend as A\nimport Base\n" + MAIN)).toEqual([
+  test("a second import of a file is reported, also through another path", async () => {
+    expect(
+      await found("import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN),
+    ).toEqual(["1:1 " + MESSAGE]);
+    expect(
+      await found("import Base\nimport ./a.bend as A\nimport a.bend as Again\n" + MAIN),
+    ).toEqual(["1:1 " + MESSAGE]);
+    expect(await found("import Base\nimport ./a.bend as A\nimport Base\n" + MAIN)).toEqual([
       "1:1 " + MESSAGE,
     ]);
   });
 
-  test("a file without imports passes", () => {
-    expect(found("type N is Data:\n  Z{}\n")).toEqual([]);
+  test("a file without imports passes", async () => {
+    expect(await found("type N is Data:\n  Z{}\n")).toEqual([]);
   });
 
-  test("--fix-dangerously writes the block in order, each file once", () => {
+  test("--fix-dangerously writes the block in order, each file once", async () => {
     const files = { "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF };
-    const ordered = run(
+    const ordered = await run(
       PROGRAM,
       {
         ...files,
@@ -94,10 +101,10 @@ setDefaultTimeout(120_000);
     );
   });
 
-  test("--fix-dangerously points the uses of a dropped import at the kept one", () => {
+  test("--fix-dangerously points the uses of a dropped import at the kept one", async () => {
     const uses =
       "\ndef Again.same(x):\n  {==}\n\ndef main() -> U32:\n  (Again.one() + A.one() : U32)\n";
-    const ran = run(
+    const ran = await run(
       PROGRAM,
       {
         "a.bend": LEAF + "\nlaw same:\n  for x: Nat\n  {x == x : Nat}\n",

@@ -19,8 +19,8 @@ const LAW = "import Base\n\nlaw is_Odd:\n  for x: U32\n  U32\n";
 // =========
 
 // Each finding as where it is and its message.
-const flagged = (main: string): string[][] =>
-  lint(PROGRAM, { "main.bend": main, "leaf.bend": LEAF, "law.bend": LAW }, "main.bend").map(
+const flagged = async (main: string): Promise<string[][]> =>
+  (await lint(PROGRAM, { "main.bend": main, "leaf.bend": LEAF, "law.bend": LAW }, "main.bend")).map(
     ({ at, message }) => [at, message],
   );
 
@@ -30,9 +30,9 @@ const flagged = (main: string): string[][] =>
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)(() => {
-  test("names whose case follows their kind pass", () => {
+  test("names whose case follows their kind pass", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 import ./leaf.bend as Leaf
 
 type Box<a, -A: Kind(a)> is Kind(a):
@@ -66,9 +66,9 @@ def main() -> U32:
     ).toEqual([]);
   });
 
-  test("each kind of name is reported with the case it takes", () => {
+  test("each kind of name is reported with the case it takes", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 import ./leaf.bend as leaf
 
 type my_box is Data:
@@ -100,9 +100,9 @@ def main() -> U32:
     ]);
   });
 
-  test("a parameter whose type is a function to a sort is a type", () => {
+  test("a parameter whose type is a function to a sort is a type", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 
 def Fam(f: @-x: U32 -> Type) -> Type:
   f(1)
@@ -110,9 +110,9 @@ def Fam(f: @-x: U32 -> Type) -> Type:
     ).toEqual([["3:9", "Rename f to F: a parameter that is a type is PascalCase."]]);
   });
 
-  test("a binder written bare is a quantity, so snake_case", () => {
+  test("a binder written bare is a quantity, so snake_case", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 
 type Box<A> is Data:
   Box{}
@@ -120,9 +120,9 @@ type Box<A> is Data:
     ).toEqual([["3:10", "Rename A to a: a parameter that is not a type is snake_case."]]);
   });
 
-  test("a dotted name is checked by its last segment", () => {
+  test("a dotted name is checked by its last segment", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 
 type Box is Data:
   Box{}
@@ -141,19 +141,21 @@ def main() -> Box:
     ]);
   });
 
-  test("words split at capitals, and a run of capitals is one word", () => {
+  test("words split at capitals, and a run of capitals is one word", async () => {
     expect(
-      flagged(`import Base
+      (
+        await flagged(`import Base
 
 def parseHTTPHeader(n: U32) -> U32:
   n
-`).map(([, message]) => message.split(":")[0]),
+`)
+      ).map(([, message]) => message.split(":")[0]),
     ).toEqual(["Rename parseHTTPHeader to parse_http_header"]);
   });
 
-  test("a variable takes either case, and is reported when it fits neither", () => {
+  test("a variable takes either case, and is reported when it fits neither", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 
 def main() -> U32:
   Big : U32 = 1
@@ -166,9 +168,9 @@ def main() -> U32:
     ]);
   });
 
-  test("a fill of another file's law and import Base are skipped", () => {
+  test("a fill of another file's law and import Base are skipped", async () => {
     expect(
-      flagged(`import Base
+      await flagged(`import Base
 import ./law.bend as Laws
 
 def Laws.is_Odd(x):
@@ -180,8 +182,8 @@ def main() -> U32:
     ).toEqual([]);
   });
 
-  test("--fix-dangerously renames a parameter or variable with its uses, and only them", () => {
-    const ran = run(
+  test("--fix-dangerously renames a parameter or variable with its uses, and only them", async () => {
+    const ran = await run(
       PROGRAM,
       {
         "main.bend":
@@ -195,11 +197,13 @@ def main() -> U32:
     );
   });
 
-  test("--fix-dangerously renames a lambda, forall or +pattern binder where the text writes it", () => {
-    const fixed = (text: string): string =>
-      run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"]).files["main.bend"];
+  test("--fix-dangerously renames a lambda, forall or +pattern binder where the text writes it", async () => {
+    const fixed = async (text: string): Promise<string> =>
+      (await run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"])).files[
+        "main.bend"
+      ];
     expect(
-      fixed(
+      await fixed(
         "import Base\n\ndef F(-T: Type) -> Type:\n  @ - fooQux: T -> T\n\ndef k(xs: List<U32>) -> U32 -> U32:\n  match xs:\n    case Con{+myHead, rest}:\n      fooBar => (myHead + fooBar : U32)\n    case Nil{}:\n      fooBar => fooBar\n",
       ),
     ).toBe(
@@ -207,11 +211,13 @@ def main() -> U32:
     );
   });
 
-  test("no fix renames to a name already in use", () => {
+  test("no fix renames to a name already in use", async () => {
     const text =
       "import Base\n\ndef add(fooBar: U32, foo_bar: U32) -> U32:\n  (fooBar + foo_bar : U32)\n\ndef main() -> U32:\n  add(1, 2)\n";
     expect(
-      run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"]).files["main.bend"],
+      (await run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"])).files[
+        "main.bend"
+      ],
     ).toBe(text);
   });
 });
