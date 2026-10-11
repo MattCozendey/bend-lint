@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, lint } from "./testing.ts";
+import { build, lint, run } from "./testing.ts";
 
 // Constants
 // =========
@@ -14,6 +14,7 @@ const PARENTS = given ? build("tests/parents.bend") : "";
 const WRITTEN = given ? build("tests/written.bend") : "";
 const SOME = given ? build("tests/some.bend") : "";
 const EVERY = given ? build("tests/every.bend") : "";
+const ACROSS = given ? build("tests/across.bend") : "";
 
 // A file with sugar the parser expands: a do-block, `A & B`, an operator.
 const SUGARED =
@@ -85,5 +86,21 @@ setDefaultTimeout(120_000);
 
   test("an every-entry program rule keeps what every check finds", () => {
     expect(found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
+  });
+
+  test("--fix-dangerously makes a fix whole, in each file it edits", () => {
+    const ran = run(
+      ACROSS,
+      { "main.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect([ran.files, ran.out.trim().split("\n").at(-1)]).toEqual([
+      {
+        "main.bend": "# fixed\n" + ENTRIES["a.bend"],
+        "util.bend": "# fixed\n" + ENTRIES["util.bend"],
+      },
+      "bend-lint: 1 finding(s), 1 fixed",
+    ]);
   });
 });

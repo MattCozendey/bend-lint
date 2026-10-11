@@ -11,8 +11,9 @@
 # - A rule reads the program once per check, shared by every rule: a flat list of syntax nodes per file, parents
 #   first; the file's declarations with their uses, built once; and, if it needs them, the checker's facts on the
 #   source's terms, each tied to its node.
-# - Findings come first. A fix is a list of typed operations that the rule requests, in any files; the linter plans
-#   them and decides their safety. Until Bend's checker is Bend, every fix is Dangerous (`--fix-dangerously`).
+# - Findings come first. A fix is a list of typed operations that the rule requests, in any of the program's own files;
+#   the linter plans them and decides their safety. Until Bend's checker is Bend, every fix is Dangerous
+#   (`--fix-dangerously`).
 #
 # Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (the server), program.bend (the
 # program a check gives, and its declarations), directives.bend (bend-lint: comments), config.bend (bend-lint.json),
@@ -163,15 +164,19 @@ def Severity.show(s: Severity) -> String:
     case Hint{}:
       "hint"
 
-# An edit a fix asks for: replace a span's text; or rename what a declaration declares (its node, by id), with each of
-# its uses. The linter finds the uses, and drops a rename if one of them is not written as the name, or the new name is
-# taken where the declaration is.
+# An edit a fix asks for: replace a span's text; rename what a declaration declares (its node, by id), with each of
+# its uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
+# say). A rename changes an import's alias, the first part of each use (`U` of `U.two`), and any other name's last
+# part. The linter finds the uses, and drops the fix if the text does not write the name where one of them is, or if a
+# Rename's new name is taken where the declaration is.
 type Operation is Data:
   Replace{span: Span, text: String}
   Rename{node: U32, to: String}
+  RenameUses{node: U32, to: String}
 
-# A way to fix a finding: what it does, and its operations, in any files of the program. The linter decides whether a
-# fix is safe; until Bend's checker is Bend it can prove none, so every fix is dangerous (`--fix-dangerously`).
+# A way to fix a finding: what it does, and its operations, in any of the program's own files (not Base, nor a hub
+# package). The linter decides whether a fix is safe; until Bend's checker is Bend it can prove none, so every fix is
+# dangerous (`--fix-dangerously`).
 type Fix is Data:
   Fix{title: String, operations: List<&2, Operation>}
 

@@ -302,35 +302,20 @@ def Key.used(node: Lint.Node) -> Maybe<&2, String>:
     case _:
       Maybe.map(&2, String, String, Key.global, Lint.Node.used(node))
 
-# The uses of each key, last first.
-def Uses.push(got: Map<&2, List<&2, Lint.Node>> & List<&2, Lint.Node>, key: String, node: Lint.Node) ->
-  Map<&2, List<&2, Lint.Node>>:
-  match got:
-    case Tuple{m, old}:
-      Map.set(&2, List<&2, Lint.Node>, m, key, node <> old)
-
 def Uses.add(m: Map<&2, List<&2, Lint.Node>>, key: Maybe<&2, String>, node: Lint.Node) -> Map<&2, List<&2, Lint.Node>>:
   match key:
     case None{}:
       m
-    case Some{+k}:
-      Uses.push(Map.get(List<&2, Lint.Node>, [], m, k), k, node)
+    case Some{k}:
+      Shared.Group.add(Lint.Node, m, k, node)
 
+# The uses of each key.
 def Uses.of(nodes: List<&2, Lint.Node>, m: Map<&2, List<&2, Lint.Node>>) -> Map<&2, List<&2, Lint.Node>>:
   match nodes:
     case Nil{}:
       m
     case Con{+n, rest}:
       Uses.of(rest, Uses.add(m, Key.used(n), n))
-
-def Uses.found(got: Map<&2, List<&2, Lint.Node>> & List<&2, Lint.Node>) -> List<&2, Lint.Node>:
-  match got:
-    case Tuple{m, found}:
-      List.reverse(&2, Lint.Node, found)
-
-# The uses of `key`, in order.
-def Uses.get(+uses: Map<&2, List<&2, Lint.Node>>, key: String) -> List<&2, Lint.Node>:
-  Uses.found(Map.get(List<&2, Lint.Node>, [], uses, key))
 
 # Imports
 # =======
@@ -428,7 +413,7 @@ def Declarations.of.node(
         }
       }
     case +n:
-      Maybe.map(&2, String, Lint.Declaration, k => Lint.Declaration{n, Uses.get(uses, k)}, Key.declared(n))
+      Maybe.map(&2, String, Lint.Declaration, k => Lint.Declaration{n, Shared.Group.get(Lint.Node, uses, k)}, Key.declared(n))
 
 def Declarations.of.go(
   rest: List<&2, Lint.Node>,

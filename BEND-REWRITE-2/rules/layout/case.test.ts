@@ -195,6 +195,18 @@ def main() -> U32:
     );
   });
 
+  test("--fix-dangerously renames a lambda, forall or +pattern binder where the text writes it", () => {
+    const fixed = (text: string): string =>
+      run(PROGRAM, { "main.bend": text }, "main.bend", ["--fix-dangerously"]).files["main.bend"];
+    expect(
+      fixed(
+        "import Base\n\ndef F(-T: Type) -> Type:\n  @ - fooQux: T -> T\n\ndef k(xs: List<U32>) -> U32 -> U32:\n  match xs:\n    case Con{+myHead, rest}:\n      fooBar => (myHead + fooBar : U32)\n    case Nil{}:\n      fooBar => fooBar\n",
+      ),
+    ).toBe(
+      "import Base\n\ndef F(-T: Type) -> Type:\n  @ - foo_qux: T -> T\n\ndef k(xs: List<U32>) -> U32 -> U32:\n  match xs:\n    case Con{+my_head, rest}:\n      foo_bar => (my_head + foo_bar : U32)\n    case Nil{}:\n      foo_bar => foo_bar\n",
+    );
+  });
+
   test("no fix renames to a name already in use", () => {
     const text =
       "import Base\n\ndef add(fooBar: U32, foo_bar: U32) -> U32:\n  (fooBar + foo_bar : U32)\n\ndef main() -> U32:\n  add(1, 2)\n";

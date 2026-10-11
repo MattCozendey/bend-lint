@@ -76,7 +76,7 @@ setDefaultTimeout(120_000);
     expect(found("type N is Data:\n  Z{}\n")).toEqual([]);
   });
 
-  test("--fix-dangerously writes the block in order, unless it would drop an import", () => {
+  test("--fix-dangerously writes the block in order, each file once", () => {
     const files = { "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF };
     const ordered = run(
       PROGRAM,
@@ -92,11 +92,24 @@ setDefaultTimeout(120_000);
     expect(ordered.files["sub/main.bend"]).toBe(
       "import Base\nimport ../a.bend as A\nimport ../b.bend as B\nimport ./c.bend as C\n" + MAIN,
     );
-    const twice = "import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN;
-    expect(
-      run(PROGRAM, { ...files, "main.bend": twice }, "main.bend", ["--fix-dangerously"]).files[
-        "main.bend"
-      ],
-    ).toBe(twice);
+  });
+
+  test("--fix-dangerously points the uses of a dropped import at the kept one", () => {
+    const uses =
+      "\ndef Again.same(x):\n  {==}\n\ndef main() -> U32:\n  (Again.one() + A.one() : U32)\n";
+    const ran = run(
+      PROGRAM,
+      {
+        "a.bend": LEAF + "\nlaw same:\n  for x: Nat\n  {x == x : Nat}\n",
+        "main.bend":
+          "import Base\nimport ./a.bend as A\nimport ./a.bend as Again\nimport Base\n" + uses,
+      },
+      "main.bend",
+      ["--fix-dangerously"],
+    );
+    expect(ran.files["main.bend"]).toBe(
+      "import Base\nimport ./a.bend as A\n" +
+        "\ndef A.same(x):\n  {==}\n\ndef main() -> U32:\n  (A.one() + A.one() : U32)\n",
+    );
   });
 });
