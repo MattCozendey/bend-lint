@@ -1,5 +1,7 @@
-# no-unused/imports: an import that nothing in its file uses. What uses an import is the linter's (Imports in
-# program.bend): a name written through its alias, or, for Base, a name that only Base declares.
+# no-unused/imports: an import that nothing in its file uses.
+# Fix: deletes the import's line (--fix-dangerously).
+# Heuristics: a use is a name written through the import's alias, or, for Base, a name that only Base
+# declares (Imports in program.bend).
 import Base
 import ../../lint.bend as Lint
 import ../../shared.bend as Shared

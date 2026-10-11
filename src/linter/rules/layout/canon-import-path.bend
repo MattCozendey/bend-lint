@@ -1,6 +1,8 @@
-# layout/canon-import-path: an import path is the shortest path from the importer to the file it names, and starts with
-# ./ or ../. Base and hub imports are not paths, so the rule skips them. It compares with the real path of the file the
-# import loads, links resolved.
+# layout/canon-import-path: an import path that is not the shortest path from the importer to the
+# file it names, or that does not start with ./ or ../.
+# Fix: writes the shortest path (--fix-dangerously).
+# Heuristics: it compares real paths, links resolved, so a link to a file is that file. Base and hub
+# imports are not paths: it skips them.
 import Base
 import ../../lint.bend as Lint
 import ../../shared.bend as Shared

@@ -1,4 +1,6 @@
-# layout/case: a name's case follows the kind of what it names.
+# layout/case: a name whose case does not follow the kind of what it names.
+# Fix: renames the declaration, with its uses (--fix-dangerously).
+# Heuristics: the kind comes from the syntax and the written types, not from the checker:
 #
 # | Kind                                              | Case              | Examples                     |
 # | ------------------------------------------------- | ----------------- | ---------------------------- |
@@ -9,11 +11,12 @@
 # | variable, lambda, forall, def without a return    | either            | `Big`, `small`               |
 # | namespace segment                                 | its parent's case | `IO.print`, `Set.from_list`  |
 #
-# A sort is `Type`, `Data` or `Kind(..)`; a type ends in one when it is one, or a function type whose result does. A
-# binder written bare (`<a>`, `(x)`) is a quantity, so snake_case. PascalCase is a capital, then letters and digits:
-# `IO`, `OP` and `U32` pass. snake_case has no capital. A dotted name is checked by its last segment; the segments
-# before it name its parent, checked where the parent is declared. `import Base`, and a def that fills a law of another
-# file, are skipped: their names are not this file's to choose.
+# A sort is `Type`, `Data` or `Kind(..)`; a type ends in one when it is one, or a function type whose
+# result does. A binder written bare (`<a>`, `(x)`) is a quantity, so snake_case. PascalCase is a
+# capital, then letters and digits: `IO`, `OP` and `U32` pass. snake_case has no capital. A dotted
+# name is checked by its last segment; the segments before it name its parent, checked where the parent
+# is declared. `import Base`, and a def that fills a law of another file, are skipped: their names are
+# not this file's to choose.
 import Base
 import ../../lint.bend as Lint
 import ../../shared.bend as Shared

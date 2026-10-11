@@ -62,6 +62,18 @@ and type check.
 - Long files are fine.
 - When you change something, delete the code, comments and docs it made obsolete.
 
+### Rule headers
+
+Each rule file starts with a comment header, in this order:
+
+1. `# <id>: <what it reports>.`
+2. `Fix:` what its fix does, and the flag that applies it (`--fix` or `--fix-dangerously`).
+3. `Options:` each option, with its default.
+4. `Heuristics:` how the rule decides, and when it can be wrong. A rule with a dangerous fix, or a
+   rule that guesses (by statistics, a threshold, or a pattern that can miss), must have it.
+
+Leave out a part that does not apply. Notes on the code come after the header, after a `#` line.
+
 ### Where code goes
 
 - Everything that touches Bend's internals goes in `src/linter/server.ts`.

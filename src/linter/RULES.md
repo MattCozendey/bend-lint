@@ -12,7 +12,8 @@ How to write, run and test a rule. The design notes are in [lint.bend](lint.bend
 A rule file imports [lint.bend](lint.bend) and defines `rule()`. Saved as `rules/demo/no-foo.bend`:
 
 ```python
-# demo/no-foo: no parameter is named foo. The fix renames it to bar, with its uses.
+# demo/no-foo: a parameter named foo.
+# Fix: renames it to bar, with its uses (--fix-dangerously).
 import Base
 import ../../lint.bend as Lint
 
@@ -167,7 +168,7 @@ every rule's questions of a round together. A rule may ask 64 rounds; past that,
 `bend-lint/rule-crash`. So ask for all at once. Saved as `rules/demo/param-types.bend`:
 
 ```python
-# demo/param-types: says each parameter's type, as its file writes it. It asks the checker once, for all of them.
+# demo/param-types: each parameter's type, as its file writes it. It asks the checker once, for all.
 import Base
 import ../../lint.bend as Lint
 
@@ -241,7 +242,8 @@ the runner checks them before any rule runs (exit 2), and fills in the defaults.
 `rules/demo/max-lines.bend`:
 
 ```python
-# demo/max-lines: a file has at most `max` lines, an option (500 by default).
+# demo/max-lines: a file of more than `max` lines.
+# Options: max (500).
 import Base
 import ../../lint.bend as Lint
 

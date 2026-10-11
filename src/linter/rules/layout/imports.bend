@@ -1,6 +1,9 @@
-# layout/imports: the import block. import Base comes first, then the other imports by written path, then by alias,
-# compared by code point. Each file is imported once: the fix drops a second import of a file, and points its uses at
-# the first one's alias. A comment line stays with the import below it, and the block has no blank lines.
+# layout/imports: an import block out of order, with a file imported twice, or with blank lines. The
+# order: import Base, then the other imports by written path, then by alias, by code point; a comment
+# line stays with the import below it.
+# Fix: writes the block in order, drops a second import of a file, and points its uses at the first
+# one's alias (--fix-dangerously).
+# Heuristics: two imports name one file if the check loads one file for both.
 import Base
 import ../../lint.bend as Lint
 import ../../shared.bend as Shared

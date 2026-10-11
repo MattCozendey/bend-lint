@@ -1,5 +1,6 @@
-# layout/directive-order: the directives that stack on consecutive comment-only lines are in order: by rule, then
-# severity, then keyword. The fix writes them in that order over the same comments, so it is safe.
+# layout/directive-order: directives that stack on consecutive comment-only lines, out of order: by
+# rule, then severity, then keyword.
+# Fix: writes them in that order, over the same comments (--fix: it writes only comments).
 import Base
 import ../../directives.bend as Directives
 import ../../lint.bend as Lint
