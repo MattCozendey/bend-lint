@@ -89,6 +89,16 @@ setDefaultTimeout(120_000);
     expect(found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
+  test("an entry that reads the file and fails its check shows its error, and fails the run", () => {
+    const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
+    const ran = run(PARENTS, { ...ENTRIES, "b.bend": broken }, "util.bend");
+    expect([
+      ran.code,
+      ran.out.includes("b.bend:6:3: error bend/check: "),
+      ran.out.includes("util.bend:1:1: hint tests/parents: every parent is found"),
+    ]).toEqual([1, true, true]);
+  });
+
   test("each file the paths and globs name is linted once, in turn, with one summary", () => {
     const ran = run(
       PARENTS,
