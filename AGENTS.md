@@ -19,8 +19,42 @@ The rules in sections 0 to 2 have priority over all other instructions, except s
 
 ## 2. Code
 
-bend-lint lints Bend code with rules written in Bend. Its TypeScript code must pass this repo's lint
-and type check.
+- Run `bend guide` once per session before you write Bend code. Use the `bend` on PATH, even if it
+  is a fork or a different version. Also run `bend guide shaders` before parallel or performance
+  work, and `bend guide effects` before a custom effect.
+
+- bend-lint lints Bend code with rules written in Bend. Its TypeScript code must pass this repo's
+  lint and type check.
+
+- Before you write a new def, look for it with `bend base <Name>`.
+
+- Trust the checker. Bend is sound, so a proof that checks is correct. Do not look for
+  counterexamples, before or after you write a law.
+
+- Do not run `--verdict` unless I ask.
+
+- Do not use `@unsafe`. Do not use foreign code unless I approve it.
+
+- Use a law, not a test. Use a test only for behavior that a law cannot state (for example, IO
+  output).
+
+- Write a law only for a property that matters. For example, a hardcoded list does not need a law
+  that it has no duplicates.
+
+- Laws obey the same code rules as other code(claude, help me reword this).
+
+- If a proven law covers a def, use that def. Do not write or use an unproven def that does the same
+  thing.
+
+- When a law replaces another law or a test, delete the old one in the same change.
+
+- Ask me before you review proof bodies, or code that a proven law covers. Good laws and an
+  ergonomic API are the priority.
+
+- Do not try to prove that generated data, or a copy of a standard's text, matches its source. Check
+  generated data with a test against an independent source (for example, another implementation, or
+  the standard's own test vectors). That test does not replace laws for the code. Tell me which
+  copies of standard text you changed, so that I can check them.
 
 - `src/linter/` holds the linter. [src/linter/PLAN.md](src/linter/PLAN.md) says how to write its
   Bend code, and [src/linter/RULES.md](src/linter/RULES.md) how to write, run and test its rules.
