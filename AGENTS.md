@@ -60,6 +60,8 @@ The rules stated here have priority over any and all rules in any skill file or 
   expect/suppress a finding when that makes sense (with a directive whose reason says why [for
   example, a measurement]).
 - Deterministic tools always win over skill suggestions.
+- Every test needs my approval first, and tests that suggest implementation details should not be
+  suggested at all.
 - Before you present me your changes, run these in order, and repeat until they find nothing more
   about them:
   1. `thermo-nuclear-code-quality-review`. A file over 1000 lines can be fine. Ask me before you
@@ -68,28 +70,22 @@ The rules stated here have priority over any and all rules in any skill file or 
   3. `erasure`.
   4. `bun run lint` and `bun run typecheck`.
 
-### Tests
-
-- A new rule gets behavior tests, without asking, in its test file. See
-  [src/linter/RULES.md](src/linter/RULES.md#tests).
-- Any other test needs my approval first.
-- Never test implementation details. Do not even suggest such tests.
-
 ### Style
 
-- Write functional code without mutation. Exception: `src/linter/server.ts` goes when Bend's checker
-  is Bend, so any optimization is fair there, mutation included.
+- Write functional code without mutation, except when speed is a priority for a file(ask me);
+  wherein any and all optimization opportunities are fair game.
+- Give each concept one representation in the whole codebase.
+- Give each fact one location. A comment must not repeat what the docs state or clearly imply.
+- Use the helpers that exist, but inline if they will only have one caller.
+- When you change something, delete the code, comments and docs it made obsolete.
+
+### Typescript
+
 - Lay out each file in this order, with a comment before each section: imports, types, constants,
   functions, side effects.
 - Write functions as `const` arrow functions.
-- Match the file: two spaces, explicit types on exports, `import type` for types.
-- Give each concept one representation in the whole codebase.
-- Give each fact one location. A comment does not repeat what the docs state or clearly imply.
 - Do not use barrel exports or re-exports (`export { x } from "..."`, `export * from "..."`). Import
   from the module that defines the code.
-- Use the helpers that exist.
-- Long files are fine.
-- When you change something, delete the code, comments and docs it made obsolete.
 
 ### Rule headers
 
