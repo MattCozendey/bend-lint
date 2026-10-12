@@ -57,8 +57,8 @@ The nearest `bend-lint.json`, from the named file's folder up:
 - `rules`: per rule, `"off"`, a severity (`error`, `warning`, `information`, `hint`), or its options
   and a `"severity"`.
 
-The rules are in [src/linter/rules/](src/linter/rules/). Each file's header says what the rule
-reports, what its fix does, and its options.
+The rules are in [src/bend-lint-default-rules/](src/bend-lint-default-rules/). Each file's header
+says what the rule reports, what its fix does, and its options.
 
 ## Suppress findings
 

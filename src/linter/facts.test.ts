@@ -12,7 +12,9 @@ import type { Found } from "./testing.ts";
 // Built once, before the tests; nothing to build when bend does not run.
 const [TYPES, BUDGET, BINDERS, TERMS, USES] = BUILDS
   ? await Promise.all(
-      ["types", "budget", "binders", "terms", "uses"].map((name) => build(`tests/${name}.bend`)),
+      ["types", "budget", "binders", "terms", "uses"].map((name) =>
+        build(`linter/tests/${name}.bend`),
+      ),
     )
   : ["", "", "", "", ""];
 

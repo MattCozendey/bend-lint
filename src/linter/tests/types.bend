@@ -1,7 +1,7 @@
 # tests/types: a rule for facts.test.ts. It shows the type of each variable use that has a fact, in one round, then
 # says whether the first two are the same type, in a second.
 import Base
-import ../../shared/utils.bend as Utils
+import ../../shared/lists.bend as Lists
 import ../lint.bend as Lint
 
 # The spans and types of the variable uses that have facts, last first.
@@ -51,7 +51,7 @@ def compared(
     case Con{s, ss} Con{a, Con{b, rest}}:
       do Lint.Ask<List<&2, Lint.Finding>>:
         same: Bool <- Lint.same(a, b)
-        return Utils.append(&2, Lint.Finding, zip(spans, shown, []), same_note(same, s))
+        return Lists.append(&2, Lint.Finding, zip(spans, shown, []), same_note(same, s))
     case _ _:
       Lint.done(zip(spans, shown, []))
 

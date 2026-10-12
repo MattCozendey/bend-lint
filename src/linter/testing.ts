@@ -33,6 +33,7 @@ export type Ran = Outcome & { files: Record<string, string>; dir: string };
 // =========
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SRC = path.dirname(HERE);
 const SERVER = path.join(HERE, "server.ts");
 
 // Bend imports only relative paths of plain names, so the programs the
@@ -50,12 +51,12 @@ export const BUILDS: boolean = await tryGetInstalledBendTagFromCliOrUndefined().
 // Functions
 // =========
 
-// The program that lints with the rule in `rule` (a path under this
-// folder); the path of its executable, which the server builds and keeps.
+// The program that lints with the rule in `rule` (a path under src/); the
+// path of its executable, which the server builds and keeps.
 export const build = async (rule: string): Promise<string> => {
   const name = rule.replace(/\.bend$/, "").replace(/\W/g, "_");
   const source = path.join(BUILD, name + ".bend");
-  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(HERE, rule)));
+  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(SRC, rule)));
   const text = `import Base\nimport ../cli.bend as Cli\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Cli.run(~[Rule.rule()])\n`;
   fs.mkdirSync(BUILD, { recursive: true });
   writeFileAtomically(source, text);

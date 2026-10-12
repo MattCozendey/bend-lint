@@ -1,21 +1,21 @@
 import Base
+import ../bend-lint-default-rules/language/decreasing-call.bend as DecreasingCall
+import ../bend-lint-default-rules/language/forward-reference.bend as ForwardReference
+import ../bend-lint-default-rules/language/reused-binder.bend as ReusedBinder
+import ../bend-lint-default-rules/layout/canon-import-path.bend as CanonImportPath
+import ../bend-lint-default-rules/layout/case.bend as Case
+import ../bend-lint-default-rules/layout/directive-order.bend as DirectiveOrder
+import ../bend-lint-default-rules/layout/format.bend as Format
+import ../bend-lint-default-rules/layout/imports.bend as Imports
+import ../bend-lint-default-rules/no-unused/imports.bend as UnusedImports
+import ../bend-lint-default-rules/performance/append-in-loop.bend as AppendInLoop
+import ../bend-lint-default-rules/performance/deep-call-in-fork.bend as DeepCallInFork
+import ../bend-lint-default-rules/performance/eager-branch.bend as EagerBranch
+import ../bend-lint-default-rules/performance/gpu-fit.bend as GpuFit
+import ../bend-lint-default-rules/performance/list-index-loop.bend as ListIndexLoop
+import ../bend-lint-default-rules/performance/missed-fork.bend as MissedFork
+import ../bend-lint-default-rules/performance/unneeded-plus.bend as UnneededPlus
 import ./cli.bend as Cli
-import ./rules/language/decreasing-call.bend as DecreasingCall
-import ./rules/language/forward-reference.bend as ForwardReference
-import ./rules/language/reused-binder.bend as ReusedBinder
-import ./rules/layout/canon-import-path.bend as CanonImportPath
-import ./rules/layout/case.bend as Case
-import ./rules/layout/directive-order.bend as DirectiveOrder
-import ./rules/layout/format.bend as Format
-import ./rules/layout/imports.bend as Imports
-import ./rules/no-unused/imports.bend as UnusedImports
-import ./rules/performance/append-in-loop.bend as AppendInLoop
-import ./rules/performance/deep-call-in-fork.bend as DeepCallInFork
-import ./rules/performance/eager-branch.bend as EagerBranch
-import ./rules/performance/gpu-fit.bend as GpuFit
-import ./rules/performance/list-index-loop.bend as ListIndexLoop
-import ./rules/performance/missed-fork.bend as MissedFork
-import ./rules/performance/unneeded-plus.bend as UnneededPlus
 
 def main() -> IO(Unit):
   Cli.run(

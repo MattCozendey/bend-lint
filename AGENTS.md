@@ -101,17 +101,20 @@ The rules stated here have priority over any and all rules in any skill file or 
 ## 3. Project
 
 - README.md is for users and stays short. Internals go here and in code comments.
-- `src/linter/` holds the linter, `src/json-parser/` JSON, `src/meta/` this repo's scripts and
-  oxlint plugins, and `src/shared/` helpers for any program.
+- `src/linter/` holds the linter, `src/bend-lint-default-rules/` its default rules, `src/json/`
+  JSON, `src/meta/` this repo's scripts and oxlint plugins, and `src/shared/` helpers for any
+  program.
 - Code that touches Bend's internals goes in `src/linter/server.ts`. A Bend helper that is not about
-  linting goes in `src/shared/utils.bend`, even with one user. A Bend helper about linting that more
-  than one file of the linter uses goes in `src/linter/shared/utils.bend`.
+  linting goes in `src/shared/`, even with one user, in the file of its concept (`lists.bend`,
+  `strings.bend`, ...). Name a shared Bend file after its concept, never `utils`, and import it with
+  its name capitalized as the alias. A Bend helper about linting that more than one file of the
+  linter or its rules uses goes in `src/linter/shared.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it.
-- A rule lives in `src/linter/rules/<namespace>/<name>.bend`, and its id is `<namespace>/<name>`.
-  Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its flag), `Options:` (with
-  defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix or a
-  guess). Its fixes make its findings go.
+- A default rule lives in `src/bend-lint-default-rules/<namespace>/<name>.bend`, and its id is
+  `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its
+  flag), `Options:` (with defaults), `Heuristics:` (how it decides and when it is wrong; required
+  for a dangerous fix or a guess). Its fixes make its findings go.
 - A rule's tests go beside it, in `<name>.test.ts`, through `src/linter/testing.ts`.
 
 ```sh

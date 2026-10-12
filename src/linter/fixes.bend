@@ -1,15 +1,17 @@
 # A run's `fixing`: None (no fixes), Some{False{}} (`--fix`) or Some{True{}} (`--fix-dangerously`).
 import Base
-import ../shared/utils.bend as Utils
+import ../shared/disjoint.bend as Disjoint
+import ../shared/edits.bend as Edits
+import ../shared/files.bend as Files
+import ../shared/groups.bend as Groups
+import ../shared/lists.bend as Lists
+import ../shared/strings.bend as Strings
 import ./directives.bend as Directives
 import ./lint.bend as Lint
 import ./program.bend as Program
 
 # Types
 # =====
-type Edit is Data:
-  Edit{path: String, beg: U32, end: U32, text: String}
-
 # The part of a name a rename changes: from `from` to `until`, offsets in the name.
 type Part is Data:
   Part{from: U32, until: U32}
@@ -22,12 +24,12 @@ type Spot is Data:
 
 # What a fix asks for: an edit as given (a Replace's), or a spot to find in the text (a rename's).
 type Change is Data:
-  Given{edit: Edit}
+  Given{edit: Edits.Edit}
   Sought{spot: Spot}
 
 # A spot, after the text is read: its fix's number, and its edit, if the text writes the name there.
 type Spotted is Data:
-  Spotted{fix: U32, edit: Maybe<&2, Edit>}
+  Spotted{fix: U32, edit: Maybe<&2, Edits.Edit>}
 
 # What resolving renames reads, built once per run: each declaration, by its node's id; and the names each own file
 # takes, as keys (`Taken.key`).
@@ -36,7 +38,7 @@ type Lookup is Data:
 
 # The edits planned so far, last first; how many fixes they make; and their spans, by file.
 type Plan is Data:
-  Plan{edits: List<&2, Edit>, fixes: U32, spans: Map<&2, Utils.Spans>}
+  Plan{edits: List<&2, Edits.Edit>, fixes: U32, spans: Map<&2, Disjoint.Spans>}
 
 # Functions
 # =========
@@ -55,15 +57,15 @@ def Syntax.alias(syntax: Lint.Syntax) -> Bool:
 def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
   match alias:
     case True{}:
-      Utils.when(
+      Lists.when(
         Part,
         String.eq(name, old) || String.starts_with(name, old ++ "."),
         Part{0, U32.from_nat(String.length(old))}
       )
     case False{}:
-      Utils.when(
+      Lists.when(
         Part,
-        String.eq(Utils.after_last(name, '.'), old),
+        String.eq(Strings.after_last(name, '.'), old),
         Part{
           U32.from_nat(Nat.sub(String.length(name), String.length(old))),
           U32.from_nat(String.length(name))
@@ -121,10 +123,10 @@ def Taken.node(+path: String, node: Lint.Node, out: Set()) -> Set():
     case Lint.Node{i, p, o, Lint.Import{}, +name, b, q, sp, t}:
       Set.add(
         Set.add(out, Taken.key(path, True{}, name)),
-        Taken.key(path, False{}, Utils.after_last(name, '.'))
+        Taken.key(path, False{}, Strings.after_last(name, '.'))
       )
     case Lint.Node{i, p, o, s, name, b, q, sp, t}:
-      Set.add(out, Taken.key(path, False{}, Utils.after_last(name, '.')))
+      Set.add(out, Taken.key(path, False{}, Strings.after_last(name, '.')))
 
 def Taken.nodes(nodes: List<&2, Lint.Node>, +path: String, out: Set()) -> Set():
   match nodes:
@@ -203,7 +205,7 @@ def Rename.plan(
           Rename.nodes(whole, Lint.Node{id, p, o, s, name, b, q, span, t}, uses),
           fix,
           alias,
-          Bool.pick(String, alias, name, Utils.after_last(name, '.')),
+          Bool.pick(String, alias, name, Strings.after_last(name, '.')),
           to,
           Some{[]}
         )
@@ -246,11 +248,6 @@ def Lookup.taken(lookup: Lookup) -> Set():
 
 # Finding names in the text
 # -------------------------
-def Edit.path(edit: Edit) -> String:
-  match edit:
-    case Edit{path, beg, end, text}:
-      path
-
 def Spot.path(spot: Spot) -> String:
   match spot:
     case Spot{fix, path, beg, name, part, text}:
@@ -298,10 +295,16 @@ def Name.ends(s: String) -> Bool:
 def spells(+s: String, +name: String) -> Bool:
   String.starts_with(s, name) && Name.ends(String.drop(s, String.length(name)))
 
-def Spot.edit(spelled: Bool, path: String, +at: U32, part: Part, text: String) -> Maybe<&2, Edit>:
+def Spot.edit(
+  spelled: Bool,
+  path: String,
+  +at: U32,
+  part: Part,
+  text: String
+) -> Maybe<&2, Edits.Edit>:
   match spelled part:
     case True{} Part{from, until}:
-      Some{Edit{path, (at + from: U32), (at + until: U32), text}}
+      Some{Edits.Edit{path, (at + from: U32), (at + until: U32), text}}
     case False{} _:
       None{}
 
@@ -352,7 +355,7 @@ def Spot.file(
 ) -> List<&2, Spotted>:
   match text:
     case Some{t}:
-      Spot.walk(Utils.sort(~Spot, ~Spot.le, spots), t, 0, out)
+      Spot.walk(Lists.sort(~Spot, ~Spot.le, spots), t, 0, out)
     case None{}:
       Spot.missed(spots, out)
 
@@ -381,7 +384,7 @@ def Spot.read_all(
         texts,
         Spot.file(
           Spot.text(Map.has(&2, String, texts, path), path),
-          Utils.Group.get(Spot, groups, path),
+          Groups.Group.get(Spot, groups, path),
           out
         )
       )
@@ -391,7 +394,7 @@ def Spot.read_all(
 def Operation.changes(op: Lint.Operation, fix: U32, +lookup: Lookup) -> Maybe<&2, List<&2, Change>>:
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
-      Some{[Given{Edit{path, beg, end, text}}]}
+      Some{[Given{Edits.Edit{path, beg, end, text}}]}
     case Lint.Rename{id, to}:
       Rename.plan(True{}, Lookup.find(lookup, id), to, fix, Lookup.taken(lookup))
     case Lint.RenameUses{id, to}:
@@ -414,7 +417,7 @@ def Fix.changes(
         do Maybe<&2, List<&2, Change>>:
           changes: List<&2, Change> <- out
           more: List<&2, Change> <- Operation.changes(op, fix, lookup)
-          return Utils.onto(&2, Change, more, changes))
+          return Lists.onto(&2, Change, more, changes))
 
 # Safety
 # ------
@@ -487,7 +490,7 @@ def Plan.picked(
         rest,
         fixing,
         comments,
-        Utils.push(Lint.Fix, Utils.when(Lint.Fix, Plan.allowed(fixing, fix, comments), fix), out)
+        Lists.push(Lint.Fix, Lists.when(Lint.Fix, Plan.allowed(fixing, fix, comments), fix), out)
       )
 
 # What each of `fixes` asks for, in order, numbered from `fix`; None for a fix with an operation the linter cannot
@@ -525,7 +528,7 @@ def Fix.any(~f: Lint.Operation -> Bool, fixes: List<&2, Lint.Fix>, found: Bool) 
     case Nil{} False{}:
       False{}
     case Con{Lint.Fix{title, ops}, rest} False{}:
-      Fix.any(~f, rest, Utils.any(~Lint.Operation, ~f, ops))
+      Fix.any(~f, rest, Lists.any(~Lint.Operation, ~f, ops))
 
 def Lookup.index(
   need: Bool,
@@ -576,9 +579,9 @@ def Fix.spots(works: List<&2, Maybe<&2, List<&2, Change>>>, out: List<&2, Spot>)
 
 def Change.given(
   may: Bool,
-  edit: Edit,
-  out: Maybe<&2, List<&2, Edit>>
-) -> Maybe<&2, List<&2, Edit>>:
+  edit: Edits.Edit,
+  out: Maybe<&2, List<&2, Edits.Edit>>
+) -> Maybe<&2, List<&2, Edits.Edit>>:
   match may out:
     case True{} Some{edits}:
       Some{edit <> edits}
@@ -590,8 +593,8 @@ def Change.given(
 def Change.edits(
   changes: List<&2, Change>,
   +texts: Map<&2, String>,
-  out: Maybe<&2, List<&2, Edit>>
-) -> Maybe<&2, List<&2, Edit>>:
+  out: Maybe<&2, List<&2, Edits.Edit>>
+) -> Maybe<&2, List<&2, Edits.Edit>>:
   match changes:
     case Nil{}:
       out
@@ -600,7 +603,7 @@ def Change.edits(
         rest,
         texts,
         Change.given(
-          Pair.snd(Map<&2, String>, Bool, Map.has(&2, String, texts, Edit.path(edit))),
+          Pair.snd(Map<&2, String>, Bool, Map.has(&2, String, texts, Edits.Edit.path(edit))),
           edit,
           out
         )
@@ -615,10 +618,13 @@ def Spotted.mine(spotted: List<&2, Spotted>, fix: U32) -> Bool:
     case Nil{}:
       False{}
 
-def Spotted.add(edit: Maybe<&2, Edit>, out: Maybe<&2, List<&2, Edit>>) -> Maybe<&2, List<&2, Edit>>:
-  do Maybe<&2, List<&2, Edit>>:
-    edits: List<&2, Edit> <- out
-    e: Edit <- edit
+def Spotted.add(
+  edit: Maybe<&2, Edits.Edit>,
+  out: Maybe<&2, List<&2, Edits.Edit>>
+) -> Maybe<&2, List<&2, Edits.Edit>>:
+  do Maybe<&2, List<&2, Edits.Edit>>:
+    edits: List<&2, Edits.Edit> <- out
+    e: Edits.Edit <- edit
     return e <> edits
 
 # The edits of fix `fix`'s spots, first in `spotted` (sorted by fix), onto `out`, with the spots after them. `mine` says
@@ -627,8 +633,8 @@ def Spotted.take(
   spotted: List<&2, Spotted>,
   +fix: U32,
   mine: Bool,
-  out: Maybe<&2, List<&2, Edit>>
-) -> Maybe<&2, List<&2, Edit>>
+  out: Maybe<&2, List<&2, Edits.Edit>>
+) -> Maybe<&2, List<&2, Edits.Edit>>
   & List<&2, Spotted>:
   match spotted mine:
     case Con{Spotted{f, edit}, +rest} True{}:
@@ -638,65 +644,73 @@ def Spotted.take(
 
 # Spans
 # -----
-def Spans.of(spans: Map<&2, Utils.Spans>, path: String) -> Utils.Spans:
-  Pair.snd(Map<&2, Utils.Spans>, Utils.Spans, Map.get(Utils.Spans, Utils.SLeaf{}, spans, path))
+def Spans.of(spans: Map<&2, Disjoint.Spans>, path: String) -> Disjoint.Spans:
+  Pair.snd(
+    Map<&2, Disjoint.Spans>,
+    Disjoint.Spans,
+    Map.get(Disjoint.Spans, Disjoint.SLeaf{}, spans, path)
+  )
 
-def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Utils.Spans>) -> Bool:
+def Spans.clash(edits: List<&2, Edits.Edit>, spans: Map<&2, Disjoint.Spans>) -> Bool:
   match edits:
-    case Con{Edit{path, beg, end, text}, rest}:
-      Utils.Spans.touch(Spans.of(spans, path), beg, end)
+    case Con{Edits.Edit{path, beg, end, text}, rest}:
+      Disjoint.Spans.touch(Spans.of(spans, path), beg, end)
     case Nil{}:
       False{}
 
 # The planned spans with each of `edits`, if none touches a planned one or another: `clash` says whether the first
 # does.
 def Spans.with(
-  edits: List<&2, Edit>,
-  +spans: Map<&2, Utils.Spans>,
+  edits: List<&2, Edits.Edit>,
+  +spans: Map<&2, Disjoint.Spans>,
   clash: Bool
-) -> Maybe<&2, Map<&2, Utils.Spans>>:
+) -> Maybe<&2, Map<&2, Disjoint.Spans>>:
   match edits clash:
     case Nil{} _:
       Some{spans}
     case _ True{}:
       None{}
-    case Con{Edit{+path, +beg, +end, text}, +rest} False{}:
+    case Con{Edits.Edit{+path, +beg, +end, text}, +rest} False{}:
       +next = Map.set(
         &2,
-        Utils.Spans,
+        Disjoint.Spans,
         spans,
         path,
-        Utils.Spans.add(
+        Disjoint.Spans.add(
           Spans.of(spans, path),
           beg,
           end,
-          Utils.Spans.cmp(Spans.of(spans, path), beg, end)
+          Disjoint.Spans.cmp(Spans.of(spans, path), beg, end)
         )
       )
       Spans.with(rest, next, Spans.clash(rest, next))
 
-def Plan.add(spans: Maybe<&2, Map<&2, Utils.Spans>>, edits: List<&2, Edit>, plan: Plan) -> Plan:
+def Plan.add(
+  spans: Maybe<&2, Map<&2, Disjoint.Spans>>,
+  edits: List<&2, Edits.Edit>,
+  plan: Plan
+) -> Plan:
   match spans plan:
     case None{} _:
       plan
     case Some{taken} Plan{kept, n, old}:
-      Plan{Utils.onto(&2, Edit, edits, kept), (n + 1: U32), taken}
+      Plan{Lists.onto(&2, Edits.Edit, edits, kept), (n + 1: U32), taken}
 
 # The plan with a fix's edits, if the linter can make it, and none of its edits touches a planned one or another.
-def Plan.fix(edits: Maybe<&2, List<&2, Edit>>, +plan: Plan) -> Plan:
+def Plan.fix(edits: Maybe<&2, List<&2, Edits.Edit>>, +plan: Plan) -> Plan:
   match edits plan:
     case Some{+es} Plan{kept, n, +spans}:
       Plan.add(Spans.with(es, spans, Spans.clash(es, spans)), es, plan)
     case None{} _:
       plan
 
-def Edits.step(
+def Works.step(
   work: Maybe<&2, List<&2, Change>>,
   texts: Map<&2, String>,
-  taken: Maybe<&2, List<&2, Edit>> & List<&2, Spotted>,
-  out: List<&2, Maybe<&2, List<&2, Edit>>>
+  taken: Maybe<&2, List<&2, Edits.Edit>> & List<&2, Spotted>,
+  out: List<&2, Maybe<&2, List<&2, Edits.Edit>>>
 ) -> List<&2, Spotted>
-  & List<&2, Maybe<&2, List<&2, Edit>>>:
+  & List<&2, Maybe<&2, List<&2, Edits.Edit>>>:
   match work taken:
     case Some{changes} Tuple{found, rest}:
       (rest, Change.edits(changes, texts, found) <> out)
@@ -705,21 +719,21 @@ def Edits.step(
 
 # The edits of `works`, the fixes numbered from `fix`, in order; `state` holds the spots read (sorted by fix) and the
 # edits so far (last first).
-def Edits.go(
+def Works.go(
   works: List<&2, Maybe<&2, List<&2, Change>>>,
   +fix: U32,
   +texts: Map<&2, String>,
-  state: List<&2, Spotted> & List<&2, Maybe<&2, List<&2, Edit>>>
-) -> List<&2, Maybe<&2, List<&2, Edit>>>:
+  state: List<&2, Spotted> & List<&2, Maybe<&2, List<&2, Edits.Edit>>>
+) -> List<&2, Maybe<&2, List<&2, Edits.Edit>>>:
   match works state:
     case Nil{} Tuple{spotted, out}:
-      List.reverse(&2, Maybe<&2, List<&2, Edit>>, out)
+      List.reverse(&2, Maybe<&2, List<&2, Edits.Edit>>, out)
     case Con{w, rest} Tuple{+spotted, out}:
-      Edits.go(
+      Works.go(
         rest,
         (fix + 1: U32),
         texts,
-        Edits.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), out)
+        Works.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), out)
       )
 
 def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
@@ -736,16 +750,16 @@ def edits(
   +fixes: List<&2, Lint.Fix>,
   declarations: List<&2, Lint.Declaration>,
   +sources: List<&2, Lint.Source>
-) -> List<&2, Maybe<&2, List<&2, Edit>>>:
+) -> List<&2, Maybe<&2, List<&2, Edits.Edit>>>:
   +works = Fix.works(fixes, Lookup.of(fixes, declarations, sources), 0, [])
   +own = texts(Program.Program.own(sources), Map.new(&2, String))
-  +groups = Utils.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
-  Edits.go(
+  +groups = Groups.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
+  Works.go(
     works,
     0,
     own,
     (
-      Utils.sort(
+      Lists.sort(
         ~Spotted,
         ~Spotted.le,
         Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, own, [])
@@ -821,7 +835,7 @@ def Plan.safety(
       Set.new()
 
 # The plan of `edits`, in order: each fix the linter can make, whose edits touch no earlier fix's.
-def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Edit>>>, plan: Plan) -> Plan:
+def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>, plan: Plan) -> Plan:
   match edits:
     case Nil{}:
       plan
@@ -843,77 +857,37 @@ def Plan.of(
       declarations,
       sources
     ),
-    Plan{[], 0, Map.new(&2, Utils.Spans)}
+    Plan{[], 0, Map.new(&2, Disjoint.Spans)}
   )
 
 # Writing
 # -------
-def Edit.le(a: Edit, b: Edit) -> Bool:
-  match a b:
-    case Edit{p, x, e, t} Edit{q, y, f, u}:
-      U32.is_le(x, y)
-
-# `rest`, the text from `at` on, with `edits` (in order) made, after the pieces of `out` (last first). The pieces join
-# once, at the end, so the text is copied once, whatever the number of edits.
-def Text.edited(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, String>) -> String:
-  match edits:
-    case Nil{}:
-      Utils.joined(rest <> out, "")
-    case Con{Edit{p, beg, +end, text}, more}:
-      Text.edited(
-        more,
-        String.drop(rest, U32.to_nat((end - at: U32))),
-        end,
-        text <> Utils.take(rest, U32.to_nat((beg - at: U32))) <> out
-      )
-
-def write.closed(path: String, written: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
+def write.done(path: String, written: Bool) -> IO(Unit):
   match written:
-    case Tuple{f, Done{u}}:
-      File.close(f)
-    case Tuple{f, Fail{e}}:
-      do IO<Unit>:
-        File.close(f)
-        IO.die(Unit, 2, "bend-lint: could not write " ++ path)
-
-def write.opened(
-  path: String,
-  text: String,
-  opened: Result<&1, &1, U32 & String, File>
-) -> IO(Unit):
-  match opened:
-    case Done{f}:
-      IO.bind(
-        File & Result<&1, &1, U32 & String, Unit>,
-        Unit,
-        File.write(f, text),
-        w => write.closed(path, w)
-      )
-    case Fail{e}:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
       IO.die(Unit, 2, "bend-lint: could not write " ++ path)
 
-def write(+path: String, text: String) -> IO(Unit):
-  IO.bind(
-    Result<&1, &1, U32 & String, File>,
-    Unit,
-    File.open(path, "w"),
-    opened => write.opened(path, text, opened)
-  )
-
-def write.edited(path: String, text: String, edits: List<&2, Edit>) -> IO(Unit):
+def write.edited(+path: String, text: String, edits: List<&2, Edits.Edit>) -> IO(Unit):
   match edits:
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Con{e, rest}:
-      write(path, Text.edited(Utils.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, []))
+      IO.bind(
+        Bool,
+        Unit,
+        Files.write(path, Edits.apply(Con{e, rest}, text)),
+        w => write.done(path, w)
+      )
 
-def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) -> IO(Unit):
+def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edits.Edit>>) -> IO(Unit):
   match sources:
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
       do IO<Unit>:
-        write.edited(path, text, Utils.Group.get(Edit, groups, path))
+        write.edited(path, text, Groups.Group.get(Edits.Edit, groups, path))
         write.all(rest, groups)
 
 # Fixes
@@ -922,7 +896,10 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
   match plan:
     case Plan{edits, n, spans}:
       do IO<U32>:
-        write.all(sources, Utils.Group.of(~Edit, ~Edit.path, edits, Map.new(&2, List<&2, Edit>)))
+        write.all(
+          sources,
+          Groups.Group.of(~Edits.Edit, ~Edits.Edit.path, edits, Map.new(&2, List<&2, Edits.Edit>))
+        )
         return n
 
 # Makes the fixes `fixing` allows, of `founds` (in order), in the program's files (`sources`, whose declarations are

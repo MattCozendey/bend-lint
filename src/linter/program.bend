@@ -1,6 +1,9 @@
 # The program a check gives, and each file's declarations with their uses.
 import Base
-import ../shared/utils.bend as Utils
+import ../shared/groups.bend as Groups
+import ../shared/lists.bend as Lists
+import ../shared/strings.bend as Strings
+import ../shared/tables.bend as Tables
 import ./lint.bend as Lint
 
 # Why a check failed: Bend's message, and where, if Bend says: the span, and the text of its file.
@@ -88,7 +91,7 @@ def Uses.add(
     case None{}:
       m
     case Some{k}:
-      Utils.Group.add(Lint.Node, m, k, node)
+      Groups.Group.add(Lint.Node, m, k, node)
 
 def Uses.of(
   nodes: List<&2, Lint.Node>,
@@ -115,7 +118,7 @@ def Imports.namespace(
     case Nil{} None{}:
       ""
     case Con{Lint.Source{p, namespace, text, nodes, facts}, rest} None{}:
-      Imports.namespace(rest, Utils.when(String, String.eq(p, path), namespace), path)
+      Imports.namespace(rest, Lists.when(String, String.eq(p, path), namespace), path)
 
 # The global names a file's own top-level declarations declare, as a set.
 def Imports.own(nodes: List<&2, Lint.Node>, out: Set()) -> Set():
@@ -162,7 +165,7 @@ def Imports.alias(
     case SNil{}:
       aliases
     case SCon{h, t}:
-      Utils.Group.add(Lint.Node, aliases, SCon{h, t}, node)
+      Groups.Group.add(Lint.Node, aliases, SCon{h, t}, node)
 
 def Imports.base(hit: Bool, node: Lint.Node, base: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
   match hit:
@@ -186,7 +189,7 @@ def Imports.add(own: Set(), node: Lint.Node, uses: ImportUses) -> ImportUses:
     } ImportUses{aliases, base}:
       +n = {Lint.Node{id, parent, owner, syntax, name, binder, quantity, span, target}: Lint.Node}
       ImportUses{
-        Imports.alias(Utils.before(name, '.'), n, aliases),
+        Imports.alias(Strings.before(name, '.'), n, aliases),
         Imports.base(Imports.base_uses(own, Lint.Node.used(n)), n, base)
       }
 
@@ -210,7 +213,7 @@ def Imports.of(base: Bool, alias: String, imports: ImportUses) -> List<&2, Lint.
     case True{} ImportUses{aliases, uses}:
       List.reverse(&2, Lint.Node, uses)
     case False{} ImportUses{aliases, uses}:
-      Utils.Group.get(Lint.Node, aliases, alias)
+      Groups.Group.get(Lint.Node, aliases, alias)
 
 # A node's declaration, if it declares a name, with its uses: `uses` indexes them, and `imports` the uses of the file's
 # imports; `sources` says which import loads Base.
@@ -233,7 +236,7 @@ def Declarations.of.node(
         &2,
         String,
         Lint.Declaration,
-        k => Lint.Declaration{n, Utils.Group.get(Lint.Node, uses, k)},
+        k => Lint.Declaration{n, Groups.Group.get(Lint.Node, uses, k)},
         Key.declared(n)
       )
 
@@ -253,7 +256,7 @@ def Declarations.of.go(
         sources,
         imports,
         uses,
-        Utils.push(Lint.Declaration, Declarations.of.node(sources, imports, uses, n), out)
+        Lists.push(Lint.Declaration, Declarations.of.node(sources, imports, uses, n), out)
       )
 
 # The declarations of a file's nodes, in order, with their uses that `uses` indexes.
@@ -275,7 +278,7 @@ def Index.first(nodes: List<&2, Lint.Node>) -> U32:
 def Index.of(+nodes: List<&2, Lint.Node>) -> Lint.Index:
   Lint.Index{
     Index.first(nodes),
-    Utils.Table.of(Lint.Node, U32.from_nat(Utils.length(&2, Lint.Node, nodes)), nodes)
+    Tables.Table.of(Lint.Node, U32.from_nat(Lists.length(&2, Lint.Node, nodes)), nodes)
   }
 
 # A file's declarations, with their uses in it, if a rule needs them (`declare`); else none.
@@ -317,7 +320,7 @@ def Program.nodes(
 ) -> List<&2, Lint.Node>:
   match sources:
     case Nil{}:
-      Utils.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
+      Lists.concat(&2, Lint.Node, List.reverse(&2, List<&2, Lint.Node>, out))
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Program.nodes(rest, nodes <> out)
 
@@ -330,7 +333,7 @@ def Whole.declarations(
 ) -> List<&2, Lint.Declaration>:
   match files:
     case Nil{}:
-      Utils.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
+      Lists.concat(&2, Lint.Declaration, List.reverse(&2, List<&2, Lint.Declaration>, out))
     case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
       Whole.declarations(rest, sources, uses, Declarations.of(sources, nodes, uses) <> out)
 

@@ -12,7 +12,7 @@ import { build, BUILDS, lint, run } from "./testing.ts";
 const [PARENTS, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
   ? await Promise.all(
       ["parents", "written", "some", "every", "across", "rename"].map((name) =>
-        build(`tests/${name}.bend`),
+        build(`linter/tests/${name}.bend`),
       ),
     )
   : ["", "", "", "", "", ""];
