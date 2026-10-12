@@ -9,6 +9,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -32,10 +33,6 @@ type Bound is Data:
     span: Lint.Span,
     body: U32
   }
-
-# A variable: its binder, and where it starts.
-type Use is Data:
-  Use{binder: U32, at: U32}
 
 # Functions
 # =========
@@ -397,26 +394,20 @@ def Bound.all(
     case Con{node, rest}:
       Bound.all(rest, here, children, out)
 
-def Use.all(nodes: List<&2, Lint.Node>, out: List<&2, Use>) -> List<&2, Use>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{
-      Lint.Node{i, p, o, Lint.Variable{}, n, Some{b}, q, Some{Lint.Span{path, beg, end}}, t},
-      rest
-    }:
-      Use.all(rest, Use{b, beg} <> out)
-    case Con{node, rest}:
-      Use.all(rest, out)
-
 # Whether a variable of `us` uses a binder of `binders` from `beg` to `end`.
-def uses(us: List<&2, Use>, hit: Bool, +binders: List<&2, U32>, +beg: U32, +end: U32) -> Bool:
+def uses(
+  us: List<&2, LintUtils.Use>,
+  hit: Bool,
+  +binders: List<&2, U32>,
+  +beg: U32,
+  +end: U32
+) -> Bool:
   match us hit:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
-    case Con{Use{b, +at}, rest} False{}:
+    case Con{LintUtils.Use{b, +at}, rest} False{}:
       uses(
         rest,
         List.contains(~U32, ~U32.is_eq, binders, b) && U32.is_ge(at, beg) && U32.is_lt(at, end),
@@ -448,7 +439,7 @@ def run.go(
   fuel: Nat,
   next: Maybe<&2, Bound>,
   +bounds: List<&2, Bound>,
-  +us: List<&2, Use>,
+  +us: List<&2, LintUtils.Use>,
   +binders: List<&2, U32>,
   out: List<&2, Bound>
 ) -> List<&2, Bound>:
@@ -563,7 +554,7 @@ def run.from(
   consumed: Bool,
   bound: Bound,
   +bounds: List<&2, Bound>,
-  us: List<&2, Use>
+  us: List<&2, LintUtils.Use>
 ) -> List<&2, Bound>:
   match consumed:
     case True{}:
@@ -574,7 +565,7 @@ def run.from(
 def runs(
   bs: List<&2, Bound>,
   +bounds: List<&2, Bound>,
-  +us: List<&2, Use>,
+  +us: List<&2, LintUtils.Use>,
   +consumed: List<&2, U32>,
   +here: Lint.Here,
   out: List<&2, Lint.Finding>
@@ -607,7 +598,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     runs(
       bounds,
       bounds,
-      Use.all(nodes, []),
+      LintUtils.Use.all(nodes, []),
       [],
       here,
       Call.findings(

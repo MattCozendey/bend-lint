@@ -7,6 +7,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -15,30 +16,8 @@ import ../../lint.bend as Lint
 type Bound is Data:
   Bound{binder: U32, owner: U32}
 
-# A definition of the file: the name the check gives it, and its node's id.
-type Def is Data:
-  Def{target: String, id: U32}
-
 # Functions
 # =========
-def Def.all(nodes: List<&2, Lint.Node>, out: List<&2, Def>) -> List<&2, Def>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Definition{}, n, b, q, s, t}, rest}:
-      Def.all(rest, Def{t, i} <> out)
-    case Con{node, rest}:
-      Def.all(rest, out)
-
-# The id of the definition named `target`. `found` stops the walk at the first.
-def Def.find(defs: List<&2, Def>, found: Maybe<&2, U32>, +target: String) -> Maybe<&2, U32>:
-  match defs found:
-    case _ Some{id}:
-      Some{id}
-    case Nil{} None{}:
-      None{}
-    case Con{Def{t, i}, rest} None{}:
-      Def.find(rest, Utils.when(U32, String.eq(t, target), i), target)
 
 # Whether `node` is an application whose function is the node numbered `i`.
 def calls(node: Maybe<&2, Lint.Node>, i: U32) -> Bool:
@@ -48,9 +27,17 @@ def calls(node: Maybe<&2, Lint.Node>, i: U32) -> Bool:
     case _:
       False{}
 
+# The id of `used`, a definition, onto `out`.
+def value.of(used: Maybe<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
+  match used:
+    case Some{Lint.Node{i, p, o, s, n, b, q, sp, t}}:
+      i <> out
+    case None{}:
+      out
+
 def value.add(
   called: Bool,
-  defs: List<&2, Def>,
+  defs: Map<&2, Maybe<&2, Lint.Node>>,
   target: String,
   out: List<&2, U32>
 ) -> List<&2, U32>:
@@ -58,12 +45,12 @@ def value.add(
     case True{}:
       out
     case False{}:
-      Utils.push(U32, Def.find(defs, None{}, target), out)
+      value.of(Utils.find(Lint.Node, defs, target), out)
 
 # The definitions of the file used as values: named, not called (`OnFile{run}`), by id.
 def values(
   nodes: List<&2, Lint.Node>,
-  +defs: List<&2, Def>,
+  +defs: Map<&2, Maybe<&2, Lint.Node>>,
   +here: Lint.Here,
   out: List<&2, U32>
 ) -> List<&2, U32>:
@@ -145,23 +132,12 @@ def typed(syntax: Lint.Syntax, owner: U32, values: List<&2, U32>) -> Bool:
     case _:
       False{}
 
-def finding(hit: Bool, span: Maybe<&2, Lint.Span>, +name: String) -> List<&2, Lint.Finding>:
-  match hit span:
-    case True{} Some{s}:
-      [
-        Lint.Finding{
-          Lint.Information{},
-          s,
-          "+"
-            ++ name
-            ++ " is used at most once on each path, so it needs no `+`. A `+` value carries a reference count at run time, and \"bend guide shaders\" measured a needless `+` slowing a program from 2.83 s to 3.30 s. Write "
-            ++ name
-            ++ " without the `+`. In the slash boss demo of Bend, removing 503 such + changed no timing: it matters most for a value that many lanes share.",
-          []
-        }
-      ]
-    case _ _:
-      []
+def message(+name: String) -> String:
+  "+"
+    ++ name
+    ++ " is used at most once on each path, so it needs no `+`. A `+` value carries a reference count at run time, and \"bend guide shaders\" measured a needless `+` slowing a program from 2.83 s to 3.30 s. Write "
+    ++ name
+    ++ " without the `+`. In the slash boss demo of Bend, removing 503 such + changed no timing: it matters most for a value that many lanes share."
 
 # The finding about a binder that needs no `+` (if `hit`), unless a match takes it apart.
 def unmatched(
@@ -174,7 +150,12 @@ def unmatched(
 ) -> List<&2, Lint.Finding>:
   match hit:
     case True{}:
-      finding(Bool.not(Bound.has(matched, False{}, b, o)), span, name)
+      LintUtils.finding(
+        Lint.Information{},
+        Bool.not(Bound.has(matched, False{}, b, o)),
+        span,
+        message(name)
+      )
     case False{}:
       []
 
@@ -216,7 +197,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(
     scan(
       Lint.Here.facts(here),
-      values(nodes, Def.all(nodes, []), here, []),
+      values(nodes, LintUtils.definitions(nodes), here, []),
       matched(nodes, here, Lint.Children.of(nodes), []),
       []
     )

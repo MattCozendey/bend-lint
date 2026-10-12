@@ -1,4 +1,3 @@
-# JSON: the values bend-lint reads (bend-lint.json) and writes (--json).
 import Base
 import ../shared/utils.bend as Utils
 

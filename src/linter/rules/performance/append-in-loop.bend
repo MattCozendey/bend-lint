@@ -8,6 +8,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -20,10 +21,6 @@ type Append is Data:
 # A call of a loop to itself: the loop's name, as written, and where the call starts and ends.
 type Loop is Data:
   Loop{name: String, beg: U32, end: U32}
-
-# A variable: its binder, and where it starts.
-type Use is Data:
-  Use{binder: U32, at: U32}
 
 # Functions
 # =========
@@ -77,30 +74,6 @@ def Append.message(
         ++ loop
         ++ ", so a loop of n steps copies O(n²) characters (the JS lane joins strings natively). Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`."
 
-# Whether `nodes`, a definition's children, hold a parameter that declares the binder `binder`.
-def parameter(nodes: List<&2, Lint.Node>, hit: Bool, +binder: U32) -> Bool:
-  match nodes hit:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
-      False{}
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest} False{}:
-      parameter(rest, U32.is_eq(b, binder), binder)
-    case Con{node, rest} False{}:
-      parameter(rest, False{}, binder)
-
-def Use.all(nodes: List<&2, Lint.Node>, out: List<&2, Use>) -> List<&2, Use>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{
-      Lint.Node{i, p, o, Lint.Variable{}, n, Some{b}, q, Some{Lint.Span{path, at, end}}, t},
-      rest
-    }:
-      Use.all(rest, Use{b, at} <> out)
-    case Con{node, rest}:
-      Use.all(rest, out)
-
 def Loop.holds(loop: Loop, +at: U32) -> Bool:
   match loop:
     case Loop{name, beg, end}:
@@ -113,13 +86,19 @@ def Span.holds(span: Lint.Span, +at: U32) -> Bool:
 
 # Whether the call of the loop uses `binder` outside the append: then it keeps each value the loop
 # builds, and the copies are needed.
-def kept(us: List<&2, Use>, hit: Bool, +binder: U32, +loop: Loop, +span: Lint.Span) -> Bool:
+def kept(
+  us: List<&2, LintUtils.Use>,
+  hit: Bool,
+  +binder: U32,
+  +loop: Loop,
+  +span: Lint.Span
+) -> Bool:
   match us hit:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
-    case Con{Use{b, +at}, rest} False{}:
+    case Con{LintUtils.Use{b, +at}, rest} False{}:
       kept(
         rest,
         U32.is_eq(b, binder) && Loop.holds(loop, at) && Bool.not(Span.holds(span, at)),
@@ -166,7 +145,7 @@ def reported(
   +span: Lint.Span,
   args: List<&2, Lint.Node>,
   here: Lint.Here,
-  us: List<&2, Use>
+  us: List<&2, LintUtils.Use>
 ) -> List<&2, Lint.Finding>:
   match param:
     case True{}:
@@ -185,12 +164,12 @@ def found(
   args: List<&2, Lint.Node>,
   here: Lint.Here,
   children: Lint.Children,
-  us: List<&2, Use>
+  us: List<&2, LintUtils.Use>
 ) -> List<&2, Lint.Finding>:
   match acc:
     case Some{Lint.Node{i, p, o, Lint.Variable{}, name, Some{+b}, q, s, t}}:
       reported(
-        parameter(Lint.Children.get(children, owner), False{}, b),
+        Maybe.is_some(&2, Nat, LintUtils.parameter(Lint.Children.get(children, owner), b)),
         b,
         a,
         loop,
@@ -211,7 +190,7 @@ def appended(
   span: Lint.Span,
   here: Lint.Here,
   children: Lint.Children,
-  us: List<&2, Use>
+  us: List<&2, LintUtils.Use>
 ) -> List<&2, Lint.Finding>:
   match append:
     case Some{+a}:
@@ -237,7 +216,7 @@ def call(
   span: Lint.Span,
   here: Lint.Here,
   children: Lint.Children,
-  us: List<&2, Use>
+  us: List<&2, LintUtils.Use>
 ) -> List<&2, Lint.Finding>:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, callee}, +args}:
@@ -260,7 +239,7 @@ def arguments(
   +loop: Loop,
   +here: Lint.Here,
   +children: Lint.Children,
-  +us: List<&2, Use>,
+  +us: List<&2, LintUtils.Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match args:
@@ -290,7 +269,7 @@ def step(
   end: U32,
   here: Lint.Here,
   children: Lint.Children,
-  us: List<&2, Use>,
+  us: List<&2, LintUtils.Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -304,7 +283,7 @@ def visit(
   node: Lint.Node,
   here: Lint.Here,
   +children: Lint.Children,
-  us: List<&2, Use>,
+  us: List<&2, LintUtils.Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match recursive node:
@@ -317,7 +296,7 @@ def scan(
   nodes: List<&2, Lint.Node>,
   +here: Lint.Here,
   +children: Lint.Children,
-  +us: List<&2, Use>,
+  +us: List<&2, LintUtils.Use>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -334,7 +313,7 @@ def scan(
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  Lint.done(scan(nodes, here, Lint.Children.of(nodes), Use.all(nodes, []), []))
+  Lint.done(scan(nodes, here, Lint.Children.of(nodes), LintUtils.Use.all(nodes, []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"performance/append-in-loop", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

@@ -1855,19 +1855,12 @@ def fits.width(stop: Bool, +n: U32, jobs: List<&2, Job>, +left: U32) -> Fit:
     case False{}:
       Bool.pick(Fit, U32.is_gt(n, left), Stop{False{}}, Go{jobs, (left - n: U32)})
 
-def is_some(m: Maybe<&2, U32>) -> Bool:
-  match m:
-    case Some{x}:
-      True{}
-    case None{}:
-      False{}
-
 def fits.step(jobs: List<&2, Job>, left: U32) -> Fit:
   match jobs:
     case Nil{}:
       Stop{True{}}
     case Con{Job{Str{body, blank, width, tail}, indent, flat}, rest}:
-      fits.width(is_some(tail), width, rest, left)
+      fits.width(Maybe.is_some(&2, U32, tail), width, rest, left)
     case Con{Job{Line{text, width, hard, offset}, indent, flat}, rest}:
       fits.width(hard || Bool.not(flat), width, rest, left)
     case Con{Job{Grp{doc, f}, indent, flat}, rest}:
@@ -2003,22 +1996,13 @@ def print.step(
     case Con{Job{Cat{docs, f}, indent, flat}, rest}:
       Print{push(docs, indent, flat, rest), out, pending, col}
 
-# Chunks last first, joined from the right: each ++ copies one chunk at
-# most, and a token adds its chunks in one step.
-def chunks(xs: List<&2, String>, acc: String) -> String:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{x, rest}:
-      chunks(rest, x ++ acc)
-
 # The text so far; pending whitespace is never written at the end.
 def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +budget: Nat) -> String:
   match fuel p:
     case _ Print{Nil{}, out, pending, col}:
-      chunks(out, "")
+      Utils.joined(out, "")
     case 0n Print{jobs, out, pending, col}:
-      chunks(out, "")
+      Utils.joined(out, "")
     case 1n+k Print{jobs, out, pending, col}:
       print.go(
         k,

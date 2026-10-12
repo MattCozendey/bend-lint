@@ -8,14 +8,15 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
 
-# A function that walks a list from its head: its name as the check names it, which argument is the
-# list, and the Base function that walks it.
+# A function that walks a list from its head (named as the check names it): which argument is the list,
+# and the Base function that walks it.
 type Walker is Data:
-  Walker{target: String, at: Nat, through: String}
+  Walker{at: Nat, through: String}
 
 # A call of the definition `owner` to itself passes its parameter `binder` unchanged, inside the cases
 # `cases` (innermost first).
@@ -24,27 +25,14 @@ type Pass is Data:
 
 # Functions
 # =========
-def bases() -> List<&2, Walker>:
+def bases() -> List<&2, Utils.Named<Walker>>:
   [
-    Walker{"List.get", 2n, "List.get"},
-    Walker{"List.drop", 2n, "List.drop"},
-    Walker{"List.take", 2n, "List.take"},
-    Walker{"List.last", 2n, "List.last"},
-    Walker{"List.length", 2n, "List.length"}
+    Utils.Named{"List.get", Walker{2n, "List.get"}},
+    Utils.Named{"List.drop", Walker{2n, "List.drop"}},
+    Utils.Named{"List.take", Walker{2n, "List.take"}},
+    Utils.Named{"List.last", Walker{2n, "List.last"}},
+    Utils.Named{"List.length", Walker{2n, "List.length"}}
   ]
-
-def Walker.find(
-  walkers: List<&2, Walker>,
-  found: Maybe<&2, Walker>,
-  +target: String
-) -> Maybe<&2, Walker>:
-  match walkers found:
-    case _ Some{w}:
-      Some{w}
-    case Nil{} None{}:
-      None{}
-    case Con{Walker{+t, at, through}, rest} None{}:
-      Walker.find(rest, Utils.when(Walker, String.eq(t, target), Walker{t, at, through}), target)
 
 # The binder of the variable `node` uses, if it is a variable.
 def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
@@ -53,24 +41,6 @@ def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
       b
     case _:
       None{}
-
-# Where the parameter that declares `binder` is among `nodes`, a definition's children, counting from
-# `k`.
-def parameter(
-  nodes: List<&2, Lint.Node>,
-  found: Maybe<&2, Nat>,
-  +binder: U32,
-  +k: Nat
-) -> Maybe<&2, Nat>:
-  match nodes found:
-    case _ Some{at}:
-      Some{at}
-    case Nil{} None{}:
-      None{}
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest} None{}:
-      parameter(rest, Utils.when(Nat, U32.is_eq(b, binder), k), binder, 1n+k)
-    case Con{node, rest} None{}:
-      parameter(rest, None{}, binder, k)
 
 def case_ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
   match nodes:
@@ -114,7 +84,7 @@ def passes(
           Pass,
           Utils.when(
             Pass,
-            Maybe.is_some(&2, Nat, parameter(params, None{}, b, 0n)),
+            Maybe.is_some(&2, Nat, LintUtils.parameter(params, b)),
             Pass{owner, b, cases}
           ),
           out
@@ -147,11 +117,11 @@ def Walker.at(
   k: Maybe<&2, Nat>,
   target: String,
   through: String,
-  out: List<&2, Walker>
-) -> List<&2, Walker>:
+  out: List<&2, Utils.Named<Walker>>
+) -> List<&2, Utils.Named<Walker>>:
   match k:
     case Some{at}:
-      Walker{target, at, through} <> out
+      Utils.Named{target, Walker{at, through}} <> out
     case None{}:
       out
 
@@ -161,12 +131,12 @@ def Walker.helped(
   +owner: U32,
   here: Lint.Here,
   children: Lint.Children,
-  out: List<&2, Walker>
-) -> List<&2, Walker>:
+  out: List<&2, Utils.Named<Walker>>
+) -> List<&2, Utils.Named<Walker>>:
   match walked:
     case Some{b}:
       Walker.at(
-        parameter(Lint.Children.get(children, owner), None{}, b, 0n),
+        LintUtils.parameter(Lint.Children.get(children, owner), b),
         Lint.Node.target(Lint.Here.node(here, owner)),
         through,
         out
@@ -182,10 +152,10 @@ def Walker.helper(
   owner: U32,
   here: Lint.Here,
   children: Lint.Children,
-  out: List<&2, Walker>
-) -> List<&2, Walker>:
+  out: List<&2, Utils.Named<Walker>>
+) -> List<&2, Utils.Named<Walker>>:
   match base:
-    case Some{Walker{t, at, through}}:
+    case Some{Walker{at, through}}:
       Walker.helped(binder(List.get(&2, Lint.Node, args, at)), through, owner, here, children, out)
     case None{}:
       out
@@ -195,11 +165,11 @@ def Walker.call(
   owner: U32,
   here: Lint.Here,
   children: Lint.Children,
-  out: List<&2, Walker>
-) -> List<&2, Walker>:
+  out: List<&2, Utils.Named<Walker>>
+) -> List<&2, Utils.Named<Walker>>:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, target}, args}:
-      Walker.helper(Walker.find(bases(), None{}, target), args, owner, here, children, out)
+      Walker.helper(Utils.lookup(Walker, target, bases()), args, owner, here, children, out)
     case _:
       out
 
@@ -208,8 +178,8 @@ def Walker.helpers(
   nodes: List<&2, Lint.Node>,
   +here: Lint.Here,
   +children: Lint.Children,
-  out: List<&2, Walker>
-) -> List<&2, Walker>:
+  out: List<&2, Utils.Named<Walker>>
+) -> List<&2, Utils.Named<Walker>>:
   match nodes:
     case Nil{}:
       out
@@ -283,13 +253,6 @@ def message(+callee: String, +through: String, +list: String, loop: String) -> S
     ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. "
     ++ advice(through, list)
 
-def finding(hit: Bool, span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lint.Finding>:
-  match hit span:
-    case True{} Some{s}:
-      [Lint.Finding{Lint.Warning{}, s, text, []}]
-    case _ _:
-      []
-
 def judged.list(
   walked: Maybe<&2, U32>,
   list: String,
@@ -303,7 +266,8 @@ def judged.list(
 ) -> List<&2, Lint.Finding>:
   match walked:
     case Some{b}:
-      finding(
+      LintUtils.finding(
+        Lint.Warning{},
         Pass.covers(passes, False{}, owner, b, innermost(cases.of(here, id))),
         span,
         message(callee, through, list, Lint.Node.name(Lint.Here.node(here, owner)))
@@ -323,7 +287,7 @@ def judged(
   passes: List<&2, Pass>
 ) -> List<&2, Lint.Finding>:
   match walker:
-    case Some{Walker{t, +at, through}}:
+    case Some{Walker{+at, through}}:
       judged.list(
         binder(List.get(&2, Lint.Node, args, at)),
         Lint.Node.name(List.get(&2, Lint.Node, args, at)),
@@ -340,7 +304,7 @@ def judged(
 
 def judge(
   nodes: List<&2, Lint.Node>,
-  walkers: List<&2, Walker>,
+  walkers: List<&2, Utils.Named<Walker>>,
   callee: String,
   owner: U32,
   id: U32,
@@ -350,7 +314,7 @@ def judge(
 ) -> List<&2, Lint.Finding>:
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, target}, args}:
-      judged(Walker.find(walkers, None{}, target), args, callee, owner, id, span, here, passes)
+      judged(Utils.lookup(Walker, target, walkers), args, callee, owner, id, span, here, passes)
     case _:
       []
 
@@ -365,7 +329,7 @@ def callee(nodes: List<&2, Lint.Node>) -> String:
 def visit(
   recursive: Bool,
   node: Lint.Node,
-  walkers: List<&2, Walker>,
+  walkers: List<&2, Utils.Named<Walker>>,
   here: Lint.Here,
   +children: Lint.Children,
   passes: List<&2, Pass>
@@ -387,7 +351,7 @@ def visit(
 
 def scan(
   nodes: List<&2, Lint.Node>,
-  +walkers: List<&2, Walker>,
+  +walkers: List<&2, Utils.Named<Walker>>,
   +here: Lint.Here,
   +children: Lint.Children,
   +passes: List<&2, Pass>,
@@ -417,7 +381,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(
     scan(
       nodes,
-      Utils.append(&2, Walker, bases(), Walker.helpers(nodes, here, children, [])),
+      Utils.append(&2, Utils.Named<Walker>, bases(), Walker.helpers(nodes, here, children, [])),
       here,
       children,
       Pass.all(nodes, here, children, []),

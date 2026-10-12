@@ -676,15 +676,15 @@ def Found.key(found: Lint.Found) -> String:
         ++ "\t"
         ++ U32.show(end)
 
-def Found.keys(founds: List<&2, Lint.Found>, keys: Map<&2, Unit>) -> Map<&2, Unit>:
+def Found.keys(founds: List<&2, Lint.Found>, keys: Set()) -> Set():
   match founds:
     case Nil{}:
       keys
     case Con{f, rest}:
-      Found.keys(rest, Map.set(&2, Unit, keys, Found.key(f), Unit{}))
+      Found.keys(rest, Set.add(keys, Found.key(f)))
 
-def Found.among(keys: Map<&2, Unit>, found: Lint.Found) -> Bool:
-  Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, keys, Found.key(found)))
+def Found.among(keys: Set(), found: Lint.Found) -> Bool:
+  Pair.snd(Set(), Bool, Set.has(keys, Found.key(found)))
 
 def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match hit:
@@ -707,7 +707,7 @@ def Tagged.of(
 # The findings of `more` whose keys are not among `keys`, nor before them in `more`, onto `out`.
 def Merge.new(
   more: List<&2, Lint.Found>,
-  +keys: Map<&2, Unit>,
+  +keys: Set(),
   out: List<&2, Lint.Found>
 ) -> List<&2, Lint.Found>:
   match more:
@@ -716,16 +716,16 @@ def Merge.new(
     case Con{+f, rest}:
       Merge.new(
         rest,
-        Map.set(&2, Unit, keys, Found.key(f), Unit{}),
+        Set.add(keys, Found.key(f)),
         Found.keep(Bool.not(Found.among(keys, f)), f, out)
       )
 
 def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
-  Utils.append(&2, Lint.Found, founds, Merge.new(more, Found.keys(founds, Map.new(&2, Unit)), []))
+  Utils.append(&2, Lint.Found, founds, Merge.new(more, Found.keys(founds, Set.new()), []))
 
 def Merge.common(
   founds: List<&2, Lint.Found>,
-  +keys: Map<&2, Unit>,
+  +keys: Set(),
   out: List<&2, Lint.Found>
 ) -> List<&2, Lint.Found>:
   match founds:
@@ -735,7 +735,7 @@ def Merge.common(
       Merge.common(rest, keys, Found.keep(Found.among(keys, f), f, out))
 
 def Merge.every(founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
-  Merge.common(founds, Found.keys(more, Map.new(&2, Unit)), [])
+  Merge.common(founds, Found.keys(more, Set.new()), [])
 
 # The findings of every check, `first` with those of the checks numbered from `check` up to `last`: all of them (some),
 # or those all of them find (every).
@@ -772,7 +772,7 @@ def Merge.stays(every: Maybe<&2, Bool>, partial: Bool, all: Bool) -> Bool:
 
 def Merge.pick(
   some: List<&2, Lint.Found>,
-  +every: Map<&2, Unit>,
+  +every: Set(),
   +modes: List<&2, Utils.Named<Bool>>,
   +partial: Bool,
   out: List<&2, Lint.Found>
@@ -800,7 +800,7 @@ def Merge.done(
 ) -> List<&2, Lint.Found>:
   match merged:
     case Tuple{some, every}:
-      Merge.pick(some, Found.keys(every, Map.new(&2, Unit)), modes, partial, [])
+      Merge.pick(some, Found.keys(every, Set.new()), modes, partial, [])
 
 # What the program rules find over `checks` checks, merged as each rule's entries say.
 def Merge.program(
@@ -1092,7 +1092,7 @@ def Object.fixes(
   fixes: List<&2, Lint.Fix>,
   edits: List<&2, Maybe<&2, List<&2, Fixes.Edit>>>,
   +places: Map<&2, Utils.Position>,
-  +comments: Map<&2, Unit>,
+  +comments: Set(),
   out: List<&2, Json.Json>
 ) -> List<&2, Json.Json>:
   match fixes edits:
@@ -1113,7 +1113,7 @@ def Object.fixes(
 def Object.finding(
   resolved: Resolved,
   +places: Map<&2, Utils.Position>,
-  comments: Map<&2, Unit>
+  comments: Set()
 ) -> Json.Json:
   match resolved:
     case Resolved{
@@ -1135,7 +1135,7 @@ def Shown.one(
   json: Bool,
   resolved: Resolved,
   places: Map<&2, Utils.Position>,
-  comments: Map<&2, Unit>
+  comments: Set()
 ) -> Shown:
   match json resolved:
     case False{} Resolved{found, edits}:
@@ -1149,7 +1149,7 @@ def Shown.of(
   +json: Bool,
   resolved: List<&2, Resolved>,
   +places: Map<&2, Utils.Position>,
-  +comments: Map<&2, Unit>,
+  +comments: Set(),
   out: List<&2, Shown>
 ) -> List<&2, Shown>:
   match resolved:
@@ -1184,14 +1184,10 @@ def Shown.edits(
     case True{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
 
-def Shown.safety(
-  json: Bool,
-  founds: List<&2, Lint.Found>,
-  sources: List<&2, Lint.Source>
-) -> Map<&2, Unit>:
+def Shown.safety(json: Bool, founds: List<&2, Lint.Found>, sources: List<&2, Lint.Source>) -> Set():
   match json:
     case False{}:
-      Map.new(&2, Unit)
+      Set.new()
     case True{}:
       Fixes.safety(Found.fixes(founds, []), sources)
 

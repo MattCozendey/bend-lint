@@ -118,12 +118,12 @@ def Imports.namespace(
       Imports.namespace(rest, Utils.when(String, String.eq(p, path), namespace), path)
 
 # The global names a file's own top-level declarations declare, as a set.
-def Imports.own(nodes: List<&2, Lint.Node>, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Imports.own(nodes: List<&2, Lint.Node>, out: Set()) -> Set():
   match nodes:
     case Nil{}:
       out
     case Con{Lint.Node{id, 0, owner, syntax, name, binder, quantity, span, target}, rest}:
-      Imports.own(rest, Map.set(&2, Unit, out, target, Unit{}))
+      Imports.own(rest, Set.add(out, target))
     case Con{n, rest}:
       Imports.own(rest, out)
 
@@ -133,19 +133,19 @@ def Imports.own(nodes: List<&2, Lint.Node>, out: Map<&2, Unit>) -> Map<&2, Unit>
 type ImportUses is Data:
   ImportUses{aliases: Map<&2, List<&2, Lint.Node>>, base: List<&2, Lint.Node>}
 
-def Imports.not_own(got: Map<&2, Unit> & Bool) -> Bool:
+def Imports.not_own(got: Set() & Bool) -> Bool:
   match got:
     case Tuple{m, has}:
       Bool.not(has)
 
-def Imports.base_name(bare: Bool, own: Map<&2, Unit>, name: String) -> Bool:
+def Imports.base_name(bare: Bool, own: Set(), name: String) -> Bool:
   match bare:
     case True{}:
-      Imports.not_own(Map.has(&2, Unit, own, name))
+      Imports.not_own(Set.has(own, name))
     case False{}:
       False{}
 
-def Imports.base_uses(own: Map<&2, Unit>, used: Maybe<&2, String>) -> Bool:
+def Imports.base_uses(own: Set(), used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
       Imports.base_name(String.is_empty(Lint.Name.namespace(name)), own, name)
@@ -171,7 +171,7 @@ def Imports.base(hit: Bool, node: Lint.Node, base: List<&2, Lint.Node>) -> List<
     case False{}:
       base
 
-def Imports.add(own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> ImportUses:
+def Imports.add(own: Set(), node: Lint.Node, uses: ImportUses) -> ImportUses:
   match node uses:
     case Lint.Node{
       id,
@@ -190,7 +190,7 @@ def Imports.add(own: Map<&2, Unit>, node: Lint.Node, uses: ImportUses) -> Import
         Imports.base(Imports.base_uses(own, Lint.Node.used(n)), n, base)
       }
 
-def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUses) -> ImportUses:
+def Imports.scan(nodes: List<&2, Lint.Node>, +own: Set(), uses: ImportUses) -> ImportUses:
   match nodes:
     case Nil{}:
       uses
@@ -200,7 +200,7 @@ def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUs
 def Imports.uses_of(+nodes: List<&2, Lint.Node>) -> ImportUses:
   Imports.scan(
     nodes,
-    Imports.own(nodes, Map.new(&2, Unit)),
+    Imports.own(nodes, Set.new()),
     ImportUses{Map.new(&2, List<&2, Lint.Node>), []}
   )
 

@@ -10,6 +10,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -214,17 +215,15 @@ def message(+name: String) -> String:
     ++ name
     ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied. This is a false positive if one of the uses is an argument for an erased parameter (`-x`, as a proof's motive often is): that is dead code."
 
-def finding.at(span: Maybe<&2, Lint.Span>, name: String) -> List<&2, Lint.Finding>:
-  match span:
-    case Some{s}:
-      [Lint.Finding{Lint.Warning{}, s, message(name), []}]
-    case None{}:
-      []
-
 def finding(second: Maybe<&2, U32>, name: String, here: Lint.Here) -> List<&2, Lint.Finding>:
   match second:
     case Some{u}:
-      finding.at(Lint.Node.span(Lint.Here.node(here, u)), name)
+      LintUtils.finding(
+        Lint.Warning{},
+        True{},
+        Lint.Node.span(Lint.Here.node(here, u)),
+        message(name)
+      )
     case None{}:
       []
 

@@ -8,35 +8,10 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-
-# Types
-# =====
-
-# A definition of the file: the name the check gives it, its node's id, and its name as written.
-type Def is Data:
-  Def{target: String, id: U32, name: String}
+import ../../shared/utils.bend as LintUtils
 
 # Functions
 # =========
-def Def.all(nodes: List<&2, Lint.Node>, out: List<&2, Def>) -> List<&2, Def>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{id, p, o, Lint.Definition{}, name, b, q, s, target}, rest}:
-      Def.all(rest, Def{target, id, name} <> out)
-    case Con{node, rest}:
-      Def.all(rest, out)
-
-# The definition named `target`, if the file defines it. `found` stops the walk at the first.
-def Def.find(defs: List<&2, Def>, found: Maybe<&2, Def>, +target: String) -> Maybe<&2, Def>:
-  match defs found:
-    case _ Some{d}:
-      Some{d}
-    case Nil{} None{}:
-      None{}
-    case Con{Def{+t, i, n}, rest} None{}:
-      Def.find(rest, Utils.when(Def, String.eq(t, target), Def{t, i, n}), target)
-
 def message(+used: String, +user: String) -> String:
   used
     ++ " is defined below "
@@ -46,13 +21,6 @@ def message(+used: String, +user: String) -> String:
     ++ " above "
     ++ user
     ++ ". If the two call each other, merge them into one definition with an argument that selects which to run: Bend does not allow mutual recursion. This is a false positive if the use is an argument for an erased parameter (`-x`): that is dead code."
-
-def finding(live: Bool, span: Lint.Span, text: String) -> List<&2, Lint.Finding>:
-  match live:
-    case True{}:
-      [Lint.Finding{Lint.Warning{}, span, text, []}]
-    case False{}:
-      []
 
 # The finding about a use, numbered `id`, if the definition it uses (`at`) is below the one it is in (`owner`). Whether
 # the use is live is asked only then: `&&` computes both sides.
@@ -66,9 +34,10 @@ def below(
 ) -> List<&2, Lint.Finding>:
   match hit:
     case True{}:
-      finding(
+      LintUtils.finding(
+        Lint.Warning{},
         Lint.Here.live(here, id),
-        span,
+        Some{span},
         message(name, Lint.Node.name(Lint.Here.node(here, owner)))
       )
     case False{}:
@@ -76,7 +45,7 @@ def below(
 
 # The finding about a use of `used`, a definition of the file, from the definition numbered `owner`.
 def judged(
-  used: Maybe<&2, Def>,
+  used: Maybe<&2, Lint.Node>,
   +owner: U32,
   id: U32,
   span: Maybe<&2, Lint.Span>,
@@ -84,7 +53,7 @@ def judged(
   unsafes: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
   match used span:
-    case Some{Def{t, at, name}} Some{s}:
+    case Some{Lint.Node{at, up, o, sy, name, b, q, sp, t}} Some{s}:
       below(
         U32.is_gt(at, owner) && Bool.not(List.contains(~U32, ~U32.is_eq, unsafes, owner)),
         name,
@@ -98,7 +67,7 @@ def judged(
 
 def scan(
   nodes: List<&2, Lint.Node>,
-  +defs: List<&2, Def>,
+  +defs: Map<&2, Maybe<&2, Lint.Node>>,
   +here: Lint.Here,
   +unsafes: List<&2, U32>,
   out: List<&2, Lint.Finding>
@@ -115,7 +84,7 @@ def scan(
         Utils.onto(
           &2,
           Lint.Finding,
-          judged(Def.find(defs, None{}, target), owner, id, span, here, unsafes),
+          judged(Utils.find(Lint.Node, defs, target), owner, id, span, here, unsafes),
           out
         )
       )
@@ -124,7 +93,7 @@ def scan(
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  Lint.done(scan(nodes, Def.all(nodes, []), here, Lint.Here.unsafes(here), []))
+  Lint.done(scan(nodes, LintUtils.definitions(nodes), here, Lint.Here.unsafes(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"language/forward-reference", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

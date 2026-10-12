@@ -32,36 +32,17 @@ type Spotted is Data:
 # What resolving renames reads, built once per run: each declaration, by its node's id; and the names each own file
 # takes, as keys (`Taken.key`).
 type Lookup is Data:
-  Lookup{declarations: Map<&2, Maybe<&2, Lint.Declaration>>, taken: Map<&2, Unit>}
-
-# The edits planned in one file, by place: a balanced (AVL) tree of spans, by start, then end; `height` counts its
-# levels. Planned edits never touch, so their ends rise with their starts.
-type Spans is Data:
-  SLeaf{}
-  SNode{height: U32, left: Spans, beg: U32, end: U32, right: Spans}
+  Lookup{declarations: Map<&2, Maybe<&2, Lint.Declaration>>, taken: Set()}
 
 # The edits planned so far, last first; how many fixes they make; and their spans, by file.
 type Plan is Data:
-  Plan{edits: List<&2, Edit>, fixes: U32, spans: Map<&2, Spans>}
+  Plan{edits: List<&2, Edit>, fixes: U32, spans: Map<&2, Utils.Spans>}
 
 # Functions
 # =========
 
 # Names
 # -----
-def last.go(s: String, seg: String) -> String:
-  match s:
-    case SNil{}:
-      String.reverse(seg)
-    case SCon{'.', rest}:
-      last.go(rest, "")
-    case SCon{c, rest}:
-      last.go(rest, SCon{c, seg})
-
-# The last part of a name, as a rename changes it: `f` of `U.f`.
-def last(name: String) -> String:
-  last.go(name, "")
-
 # Whether a node of this syntax is an import, whose name is its alias.
 def Syntax.alias(syntax: Lint.Syntax) -> Bool:
   match syntax:
@@ -82,7 +63,7 @@ def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
     case False{}:
       Utils.when(
         Part,
-        String.eq(last(name), old),
+        String.eq(Utils.after_last(name, '.'), old),
         Part{
           U32.from_nat(Nat.sub(String.length(name), String.length(old))),
           U32.from_nat(String.length(name))
@@ -135,27 +116,24 @@ def Rename.spots(
 def Taken.key(path: String, alias: Bool, name: String) -> String:
   path ++ Bool.pick(String, alias, "\ta\t", "\tn\t") ++ name
 
-def Taken.node(+path: String, node: Lint.Node, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Taken.node(+path: String, node: Lint.Node, out: Set()) -> Set():
   match node:
     case Lint.Node{i, p, o, Lint.Import{}, +name, b, q, sp, t}:
-      Map.set(
-        &2,
-        Unit,
-        Map.set(&2, Unit, out, Taken.key(path, True{}, name), Unit{}),
-        Taken.key(path, False{}, last(name)),
-        Unit{}
+      Set.add(
+        Set.add(out, Taken.key(path, True{}, name)),
+        Taken.key(path, False{}, Utils.after_last(name, '.'))
       )
     case Lint.Node{i, p, o, s, name, b, q, sp, t}:
-      Map.set(&2, Unit, out, Taken.key(path, False{}, last(name)), Unit{})
+      Set.add(out, Taken.key(path, False{}, Utils.after_last(name, '.')))
 
-def Taken.nodes(nodes: List<&2, Lint.Node>, +path: String, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Taken.nodes(nodes: List<&2, Lint.Node>, +path: String, out: Set()) -> Set():
   match nodes:
     case Nil{}:
       out
     case Con{n, rest}:
       Taken.nodes(rest, path, Taken.node(path, n, out))
 
-def Taken.files(sources: List<&2, Lint.Source>, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Taken.files(sources: List<&2, Lint.Source>, out: Set()) -> Set():
   match sources:
     case Nil{}:
       out
@@ -171,7 +149,7 @@ def Rename.allowed(
   alias: Bool,
   to: String,
   span: Maybe<&2, Lint.Span>,
-  taken: Map<&2, Unit>
+  taken: Set()
 ) -> Bool:
   match whole global span:
     case False{} _ _:
@@ -179,7 +157,7 @@ def Rename.allowed(
     case True{} True{} _:
       False{}
     case True{} False{} Some{Lint.Span{path, beg, end}}:
-      Bool.not(Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, taken, Taken.key(path, alias, to))))
+      Bool.not(Pair.snd(Set(), Bool, Set.has(taken, Taken.key(path, alias, to))))
     case True{} False{} None{}:
       False{}
 
@@ -207,7 +185,7 @@ def Rename.plan(
   declaration: Maybe<&2, Lint.Declaration>,
   +to: String,
   fix: U32,
-  taken: Map<&2, Unit>
+  taken: Set()
 ) -> Maybe<&2, List<&2, Change>>:
   match declaration:
     case Some{Lint.Declaration{Lint.Node{id, p, o, +s, +name, b, q, +span, t}, uses}}:
@@ -225,7 +203,7 @@ def Rename.plan(
           Rename.nodes(whole, Lint.Node{id, p, o, s, name, b, q, span, t}, uses),
           fix,
           alias,
-          Bool.pick(String, alias, name, last(name)),
+          Bool.pick(String, alias, name, Utils.after_last(name, '.')),
           to,
           Some{[]}
         )
@@ -261,7 +239,7 @@ def Lookup.find(lookup: Lookup, id: U32) -> Maybe<&2, Lint.Declaration>:
         Map.get(Maybe<&2, Lint.Declaration>, None{}, declarations, U32.show(id))
       )
 
-def Lookup.taken(lookup: Lookup) -> Map<&2, Unit>:
+def Lookup.taken(lookup: Lookup) -> Set():
   match lookup:
     case Lookup{declarations, taken}:
       taken
@@ -452,17 +430,14 @@ def Comment.is(+text: String) -> Bool:
     && Bool.not(String.contains(text, "\n") || String.contains(text, "\r"))
 
 # Whether an operation writes a comment over a comment: one of `comments`.
-def Operation.safe(op: Lint.Operation, comments: Map<&2, Unit>) -> Bool:
+def Operation.safe(op: Lint.Operation, comments: Set()) -> Bool:
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
-      Comment.is(
-        text
-      )
-        && Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, comments, Comment.key(path, beg, end)))
+      Comment.is(text) && Pair.snd(Set(), Bool, Set.has(comments, Comment.key(path, beg, end)))
     case _:
       False{}
 
-def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Map<&2, Unit>, safe: Bool) -> Bool:
+def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Set(), safe: Bool) -> Bool:
   match ops safe:
     case _ False{}:
       False{}
@@ -472,14 +447,14 @@ def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Map<&2, Unit>, safe: B
       Fix.safe.go(rest, comments, Operation.safe(op, comments))
 
 # Each edit writes a comment over a comment (`comments`, from `safety`).
-def Fix.safe(fix: Lint.Fix, comments: Map<&2, Unit>) -> Bool:
+def Fix.safe(fix: Lint.Fix, comments: Set()) -> Bool:
   match fix:
     case Lint.Fix{title, Nil{}}:
       False{}
     case Lint.Fix{title, ops}:
       Fix.safe.go(ops, comments, True{})
 
-def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Map<&2, Unit>) -> Bool:
+def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Set()) -> Bool:
   match fixing:
     case None{}:
       False{}
@@ -501,7 +476,7 @@ def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&
 def Plan.picked(
   fixes: List<&2, Lint.Fix>,
   +fixing: Maybe<&2, Bool>,
-  +comments: Map<&2, Unit>,
+  +comments: Set(),
   out: List<&2, Lint.Fix>
 ) -> List<&2, Lint.Fix>:
   match fixes:
@@ -562,12 +537,12 @@ def Lookup.index(
     case False{}:
       Map.new(&2, Maybe<&2, Lint.Declaration>)
 
-def Lookup.names(need: Bool, sources: List<&2, Lint.Source>) -> Map<&2, Unit>:
+def Lookup.names(need: Bool, sources: List<&2, Lint.Source>) -> Set():
   match need:
     case True{}:
-      Taken.files(Program.Program.own(sources), Map.new(&2, Unit))
+      Taken.files(Program.Program.own(sources), Set.new())
     case False{}:
-      Map.new(&2, Unit)
+      Set.new()
 
 # What resolving the renames of `fixes` reads, built once: the declarations by id, if one renames anything; the names
 # each own file takes, if one renames a declaration.
@@ -663,172 +638,13 @@ def Spotted.take(
 
 # Spans
 # -----
-def Spans.height(t: Spans) -> U32:
-  match t:
-    case SLeaf{}:
-      0
-    case SNode{h, l, b, e, r}:
-      h
+def Spans.of(spans: Map<&2, Utils.Spans>, path: String) -> Utils.Spans:
+  Pair.snd(Map<&2, Utils.Spans>, Utils.Spans, Map.get(Utils.Spans, Utils.SLeaf{}, spans, path))
 
-# The node over `l` and `r`, whose heights differ by one at most.
-def Spans.node(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
-  +hl = Spans.height(l)
-  +hr = Spans.height(r)
-  SNode{(Bool.pick(U32, U32.is_ge(hl, hr), hl, hr) + 1: U32), l, b, e, r}
-
-def Spans.lean_left.by(
-  outer: Bool,
-  ll: Spans,
-  lb: U32,
-  le: U32,
-  lr: Spans,
-  b: U32,
-  e: U32,
-  r: Spans
-) -> Spans:
-  match outer lr:
-    case False{} SNode{h, lrl, lrb, lre, lrr}:
-      Spans.node(Spans.node(ll, lb, le, lrl), lrb, lre, Spans.node(lrr, b, e, r))
-    case _ _:
-      Spans.node(ll, lb, le, Spans.node(lr, b, e, r))
-
-# The node over `l` and `r`, where `l` is two levels higher: turned right, after its left turns left if its inner side
-# is the higher.
-def Spans.lean_left(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
-  match l:
-    case SNode{h, +ll, lb, le, +lr}:
-      Spans.lean_left.by(U32.is_ge(Spans.height(ll), Spans.height(lr)), ll, lb, le, lr, b, e, r)
-    case SLeaf{}:
-      Spans.node(SLeaf{}, b, e, r)
-
-def Spans.lean_right.by(
-  outer: Bool,
-  l: Spans,
-  b: U32,
-  e: U32,
-  rl: Spans,
-  rb: U32,
-  re: U32,
-  rr: Spans
-) -> Spans:
-  match outer rl:
-    case False{} SNode{h, rll, rlb, rle, rlr}:
-      Spans.node(Spans.node(l, b, e, rll), rlb, rle, Spans.node(rlr, rb, re, rr))
-    case _ _:
-      Spans.node(Spans.node(l, b, e, rl), rb, re, rr)
-
-# The node over `l` and `r`, where `r` is two levels higher: the mirror of `lean_left`.
-def Spans.lean_right(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
-  match r:
-    case SNode{h, +rl, rb, re, +rr}:
-      Spans.lean_right.by(U32.is_ge(Spans.height(rr), Spans.height(rl)), l, b, e, rl, rb, re, rr)
-    case SLeaf{}:
-      Spans.node(l, b, e, SLeaf{})
-
-def Spans.balance.by(left: Bool, right: Bool, l: Spans, b: U32, e: U32, r: Spans) -> Spans:
-  match left right:
-    case True{} _:
-      Spans.lean_left(l, b, e, r)
-    case _ True{}:
-      Spans.lean_right(l, b, e, r)
-    case _ _:
-      Spans.node(l, b, e, r)
-
-# The node over `l` and `r`, balanced: their heights may differ by two.
-def Spans.balance(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
-  +hl = Spans.height(l)
-  +hr = Spans.height(r)
-  Spans.balance.by(U32.is_gt(hl, (hr + 1: U32)), U32.is_gt(hr, (hl + 1: U32)), l, b, e, r)
-
-def Spans.cmp.of(starts: Cmp, e: U32, y: U32) -> Cmp:
-  match starts:
-    case EQ{}:
-      U32.cmp(e, y)
-    case LT{}:
-      LT{}
-    case GT{}:
-      GT{}
-
-# How the span from `b` to `e` compares with the root's of `t`, by start, then end; GT past a leaf.
-def Spans.cmp(t: Spans, b: U32, e: U32) -> Cmp:
-  match t:
-    case SNode{h, l, x, y, r}:
-      Spans.cmp.of(U32.cmp(b, x), e, y)
-    case SLeaf{}:
-      GT{}
-
-# `t` with the span from `b` to `e`; `side` is how it compares with the root's.
-def Spans.add(t: Spans, +b: U32, +e: U32, side: Cmp) -> Spans:
-  match t side:
-    case SLeaf{} _:
-      SNode{1, SLeaf{}, b, e, SLeaf{}}
-    case SNode{h, +l, x, y, r} LT{}:
-      Spans.balance(Spans.add(l, b, e, Spans.cmp(l, b, e)), x, y, r)
-    case SNode{h, l, x, y, +r} _:
-      Spans.balance(l, x, y, Spans.add(r, b, e, Spans.cmp(r, b, e)))
-
-# Whether `t` holds the span from `b` to `e`; `side` is how it compares with the root's.
-def Spans.has(t: Spans, +b: U32, +e: U32, side: Cmp) -> Bool:
-  match t side:
-    case SLeaf{} _:
-      False{}
-    case SNode{h, l, x, y, r} EQ{}:
-      True{}
-    case SNode{h, +l, x, y, r} LT{}:
-      Spans.has(l, b, e, Spans.cmp(l, b, e))
-    case SNode{h, l, x, y, +r} GT{}:
-      Spans.has(r, b, e, Spans.cmp(r, b, e))
-
-def Spans.starts_before(t: Spans, e: U32) -> Bool:
-  match t:
-    case SNode{h, l, x, y, r}:
-      U32.is_lt(x, e)
-    case SLeaf{}:
-      False{}
-
-# The end of the last span of `t` (by start, then end) that starts before `e`, or `found`. `before` says whether the
-# root's does. Its end is the furthest of theirs, as ends rise with starts.
-def Spans.last(t: Spans, +e: U32, found: Maybe<&2, U32>, before: Bool) -> Maybe<&2, U32>:
-  match t before:
-    case SLeaf{} _:
-      found
-    case SNode{h, l, x, y, +r} True{}:
-      Spans.last(r, e, Some{y}, Spans.starts_before(r, e))
-    case SNode{h, +l, x, y, r} False{}:
-      Spans.last(l, e, found, Spans.starts_before(l, e))
-
-def Spans.ends_after(last: Maybe<&2, U32>, b: U32) -> Bool:
-  match last:
-    case Some{y}:
-      U32.is_lt(b, y)
-    case None{}:
-      False{}
-
-# Whether the span from `b` to `e` touches one of `t`: they share a character, or two insertions are at one place.
-def Spans.touch.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
-  match insertion:
-    case True{}:
-      Spans.has(t, b, e, Spans.cmp(t, b, e))
-    case False{}:
-      False{}
-
-def Spans.touch.of(shares: Bool, t: Spans, +b: U32, +e: U32) -> Bool:
-  match shares:
-    case True{}:
-      True{}
-    case False{}:
-      Spans.touch.insertion(U32.is_eq(b, e), t, b, e)
-
-def Spans.touch(+t: Spans, +b: U32, +e: U32) -> Bool:
-  Spans.touch.of(Spans.ends_after(Spans.last(t, e, None{}, Spans.starts_before(t, e)), b), t, b, e)
-
-def Spans.of(spans: Map<&2, Spans>, path: String) -> Spans:
-  Pair.snd(Map<&2, Spans>, Spans, Map.get(Spans, SLeaf{}, spans, path))
-
-def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Spans>) -> Bool:
+def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Utils.Spans>) -> Bool:
   match edits:
     case Con{Edit{path, beg, end, text}, rest}:
-      Spans.touch(Spans.of(spans, path), beg, end)
+      Utils.Spans.touch(Spans.of(spans, path), beg, end)
     case Nil{}:
       False{}
 
@@ -836,9 +652,9 @@ def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Spans>) -> Bool:
 # does.
 def Spans.with(
   edits: List<&2, Edit>,
-  +spans: Map<&2, Spans>,
+  +spans: Map<&2, Utils.Spans>,
   clash: Bool
-) -> Maybe<&2, Map<&2, Spans>>:
+) -> Maybe<&2, Map<&2, Utils.Spans>>:
   match edits clash:
     case Nil{} _:
       Some{spans}
@@ -847,14 +663,19 @@ def Spans.with(
     case Con{Edit{+path, +beg, +end, text}, +rest} False{}:
       +next = Map.set(
         &2,
-        Spans,
+        Utils.Spans,
         spans,
         path,
-        Spans.add(Spans.of(spans, path), beg, end, Spans.cmp(Spans.of(spans, path), beg, end))
+        Utils.Spans.add(
+          Spans.of(spans, path),
+          beg,
+          end,
+          Utils.Spans.cmp(Spans.of(spans, path), beg, end)
+        )
       )
       Spans.with(rest, next, Spans.clash(rest, next))
 
-def Plan.add(spans: Maybe<&2, Map<&2, Spans>>, edits: List<&2, Edit>, plan: Plan) -> Plan:
+def Plan.add(spans: Maybe<&2, Map<&2, Utils.Spans>>, edits: List<&2, Edit>, plan: Plan) -> Plan:
   match spans plan:
     case None{} _:
       plan
@@ -933,48 +754,37 @@ def edits(
     )
   )
 
-def Safety.ops(ops: List<&2, Lint.Operation>, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Safety.ops(ops: List<&2, Lint.Operation>, out: Set()) -> Set():
   match ops:
     case Nil{}:
       out
     case Con{Lint.Replace{Lint.Span{path, beg, end}, text}, rest}:
-      Safety.ops(
-        rest,
-        Map.set(&2, Unit, out, Bool.pick(String, Comment.is(text), path, ""), Unit{})
-      )
+      Safety.ops(rest, Set.add(out, Bool.pick(String, Comment.is(text), path, "")))
     case Con{op, rest}:
       Safety.ops(rest, out)
 
 # The files where `fixes` write comments, as keys (and "" for any other), onto `out`.
-def Safety.paths(fixes: List<&2, Lint.Fix>, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Safety.paths(fixes: List<&2, Lint.Fix>, out: Set()) -> Set():
   match fixes:
     case Nil{}:
       out
     case Con{Lint.Fix{title, ops}, rest}:
       Safety.paths(rest, Safety.ops(ops, out))
 
-def Safety.keys(
-  comments: List<&2, Directives.Comment>,
-  +path: String,
-  out: Map<&2, Unit>
-) -> Map<&2, Unit>:
+def Safety.keys(comments: List<&2, Directives.Comment>, +path: String, out: Set()) -> Set():
   match comments:
     case Nil{}:
       out
     case Con{Directives.Comment{beg, end, line, trailing, body}, rest}:
-      Safety.keys(rest, path, Map.set(&2, Unit, out, Comment.key(path, beg, end), Unit{}))
+      Safety.keys(rest, path, Set.add(out, Comment.key(path, beg, end)))
 
-def Safety.scanned(scanned: Directives.Scanned, path: String, out: Map<&2, Unit>) -> Map<&2, Unit>:
+def Safety.scanned(scanned: Directives.Scanned, path: String, out: Set()) -> Set():
   match scanned:
     case Directives.Scanned{comments, lines}:
       Safety.keys(comments, path, out)
 
 # The comments of each own file at `paths`, as keys, onto `out`: one pass over each file.
-def Safety.files(
-  paths: List<&2, String>,
-  +texts: Map<&2, String>,
-  out: Map<&2, Unit>
-) -> Map<&2, Unit>:
+def Safety.files(paths: List<&2, String>, +texts: Map<&2, String>, out: Set()) -> Set():
   match paths:
     case Nil{}:
       out
@@ -991,11 +801,11 @@ def Safety.files(
 
 # Where the comments are that `fixes` may write over, as keys, for `Fix.safe`: the comments of each of the program's own
 # files where one of them writes a comment. Only those files are read.
-def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Map<&2, Unit>:
+def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Set():
   Safety.files(
-    Map.keys(&2, Unit, Safety.paths(fixes, Map.new(&2, Unit))),
+    Set.to_list(Safety.paths(fixes, Set.new())),
     texts(Program.Program.own(sources), Map.new(&2, String)),
-    Map.new(&2, Unit)
+    Set.new()
   )
 
 # Where a safe fix may write, if the run makes the safe fixes alone.
@@ -1003,12 +813,12 @@ def Plan.safety(
   fixing: Maybe<&2, Bool>,
   fixes: List<&2, Lint.Fix>,
   sources: List<&2, Lint.Source>
-) -> Map<&2, Unit>:
+) -> Set():
   match fixing:
     case Some{False{}}:
       safety(fixes, sources)
     case _:
-      Map.new(&2, Unit)
+      Set.new()
 
 # The plan of `edits`, in order: each fix the linter can make, whose edits touch no earlier fix's.
 def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Edit>>>, plan: Plan) -> Plan:
@@ -1033,7 +843,7 @@ def Plan.of(
       declarations,
       sources
     ),
-    Plan{[], 0, Map.new(&2, Spans)}
+    Plan{[], 0, Map.new(&2, Utils.Spans)}
   )
 
 # Writing

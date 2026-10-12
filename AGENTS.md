@@ -102,9 +102,10 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 - README.md is for users and stays short. Internals go here and in code comments.
 - `src/linter/` holds the linter, `src/json-parser/` JSON, `src/meta/` this repo's scripts and
-  oxlint plugins, and `src/shared/` helpers that are not about linting.
-- Code that touches Bend's internals goes in `src/linter/server.ts`. Bend helpers that more than one
-  file uses go in `src/shared/utils.bend`.
+  oxlint plugins, and `src/shared/` helpers for any program.
+- Code that touches Bend's internals goes in `src/linter/server.ts`. A Bend helper that is not about
+  linting goes in `src/shared/utils.bend`, even with one user. A Bend helper about linting that more
+  than one file of the linter uses goes in `src/linter/shared/utils.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it.
 - A rule lives in `src/linter/rules/<namespace>/<name>.bend`, and its id is `<namespace>/<name>`.

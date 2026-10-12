@@ -81,16 +81,6 @@ def fits(want: Case, +s: String) -> Bool:
     case Either{}:
       Bool.or(is_pascal(s), is_snake(s))
 
-# The last segment of a dotted name. `seg` is the segment so far, last character first.
-def segment(s: String, seg: String) -> String:
-  match s:
-    case SNil{}:
-      String.reverse(seg)
-    case SCon{'.', rest}:
-      segment(rest, "")
-    case SCon{c, rest}:
-      segment(rest, SCon{c, seg})
-
 def small_head(s: String) -> Bool:
   match s:
     case SCon{c, rest}:
@@ -328,7 +318,7 @@ def misfit(
   span: Lint.Span,
   id: U32
 ) -> List<&2, Lint.Finding>:
-  +seg = segment(name, "")
+  +seg = Utils.after_last(name, '.')
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
   +ok = fits(want, recased(want, seg))
   rename = Bool.pick(String, ok, "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
@@ -364,7 +354,7 @@ def judged(
 ) -> List<&2, Lint.Finding>:
   match want:
     case Some{+w}:
-      verdict(fits(w, segment(name, "")), syntax, w, name, span, id)
+      verdict(fits(w, Utils.after_last(name, '.')), syntax, w, name, span, id)
     case None{}:
       []
 

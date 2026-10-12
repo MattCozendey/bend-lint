@@ -10,6 +10,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -143,13 +144,6 @@ def message(kind: String, +callee: String, own: Bool) -> String:
     ++ callee
     ++ " loops only a few steps here, ignore this."
 
-def judged.at(span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lint.Finding>:
-  match span:
-    case Some{s}:
-      [Lint.Finding{Lint.Information{}, s, text, []}]
-    case None{}:
-      []
-
 def judged(
   eager: Maybe<&2, Eager>,
   callee: String,
@@ -158,7 +152,12 @@ def judged(
 ) -> List<&2, Lint.Finding>:
   match eager:
     case Some{Eager{kind, v}}:
-      judged.at(Lint.Node.span(Lint.Here.node(here, v)), message(kind, callee, own))
+      LintUtils.finding(
+        Lint.Information{},
+        True{},
+        Lint.Node.span(Lint.Here.node(here, v)),
+        message(kind, callee, own)
+      )
     case None{}:
       []
 

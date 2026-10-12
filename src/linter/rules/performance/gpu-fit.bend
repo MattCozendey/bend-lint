@@ -11,6 +11,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Types
 # =====
@@ -63,10 +64,10 @@ def runtime(quantity: Maybe<&2, Lint.Quantity>) -> Bool:
     case _:
       True{}
 
-def Open.close(current: Maybe<&2, Open>, out: List<&2, Def>) -> List<&2, Def>:
+def Open.close(current: Maybe<&2, Open>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
   match current:
-    case Some{Open{i, Def{t, params, forks}}}:
-      Def{t, List.reverse(&2, Param, params), forks} <> out
+    case Some{Open{i, Def{+t, params, forks}}}:
+      Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, List.reverse(&2, Param, params), forks}})
     case None{}:
       out
 
@@ -89,13 +90,13 @@ def Open.fork(current: Maybe<&2, Open>, hit: Bool) -> Maybe<&2, Open>:
     case other _:
       other
 
-# The definitions of one file's nodes, onto `out`. A definition's nodes come right after it, until the
-# next node at the top.
+# The definitions of one file's nodes, by the name the check gives them, onto `out`. A definition's
+# nodes come right after it, until the next node at the top.
 def Def.scan(
   nodes: List<&2, Lint.Node>,
   current: Maybe<&2, Open>,
-  out: List<&2, Def>
-) -> List<&2, Def>:
+  out: Map<&2, Maybe<&2, Def>>
+) -> Map<&2, Maybe<&2, Def>>:
   match nodes:
     case Nil{}:
       Open.close(current, out)
@@ -121,7 +122,10 @@ def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&
     case Con{Lint.Source{path, ns, text, nodes, facts}, rest}:
       program.slots(rest, Slot.scan(nodes, "", out))
 
-def program.defs(sources: List<&2, Lint.Source>, out: List<&2, Def>) -> List<&2, Def>:
+def program.defs(
+  sources: List<&2, Lint.Source>,
+  out: Map<&2, Maybe<&2, Def>>
+) -> Map<&2, Maybe<&2, Def>>:
   match sources:
     case Nil{}:
       out
@@ -205,15 +209,6 @@ def data(
     case Con{Param{n, +ty}, rest} None{}:
       data(rest, Utils.when(Param, Bool.not(flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
 
-def Def.find(defs: List<&2, Def>, found: Maybe<&2, Def>, +target: String) -> Maybe<&2, Def>:
-  match defs found:
-    case _ Some{info}:
-      Some{info}
-    case Nil{} None{}:
-      None{}
-    case Con{Def{+t, params, forks}, rest} None{}:
-      Def.find(rest, Utils.when(Def, String.eq(t, target), Def{t, params, forks}), target)
-
 def Def.forks(info: Maybe<&2, Def>) -> Bool:
   match info:
     case Some{Def{t, params, forks}}:
@@ -246,17 +241,6 @@ def faster(+callee: String) -> String:
     ++ callee
     ++ "!(..)` would run it on the GPU, if there is one, where uniform numeric work can be faster: measured on an RTX 4050 laptop GPU, a numeric fork tree of 16,384 leaves took 0.54 s against 0.95 s on its CPU. A GPU also costs time to start (about 0.5 s there), so short work gets slower: the parallel sum of Bend's demos took 0.83 s against 0.13 s. Time both, and keep the faster."
 
-def finding(
-  span: Maybe<&2, Lint.Span>,
-  severity: Lint.Severity,
-  text: String
-) -> List<&2, Lint.Finding>:
-  match span:
-    case Some{s}:
-      [Lint.Finding{severity, s, text, []}]
-    case None{}:
-      []
-
 def Def.target(info: Maybe<&2, Def>) -> String:
   match info:
     case Some{Def{t, params, forks}}:
@@ -275,15 +259,15 @@ def unbanged(
 ) -> List<&2, Lint.Finding>:
   match info:
     case Some{Def{t, params, True{}}}:
-      Bool.pick(
-        List<&2, Lint.Finding>,
+      LintUtils.finding(
+        Lint.Hint{},
         Bool.not(
           Maybe.is_some(&2, Param, data(params, None{}, slots))
         )
           && Bool.not(Def.forks(caller))
           && Bool.not(String.eq(t, Def.target(caller))),
-        finding(span, Lint.Hint{}, faster(callee)),
-        []
+        span,
+        faster(callee)
       )
     case _:
       []
@@ -295,7 +279,7 @@ def banged.data(
 ) -> List<&2, Lint.Finding>:
   match param:
     case Some{p}:
-      finding(span, Lint.Information{}, slower(callee, p))
+      LintUtils.finding(Lint.Information{}, True{}, span, slower(callee, p))
     case None{}:
       []
 
@@ -331,7 +315,7 @@ def call(
   owner: U32,
   span: Maybe<&2, Lint.Span>,
   here: Lint.Here,
-  +defs: List<&2, Def>,
+  +defs: Map<&2, Maybe<&2, Def>>,
   slots: List<&2, Slot>,
   bangs: List<&2, U32>
 ) -> List<&2, Lint.Finding>:
@@ -339,9 +323,9 @@ def call(
     case Some{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, Some{Lint.Span{path, beg, end}}, t}}:
       judged(
         List.contains(~U32, ~U32.is_eq, bangs, end),
-        Def.find(defs, None{}, t),
+        Utils.find(Def, defs, t),
         n,
-        Def.find(defs, None{}, Lint.Node.target(Lint.Here.node(here, owner))),
+        Utils.find(Def, defs, Lint.Node.target(Lint.Here.node(here, owner))),
         slots,
         span
       )
@@ -351,7 +335,7 @@ def call(
 def scan(
   nodes: List<&2, Lint.Node>,
   +here: Lint.Here,
-  +defs: List<&2, Def>,
+  +defs: Map<&2, Maybe<&2, Def>>,
   +slots: List<&2, Slot>,
   +bangs: List<&2, U32>,
   out: List<&2, Lint.Finding>
@@ -382,7 +366,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     scan(
       Lint.Here.nodes(here),
       here,
-      program.defs(sources, []),
+      program.defs(sources, Map.new(&2, Maybe<&2, Def>)),
       program.slots(sources, []),
       bangs(Lint.Here.text(here), 0, []),
       []

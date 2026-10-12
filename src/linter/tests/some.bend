@@ -1,39 +1,7 @@
-# tests/some: a program rule for run.test.ts, merged as some-entry. In each file of a check, it finds a mark at offset
-# 0, and one at the number of files the check read.
+# tests/some: a program rule for run.test.ts, merged as some-entry. It finds what tests/every finds.
 import Base
-import ../../shared/utils.bend as Utils
 import ../lint.bend as Lint
-
-def marks(
-  sources: List<&2, Lint.Source>,
-  +n: U32,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
-  match sources:
-    case Nil{}:
-      List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
-      marks(
-        rest,
-        n,
-        Lint.Finding{
-          Lint.Hint{},
-          Lint.Span{path, n, (n + 1: U32)},
-          "at the count",
-          []
-        }
-          <> Lint.Finding{Lint.Hint{}, Lint.Span{path, 0, 1}, "at 0", []}
-          <> out
-      )
-
-def run(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(
-    marks(
-      Lint.Whole.sources(whole),
-      U32.from_nat(Utils.length(&2, Lint.Source, Lint.Whole.sources(whole))),
-      []
-    )
-  )
+import ./every.bend as Every
 
 def rule() -> Lint.Rule:
-  Lint.Rule{"tests/some", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{False{}, run}}
+  Lint.Rule{"tests/some", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{False{}, Every.run}}

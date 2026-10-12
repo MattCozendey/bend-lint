@@ -8,6 +8,7 @@
 import Base
 import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
+import ../../shared/utils.bend as LintUtils
 
 # Functions
 # =========
@@ -208,13 +209,6 @@ def message(+callee: String, loop: String) -> String:
     ++ callee
     ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. In the slash boss demo of Bend, doing so for such a call changed no timing: the list it walked was short. Time it before and after."
 
-def finding(hit: Bool, span: Maybe<&2, Lint.Span>, text: String) -> List<&2, Lint.Finding>:
-  match hit span:
-    case True{} Some{s}:
-      [Lint.Finding{Lint.Warning{}, s, text, []}]
-    case _ _:
-      []
-
 # The finding about a call of a deep definition (if `deep`), when the call is in a fork.
 def forked(
   deep: Bool,
@@ -227,7 +221,8 @@ def forked(
 ) -> List<&2, Lint.Finding>:
   match deep:
     case True{}:
-      finding(
+      LintUtils.finding(
+        Lint.Warning{},
         inside(Lint.Here.ancestors(here, id), False{}, forks),
         span,
         message(callee, Lint.Node.name(Lint.Here.node(here, owner)))
