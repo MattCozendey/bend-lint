@@ -1,5 +1,6 @@
 # A rules program calls `run` with its rules: `Cli.run(~[R.rule()])`.
 import Base
+import ../files/main.bend as Files
 import ../json/main.bend as Json
 import ../shared/edits.bend as Edits
 import ../shared/lists.bend as Lists
@@ -1842,7 +1843,7 @@ def Options.json(options: Options) -> Bool:
     case Options{inputs, imports, fixing, shown, json}:
       json
 
-def Files.lint(
+def Paths.lint(
   ~rules: List<&1, Lint.Rule>,
   paths: List<&2, String>,
   +options: Options,
@@ -1857,8 +1858,24 @@ def Files.lint(
         Outcome,
         Unit,
         File.lint(~rules, path, options, many),
-        o => Files.lint(~rules, rest, options, many, Outcome.add(total, o))
+        o => Paths.lint(~rules, rest, options, many, Outcome.add(total, o))
       )
+
+def files.of(found: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
+  match found:
+    case Done{paths}:
+      IO.pure(List<&2, String>, paths)
+    case Fail{why}:
+      IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
+
+# The files the inputs name. One that names none ends the run with a usage error.
+def files(inputs: List<&2, String>) -> IO(List<&2, String>):
+  IO.bind(
+    Result<&2, &2, String, List<&2, String>>,
+    List<&2, String>,
+    Files.named(inputs),
+    found => files.of(found)
+  )
 
 def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
@@ -1866,8 +1883,8 @@ def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Uni
       IO.bind(
         List<&2, String>,
         Unit,
-        Wire.files(inputs),
-        +paths => Files.lint(
+        files(inputs),
+        +paths => Paths.lint(
           ~rules,
           paths,
           Options{inputs, flag, fixing, shown, json},

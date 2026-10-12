@@ -1,8 +1,8 @@
 # A run's `fixing`: None (no fixes), Some{False{}} (`--fix`) or Some{True{}} (`--fix-dangerously`).
 import Base
+import ../files/main.bend as Files
 import ../shared/disjoint.bend as Disjoint
 import ../shared/edits.bend as Edits
-import ../shared/files.bend as Files
 import ../shared/groups.bend as Groups
 import ../shared/lists.bend as Lists
 import ../shared/strings.bend as Strings

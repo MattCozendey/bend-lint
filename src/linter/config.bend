@@ -1,7 +1,7 @@
 # bend-lint.json. Its format is in the README.
 import Base
+import ../files/main.bend as Files
 import ../json/main.bend as Json
-import ../shared/files.bend as Files
 import ../shared/names.bend as Names
 import ./lint.bend as Lint
 

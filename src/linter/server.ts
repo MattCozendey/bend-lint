@@ -203,7 +203,8 @@ const PROGRAMS_DIR = url.fileURLToPath(new URL("programs/", SERVER_CACHE_DIR));
 
 const MAIN = url.fileURLToPath(new URL("main.bend", import.meta.url));
 
-const IMPORT = /^\s*import\s+(\.\.?\/\S+)/gm;
+// An import by a relative path: of a .bend file, or, quoted, of an effect's.
+const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
 
 // A drive letter that starts a path with `/`.
 const DRIVE = /^[A-Za-z]:(?=\/)/;
@@ -314,8 +315,6 @@ const UNUSED: ReadonlyArray<[number, Quant]> = [];
 
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
-
-const GLOB = /[*?[{]/;
 
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
@@ -1508,8 +1507,8 @@ const prune = (dir: string): void => {
   );
 };
 
-// The .bend file at `file` and every .bend file it imports by a relative
-// path, at any depth, each once.
+// The .bend file at `file` and every file it imports by a relative path
+// (.bend files at any depth, and effects' files), each once.
 const closure = (file: string, seen: Set<string> = new Set()): string[] => {
   if (seen.has(file)) {
     return [];
@@ -1517,9 +1516,11 @@ const closure = (file: string, seen: Set<string> = new Set()): string[] => {
   seen.add(file);
   return [
     file,
-    ...[...nodeFs.readFileSync(file, "utf8").matchAll(IMPORT)].flatMap((m) =>
-      closure(nodePath.resolve(nodePath.dirname(file), m[1]), seen),
-    ),
+    ...(file.endsWith(".bend")
+      ? [...nodeFs.readFileSync(file, "utf8").matchAll(IMPORT)].flatMap((m) =>
+          closure(nodePath.resolve(nodePath.dirname(file), m[1]), seen),
+        )
+      : []),
   ];
 };
 
@@ -1677,41 +1678,15 @@ const forget = (check: number): string => {
   return record(["forgot"]);
 };
 
-// The answer to `files <input>...`: the files the inputs name, each once, in
-// order, absolute, links resolved, with "/" between their parts. An input is
-// a path, or a glob with "/" between its parts, whose files come sorted. If
-// an input names no file, why.
-const named = (inputs: string[]): string => {
-  const found = inputs.map((input) =>
-    (GLOB.test(input) ? nodeFs.globSync(input).sort() : [input]).filter(
-      (f) => nodeFs.existsSync(f) && nodeFs.statSync(f).isFile(),
-    ),
-  );
-  const none = inputs.find((_, i) => found[i].length === 0);
-  return none !== undefined
-    ? record(["fail", none + " matches no file"])
-    : [
-        ...new Set(
-          found
-            .flat()
-            .map((f) => getPathWithForwardSlashes(nodeFs.realpathSync.native(nodePath.resolve(f)))),
-        ),
-      ]
-        .map((f) => record(["file", f]))
-        .join("");
-};
-
 const answer = (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
   return op === "check" && args.length === 2
     ? checked(checker, args[0], args[1] === "facts")
-    : op === "files"
-      ? Promise.resolve(named(args))
-      : op === "forget" && args.length === 1
-        ? Promise.resolve(forget(Number(args[0])))
-        : op === "ask"
-          ? ask(checker, args)
-          : Promise.resolve(record(["fail", "unknown request: " + line]));
+    : op === "forget" && args.length === 1
+      ? Promise.resolve(forget(Number(args[0])))
+      : op === "ask"
+        ? ask(checker, args)
+        : Promise.resolve(record(["fail", "unknown request: " + line]));
 };
 
 // One request: read its line, write the whole answer, close. If Bend does not

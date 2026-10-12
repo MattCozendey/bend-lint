@@ -1,6 +1,6 @@
 # The seam to the checker server (server.ts), for as long as Bend's checker is TS: each request
-# the linter makes, and its answer decoded. Four calls cross it: check, forget, answers and files.
-# When the checker is Bend, this file becomes those four calls, made directly.
+# the linter makes, and its answer decoded. Three calls cross it: check, forget and answers.
+# When the checker is Bend, this file becomes those three calls, made directly.
 # - A request is one connection: one line out, the answer in, then the server closes.
 # - A line is fields split by a tab. A field escapes \, a tab and a newline as \\, \t and \n.
 # - The answer is one line per record. Its first field is its kind.
@@ -568,47 +568,4 @@ def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
     List<&2, Lint.Answer>,
     ask("ask" <> Question.fields(questions, [])),
     records => Answer.got(Answer.all(records, []))
-  )
-
-# Files
-# =====
-def files.file(records: List<&2, List<&2, String>>) -> Bool:
-  match records:
-    case Con{Con{tag, Con{path, Nil{}}}, rest}:
-      String.eq(tag, "file")
-    case _:
-      False{}
-
-# The paths of a `files` answer, in order, onto `out`; or why an input names no file. `file` says whether its first
-# record names one.
-def files.paths(
-  records: List<&2, List<&2, String>>,
-  file: Bool,
-  out: List<&2, String>
-) -> Result<&2, &2, String, List<&2, String>>:
-  match records file:
-    case Nil{} _:
-      Done{List.reverse(&2, String, out)}
-    case Con{Con{tag, Con{path, Nil{}}}, +rest} True{}:
-      files.paths(rest, files.file(rest), path <> out)
-    case Con{Con{tag, Con{why, Nil{}}}, rest} False{}:
-      Fail{why}
-    case _ _:
-      Fail{"the checker's answer is malformed"}
-
-def files.of(paths: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
-  match paths:
-    case Done{p}:
-      IO.pure(List<&2, String>, p)
-    case Fail{why}:
-      IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
-
-# The files the inputs name (paths or globs), each once, as real paths: absolute, links resolved, "/" between parts.
-# The server reads the folders.
-def files(inputs: List<&2, String>) -> IO(List<&2, String>):
-  IO.bind(
-    List<&2, List<&2, String>>,
-    List<&2, String>,
-    ask("files" <> inputs),
-    +records => files.of(files.paths(records, files.file(records), []))
   )
