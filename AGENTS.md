@@ -11,11 +11,10 @@ The rules in sections 0 to 2 have priority over all other instructions, except s
 
 ## 1. Communication
 
-- Speak the language you are spoken to in.
-- Be short, but do not drop information. Use ASD-STE100 or similar, with the `i-have-adhd` skill in
-  mind.
-- Number your questions. Continue the numbers across the whole response.
-- Repeat each open question in each response until I answer it or tell you to use common sense.
+- Speak the language you are spoken to; but shortly and without dropping important information in
+  ASD-STE100(or language's equivalent), with learnings from the `i-have-adhd`.
+- Use a global counter for your non-trivial questions that grows throught the session. Repeat each
+  open question in each response until I answer it or tell you to use common sense.
 
 ## 2. Code
 
@@ -41,27 +40,19 @@ The rules in sections 0 to 2 have priority over all other instructions, except s
 - Write a law only for a property that matters. For example, a hardcoded list does not need a law
   that it has no duplicates.
 
-- Laws obey the same code rules as other code(claude, help me reword this).
+- A law's statement is code, and obeys the same rules as other code. Its proof body does not, unless
+  it is too expensive to check. Ask me before you review a proof body, or code that a proven law
+  covers. Good laws and an ergonomic API are the priority.
 
 - If a proven law covers a def, use that def. Do not write or use an unproven def that does the same
   thing.
 
 - When a law replaces another law or a test, delete the old one in the same change.
 
-- Ask me before you review proof bodies, or code that a proven law covers. Good laws and an
-  ergonomic API are the priority.
-
 - Do not try to prove that generated data, or a copy of a standard's text, matches its source. Check
   generated data with a test against an independent source (for example, another implementation, or
   the standard's own test vectors). That test does not replace laws for the code. Tell me which
   copies of standard text you changed, so that I can check them.
-
-- `src/linter/` holds the linter. [src/linter/PLAN.md](src/linter/PLAN.md) says how to write its
-  Bend code, and [src/linter/RULES.md](src/linter/RULES.md) how to write, run and test its rules.
-- `src/shared/` holds helpers that are not about linting: TypeScript that the linter and `src/meta/`
-  use, and Bend that the linter uses.
-- `src/json-parser/` reads and writes JSON for the linter.
-- `src/meta/` holds this repo's scripts and oxlint plugins.
 
 ### Tools
 
@@ -150,6 +141,13 @@ git diff --check
   into. It needs clang's `llvm-profdata` and `llvm-cov`.
 
 ## Files
+
+- `src/linter/` holds the linter. [src/linter/PLAN.md](src/linter/PLAN.md) says how to write its
+  Bend code, and [src/linter/RULES.md](src/linter/RULES.md) how to write, run and test its rules.
+- `src/shared/` holds helpers that are not about linting: TypeScript that the linter and `src/meta/`
+  use, and Bend that the linter uses.
+- `src/json-parser/` reads and writes JSON for the linter.
+- `src/meta/` holds this repo's scripts and oxlint plugins.
 
 | File                         | Holds                                                        |
 | ---------------------------- | ------------------------------------------------------------ |
