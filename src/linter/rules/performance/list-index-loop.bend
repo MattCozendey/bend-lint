@@ -6,8 +6,8 @@
 # takes O(n²) time, where walking the list takes O(n). A branch is the innermost `case` around the
 # read; the loop's call must be in it too. It looks one definition deep, not further.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -44,7 +44,7 @@ def Walker.find(
     case Nil{} None{}:
       None{}
     case Con{Walker{+t, at, through}, rest} None{}:
-      Walker.find(rest, Shared.when(Walker, String.eq(t, target), Walker{t, at, through}), target)
+      Walker.find(rest, Utils.when(Walker, String.eq(t, target), Walker{t, at, through}), target)
 
 # The binder of the variable `node` uses, if it is a variable.
 def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
@@ -68,7 +68,7 @@ def parameter(
     case Nil{} None{}:
       None{}
     case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest} None{}:
-      parameter(rest, Shared.when(Nat, U32.is_eq(b, binder), k), binder, 1n+k)
+      parameter(rest, Utils.when(Nat, U32.is_eq(b, binder), k), binder, 1n+k)
     case Con{node, rest} None{}:
       parameter(rest, None{}, binder, k)
 
@@ -110,9 +110,9 @@ def passes(
         owner,
         params,
         cases,
-        Shared.push(
+        Utils.push(
           Pass,
-          Shared.when(
+          Utils.when(
             Pass,
             Maybe.is_some(&2, Nat, parameter(params, None{}, b, 0n)),
             Pass{owner, b, cases}
@@ -403,7 +403,7 @@ def scan(
         here,
         children,
         passes,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           visit(Lint.Here.recursive(here, children, node), node, walkers, here, children, passes),
@@ -417,7 +417,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(
     scan(
       nodes,
-      Shared.append(&2, Walker, bases(), Walker.helpers(nodes, here, children, [])),
+      Utils.append(&2, Walker, bases(), Walker.helpers(nodes, here, children, [])),
       here,
       children,
       Pass.all(nodes, here, children, []),

@@ -333,9 +333,10 @@ test("a parameter named foo is reported, and renamed with --fix-dangerously", as
 ## Bend for rule authors
 
 - Recurse in tail position over long lists and text: the JS lane's stack is small.
-  [shared.bend](shared.bend) has tail-recursive `append`, `concat`, `length`, `any` and `sort`;
-  Base's own are not.
+  [utils.bend](../shared/utils.bend) has tail-recursive `append`, `concat`, `length`, `any` and
+  `sort`; Base's own are not.
 - `match` works on a parameter only: pass a computed value to a helper.
 - `Bool.pick`, `&&` and `||` compute both sides.
 - A template argument (`~f`) must be closed: no local variables.
-- Logic that more than one rule uses goes in [shared.bend](shared.bend).
+- Logic that more than one rule uses, and that is not about linting, goes in
+  [utils.bend](../shared/utils.bend).

@@ -6,8 +6,8 @@
 # reported. It knows Base's List.append and String.append (`++`), not other functions that copy
 # their first argument.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -34,7 +34,7 @@ def Append.of(+callee: String, +count: Nat) -> Maybe<&2, Append>:
     Maybe<&2, Append>,
     String.eq(callee, "List.append") && Nat.is_eq(count, 4n),
     Some{ListAppend{}},
-    Shared.when(Append, String.eq(callee, "String.append") && Nat.is_eq(count, 2n), StringAppend{})
+    Utils.when(Append, String.eq(callee, "String.append") && Nat.is_eq(count, 2n), StringAppend{})
   )
 
 # Which argument an append copies.
@@ -242,7 +242,7 @@ def call(
   match nodes:
     case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, callee}, +args}:
       appended(
-        Append.of(callee, Shared.length(&2, Lint.Node, args)),
+        Append.of(callee, Utils.length(&2, Lint.Node, args)),
         args,
         loop,
         owner,
@@ -273,7 +273,7 @@ def arguments(
         here,
         children,
         us,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           call(Lint.Children.get(children, id), loop, owner, span, here, children, us),

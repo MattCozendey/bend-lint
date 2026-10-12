@@ -6,8 +6,8 @@
 # such use at once. A definition used as a type argument of a call is dead too, but the rule cannot
 # tell such an argument from a live one.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -35,7 +35,7 @@ def Def.find(defs: List<&2, Def>, found: Maybe<&2, Def>, +target: String) -> May
     case Nil{} None{}:
       None{}
     case Con{Def{+t, i, n}, rest} None{}:
-      Def.find(rest, Shared.when(Def, String.eq(t, target), Def{t, i, n}), target)
+      Def.find(rest, Utils.when(Def, String.eq(t, target), Def{t, i, n}), target)
 
 def message(+used: String, +user: String) -> String:
   used
@@ -112,7 +112,7 @@ def scan(
         defs,
         here,
         unsafes,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           judged(Def.find(defs, None{}, target), owner, id, span, here, unsafes),

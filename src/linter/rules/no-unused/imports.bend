@@ -3,16 +3,16 @@
 # Heuristics: a use is a name written through the import's alias, or, for Base, a name that only Base
 # declares (Imports in program.bend).
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # The fix that deletes the import's line.
 def deleted(+text: String, path: String, at: U32) -> List<&2, Lint.Fix>:
-  +beg = Shared.line_start(text, at)
+  +beg = Utils.line_start(text, at)
   [
     Lint.Fix{
       "Remove the import",
-      [Lint.Replace{Lint.Span{path, beg, Shared.line_end(text, beg)}, ""}]
+      [Lint.Replace{Lint.Span{path, beg, Utils.line_end(text, beg)}, ""}]
     }
   ]
 
@@ -52,7 +52,7 @@ def findings(
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
     case Con{d, rest}:
-      findings(rest, text, Shared.onto(&2, Lint.Finding, unused(text, d), out))
+      findings(rest, text, Utils.onto(&2, Lint.Finding, unused(text, d), out))
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(findings(Lint.Here.declarations(here), Lint.Here.text(here), []))

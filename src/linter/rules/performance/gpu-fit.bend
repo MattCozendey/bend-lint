@@ -9,8 +9,8 @@
 # files; anything else is data. Erased and template parameters do not count. On unified memory (Apple
 # M-series) the GPU's costs differ.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -76,7 +76,7 @@ def Open.param(current: Maybe<&2, Open>, parent: U32, keep: Bool, param: Param) 
       Some{
         Open{
           i,
-          Def{t, Shared.push(Param, Shared.when(Param, U32.is_eq(i, parent), param), params), forks}
+          Def{t, Utils.push(Param, Utils.when(Param, U32.is_eq(i, parent), param), params), forks}
         }
       }
     case other _:
@@ -141,7 +141,7 @@ def fields(slots: List<&2, Slot>, +t: String, out: List<&2, String>) -> List<&2,
     case Nil{}:
       out
     case Con{Slot{o, ty}, rest}:
-      fields(rest, t, Shared.push(String, Shared.when(String, String.eq(o, t), ty), out))
+      fields(rest, t, Utils.push(String, Utils.when(String, String.eq(o, t), ty), out))
 
 def known(slots: List<&2, Slot>, hit: Bool, +t: String) -> Bool:
   match slots hit:
@@ -203,7 +203,7 @@ def data(
     case Nil{} None{}:
       None{}
     case Con{Param{n, +ty}, rest} None{}:
-      data(rest, Shared.when(Param, Bool.not(flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
+      data(rest, Utils.when(Param, Bool.not(flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
 
 def Def.find(defs: List<&2, Def>, found: Maybe<&2, Def>, +target: String) -> Maybe<&2, Def>:
   match defs found:
@@ -212,7 +212,7 @@ def Def.find(defs: List<&2, Def>, found: Maybe<&2, Def>, +target: String) -> May
     case Nil{} None{}:
       None{}
     case Con{Def{+t, params, forks}, rest} None{}:
-      Def.find(rest, Shared.when(Def, String.eq(t, target), Def{t, params, forks}), target)
+      Def.find(rest, Utils.when(Def, String.eq(t, target), Def{t, params, forks}), target)
 
 def Def.forks(info: Maybe<&2, Def>) -> Bool:
   match info:
@@ -366,7 +366,7 @@ def scan(
         defs,
         slots,
         bangs,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           call(Lint.Here.node(here, (i + 1: U32)), o, span, here, defs, slots, bangs),

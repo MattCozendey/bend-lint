@@ -8,8 +8,8 @@
 # `match` takes apart is skipped: in a case, it stands for the matched constructor. Bend's checker
 # stops at its first error; this rule reports every such binder at once.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -50,9 +50,9 @@ def Once.all(
         rest,
         bare,
         here,
-        Shared.push(
+        Utils.push(
           Once,
-          Shared.when(Once, Bool.not(List.contains(~U32, ~U32.is_eq, bare, o)), Once{b, o, n}),
+          Utils.when(Once, Bool.not(List.contains(~U32, ~U32.is_eq, bare, o)), Once{b, o, n}),
           out
         )
       )
@@ -64,9 +64,9 @@ def Once.all(
         rest,
         bare,
         here,
-        Shared.push(
+        Utils.push(
           Once,
-          Shared.when(Once, parent_is_let(Lint.Here.node(here, p)), Once{b, o, n}),
+          Utils.when(Once, parent_is_let(Lint.Here.node(here, p)), Once{b, o, n}),
           out
         )
       )
@@ -81,7 +81,7 @@ def bare(nodes: List<&2, Lint.Node>, +children: Lint.Children, out: List<&2, U32
       bare(
         rest,
         children,
-        Shared.push(U32, Shared.when(U32, Lint.Children.bare(children, i), o), out)
+        Utils.push(U32, Utils.when(U32, Lint.Children.bare(children, i), o), out)
       )
     case Con{node, rest}:
       bare(rest, children, out)
@@ -112,12 +112,12 @@ def Use.all(
       Use.all(
         rest,
         here,
-        Shared.push(
+        Utils.push(
           Use,
-          Shared.when(Use, Bool.not(scrutinee) && Lint.Here.live(here, i), Use{b, o, i}),
+          Utils.when(Use, Bool.not(scrutinee) && Lint.Here.live(here, i), Use{b, o, i}),
           uses
         ),
-        Shared.push(Use, Shared.when(Use, scrutinee, Use{b, o, i}), matched)
+        Utils.push(Use, Utils.when(Use, scrutinee, Use{b, o, i}), matched)
       )
     case Con{node, rest}:
       Use.all(rest, here, uses, matched)
@@ -131,7 +131,7 @@ def Use.of(uses: List<&2, Use>, +binder: U32, +owner: U32, out: List<&2, U32>) -
         rest,
         binder,
         owner,
-        Shared.push(U32, Shared.when(U32, U32.is_eq(b, binder) && U32.is_eq(o, owner), i), out)
+        Utils.push(U32, Utils.when(U32, U32.is_eq(b, binder) && U32.is_eq(o, owner), i), out)
       )
 
 def ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
@@ -156,7 +156,7 @@ def common(
     case Con{Lint.Node{+i, p, o, s, n, b, q, sp, t}, rest} None{}:
       common(
         rest,
-        Shared.when(
+        Utils.when(
           Lint.Node,
           List.contains(~U32, ~U32.is_eq, others, i),
           Lint.Node{i, p, o, s, n, b, q, sp, t}
@@ -187,7 +187,7 @@ def twice.with(
     case Con{+u, rest} None{}:
       twice.with(
         rest,
-        Shared.when(
+        Utils.when(
           U32,
           one_path(
             common(Lint.Here.ancestors(here, first), None{}, ids(Lint.Here.ancestors(here, u), []))
@@ -259,7 +259,7 @@ def judge(
         uses,
         matched,
         here,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           unmatched(

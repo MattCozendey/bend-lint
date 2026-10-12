@@ -3,10 +3,10 @@
 # next run. A run's `fixing` says how it fixes: not at all (None), or with the fixes the linter proves safe, or, if
 # Some{True{}}, with every fix.
 import Base
+import ../shared/utils.bend as Utils
 import ./directives.bend as Directives
 import ./lint.bend as Lint
 import ./program.bend as Program
-import ./shared.bend as Shared
 
 # Types
 # =====
@@ -79,13 +79,13 @@ def Syntax.alias(syntax: Lint.Syntax) -> Bool:
 def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
   match alias:
     case True{}:
-      Shared.when(
+      Utils.when(
         Part,
         String.eq(name, old) || String.starts_with(name, old ++ "."),
         Part{0, U32.from_nat(String.length(old))}
       )
     case False{}:
-      Shared.when(
+      Utils.when(
         Part,
         String.eq(last(name), old),
         Part{
@@ -385,7 +385,7 @@ def Spot.file(
 ) -> List<&2, Spotted>:
   match text:
     case Some{t}:
-      Spot.walk(Shared.sort(~Spot, ~Spot.le, spots), t, 0, out)
+      Spot.walk(Utils.sort(~Spot, ~Spot.le, spots), t, 0, out)
     case None{}:
       Spot.missed(spots, out)
 
@@ -414,7 +414,7 @@ def Spot.read_all(
         texts,
         Spot.file(
           Spot.text(Map.has(&2, String, texts, path), path),
-          Shared.Group.get(Spot, groups, path),
+          Utils.Group.get(Spot, groups, path),
           out
         )
       )
@@ -450,7 +450,7 @@ def Fix.changes(
         do Maybe<&2, List<&2, Change>>:
           changes: List<&2, Change> <- out
           more: List<&2, Change> <- Operation.changes(op, fix, lookup)
-          return Shared.onto(&2, Change, more, changes))
+          return Utils.onto(&2, Change, more, changes))
 
 # Safety
 # ------
@@ -530,7 +530,7 @@ def Plan.picked(
         rest,
         fixing,
         comments,
-        Shared.push(Lint.Fix, Shared.when(Lint.Fix, Plan.allowed(fixing, fix, comments), fix), out)
+        Utils.push(Lint.Fix, Utils.when(Lint.Fix, Plan.allowed(fixing, fix, comments), fix), out)
       )
 
 # What each of `fixes` asks for, in order, numbered from `fix`; None for a fix with an operation the linter cannot
@@ -569,7 +569,7 @@ def Fix.any(~f: Lint.Operation -> Bool, fixes: List<&2, Lint.Fix>, found: Bool) 
     case Nil{} False{}:
       False{}
     case Con{Lint.Fix{title, ops}, rest} False{}:
-      Fix.any(~f, rest, Shared.any(~Lint.Operation, ~f, ops))
+      Fix.any(~f, rest, Utils.any(~Lint.Operation, ~f, ops))
 
 def Lookup.index(
   need: Bool,
@@ -880,7 +880,7 @@ def Plan.add(spans: Maybe<&2, Map<&2, Spans>>, edits: List<&2, Edit>, plan: Plan
     case None{} _:
       plan
     case Some{taken} Plan{kept, n, old}:
-      Plan{Shared.onto(&2, Edit, edits, kept), (n + 1: U32), taken}
+      Plan{Utils.onto(&2, Edit, edits, kept), (n + 1: U32), taken}
 
 # The plan with a fix's edits, if the linter can make it, and none of its edits touches a planned one or another.
 def Plan.fix(edits: Maybe<&2, List<&2, Edit>>, +plan: Plan) -> Plan:
@@ -940,13 +940,13 @@ def edits(
 ) -> List<&2, Maybe<&2, List<&2, Edit>>>:
   +works = Fix.works(fixes, Lookup.of(fixes, declarations, sources), 0, [])
   +own = texts(Program.Program.own(sources), Map.new(&2, String))
-  +groups = Shared.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
+  +groups = Utils.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
   Edits.go(
     works,
     0,
     own,
     (
-      Shared.sort(
+      Utils.sort(
         ~Spotted,
         ~Spotted.le,
         Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, own, [])
@@ -1070,13 +1070,13 @@ def Edit.le(a: Edit, b: Edit) -> Bool:
 def Text.edited(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, String>) -> String:
   match edits:
     case Nil{}:
-      Shared.joined(rest <> out, "")
+      Utils.joined(rest <> out, "")
     case Con{Edit{p, beg, +end, text}, more}:
       Text.edited(
         more,
         String.drop(rest, U32.to_nat((end - at: U32))),
         end,
-        text <> Shared.take(rest, U32.to_nat((beg - at: U32))) <> out
+        text <> Utils.take(rest, U32.to_nat((beg - at: U32))) <> out
       )
 
 def write.closed(path: String, written: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
@@ -1117,7 +1117,7 @@ def write.edited(path: String, text: String, edits: List<&2, Edit>) -> IO(Unit):
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Con{e, rest}:
-      write(path, Text.edited(Shared.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, []))
+      write(path, Text.edited(Utils.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, []))
 
 # Writes each of `sources` that the edits of `groups` (by file) change.
 def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) -> IO(Unit):
@@ -1126,7 +1126,7 @@ def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) 
       IO.pure(Unit, Unit{})
     case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
       do IO<Unit>:
-        write.edited(path, text, Shared.Group.get(Edit, groups, path))
+        write.edited(path, text, Utils.Group.get(Edit, groups, path))
         write.all(rest, groups)
 
 # Fixes
@@ -1135,7 +1135,7 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
   match plan:
     case Plan{edits, n, spans}:
       do IO<U32>:
-        write.all(sources, Shared.Group.of(~Edit, ~Edit.path, edits, Map.new(&2, List<&2, Edit>)))
+        write.all(sources, Utils.Group.of(~Edit, ~Edit.path, edits, Map.new(&2, List<&2, Edit>)))
         return n
 
 # Makes the fixes `fixing` allows, of `founds` (in order), in the program's files (`sources`, whose declarations are

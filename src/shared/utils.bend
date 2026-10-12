@@ -1,4 +1,4 @@
-# What more than one file of bend-lint uses. The list functions here recurse only in tail position, so a long list
+# Bend helpers that are not about linting. The list functions here recurse only in tail position, so a long list
 # is fine on the JS lane, whose stack is small; Base's append, concat, length, any and sort recurse on the stack.
 import Base
 

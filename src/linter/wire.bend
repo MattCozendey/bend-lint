@@ -5,9 +5,9 @@
 # - A line is fields split by a tab. A field escapes \, a tab and a newline as \\, \t and \n.
 # - The answer is one line per record. Its first field is its kind.
 import Base
+import ../shared/utils.bend as Utils
 import ./lint.bend as Lint
 import ./program.bend as Program
-import ./shared.bend as Shared
 
 # What a character is to the wire.
 type Mark is Data:
@@ -170,53 +170,53 @@ def ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
 
 # Checks
 # ======
-def Syntax.names() -> List<&2, Shared.Named<Lint.Syntax>>:
+def Syntax.names() -> List<&2, Utils.Named<Lint.Syntax>>:
   [
-    Shared.Named{"Variable", Lint.Variable{}},
-    Shared.Named{"Reference", Lint.Reference{}},
-    Shared.Named{"Application", Lint.Application{}},
-    Shared.Named{"Lambda", Lint.Lambda{}},
-    Shared.Named{"Literal", Lint.Literal{}},
-    Shared.Named{"Construction", Lint.Construction{}},
-    Shared.Named{"PatternVariable", Lint.PatternVariable{}},
-    Shared.Named{"PatternConstructor", Lint.PatternConstructor{}},
-    Shared.Named{"Forall", Lint.Forall{}},
-    Shared.Named{"Annotation", Lint.Annotation{}},
-    Shared.Named{"Match", Lint.Match{}},
-    Shared.Named{"Case", Lint.Case{}},
-    Shared.Named{"Destructure", Lint.Destructure{}},
-    Shared.Named{"Let", Lint.Let{}},
-    Shared.Named{"Binding", Lint.Binding{}},
-    Shared.Named{"Parameter", Lint.Parameter{}},
-    Shared.Named{"Field", Lint.Field{}},
-    Shared.Named{"Returns", Lint.Returns{}},
-    Shared.Named{"Body", Lint.Body{}},
-    Shared.Named{"Definition", Lint.Definition{}},
-    Shared.Named{"Datatype", Lint.Datatype{}},
-    Shared.Named{"Constructor", Lint.Constructor{}},
-    Shared.Named{"Law", Lint.Law{}},
-    Shared.Named{"Import", Lint.Import{}},
-    Shared.Named{"ImportPath", Lint.ImportPath{}},
-    Shared.Named{"Substitution", Lint.Substitution{}},
-    Shared.Named{"Sort", Lint.Sort{}},
-    Shared.Named{"QuantityType", Lint.QuantityType{}},
-    Shared.Named{"QuantityLiteral", Lint.QuantityLiteral{}},
-    Shared.Named{"QuantityMinimum", Lint.QuantityMinimum{}},
-    Shared.Named{"TypeApplication", Lint.TypeApplication{}},
-    Shared.Named{"Elimination", Lint.Elimination{}},
-    Shared.Named{"Absurd", Lint.Absurd{}},
-    Shared.Named{"Equality", Lint.Equality{}},
-    Shared.Named{"Reflexivity", Lint.Reflexivity{}},
-    Shared.Named{"Rewrite", Lint.Rewrite{}},
-    Shared.Named{"Hole", Lint.Hole{}}
+    Utils.Named{"Variable", Lint.Variable{}},
+    Utils.Named{"Reference", Lint.Reference{}},
+    Utils.Named{"Application", Lint.Application{}},
+    Utils.Named{"Lambda", Lint.Lambda{}},
+    Utils.Named{"Literal", Lint.Literal{}},
+    Utils.Named{"Construction", Lint.Construction{}},
+    Utils.Named{"PatternVariable", Lint.PatternVariable{}},
+    Utils.Named{"PatternConstructor", Lint.PatternConstructor{}},
+    Utils.Named{"Forall", Lint.Forall{}},
+    Utils.Named{"Annotation", Lint.Annotation{}},
+    Utils.Named{"Match", Lint.Match{}},
+    Utils.Named{"Case", Lint.Case{}},
+    Utils.Named{"Destructure", Lint.Destructure{}},
+    Utils.Named{"Let", Lint.Let{}},
+    Utils.Named{"Binding", Lint.Binding{}},
+    Utils.Named{"Parameter", Lint.Parameter{}},
+    Utils.Named{"Field", Lint.Field{}},
+    Utils.Named{"Returns", Lint.Returns{}},
+    Utils.Named{"Body", Lint.Body{}},
+    Utils.Named{"Definition", Lint.Definition{}},
+    Utils.Named{"Datatype", Lint.Datatype{}},
+    Utils.Named{"Constructor", Lint.Constructor{}},
+    Utils.Named{"Law", Lint.Law{}},
+    Utils.Named{"Import", Lint.Import{}},
+    Utils.Named{"ImportPath", Lint.ImportPath{}},
+    Utils.Named{"Substitution", Lint.Substitution{}},
+    Utils.Named{"Sort", Lint.Sort{}},
+    Utils.Named{"QuantityType", Lint.QuantityType{}},
+    Utils.Named{"QuantityLiteral", Lint.QuantityLiteral{}},
+    Utils.Named{"QuantityMinimum", Lint.QuantityMinimum{}},
+    Utils.Named{"TypeApplication", Lint.TypeApplication{}},
+    Utils.Named{"Elimination", Lint.Elimination{}},
+    Utils.Named{"Absurd", Lint.Absurd{}},
+    Utils.Named{"Equality", Lint.Equality{}},
+    Utils.Named{"Reflexivity", Lint.Reflexivity{}},
+    Utils.Named{"Rewrite", Lint.Rewrite{}},
+    Utils.Named{"Hole", Lint.Hole{}}
   ]
 
-def Quantity.names() -> List<&2, Shared.Named<Lint.Quantity>>:
+def Quantity.names() -> List<&2, Utils.Named<Lint.Quantity>>:
   [
-    Shared.Named{"Once", Lint.Once{}},
-    Shared.Named{"Many", Lint.Many{}},
-    Shared.Named{"Erased", Lint.Erased{}},
-    Shared.Named{"Template", Lint.Template{}}
+    Utils.Named{"Once", Lint.Once{}},
+    Utils.Named{"Many", Lint.Many{}},
+    Utils.Named{"Erased", Lint.Erased{}},
+    Utils.Named{"Template", Lint.Template{}}
   ]
 
 def Span.read(path: String, beg: String, end: String) -> Maybe<&2, Lint.Span>:
@@ -246,7 +246,7 @@ def Node.read(
         i: U32 <- U32.read(id)
         p: U32 <- U32.read(parent)
         o: U32 <- U32.read(owner)
-        s: Lint.Syntax <- Shared.find(Lint.Syntax, kinds, syntax)
+        s: Lint.Syntax <- Utils.find(Lint.Syntax, kinds, syntax)
         return Lint.Node{
           i,
           p,
@@ -254,7 +254,7 @@ def Node.read(
           s,
           name,
           U32.read(binder),
-          Shared.lookup(Lint.Quantity, quantity, Quantity.names()),
+          Utils.lookup(Lint.Quantity, quantity, Quantity.names()),
           Span.read(path, beg, end),
           target
         }
@@ -267,15 +267,15 @@ type Record is Data:
   NodeRecord{}
   FactRecord{}
 
-def Record.names() -> List<&2, Shared.Named<Record>>:
+def Record.names() -> List<&2, Utils.Named<Record>>:
   [
-    Shared.Named{"node", NodeRecord{}},
-    Shared.Named{"fact", FactRecord{}},
-    Shared.Named{"file", SourceRecord{}}
+    Utils.Named{"node", NodeRecord{}},
+    Utils.Named{"fact", FactRecord{}},
+    Utils.Named{"file", SourceRecord{}}
   ]
 
-def Role.names() -> List<&2, Shared.Named<Lint.Role>>:
-  [Shared.Named{"term", Lint.OfTerm{}}, Shared.Named{"binder", Lint.OfBinder{}}]
+def Role.names() -> List<&2, Utils.Named<Lint.Role>>:
+  [Utils.Named{"term", Lint.OfTerm{}}, Utils.Named{"binder", Lint.OfBinder{}}]
 
 # A fact on `node` from the fields of its record: its role, the check and handle of its type, its quantity, and how
 # often its binder is used, if the checker says.
@@ -283,15 +283,15 @@ def Fact.read(node: Lint.Node, fields: List<&2, String>) -> Maybe<&2, Lint.Fact>
   match fields:
     case Con{role, Con{check, Con{id, Con{quantity, Con{used, Nil{}}}}}}:
       do Maybe<&2, Lint.Fact>:
-        r: Lint.Role <- Shared.lookup(Lint.Role, role, Role.names())
+        r: Lint.Role <- Utils.lookup(Lint.Role, role, Role.names())
         c: U32 <- U32.read(check)
         i: U32 <- U32.read(id)
-        q: Lint.Quantity <- Shared.lookup(Lint.Quantity, quantity, Quantity.names())
+        q: Lint.Quantity <- Utils.lookup(Lint.Quantity, quantity, Quantity.names())
         return Lint.Fact{
           node,
           r,
           q,
-          Shared.lookup(Lint.Quantity, used, Quantity.names()),
+          Utils.lookup(Lint.Quantity, used, Quantity.names()),
           Lint.TypeRef{c, i}
         }
     case _:
@@ -356,7 +356,7 @@ def Decode.read(
         added: List<
           &2,
           Lint.Source> <- Decode.add(
-          Shared.lookup(Record, tag, Record.names()),
+          Utils.lookup(Record, tag, Record.names()),
           fields,
           sources,
           kinds
@@ -370,7 +370,7 @@ def Decode.of(records: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
   Decode.read(
     records,
     [],
-    Shared.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>))
+    Utils.table(Lint.Syntax, Syntax.names(), Map.new(&2, Maybe<&2, Lint.Syntax>))
   )
 
 def Check.malformed(-A: Type) -> IO(A):
@@ -542,7 +542,7 @@ def Answer.read(record: List<&2, String>) -> Maybe<&2, Lint.Answer>:
   match record:
     case Con{tag, Con{text, Nil{}}}:
       Answer.read.two(
-        Shared.lookup(U32, tag, [Shared.Named{"shown", 0}, Shared.Named{"same", 1}]),
+        Utils.lookup(U32, tag, [Utils.Named{"shown", 0}, Utils.Named{"same", 1}]),
         text
       )
     case Con{tag, Con{check, Con{id, Nil{}}}}:

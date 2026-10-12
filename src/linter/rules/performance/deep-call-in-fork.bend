@@ -6,8 +6,8 @@
 # speedup from 10x to 1.9x; the same definition with a tail call kept the 10x. A tail position is the
 # body of a definition, a case, or the rest of a block after its lets, through annotations.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Functions
 # =========
@@ -48,9 +48,9 @@ def deep.add(
 ) -> List<&2, String>:
   match recursive node:
     case True{} Lint.Node{id, p, owner, s, n, b, q, sp, t}:
-      Shared.push(
+      Utils.push(
         String,
-        Shared.when(
+        Utils.when(
           String,
           Bool.not(tail.of(Lint.Here.ancestors(here, id), children)),
           Lint.Node.target(Lint.Here.node(here, owner))
@@ -104,7 +104,7 @@ def values(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
     case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, Nil{}}:
       out
     case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest}:
-      values(rest, Shared.push(U32, Shared.when(U32, Bool.not(pattern(s)), i), out))
+      values(rest, Utils.push(U32, Utils.when(U32, Bool.not(pattern(s)), i), out))
 
 # Whether a let, whose rest of block is the fork or the let after (`rest`), binds one name.
 def single(rest: Bool, nodes: List<&2, Lint.Node>) -> Bool:
@@ -138,7 +138,7 @@ def before(
         hit,
         i,
         children,
-        Shared.onto(&2, U32, values.if(hit, Lint.Children.get(children, i)), out)
+        Utils.onto(&2, U32, values.if(hit, Lint.Children.get(children, i)), out)
       )
     case _ _:
       out
@@ -295,7 +295,7 @@ def scan(
         children,
         deeps,
         forks,
-        Shared.onto(&2, Lint.Finding, judge(node, here, children, deeps, forks), out)
+        Utils.onto(&2, Lint.Finding, judge(node, here, children, deeps, forks), out)
       )
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):

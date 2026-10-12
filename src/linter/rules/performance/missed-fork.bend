@@ -7,8 +7,8 @@
 # lane runs on one thread. It skips a definition that returns IO: its calls build effects, they do
 # not run them. A call inside another call of itself, or inside a lambda, does not count.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -95,7 +95,7 @@ def root(
         children
       )
     case _ _:
-      Shared.when(U32, Bool.not(nested), top)
+      Utils.when(U32, Bool.not(nested), top)
 
 def returns_io.type(nodes: List<&2, Lint.Node>) -> Bool:
   match nodes:
@@ -225,7 +225,7 @@ def caveat() -> String:
   " Do it only if each call does much work: each fork costs about 100 operations of task machinery (\"bend guide shaders\"), so forking small calls makes the program slower. The JS lane runs on one thread, so it does not gain. Measured in the hand-tuned slash boss demo of Bend, forks of this kind made it slower: in a merge of quadtree cells, a frame took 16% longer; in a cloth step, that step took 30% longer. Time the program before and after a fork, and keep it only if it is faster."
 
 def count(texts: List<&2, String>) -> String:
-  U32.show(U32.from_nat(Shared.length(&2, String, texts)))
+  U32.show(U32.from_nat(Utils.length(&2, String, texts)))
 
 def Call.message(loop: String, +texts: List<&2, String>) -> String:
   loop
@@ -249,7 +249,7 @@ def Call.finding(
     case Some{Lint.Node{i, p, o, s, n, b, q, Some{span}, t}}:
       Bool.pick(
         List<&2, Lint.Finding>,
-        Nat.is_gt(Shared.length(&2, String, texts), 1n),
+        Nat.is_gt(Utils.length(&2, String, texts), 1n),
         [
           Lint.Finding{
             Lint.Information{},
@@ -277,12 +277,12 @@ def Call.findings(
         rest,
         groups,
         here,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           Call.finding(
             Lint.Here.node(here, r),
-            Call.texts(Shared.Group.get(Call, groups, U32.show(r)), []),
+            Call.texts(Utils.Group.get(Call, groups, U32.show(r)), []),
             here
           ),
           out
@@ -296,7 +296,7 @@ def called.first(
 ) -> Maybe<&2, Lint.Node>:
   match nodes:
     case Con{+node, rest}:
-      Shared.when(Lint.Node, Lint.Here.recursive(here, children, node), node)
+      Utils.when(Lint.Node, Lint.Here.recursive(here, children, node), node)
     case Nil{}:
       None{}
 
@@ -306,7 +306,7 @@ def called(+value: Lint.Node, here: Lint.Here, +children: Lint.Children) -> Mayb
     case Lint.Node{i, p, o, Lint.Annotation{}, n, b, q, s, t}:
       called.first(Lint.Children.get(children, i), here, children)
     case _:
-      Shared.when(Lint.Node, Lint.Here.recursive(here, children, value), value)
+      Utils.when(Lint.Node, Lint.Here.recursive(here, children, value), value)
 
 def Bound.make(
   call: Maybe<&2, Lint.Node>,
@@ -326,7 +326,7 @@ def Bound.make(
         binder,
         written,
         from,
-        Shared.slice(source, beg, end),
+        Utils.slice(source, beg, end),
         Lint.Span{path, beg, end},
         body
       }
@@ -363,7 +363,7 @@ def Bound.of(
         called(value, here, children),
         id,
         binder,
-        trimmed(Shared.slice(Lint.Here.text(here), from, end)),
+        trimmed(Utils.slice(Lint.Here.text(here), from, end)),
         from,
         body,
         Lint.Here.text(here),
@@ -433,7 +433,7 @@ def Bound.find(bounds: List<&2, Bound>, found: Maybe<&2, Bound>, +id: U32) -> Ma
     case Nil{} None{}:
       None{}
     case Con{Bound{+i, o, b, w, f, x, s, y}, rest} None{}:
-      Bound.find(rest, Shared.when(Bound, U32.is_eq(i, id), Bound{i, o, b, w, f, x, s, y}), id)
+      Bound.find(rest, Utils.when(Bound, U32.is_eq(i, id), Bound{i, o, b, w, f, x, s, y}), id)
 
 # The let after a let of a run, if the run goes on (`free`: its call uses no binder of the run).
 def Bound.next(free: Bool, bounds: List<&2, Bound>, body: U32) -> Maybe<&2, Bound>:
@@ -462,9 +462,9 @@ def run.go(
         bounds,
         us,
         b <> binders,
-        Shared.push(
+        Utils.push(
           Bound,
-          Shared.when(Bound, free, Bound{i, o, b, w, fr, x, Lint.Span{path, beg, end}, body}),
+          Utils.when(Bound, free, Bound{i, o, b, w, fr, x, Lint.Span{path, beg, end}, body}),
           out
         )
       )
@@ -570,7 +570,7 @@ def run.from(
     case True{}:
       []
     case False{}:
-      run.go(Shared.length(&2, Bound, bounds), Some{bound}, bounds, us, [], [])
+      run.go(Utils.length(&2, Bound, bounds), Some{bound}, bounds, us, [], [])
 
 def runs(
   bs: List<&2, Bound>,
@@ -596,7 +596,7 @@ def runs(
         us,
         Bound.ids(run, consumed),
         here,
-        Shared.onto(&2, Lint.Finding, Run.finding(run, here), out)
+        Utils.onto(&2, Lint.Finding, Run.finding(run, here), out)
       )
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
@@ -613,7 +613,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
       here,
       Call.findings(
         roots(calls, []),
-        Shared.Group.of(~Call, ~Call.root, calls, Map.new(&2, List<&2, Call>)),
+        Utils.Group.of(~Call, ~Call.root, calls, Map.new(&2, List<&2, Call>)),
         here,
         []
       )

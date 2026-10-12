@@ -5,8 +5,8 @@
 # one's alias (--fix-dangerously).
 # Heuristics: two imports name one file if the check loads one file for both.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -20,7 +20,7 @@ type Entry is Data:
 # first); and the operations that point a dropped import's uses at the kept one's alias.
 type Deduped is Data:
   Deduped{
-    seen: List<&2, Shared.Named<String>>,
+    seen: List<&2, Utils.Named<String>>,
     kept: List<&2, Entry>,
     renames: List<&2, Lint.Operation>
   }
@@ -55,7 +55,7 @@ def kept(+line: String) -> String:
 def comments(s: String, line: String, acc: List<&2, String>) -> String:
   match s:
     case SNil{}:
-      Shared.joined(kept(String.reverse(line)) <> acc, "")
+      Utils.joined(kept(String.reverse(line)) <> acc, "")
     case SCon{'\n', rest}:
       comments(rest, "", kept(String.reverse(line)) <> acc)
     case SCon{c, rest}:
@@ -109,8 +109,8 @@ def add(
   loads: String,
   b: Block
 ) -> Block:
-  +beg = Shared.line_start(text, at)
-  add.line(text, beg, Shared.line_end(text, beg), id, base, path, alias, loads, b)
+  +beg = Utils.line_start(text, at)
+  add.line(text, beg, Utils.line_end(text, beg), id, base, path, alias, loads, b)
 
 # The block of the imports among `nodes`. A file's imports come first, so the first node of another kind ends them.
 def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
@@ -141,7 +141,7 @@ def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
   match first e d:
     case None{} Entry{id, base, path, +alias, +loads, text} Deduped{seen, kept, renames}:
       Deduped{
-        Shared.Named{loads, alias} <> seen,
+        Utils.Named{loads, alias} <> seen,
         Entry{id, base, path, alias, loads, text} <> kept,
         renames
       }
@@ -153,7 +153,7 @@ def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
 def dedupe.add(+e: Entry, d: Deduped) -> Deduped:
   match d:
     case Deduped{+seen, kept, renames}:
-      dedupe.kept(Shared.lookup(String, loads_of(e), seen), e, Deduped{seen, kept, renames})
+      dedupe.kept(Utils.lookup(String, loads_of(e), seen), e, Deduped{seen, kept, renames})
 
 # The imports of `es`, in order, after those of `d`, each file's first only.
 def dedupe(es: List<&2, Entry>, d: Deduped) -> Deduped:
@@ -177,7 +177,7 @@ def before(a: Entry, b: Entry) -> Bool:
 def texts(es: List<&2, Entry>, acc: List<&2, String>) -> String:
   match es:
     case Nil{}:
-      Shared.joined(acc, "")
+      Utils.joined(acc, "")
     case Con{Entry{id, base, path, alias, loads, text}, rest}:
       texts(rest, text <> acc)
 
@@ -206,7 +206,7 @@ def verdict(
 def judged(span: Lint.Span, written: String, d: Deduped) -> List<&2, Lint.Finding>:
   match d:
     case Deduped{seen, kept, renames}:
-      +ordered = texts(Shared.sort(~Entry, ~before, List.reverse(&2, Entry, kept)), [])
+      +ordered = texts(Utils.sort(~Entry, ~before, List.reverse(&2, Entry, kept)), [])
       verdict(String.eq(ordered, written), span, ordered, renames)
 
 def judge(path: String, text: String, b: Block) -> List<&2, Lint.Finding>:

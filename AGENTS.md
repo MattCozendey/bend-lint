@@ -24,7 +24,9 @@ and type check.
 
 - `src/linter/` holds the linter. [src/linter/PLAN.md](src/linter/PLAN.md) says how to write its
   Bend code, and [src/linter/RULES.md](src/linter/RULES.md) how to write, run and test its rules.
-- `src/shared/` holds TypeScript helpers that the linter and `src/meta/` use.
+- `src/shared/` holds helpers that are not about linting: TypeScript that the linter and `src/meta/`
+  use, and Bend that the linter uses.
+- `src/json-parser/` reads and writes JSON for the linter.
 - `src/meta/` holds this repo's scripts and oxlint plugins.
 
 ### Tools
@@ -77,7 +79,8 @@ Leave out a part that does not apply. Notes on the code come after the header, a
 ### Where code goes
 
 - Everything that touches Bend's internals goes in `src/linter/server.ts`.
-- Logic that more than one rule uses goes in `src/linter/shared.bend`.
+- Bend logic that more than one file uses, and that is not about linting, goes in
+  `src/shared/utils.bend`.
 - A fix that `--fix` applies must keep what the program does.
 
 ### Changes
@@ -123,17 +126,17 @@ git diff --check
 | `src/linter/config.bend`     | `bend-lint.json`                                             |
 | `src/linter/directives.bend` | `# bend-lint:` directives                                    |
 | `src/linter/fixes.bend`      | planning and making fixes                                    |
-| `src/linter/json.bend`       | reading and writing JSON                                     |
 | `src/linter/wire.bend`       | every request to the server, and its answers decoded         |
-| `src/linter/shared.bend`     | Bend logic that more than one file uses                      |
 | `src/linter/server.ts`       | runs a rules program, and answers it with Bend's checker     |
 | `src/linter/testing.ts`      | what the tests share                                         |
 | `src/linter/rules/`          | bundled rules, one folder per namespace, each with its tests |
 | `src/linter/tests/`          | rules that only the tests use                                |
+| `src/json-parser/json.bend`  | reading and writing JSON                                     |
 | `src/shared/result.ts`       | the `Result` that entry points return                        |
 | `src/shared/bend2.ts`        | finding Bend (see [Finding Bend](#finding-bend))             |
 | `src/shared/text.ts`         | text helpers: line offsets, exact edits, line ends           |
 | `src/shared/utils.ts`        | other helpers that are not about Bend or linting             |
+| `src/shared/utils.bend`      | Bend helpers that are not about linting                      |
 
 ## Finding Bend
 

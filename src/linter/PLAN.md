@@ -23,7 +23,6 @@
 - Ask me before you review proof bodies, or code that a proven law covers. Good laws and an
   ergonomic API are the priority.
 
-- Put code that two or more namespaces of one package use in that package's `shared.bend`.
 - Write small capabilities yourself. Do not import a package for a few lines of code. If you need a
   large capability that Base and this repo do not have, and that we cannot or should not write
   ourselves, import it from BendHub (`import 0x<hash>/...` or `<name>@<version>/...`). Do not copy

@@ -1,6 +1,6 @@
 # JSON: the values bend-lint reads (bend-lint.json) and writes (--json).
 import Base
-import ./shared.bend as Shared
+import ../shared/utils.bend as Utils
 
 # Types
 # =====
@@ -174,14 +174,10 @@ def Json.word(+w: String) -> Json:
   Maybe.default(
     &2,
     Json,
-    Shared.lookup(
+    Utils.lookup(
       Json,
       w,
-      [
-        Shared.Named{"true", JTrue{}},
-        Shared.Named{"false", JFalse{}},
-        Shared.Named{"null", JNull{}}
-      ]
+      [Utils.Named{"true", JTrue{}}, Utils.Named{"false", JFalse{}}, Utils.Named{"null", JNull{}}]
     ),
     JNumber{w}
   )
@@ -331,4 +327,4 @@ def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, S
 
 # A value as JSON text.
 def show(v: Json) -> String:
-  Shared.joined(write(4294967295n, [PValue{v}], []), "")
+  Utils.joined(write(4294967295n, [PValue{v}], []), "")

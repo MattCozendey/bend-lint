@@ -5,8 +5,8 @@
 # of a definition used as a value (`OnFile{run}`): the type it must have can ask for the `+`. "bend
 # guide shaders" measured a needless `+` slowing a program from 2.83 s to 3.30 s.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -38,7 +38,7 @@ def Def.find(defs: List<&2, Def>, found: Maybe<&2, U32>, +target: String) -> May
     case Nil{} None{}:
       None{}
     case Con{Def{t, i}, rest} None{}:
-      Def.find(rest, Shared.when(U32, String.eq(t, target), i), target)
+      Def.find(rest, Utils.when(U32, String.eq(t, target), i), target)
 
 # Whether `node` is an application whose function is the node numbered `i`.
 def calls(node: Maybe<&2, Lint.Node>, i: U32) -> Bool:
@@ -58,7 +58,7 @@ def value.add(
     case True{}:
       out
     case False{}:
-      Shared.push(U32, Def.find(defs, None{}, target), out)
+      Utils.push(U32, Def.find(defs, None{}, target), out)
 
 # The definitions of the file used as values: named, not called (`OnFile{run}`), by id.
 def values(
@@ -109,9 +109,9 @@ def matched(
         rest,
         here,
         children,
-        Shared.push(
+        Utils.push(
           Bound,
-          Shared.when(Bound, apart(Lint.Here.node(here, p), i, children), Bound{b, o}),
+          Utils.when(Bound, apart(Lint.Here.node(here, p), i, children), Bound{b, o}),
           out
         )
       )
@@ -201,7 +201,7 @@ def scan(
         rest,
         values,
         matched,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           unmatched(once(used) && Bool.not(typed(syntax, o, values)), b, o, matched, span, name),

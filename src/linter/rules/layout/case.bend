@@ -18,8 +18,8 @@
 # is declared. `import Base`, and a def that fills a law of another file, are skipped: their names are
 # not this file's to choose.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -239,7 +239,7 @@ def wanted(
 ) -> Maybe<&2, Case>:
   match syntax:
     case Lint.Import{}:
-      Shared.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
+      Utils.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
     case Lint.Datatype{}:
       Some{Pascal{}}
     case Lint.Constructor{}:
@@ -389,7 +389,7 @@ def judge(
         sorts,
         namespace,
         rest,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span, id),

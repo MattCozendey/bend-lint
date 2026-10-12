@@ -8,8 +8,8 @@
 # of Base, is cheap and not reported. A loop that is short in practice makes a finding that costs
 # little to ignore. A value inside a lambda is not run, and is skipped.
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -36,9 +36,9 @@ def loops(
         rest,
         here,
         children,
-        Shared.push(
+        Utils.push(
           String,
-          Shared.when(
+          Utils.when(
             String,
             Lint.Here.recursive(here, children, Lint.Node{i, p, o, s, n, b, q, sp, t}),
             Lint.Node.target(Lint.Here.node(here, o))
@@ -89,7 +89,7 @@ def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
       ""
 
 def Eager.of(+kind: String, value: U32) -> Maybe<&2, Eager>:
-  Shared.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
+  Utils.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
 
 # The eager value a call, the node before `chain` (numbered `prev`), is in, if one is above it and no
 # lambda comes between. `found` stops the walk once one is found.
@@ -218,7 +218,7 @@ def scan(
         loops,
         here,
         children,
-        Shared.onto(
+        Utils.onto(
           &2,
           Lint.Finding,
           call(Lint.Children.get(children, i), i, o, loops, here, children),

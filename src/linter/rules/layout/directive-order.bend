@@ -2,9 +2,9 @@
 # rule, then severity, then keyword.
 # Fix: writes them in that order, over the same comments (--fix: it writes only comments).
 import Base
+import ../../../shared/utils.bend as Utils
 import ../../directives.bend as Directives
 import ../../lint.bend as Lint
-import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -77,7 +77,7 @@ def Runs.close(
         [
           Lint.Fix{
             "Order the directives",
-            Slot.order(ordered, Shared.sort(~Slot, ~Slot.le, ordered), path, [])
+            Slot.order(ordered, Utils.sort(~Slot, ~Slot.le, ordered), path, [])
           }
         ]
       }

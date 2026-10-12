@@ -16,12 +16,12 @@
 #   the linter plans them and decides their safety. Until Bend's checker is Bend, it proves only a fix that writes
 #   comments over comments safe (`--fix`); every other fix is dangerous (`--fix-dangerously`).
 #
-# Files: lint.bend (this), shared.bend (what more than one file uses), wire.bend (every request to
-# the server, and its answers), program.bend (the program a check gives, and its declarations),
-# directives.bend (bend-lint: comments), config.bend (bend-lint.json), json.bend (reading and
-# writing JSON), fixes.bend (planning and making fixes), cli.bend (running and output).
+# Files: lint.bend (this), wire.bend (every request to the server, and its answers), program.bend
+# (the program a check gives, and its declarations), directives.bend (bend-lint: comments),
+# config.bend (bend-lint.json), fixes.bend (planning and making fixes), cli.bend (running and
+# output).
 import Base
-import ./shared.bend as Shared
+import ../shared/utils.bend as Utils
 
 # Program
 # =======
@@ -159,7 +159,7 @@ def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
 def Span.text(source: String, span: Maybe<&2, Span>) -> String:
   match span:
     case Some{Span{path, beg, end}}:
-      Shared.slice(source, beg, end)
+      Utils.slice(source, beg, end)
     case None{}:
       ""
 
@@ -183,7 +183,7 @@ def Node.used(node: Node) -> Maybe<&2, String>:
 
 # The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
 def Name.namespace(name: String) -> String:
-  Shared.before(name, ':')
+  Utils.before(name, ':')
 
 # The nodes of a file under each node, by the node's id, each in order: an application's function, then its arguments;
 # a block's binders, then their values, then the rest of the block.
@@ -196,13 +196,13 @@ def Node.parent_key(node: Node) -> String:
       U32.show(parent)
 
 def Children.of(nodes: List<&2, Node>) -> Children:
-  Children{Shared.Group.of(~Node, ~Node.parent_key, nodes, Map.new(&2, List<&2, Node>))}
+  Children{Utils.Group.of(~Node, ~Node.parent_key, nodes, Map.new(&2, List<&2, Node>))}
 
 # The nodes directly under the node numbered `id`, in order.
 def Children.get(children: Children, id: U32) -> List<&2, Node>:
   match children:
     case Children{groups}:
-      Shared.Group.get(Node, groups, U32.show(id))
+      Utils.Group.get(Node, groups, U32.show(id))
 
 def Children.last.go(nodes: List<&2, Node>, last: U32) -> U32:
   match nodes:
@@ -288,8 +288,8 @@ def Severity.show(s: Severity) -> String:
     case Hint{}:
       "hint"
 
-def Severity.names() -> List<&2, Shared.Named<Severity>>:
-  Shared.named(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
+def Severity.names() -> List<&2, Utils.Named<Severity>>:
+  Utils.named(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
 
 # An edit a fix asks for: replace a span's text; rename what a declaration declares (its node, by id), with each of
 # its uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
@@ -325,7 +325,7 @@ def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
 
 # A file's nodes by id: `first` is its first node's.
 type Index is Data:
-  Index{first: U32, nodes: Shared.Indexed<Node>}
+  Index{first: U32, nodes: Utils.Indexed<Node>}
 
 # Options
 # =======
@@ -357,7 +357,7 @@ type Here is Data:
     source: Source,
     declarations: List<&2, Declaration>,
     index: Index,
-    options: List<&2, Shared.Named<Value>>
+    options: List<&2, Utils.Named<Value>>
   }
 
 # What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
@@ -366,7 +366,7 @@ type Whole is Data:
   Whole{
     program: Program,
     declarations: List<&2, Declaration>,
-    options: List<&2, Shared.Named<Value>>
+    options: List<&2, Utils.Named<Value>>
   }
 
 # Asking the checker
@@ -550,7 +550,7 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
 def Here.node(here: Here, id: U32) -> Maybe<&2, Node>:
   match here:
     case Here{program, source, declarations, Index{first, nodes}, options}:
-      Shared.Indexed.get(Node, nodes, (id - first: U32))
+      Utils.Indexed.get(Node, nodes, (id - first: U32))
 
 def Here.up(fuel: Nat, +here: Here, node: Maybe<&2, Node>, out: List<&2, Node>) -> List<&2, Node>:
   match fuel node:
@@ -642,9 +642,9 @@ def Here.unsafes.go(
         rest,
         ats,
         qs,
-        Shared.push(
+        Utils.push(
           U32,
-          Shared.when(
+          Utils.when(
             U32,
             Here.marked(ats, False{}, beg) || List.contains(~U32, ~U32.is_eq, qs, end),
             id
@@ -712,7 +712,7 @@ def Here.live(+here: Here, +id: U32) -> Bool:
 def Here.option(here: Here, name: String) -> Maybe<&2, Value>:
   match here:
     case Here{program, source, declarations, index, options}:
-      Shared.lookup(Value, name, options)
+      Utils.lookup(Value, name, options)
 
 def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
   match whole:
@@ -728,7 +728,7 @@ def Whole.sources(whole: Whole) -> List<&2, Source>:
 def Whole.option(whole: Whole, name: String) -> Maybe<&2, Value>:
   match whole:
     case Whole{program, declarations, options}:
-      Shared.lookup(Value, name, options)
+      Utils.lookup(Value, name, options)
 
 # An option's value as a number, a flag or text; a value of another kind, or none, gives 0, False, "".
 def Value.number(value: Maybe<&2, Value>) -> U32:
@@ -762,7 +762,7 @@ def findings.go(
     case Nil{}:
       List.reverse(&2, Finding, out)
     case Con{x, rest}:
-      findings.go(~A, ~f, rest, Shared.onto(&2, Finding, f(x), out))
+      findings.go(~A, ~f, rest, Utils.onto(&2, Finding, f(x), out))
 
 # The findings `f(x)` gives for each `x` of `xs`, in order.
 def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:
