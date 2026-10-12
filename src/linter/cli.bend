@@ -1,6 +1,6 @@
 # A rules program calls `run` with its rules: `Cli.run(~[R.rule()])`.
 import Base
-import ../json-parser/json.bend as Json
+import ../json-parser/main.bend as Json
 import ../shared/utils.bend as Utils
 import ./config.bend as Config
 import ./directives.bend as Directives

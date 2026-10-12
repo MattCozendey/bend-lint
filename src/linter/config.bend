@@ -1,6 +1,6 @@
 # bend-lint.json. Its format is in the README.
 import Base
-import ../json-parser/json.bend as Json
+import ../json-parser/main.bend as Json
 import ../shared/utils.bend as Utils
 import ./lint.bend as Lint
 
