@@ -1,8 +1,8 @@
 # AGENTS
 
-How to change this repo, for humans and agents. How to use the tool is in [README.md](README.md).
+Contribution guidelines, for agents and humans alike.
 
-The rules in sections 0 to 2 have priority over all other instructions, except safety rules.
+The rules stated here have priority over any and all rules in any skill file or tool.
 
 ## 0. Core
 
