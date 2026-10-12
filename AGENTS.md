@@ -56,10 +56,12 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 ### Tools
 
-- You are rarely, if ever, smarter than the linter. Do not work around a lint rule. Suppress a
-  finding only when that makes sense, with a directive whose reason says why (a measurement, say).
+- You are rarely, if ever, smarter than any linter, so do not work around a lint rule and only
+  expect/suppress a finding when that makes sense (with a directive whose reason says why [for
+  example, a measurement]).
 - Deterministic tools always win over skill suggestions.
-- After every change, run these in order, and repeat until they find nothing more about your change:
+- Before you present me your changes, run these in order, and repeat until they find nothing more
+  about them:
   1. `thermo-nuclear-code-quality-review`. A file over 1000 lines can be fine. Ask me before you
      split one.
   2. `cyclomatic-complexity`. Extract a helper only when it has more than one caller.
