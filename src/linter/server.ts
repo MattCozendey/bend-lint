@@ -1,29 +1,16 @@
 #!/usr/bin/env bun
-// The checker server: see the header of lint.bend. It runs a rules program
-// (a build of a file that imports lint.bend), and answers its questions
-// about Bend files over local TCP, until the program exits. It is all the
-// TypeScript the linter runs on, host and probe, and it goes when Bend's
-// checker is Bend, so any optimization is fair here, mutation included
-// (AGENTS.md).
-//
-// Usage: bend-lint [--program <rules program>] <args...>
-// The program is main.bend unless named. A .bend program is built with the
-// `bend` on PATH, and the build is kept; an executable, or a .js or .mjs
-// build, runs as it is. Node 24.2 or later runs a built program too, but
-// Bend's checker can need more than its default heap: pass
-// --max-old-space-size=8192 for a large program.
+// The checker server (design: lint.bend's header). It runs a rules program,
+// and answers its questions about Bend files over local TCP until the
+// program exits. It goes when Bend's checker is Bend, so mutation and any
+// optimization are fair here. Node 24.2 or later runs a built program too,
+// but a large program needs --max-old-space-size=8192.
 //
 // It loads a copy of bend.ts in which each TRACED function reports its calls:
-// Bend's parser reads a file with some, and the checker judges terms with the
-// others. A file's syntax goes out as Bend's parser has it, before the
-// checker lowers it. Facts are read after the check, from each def's
-// elaborated body (`e`, what Bend compiles) and each declaration's type, with
-// what the checker passed each judgment.
+// the parser's give each file's syntax before lowering; the checker's
+// judgments, on each def's elaborated body, give the facts.
 //
-// Bootstrap: what a rule sees is lint.bend's contract, not Bend's. When
-// Bend's checker is Bend, each field comes from what it gives, or bend-lint
-// computes it. Bend has no private defs: whatever the checker computes, Bend
-// code can import. The worst case is more code of ours, not a lost field.
+// Bootstrap: what a rule sees is lint.bend's contract, not Bend's. When the
+// checker is Bend, each field comes from it, or bend-lint computes it.
 //
 // | What a rule sees               | Now, from                         | Risk   |
 // | ------------------------------ | --------------------------------- | ------ |
@@ -34,12 +21,12 @@
 // | quantity, used                 | the judgments (JUDGED)            | high   |
 // | which node a fact is on        | Span objects as Map keys          | medium |
 //
-// - Syntax before lowering: if Bend's parser builds no tree before it lowers,
-//   bend-lint calls its parse functions itself, as KEPT follows them now.
-// - Quantity and used: a checker in Bend cannot be hooked. It gives them, or
-//   bend-lint computes them again, with a walker in Bend.
+// - Syntax before lowering: else bend-lint calls Bend's parse functions
+//   itself, as KEPT follows them now.
+// - Quantity and used: a checker in Bend cannot be hooked; else a walker in
+//   Bend computes them again.
 // - Which node a fact is on: Bend values have no identity, so a fact finds its
-//   node by span value, kind, name and children. Sugar that shares a span is
+//   node by span value, kind, name and children; sugar that shares a span is
 //   then ambiguous.
 
 // Imports
@@ -93,7 +80,6 @@ import {
 type Bend = typeof BendModule;
 type Cell = [Quant, string, number, LTerm, Span];
 
-// Bend, and Base as checked once.
 type Loaded = { Bend: Bend; base: Book };
 
 // What a check's answer depends on besides its files (this server, the
@@ -112,7 +98,6 @@ type Answered = { path: string; facts: boolean; digest: string };
 // An exact edit of bend.ts: the text it must find once, and its replacement.
 type Edit = [string, string];
 
-// A function of bend.ts, as a hook gets it.
 type Traced = (...args: unknown[]) => unknown;
 
 // What a TRACED function calls instead of itself: its original, and its
@@ -192,7 +177,6 @@ type Reading = {
 // Where a span of a file is, in code points of the file on disk.
 type Range = [number, number];
 
-// A syntax node and the nodes under it.
 type Tree = {
   kind: string;
   name: string;
@@ -213,16 +197,12 @@ const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n"
 
 const SERVER_CACHE_DIR = new URL("server/", getBendLintCacheDir());
 
-// Where the cache keeps checks' answers.
 const CHECKS_DIR = url.fileURLToPath(new URL("checks/", SERVER_CACHE_DIR));
 
-// Where the cache keeps the rules programs it builds.
 const PROGRAMS_DIR = url.fileURLToPath(new URL("programs/", SERVER_CACHE_DIR));
 
-// The rules program that runs when the command line names none.
 const MAIN = url.fileURLToPath(new URL("main.bend", import.meta.url));
 
-// An import of a .bend file by a relative path.
 const IMPORT = /^\s*import\s+(\.\.?\/\S+)/gm;
 
 // A drive letter that starts a path with `/`.
@@ -268,7 +248,6 @@ const KEPT: Record<string, ReadonlySet<string> | undefined> = {
 
 const NONE: ReadonlySet<string> = new Set();
 
-// The hook each TRACED function points at, by its name.
 const HOOKED = new Map<string, Hook | undefined>();
 
 // What bend.ts gets appended: a setter, Shared on globalThis, that points a
@@ -290,7 +269,6 @@ ${TRACED.map(
 
 const QUANTITIES: Record<Quant["$"], string> = { None: "Erased", Lone: "Once", Many: "Many" };
 
-// The syntax of a checked term, by its kind.
 const SYNTAX: Record<LTerm["$"], string> = {
   Var: "Variable",
   Ref: "Reference",
@@ -315,7 +293,6 @@ const SYNTAX: Record<LTerm["$"], string> = {
   Ann: "Annotation",
 };
 
-// The syntax of the nodes that declare a binder.
 const BINDERS = new Set(["Parameter", "Field", "PatternVariable", "Lambda", "Forall", "Binding"]);
 
 // The types rules hold handles to, by check (from 1), then by handle.
@@ -330,7 +307,6 @@ const GONE = new Set<number>();
 // path: the files of one entry share one check.
 const NUMBERS = new Map<string, number>();
 
-// What a check found without facts.
 const NOTHING: Found = { judged: new Map(), used: new Map() };
 
 // The uses of a judgment that closed no binder: one, shared.
@@ -339,15 +315,11 @@ const UNUSED: ReadonlyArray<[number, Quant]> = [];
 // The binders a telescope declares, by its closing bracket.
 const CELLS: Record<string, string> = { ")": "Parameter", ">": "Parameter", "}": "Field" };
 
-// What makes an input of `files` a glob.
 const GLOB = /[*?[{]/;
 
-// How long a cached check or build stays unused before the cache deletes it:
-// a week, in milliseconds.
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
-// How old a kept build gets before a run that uses it marks it as used again:
-// a day, in milliseconds. Touching an executable makes a virus scanner check
+// Touching an executable makes a virus scanner check
 // it again before it runs (about 0.2 s on Windows), so not on every run.
 const USED = 24 * 60 * 60 * 1000;
 
@@ -409,7 +381,6 @@ const copied = (dir: URL): URL => {
   return file;
 };
 
-// The real path of `p`, with `/`.
 const realpath = (p: nodeFs.PathLike): string => getPathWithForwardSlashes(nodeFs.realpathSync(p));
 
 // path.posix.resolve from `cwd`, where a drive letter is a root.
@@ -513,7 +484,6 @@ const tree = (kind: string, kids: Tree[], more: Partial<Tree> = {}): Tree => ({
 // statement). Those keep their kind and target, but no range or name.
 const syntaxOf = (place: (s: Span | undefined) => Range | undefined) => {
   const range = (s: Span | undefined): Partial<Tree> => ({ range: place(s) });
-  // The name a span starts with, if any.
   const spelled = (s: Span | undefined): string | undefined => {
     const name = /[A-Za-z_][\w.]*/y;
     name.lastIndex = s?.beg ?? 0;
@@ -848,7 +818,6 @@ const setHook = (name: string, hook?: Hook): void => {
   }
 };
 
-// Points each TRACED function back at its original.
 const untrace = (): void => {
   TRACED.forEach((name) => setHook(name));
 };
@@ -948,7 +917,6 @@ const bare = (t: LTerm): LTerm => {
   return u;
 };
 
-// The type the checker gave an elaborated term, if it annotated it.
 const typeOf = (t: LTerm): HTerm | undefined =>
   isTyping(t) && t.T.$ === "Var" ? t.T.v : undefined;
 
@@ -1055,7 +1023,6 @@ const signature = ({ Bend, book, origins, ids, found }: Reading, T: HTerm): void
   }
 };
 
-// Whether `x` is a term, not a quantity, a pattern or a span.
 const isTerm = (x: unknown): x is LTerm =>
   typeof x === "object" && x !== null && String((x as { $?: unknown }).$) in SYNTAX;
 
@@ -1430,9 +1397,8 @@ const check = async (
   }
 };
 
-// A lowered type with each template parameter as written: the checker checks
-// a template's body with `k~A`, in no book, for its parameter `A`
-// (def_check).
+// The checker checks a template's body with `k~A`, in no book, for its
+// parameter `A` (def_check); this writes `A` back.
 const written = (t: LTerm, bok: Book): LTerm => {
   const go = (x: unknown): unknown => {
     if (Array.isArray(x)) {
@@ -1496,7 +1462,6 @@ const numbered = (answer: string, number: number): string =>
     .replace(/^(check\t)\d+$/m, "$1" + number)
     .replace(/^(fact\t\w+\t)\d+\t/gm, "$1" + number + "\t");
 
-// Where the cache keeps the check of `path` in mode `facts`.
 const entryOf = ({ version }: Checker, path: string, facts: boolean): string =>
   nodePath.join(
     CHECKS_DIR,

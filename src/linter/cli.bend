@@ -1,4 +1,4 @@
-# Running rules and printing what they find. A rules program calls `run` with its rules: `Cli.run(~[R.rule()])`.
+# A rules program calls `run` with its rules: `Cli.run(~[R.rule()])`.
 import Base
 import ../json-parser/json.bend as Json
 import ../shared/utils.bend as Utils
@@ -17,7 +17,6 @@ import ./wire.bend as Wire
 type About is Data:
   About{id: String, needs: Lint.Needs, options: List<&2, Lint.Declared>, every: Maybe<&2, Bool>}
 
-# What the runner reads of each of `rules`, in order.
 def About.all(rules: List<&1, Lint.Rule>, out: List<&2, About>) -> List<&2, About>:
   match rules:
     case Nil{}:
@@ -42,7 +41,6 @@ def About.whole(about: About) -> Bool:
     case About{id, needs, options, every}:
       Maybe.is_some(&2, Bool, every)
 
-# Whether the config leaves a rule on.
 def Setting.on(setting: Maybe<&2, Config.Setting>) -> Bool:
   match setting:
     case Some{Config.RuleOff{}}:
@@ -50,7 +48,6 @@ def Setting.on(setting: Maybe<&2, Config.Setting>) -> Bool:
     case _:
       True{}
 
-# The severity the config gives a rule's findings, if it gives one.
 def Setting.severity(setting: Maybe<&2, Config.Setting>) -> Maybe<&2, Lint.Severity>:
   match setting:
     case Some{Config.RuleOn{severity, options}}:
@@ -66,7 +63,6 @@ def Setting.options(setting: Maybe<&2, Config.Setting>) -> List<&2, Utils.Named<
     case _:
       []
 
-# The rules of `abouts` the config leaves on, in order.
 def About.on(
   abouts: List<&2, About>,
   +settings: List<&2, Utils.Named<Config.Setting>>,
@@ -97,7 +93,6 @@ def Rule.keep.if(on: Bool, rule: Lint.Rule, out: List<&1, Lint.Rule>) -> List<&1
     case False{}:
       out
 
-# The rules the config leaves on, in order.
 def Rule.on(
   rules: List<&1, Lint.Rule>,
   +settings: List<&2, Utils.Named<Config.Setting>>,
@@ -117,7 +112,6 @@ def Rule.on(
         )
       )
 
-# The ids of the rules, in order.
 def About.ids(abouts: List<&2, About>, out: List<&2, String>) -> List<&2, String>:
   match abouts:
     case Nil{}:
@@ -145,7 +139,6 @@ def About.unchecked(
     case _ _:
       settings
 
-# Whether each rule's findings must be found by every check, by its id.
 def About.modes(
   abouts: List<&2, About>,
   out: List<&2, Utils.Named<Bool>>
@@ -185,7 +178,6 @@ def Spec.fits(fuel: Nat, specs: List<&2, Lint.Spec>, hit: Bool, +value: Lint.Val
     case 1n+f Con{spec, rest} False{}:
       Spec.fits(f, rest, Spec.one(spec, value), value)
 
-# What the option `name` of `declared` accepts, if a rule declares it.
 def Declared.spec(
   declared: List<&2, Lint.Declared>,
   found: Maybe<&2, Lint.Spec>,
@@ -243,7 +235,6 @@ def Option.defaults(declared: List<&2, Lint.Declared>) -> Maybe<&2, String>:
         Option.defaults(rest)
       )
 
-# Each declared option, with its given value, or its default.
 def Option.values(
   declared: List<&2, Lint.Declared>,
   +given: List<&2, Utils.Named<Lint.Value>>,
@@ -283,7 +274,6 @@ def About.problem.of(
         )
       )
 
-# The first problem with the rules' options.
 def About.problem(
   abouts: List<&2, About>,
   +settings: List<&2, Utils.Named<Config.Setting>>
@@ -346,7 +336,6 @@ type Job is Type:
     step: Lint.Step<List<&2, Lint.Finding>>
   }
 
-# What a rule sees, with its options.
 def Here.with(here: Lint.Here, options: List<&2, Utils.Named<Lint.Value>>) -> Lint.Here:
   match here:
     case Lint.Here{program, source, declarations, index, none}:
@@ -432,7 +421,6 @@ def Rule.all(
       ) Rule.all(d, Utils.deal(&1, Lint.Rule, b), settings, place)
       Utils.append(&1, Job, x, y)
 
-# The jobs of the rules the config leaves on at `place`.
 def Rule.jobs(
   ~rules: List<&1, Lint.Rule>,
   +settings: List<&2, Utils.Named<Config.Setting>>,
@@ -542,8 +530,6 @@ def Check.jobs.if(
 
 # Rounds
 # ======
-
-# A finding, with its job's group.
 type Tagged is Data:
   Tagged{group: U32, found: Lint.Found}
 
@@ -566,7 +552,6 @@ type Held is Type:
     findings: List<&2, Lint.Finding>
   }
 
-# The jobs held, in order, and all their questions, in order.
 type Holding is Type:
   Holding{held: List<&1, Held>, questions: List<&2, Lint.Question>}
 
@@ -691,7 +676,6 @@ def Found.key(found: Lint.Found) -> String:
         ++ "\t"
         ++ U32.show(end)
 
-# The keys of `founds`, onto `keys`.
 def Found.keys(founds: List<&2, Lint.Found>, keys: Map<&2, Unit>) -> Map<&2, Unit>:
   match founds:
     case Nil{}:
@@ -699,7 +683,6 @@ def Found.keys(founds: List<&2, Lint.Found>, keys: Map<&2, Unit>) -> Map<&2, Uni
     case Con{f, rest}:
       Found.keys(rest, Map.set(&2, Unit, keys, Found.key(f), Unit{}))
 
-# Whether `found`'s key is among `keys`.
 def Found.among(keys: Map<&2, Unit>, found: Lint.Found) -> Bool:
   Pair.snd(Map<&2, Unit>, Bool, Map.has(&2, Unit, keys, Found.key(found)))
 
@@ -710,7 +693,6 @@ def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<
     case False{}:
       out
 
-# The findings of group `group`, in order.
 def Tagged.of(
   tagged: List<&2, Tagged>,
   +group: U32,
@@ -738,11 +720,9 @@ def Merge.new(
         Found.keep(Bool.not(Found.among(keys, f)), f, out)
       )
 
-# `founds`, then each finding of `more` that is not among them.
 def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   Utils.append(&2, Lint.Found, founds, Merge.new(more, Found.keys(founds, Map.new(&2, Unit)), []))
 
-# The findings of `founds` whose keys are among `keys`, onto `out`.
 def Merge.common(
   founds: List<&2, Lint.Found>,
   +keys: Map<&2, Unit>,
@@ -754,7 +734,6 @@ def Merge.common(
     case Con{+f, rest}:
       Merge.common(rest, keys, Found.keep(Found.among(keys, f), f, out))
 
-# The findings of `founds` that `more` finds too.
 def Merge.every(founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   Merge.common(founds, Found.keys(more, Map.new(&2, Unit)), [])
 
@@ -856,7 +835,6 @@ def Found.is_error(found: Lint.Found) -> Bool:
     case _:
       False{}
 
-# The findings of `founds` in the file at `path`, in order.
 def Found.in(
   founds: List<&2, Lint.Found>,
   +path: String,
@@ -879,7 +857,6 @@ def Found.in(
         )
       )
 
-# The fixes of each of `founds`, in order, onto `out` (last first).
 def Found.fixes(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
   match founds:
     case Nil{}:
@@ -990,7 +967,6 @@ def Resolved.of(
           <> out
       )
 
-# The places of `edits`, onto `out` (last first): where each starts and ends.
 def Edit.places(edits: List<&2, Fixes.Edit>, out: List<&2, Utils.Place>) -> List<&2, Utils.Place>:
   match edits:
     case Nil{}:
@@ -1024,7 +1000,6 @@ def Shown.more(
     case True{}:
       Edits.places(edits, Utils.Place{path, end} <> out)
 
-# The places the findings show (in JSON if `json`), onto `out`.
 def Shown.places(
   +json: Bool,
   resolved: List<&2, Resolved>,
@@ -1047,7 +1022,6 @@ def Found.line.at(path: String, at: Utils.Position, said: String) -> String:
     case Utils.Position{line, column}:
       path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ said
 
-# A finding as a line: path:line:column: severity rule: message.
 def Found.line(found: Lint.Found, places: Map<&2, Utils.Position>) -> String:
   match found:
     case Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}:
@@ -1057,7 +1031,6 @@ def Found.line(found: Lint.Found, places: Map<&2, Utils.Position>) -> String:
         Lint.Severity.show(severity) ++ " " ++ rule ++ ": " ++ message
       )
 
-# A position as JSON: its line and character, from 0.
 def Object.position(at: Utils.Position) -> Json.Json:
   match at:
     case Utils.Position{line, column}:
@@ -1136,7 +1109,7 @@ def Object.fixes(
     case _ _:
       List.reverse(&2, Json.Json, out)
 
-# A finding as JSON: what the TS version's --json shows, but `def`. `comments` says where a safe fix may write.
+# `comments` says where a safe fix may write.
 def Object.finding(
   resolved: Resolved,
   +places: Map<&2, Utils.Position>,
@@ -1199,7 +1172,6 @@ def Shown.json(shown: Shown) -> Json.Json:
     case Line{text}:
       Json.JString{text}
 
-# The edits of the fixes of `founds`, in order, if the run shows JSON (`json`).
 def Shown.edits(
   json: Bool,
   founds: List<&2, Lint.Found>,
@@ -1212,7 +1184,6 @@ def Shown.edits(
     case True{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
 
-# Where a safe fix of `founds` may write, if the run shows JSON (`json`).
 def Shown.safety(
   json: Bool,
   founds: List<&2, Lint.Found>,
@@ -1264,7 +1235,6 @@ def Outcome.add(a: Outcome, b: Outcome) -> Outcome:
         (x + y: U32)
       }
 
-# How many fixes the run made, if it fixes.
 def summary.fixed(fixing: Maybe<&2, Bool>, fixed: U32) -> String:
   match fixing:
     case None{}:
@@ -1272,7 +1242,6 @@ def summary.fixed(fixing: Maybe<&2, Bool>, fixed: U32) -> String:
     case _:
       ", " ++ U32.show(fixed) ++ " fixed"
 
-# The summary line: how many findings stay, how many directives suppressed, and how many fixes the run made.
 def summary(n: Nat, suppressed: Nat, fixed: String) -> String:
   match suppressed:
     case 0n:
@@ -1285,7 +1254,6 @@ def summary(n: Nat, suppressed: Nat, fixed: String) -> String:
         ++ " suppressed"
         ++ fixed
 
-# Prints `lines`, if there are any.
 def say(lines: List<&2, String>) -> IO(Unit):
   match lines:
     case Nil{}:
@@ -1315,7 +1283,6 @@ def suppressed.lines(show: Bool, shown: List<&2, Shown>) -> List<&2, String>:
     case _ _:
       []
 
-# Ends a JSON run: it fails, or says its summary on stderr.
 def end.json(failed: Bool, summary: String) -> IO(Unit):
   match failed:
     case True{}:
@@ -1323,8 +1290,6 @@ def end.json(failed: Bool, summary: String) -> IO(Unit):
     case False{}:
       IO.print_err(summary)
 
-# Ends the run, in JSON if `json`: it fails if a named file fails, else it says what it found. In JSON, the one object is all
-# it prints on stdout; the summary goes to stderr.
 def end(json: Bool, total: Outcome, show: Bool, fixing: Maybe<&2, Bool>) -> IO(Unit):
   match json total:
     case False{} Outcome{n, f, s, True{}, x}:
@@ -1514,7 +1479,6 @@ def lint(
     )
   )
 
-# The source at `path`, among `sources`.
 def Source.at(
   sources: List<&2, Lint.Source>,
   found: Maybe<&2, Lint.Source>,
@@ -1547,7 +1511,6 @@ type Checks is Data:
     forget: List<&2, U32>
   }
 
-# Whether an entry that reads the named file failed its check.
 def Checks.partial(entries: List<&2, Program.Failure>) -> Bool:
   match entries:
     case Nil{}:
@@ -1555,7 +1518,6 @@ def Checks.partial(entries: List<&2, Program.Failure>) -> Bool:
     case _:
       True{}
 
-# Why the checks of the named file failed: its entries', then its own.
 def Checks.failures(
   entries: List<&2, Program.Failure>,
   own: Maybe<&2, Program.Failure>
@@ -1640,7 +1602,6 @@ def Check.own(entries: List<&2, Program.Failure>, check: Program.Check) -> Check
         []
       }
 
-# Whether a check read the file at `path`.
 def Check.reads(path: String, +check: Program.Check) -> Bool:
   match check:
     case Program.Passed{Lint.Program{sources}, c}:
@@ -1672,7 +1633,6 @@ def Check.sort(checks: List<&2, Program.Check>, +path: String, sorted: Checks) -
     case Con{+c, rest} _:
       Check.sort(rest, path, Check.sort.step(Check.reads(path, c), c, sorted))
 
-# The checks of `entries`, in order; `out` holds those so far, last first.
 def Check.all(
   entries: List<&2, String>,
   +facts: Bool,
@@ -1721,7 +1681,6 @@ def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bo
         c => IO.pure(Checks, Check.own([], c))
       )
 
-# Stops the run if the config's options do not fit what the rules declare.
 def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
   match problem:
     case Some{why}:
@@ -1729,9 +1688,6 @@ def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
     case None{}:
       IO.pure(Unit, Unit{})
 
-# What the command line asks: the files to lint (paths or globs), whether to lint the files each imports too, if it
-# says, how to fix (as Fixes says), whether to show the findings directives suppressed, and whether to show what the run
-# finds as JSON.
 type Options is Data:
   Options{
     inputs: List<&2, String>,
@@ -1794,8 +1750,6 @@ def configured(
           About.settle(About.all(rules, []), settings, [])
         )
 
-# What a flag sets: whether to lint the files the named file imports, how to fix, whether to show the findings
-# directives suppressed, or to show what the run finds as JSON.
 type Flag is Data:
   ImportsFlag{on: Bool}
   FixFlag{fixing: Maybe<&2, Bool>}
@@ -1832,7 +1786,6 @@ def Options.input(input: String, options: Maybe<&2, Options>) -> Maybe<&2, Optio
     case None{}:
       None{}
 
-# The options with an argument read: a flag, or a file to lint.
 def Options.arg(flag: Bool, arg: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match flag:
     case True{}:
@@ -1855,8 +1808,6 @@ def Options.read(args: List<String>, options: Maybe<&2, Options>) -> Maybe<&2, O
     case Con{+a, rest}:
       Options.read(rest, Options.arg(String.starts_with(a, "--"), a, options))
 
-# The options of the command line, past the program's name: `<file or glob>... [--imports | --no-imports] [--fix |
-# --fix-dangerously] [--show-suppressed] [--json]`.
 def options(args: List<String>) -> Maybe<&2, Options>:
   match args:
     case Con{program, rest}:
@@ -1892,7 +1843,6 @@ def Options.json(options: Options) -> Bool:
     case Options{inputs, imports, fixing, shown, json}:
       json
 
-# Lints each file at `paths` in turn, then ends the run with what they gave, added to `total`.
 def Files.lint(
   ~rules: List<&1, Lint.Rule>,
   paths: List<&2, String>,
@@ -1933,6 +1883,5 @@ def checking(~rules: List<&1, Lint.Rule>, options: Maybe<&2, Options>) -> IO(Uni
         "usage: bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]"
       )
 
-# The command line: lint the named files with `rules`.
 def run(~rules: List<&1, Lint.Rule>) -> IO(Unit):
   IO.bind(List<String>, Unit, IO.args(), args => checking(~rules, options(args)))

@@ -1,9 +1,3 @@
-# Directives: comments in a linted file that silence findings (disable) or demand them (expect):
-# `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`. One directive names one
-# rule. An expect pins a severity. A disable takes none, and says why it is not an expect, after its reason:
-# `not-expected-because: <why>`. file covers the whole file; begin and end bound a region; line covers its own line;
-# next covers the next line that holds code. A finding is covered when its span starts on a covered line. The
-# checker's and bend-lint's own findings cannot be suppressed.
 import Base
 import ../shared/utils.bend as Utils
 import ./lint.bend as Lint
@@ -16,7 +10,6 @@ import ./lint.bend as Lint
 type Comment is Data:
   Comment{beg: U32, end: U32, line: U32, trailing: Bool, body: String}
 
-# What a character is to the scan of a text.
 type Glyph is Data:
   LineEnd{}
   CarriageReturn{}
@@ -46,7 +39,6 @@ type Scan is Data:
     lines: List<&2, Bool>
   }
 
-# A text's comments, in order, and whether each line holds code, in order.
 type Scanned is Data:
   Scanned{comments: List<&2, Comment>, lines: List<&2, Bool>}
 
@@ -244,7 +236,6 @@ type Scope is Data:
   NextLine{}
   SameLine{}
 
-# What a directive's keyword says: what it does, and how far.
 type Keyword is Data:
   Keyword{action: Action, scope: Scope}
 
@@ -335,7 +326,6 @@ def Words.done(w: Words) -> List<&2, String>:
 def Words.of(s: String) -> List<&2, String>:
   Words.done(Words.go(s, Words{"", []}))
 
-# `disable-next`, split at its -.
 def Draft.kind(parts: List<&2, String>) -> Maybe<&2, Keyword>:
   match parts:
     case Con{a, Con{s, Nil{}}}:
@@ -372,7 +362,6 @@ def Draft.target(parts: List<&2, String>) -> Maybe<&2, Target>:
 def Draft.label() -> String:
   "not-expected-because:"
 
-# A reason's words (last first) as one text, onto `out`.
 def Draft.part(part: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
   String.join(List.reverse(&2, String, part), " ") <> out
 
@@ -570,7 +559,6 @@ def Said.read.of(
     case None{} _:
       None{}
 
-# What a comment says, if it says bend-lint:.
 def Said.read(+comment: Comment, known: List<&2, String>, index: U32) -> Maybe<&2, Said>:
   match comment:
     case Comment{beg, end, line, trailing, +body}:
@@ -631,7 +619,6 @@ def Open.keep(drop: Bool, d: Directive, rest: List<&2, Directive>) -> List<&2, D
     case False{}:
       d <> rest
 
-# The open begins, less the one numbered `index`.
 def Open.without(open: List<&2, Directive>, +index: U32) -> List<&2, Directive>:
   match open:
     case Nil{}:
@@ -689,7 +676,6 @@ def Pairing.go(saids: List<&2, Said>, p: Pairing) -> Pairing:
     case Con{s, rest}:
       Pairing.go(rest, Pairing.step(s, p))
 
-# The begins left open, as what is wrong, onto `wrong`.
 def Pairing.unclosed(open: List<&2, Directive>, wrong: List<&2, Said>) -> List<&2, Said>:
   match open:
     case Nil{}:
@@ -814,7 +800,6 @@ def Covering.hit(hit: Bool, c: Covering, out: List<&2, U32>) -> List<&2, U32>:
     case False{} _:
       out
 
-# The indexes of the coverings that cover a finding, onto `out`.
 def Covering.hits(
   coverings: List<&2, Covering>,
   +rule: String,
@@ -935,7 +920,6 @@ def Unmet.go(
         Unmet.add(List.contains(~U32, ~U32.is_eq, used, i), a, r, sev, Lint.Span{path, b, e}, out)
       )
 
-# What is wrong with the directives, in order, as findings.
 def Wrong.found(
   saids: List<&2, Said>,
   +path: String,
@@ -992,7 +976,6 @@ def Covering.keep(ran: Bool, c: Covering, out: List<&2, Covering>) -> List<&2, C
     case False{}:
       out
 
-# The coverings of the rules that ran, in order.
 def Covering.ran(
   coverings: List<&2, Covering>,
   +ran: List<&2, String>,
@@ -1110,6 +1093,5 @@ def marked(text: String, found: Bool) -> Bool:
     case SCon{c, rest} False{}:
       marked(rest, False{})
 
-# A linted file's findings, after the directives of its text.
 def apply(+linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
   when(marked(Linted.text(linted), False{}), linted, founds)

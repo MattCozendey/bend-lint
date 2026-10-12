@@ -34,8 +34,8 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 - Do not use `@unsafe`. Do not use foreign code unless I approve it.
 
-- Use a law, not a test. Use a test only for behavior that a law cannot state (for example, IO
-  output).
+- Use a law, not a test, but ask me before you write one. Use a test only for behavior that a law
+  cannot state (for example, IO output).
 
 - Write a law only for a property that matters. For example, a hardcoded list does not need a law
   that it has no duplicates.
@@ -87,17 +87,31 @@ The rules stated here have priority over any and all rules in any skill file or 
 - Do not use barrel exports or re-exports (`export { x } from "..."`, `export * from "..."`). Import
   from the module that defines the code.
 
+### Bend
+
+- On Windows, run Bend natively only with the fork in `../bend` (branch `feature/cuda-and-windows`).
+  Otherwise, use WSL.
+- Write small capabilities yourself. Import a large one from BendHub; do not copy hub code here. If
+  the hub does not have it, tell me.
+- Do not keep an old form for compatibility.
+- Choose the representation for its access pattern first. Name defs `Type.verb`, as Base does.
+- `bun run c-cpu-prof-md` profiles the C lane (see its header).
+- After a change, run `bend <namespace>/PROOF.bend` for each changed namespace, and report it.
+
 ## 3. Project
 
-- README.md is for users and stays short. Internals go here,
-  [src/linter/PLAN.md](src/linter/PLAN.md) (Bend code) and
-  [src/linter/RULES.md](src/linter/RULES.md) (rules).
+- README.md is for users and stays short. Internals go here and in code comments.
 - `src/linter/` holds the linter, `src/json-parser/` JSON, `src/meta/` this repo's scripts and
   oxlint plugins, and `src/shared/` helpers that are not about linting.
 - Code that touches Bend's internals goes in `src/linter/server.ts`. Bend helpers that more than one
   file uses go in `src/shared/utils.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it.
+- A rule lives in `src/linter/rules/<namespace>/<name>.bend`, and its id is `<namespace>/<name>`.
+  Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its flag), `Options:` (with
+  defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix or a
+  guess). Its fixes make its findings go.
+- A rule's tests go beside it, in `<name>.test.ts`, through `src/linter/testing.ts`.
 
 ```sh
 bun install

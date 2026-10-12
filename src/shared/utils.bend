@@ -6,7 +6,6 @@ import Base
 type Named<-A: Data> is Data:
   Named{name: String, value: A}
 
-# `v`, if `hit` holds.
 def when(-A: Data, hit: Bool, v: A) -> Maybe<&2, A>:
   match hit:
     case True{}:
@@ -49,7 +48,6 @@ def table(-A: Data, named: List<&2, Named<A>>, out: Map<&2, Maybe<&2, A>>) -> Ma
     case Con{Named{name, value}, rest}:
       table(A, rest, Map.set(&2, Maybe<&2, A>, out, name, Some{value}))
 
-# The value named `key` in `table`, if there is one.
 def find(-A: Data, table: Map<&2, Maybe<&2, A>>, key: String) -> Maybe<&2, A>:
   Pair.snd(Map<&2, Maybe<&2, A>>, Maybe<&2, A>, Map.get(Maybe<&2, A>, None{}, table, key))
 
@@ -108,7 +106,6 @@ def line_end.go(s: String, i: U32) -> U32:
 def line_end(text: String, +beg: U32) -> U32:
   line_end.go(String.drop(text, U32.to_nat(beg)), beg)
 
-# `xs`, then `ys`.
 def append(a, -A: Kind(a), xs: List<a, A>, ys: List<a, A>) -> List<a, A>:
   onto(a, A, List.reverse(a, A, xs), ys)
 
@@ -119,7 +116,6 @@ def concat.go(a, -A: Kind(a), xss: List<a, List<a, A>>, out: List<a, A>) -> List
     case Con{xs, rest}:
       concat.go(a, A, rest, onto(a, A, xs, out))
 
-# The lists of `xss`, one after another.
 def concat(a, -A: Kind(a), xss: List<a, List<a, A>>) -> List<a, A>:
   concat.go(a, A, xss, [])
 
@@ -146,7 +142,6 @@ def any.go(~A: Data, ~f: A -> Bool, xs: List<&2, A>, found: Bool) -> Bool:
 def any(~A: Data, ~f: A -> Bool, xs: List<&2, A>) -> Bool:
   any.go(~A, ~f, xs, False{})
 
-# `x`, if there is one, onto `out`.
 def push(-A: Data, x: Maybe<&2, A>, out: List<&2, A>) -> List<&2, A>:
   match x:
     case Some{v}:
@@ -154,7 +149,6 @@ def push(-A: Data, x: Maybe<&2, A>, out: List<&2, A>) -> List<&2, A>:
     case None{}:
       out
 
-# Whether `s` starts with `c`.
 def starts(s: String, c: Char) -> Bool:
   match s:
     case SCon{h, t}:
@@ -162,7 +156,6 @@ def starts(s: String, c: Char) -> Bool:
     case SNil{}:
       False{}
 
-# What comes before the first `sep` of `s`, after `acc` (last first); `at` says whether `s` starts with it.
 def before.go(s: String, +sep: Char, acc: String, at: Bool) -> String:
   match s at:
     case SNil{} _:
@@ -245,7 +238,6 @@ def Group.get(-A: Data, groups: Map<&2, List<&2, A>>, key: String) -> List<&2, A
     Pair.snd(Map<&2, List<&2, A>>, List<&2, A>, Map.get(List<&2, A>, [], groups, key))
   )
 
-# Each `x` of `xs` added to `groups` under `key(x)`.
 def Group.of(
   ~A: Data,
   ~key: A -> String,
@@ -302,7 +294,6 @@ def Placed.of(offsets: List<&2, U32>, +index: U32, out: List<&2, Placed>) -> Lis
     case Con{o, rest}:
       Placed.of(rest, (index + 1: U32), Placed{index, o} <> out)
 
-# Whether the next offset to place is at or before `at`.
 def Walk.due(pending: List<&2, Placed>, at: U32) -> Bool:
   match pending:
     case Con{Placed{i, offset}, rest}:
@@ -549,7 +540,6 @@ def Table.find(-A: Data, t: Table<A>, +i: U32, inside: Bool) -> Maybe<&2, A>:
     case True{}:
       Table.at(A, t, i, U32.is_eq(U32.and(i, 1), 1))
 
-# The value numbered `i`, if there is one.
 def Indexed.get(-A: Data, x: Indexed<A>, +i: U32) -> Maybe<&2, A>:
   match x:
     case Indexed{size, table}:

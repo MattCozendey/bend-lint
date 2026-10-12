@@ -31,9 +31,6 @@ type Block is Data:
 
 # Text
 # ====
-def slice(text: String, +beg: U32, end: U32) -> String:
-  String.take(String.drop(text, U32.to_nat(beg)), U32.to_nat(U32.sub(end, beg)))
-
 def blank(s: String) -> Bool:
   match s:
     case SNil{}:
@@ -61,7 +58,6 @@ def comments(s: String, line: String, acc: List<&2, String>) -> String:
     case SCon{c, rest}:
       comments(rest, SCon{c, line}, acc)
 
-# `s`, ending with a newline.
 def ended(+s: String) -> String:
   Bool.pick(String, String.ends_with(s, "\n"), s, s ++ "\n")
 
@@ -82,7 +78,7 @@ def add.line(
 ) -> Block:
   match b:
     case Block{first, last, Nil{}}:
-      Block{beg, end, [Entry{id, base, path, alias, loads, ended(slice(text, beg, end))}]}
+      Block{beg, end, [Entry{id, base, path, alias, loads, ended(Utils.slice(text, beg, end))}]}
     case Block{first, last, +entries}:
       Block{
         first,
@@ -93,7 +89,7 @@ def add.line(
           path,
           alias,
           loads,
-          comments(slice(text, last, beg), "", []) ++ ended(slice(text, beg, end))
+          comments(Utils.slice(text, last, beg), "", []) ++ ended(Utils.slice(text, beg, end))
         }
           <> entries
       }
@@ -216,7 +212,7 @@ def judge(path: String, text: String, b: Block) -> List<&2, Lint.Finding>:
     case Block{+beg, +end, entries}:
       judged(
         Lint.Span{path, beg, end},
-        slice(text, beg, end),
+        Utils.slice(text, beg, end),
         dedupe(List.reverse(&2, Entry, entries), Deduped{[], [], []})
       )
 

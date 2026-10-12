@@ -46,7 +46,6 @@ def trim.go(cs: List<&2, Char>) -> List<&2, Char>:
     case _:
       cs
 
-# `s` without the blanks at its end.
 def trimmed(s: String) -> String:
   String.from_list(List.reverse(&2, Char, trim.go(List.reverse(&2, Char, String.to_list(s)))))
 

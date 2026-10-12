@@ -9,7 +9,6 @@ import ../shared/utils.bend as Utils
 import ./lint.bend as Lint
 import ./program.bend as Program
 
-# What a character is to the wire.
 type Mark is Data:
   Slash{}
   Tab{}
@@ -83,7 +82,6 @@ def write(mark: Mark, c: Char, out: String) -> String:
     case Plain{}:
       SCon{c, out}
 
-# A field onto `out`, which is last first.
 def field(s: String, out: String) -> String:
   match s:
     case SNil{}:
@@ -153,13 +151,11 @@ def port.of(port: Maybe<&2, U32>) -> IO(U32):
         "bend-lint: BEND_LINT_PORT is not a port; run this program with `bend-lint --program <it>`"
       )
 
-# The server's port, from BEND_LINT_PORT.
 def port() -> IO(U32):
   do IO<U32>:
     text: String <- IO.try(String, IO.get_env("BEND_LINT_PORT"))
     port.of(U32.read(text))
 
-# Asks the server, and gives its answer's records.
 def ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
   do IO<List<&2, List<&2, String>>>:
     p: U32 <- port()
@@ -320,7 +316,6 @@ def Decode.add(
     case _ _ _:
       None{}
 
-# The sources in order, each with its nodes and facts in order.
 def Decode.in_order(
   sources: List<&2, Lint.Source>,
   done: List<&2, Lint.Source>
@@ -365,7 +360,6 @@ def Decode.read(
     case Con{Nil{}, rest}:
       None{}
 
-# The program of an answer's records.
 def Decode.of(records: List<&2, List<&2, String>>) -> Maybe<&2, Lint.Program>:
   Decode.read(
     records,
@@ -487,7 +481,6 @@ def Check.ended(
 def Check.of(+records: List<&2, List<&2, String>>) -> IO(Program.Check):
   Check.ended(List.last(&2, List<&2, String>, records), records)
 
-# Checks the file at `path`, with the checker's facts if `facts`.
 def check(path: String, facts: Bool) -> IO(Program.Check):
   IO.bind(
     List<&2, List<&2, String>>,
@@ -569,7 +562,6 @@ def Answer.got(answers: Maybe<&2, List<&2, Lint.Answer>>) -> IO(List<&2, Lint.An
     case None{}:
       IO.die(List<&2, Lint.Answer>, 1, "bend-lint: the checker's answers are malformed")
 
-# The checker's answers to `questions`, in order, in one request.
 def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
   IO.bind(
     List<&2, List<&2, String>>,
@@ -580,8 +572,6 @@ def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
 
 # Files
 # =====
-
-# Whether an answer's first record names a file.
 def files.file(records: List<&2, List<&2, String>>) -> Bool:
   match records:
     case Con{Con{tag, Con{path, Nil{}}}, rest}:

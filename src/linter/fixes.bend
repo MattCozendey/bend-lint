@@ -1,7 +1,4 @@
-# Fixing: the edits that the fixes of the findings that stay ask for, planned and written to the files. A fix runs
-# whole or not at all: one whose operation the linter refuses, or whose edits overlap an earlier fix's, waits for the
-# next run. A run's `fixing` says how it fixes: not at all (None), or with the fixes the linter proves safe, or, if
-# Some{True{}}, with every fix.
+# A run's `fixing`: None (no fixes), Some{False{}} (`--fix`) or Some{True{}} (`--fix-dangerously`).
 import Base
 import ../shared/utils.bend as Utils
 import ./directives.bend as Directives
@@ -10,8 +7,6 @@ import ./program.bend as Program
 
 # Types
 # =====
-
-# An edit to make: a span of a file, and its new text.
 type Edit is Data:
   Edit{path: String, beg: U32, end: U32, text: String}
 
@@ -136,8 +131,6 @@ def Rename.spots(
           c: Change <- Spot.of(fix, n, alias, old, to)
           return c <> changes)
 
-# Whether `node` takes the name `to`, as a rename would write it: an import's alias, if `alias`; else any name's last
-# part.
 # A name the file at `path` takes, as a key: an import's alias (`alias`), or any name's last part.
 def Taken.key(path: String, alias: Bool, name: String) -> String:
   path ++ Bool.pick(String, alias, "\ta\t", "\tn\t") ++ name
@@ -162,7 +155,6 @@ def Taken.nodes(nodes: List<&2, Lint.Node>, +path: String, out: Map<&2, Unit>) -
     case Con{n, rest}:
       Taken.nodes(rest, path, Taken.node(path, n, out))
 
-# The names each of `sources` takes, as keys, onto `out`.
 def Taken.files(sources: List<&2, Lint.Source>, out: Map<&2, Unit>) -> Map<&2, Unit>:
   match sources:
     case Nil{}:
@@ -241,7 +233,6 @@ def Rename.plan(
     case None{}:
       None{}
 
-# Each of `declarations`, by its node's id, onto `out`.
 def Lookup.declarations(
   declarations: List<&2, Lint.Declaration>,
   out: Map<&2, Maybe<&2, Lint.Declaration>>
@@ -261,7 +252,6 @@ def Lookup.declarations(
         )
       )
 
-# The declaration of the node `id`, if there is one.
 def Lookup.find(lookup: Lookup, id: U32) -> Maybe<&2, Lint.Declaration>:
   match lookup:
     case Lookup{declarations, taken}:
@@ -327,7 +317,6 @@ def Name.ends(s: String) -> Bool:
     case SCon{+c, rest}:
       Bool.not(Char.is_alpha(c) || Char.is_digit(c) || Char.is_eq(c, '_') || Char.is_eq(c, '.'))
 
-# Whether `s` starts with the whole name `name`.
 def spells(+s: String, +name: String) -> Bool:
   String.starts_with(s, name) && Name.ends(String.drop(s, String.length(name)))
 
@@ -421,8 +410,6 @@ def Spot.read_all(
 
 # Plans
 # -----
-
-# The changes of one operation, if the linter can make them.
 def Operation.changes(op: Lint.Operation, fix: U32, +lookup: Lookup) -> Maybe<&2, List<&2, Change>>:
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
@@ -432,7 +419,6 @@ def Operation.changes(op: Lint.Operation, fix: U32, +lookup: Lookup) -> Maybe<&2
     case Lint.RenameUses{id, to}:
       Rename.plan(False{}, Lookup.find(lookup, id), to, fix, Lookup.taken(lookup))
 
-# The changes of a fix's operations, onto `out`; none if the linter cannot make one.
 def Fix.changes(
   ops: List<&2, Lint.Operation>,
   +fix: U32,
@@ -454,8 +440,6 @@ def Fix.changes(
 
 # Safety
 # ------
-
-# Where a comment is: its file and span, as a key.
 def Comment.key(path: String, beg: U32, end: U32) -> String:
   path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
 
@@ -487,8 +471,7 @@ def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Map<&2, Unit>, safe: B
     case Con{op, rest} True{}:
       Fix.safe.go(rest, comments, Operation.safe(op, comments))
 
-# Whether the linter proves a fix keeps what the program does: each of its edits writes a comment over a comment
-# (`comments`, from `safety`). It proves no other fix until Bend's checker is Bend.
+# Each edit writes a comment over a comment (`comments`, from `safety`).
 def Fix.safe(fix: Lint.Fix, comments: Map<&2, Unit>) -> Bool:
   match fix:
     case Lint.Fix{title, Nil{}}:
@@ -505,7 +488,6 @@ def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Map<&2, Unit>
     case Some{True{}}:
       True{}
 
-# The first fix of each of `founds`, in order, onto `out`.
 def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
   match founds:
     case Nil{}:
@@ -561,7 +543,6 @@ def Operation.renames_whole(op: Lint.Operation) -> Bool:
     case _:
       False{}
 
-# Whether `f` holds for an operation of one of `fixes`.
 def Fix.any(~f: Lint.Operation -> Bool, fixes: List<&2, Lint.Fix>, found: Bool) -> Bool:
   match fixes found:
     case _ True{}:
@@ -609,7 +590,6 @@ def Change.spots(changes: List<&2, Change>, out: List<&2, Spot>) -> List<&2, Spo
     case Con{Given{edit}, rest}:
       Change.spots(rest, out)
 
-# The spots of every fix.
 def Fix.spots(works: List<&2, Maybe<&2, List<&2, Change>>>, out: List<&2, Spot>) -> List<&2, Spot>:
   match works:
     case Nil{}:
@@ -845,7 +825,6 @@ def Spans.touch(+t: Spans, +b: U32, +e: U32) -> Bool:
 def Spans.of(spans: Map<&2, Spans>, path: String) -> Spans:
   Pair.snd(Map<&2, Spans>, Spans, Map.get(Spans, SLeaf{}, spans, path))
 
-# Whether the first of `edits` touches a planned one.
 def Spans.clash(edits: List<&2, Edit>, spans: Map<&2, Spans>) -> Bool:
   match edits:
     case Con{Edit{path, beg, end, text}, rest}:
@@ -922,7 +901,6 @@ def Edits.go(
         Edits.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), out)
       )
 
-# The text of each of `sources`, by path, onto `out`.
 def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
   match sources:
     case Nil{}:
@@ -1119,7 +1097,6 @@ def write.edited(path: String, text: String, edits: List<&2, Edit>) -> IO(Unit):
     case Con{e, rest}:
       write(path, Text.edited(Utils.sort(~Edit, ~Edit.le, Con{e, rest}), text, 0, []))
 
-# Writes each of `sources` that the edits of `groups` (by file) change.
 def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edit>>) -> IO(Unit):
   match sources:
     case Nil{}:

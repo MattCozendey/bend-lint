@@ -368,7 +368,6 @@ def judged(
     case None{}:
       []
 
-# The findings on `declarations`, onto `out`, last first.
 def judge(
   +sorts: Map<&2, Maybe<&2, Bool>>,
   +namespace: String,

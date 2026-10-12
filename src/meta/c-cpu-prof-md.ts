@@ -67,7 +67,6 @@ const findClang = (): string => {
   return found;
 };
 
-// The LLVM tool beside `clang`.
 const findTool = (clang: string, tool: string): string =>
   spawnSync(clang, ["--print-prog-name=" + tool], { encoding: "utf8" }).stdout.trim();
 

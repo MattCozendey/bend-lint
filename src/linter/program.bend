@@ -90,7 +90,6 @@ def Uses.add(
     case Some{k}:
       Utils.Group.add(Lint.Node, m, k, node)
 
-# The uses of each key.
 def Uses.of(
   nodes: List<&2, Lint.Node>,
   m: Map<&2, List<&2, Lint.Node>>
@@ -198,7 +197,6 @@ def Imports.scan(nodes: List<&2, Lint.Node>, +own: Map<&2, Unit>, uses: ImportUs
     case Con{n, rest}:
       Imports.scan(rest, own, Imports.add(own, n, uses))
 
-# What uses each import of a file with `nodes`.
 def Imports.uses_of(+nodes: List<&2, Lint.Node>) -> ImportUses:
   Imports.scan(
     nodes,
@@ -305,17 +303,14 @@ def Here.of(program: Lint.Program, source: Lint.Source, declare: Bool) -> Lint.H
         []
       }
 
-# Whether a file is the program's own: not of a hub package.
 def Source.own(source: Lint.Source) -> Bool:
   match source:
     case Lint.Source{path, namespace, text, nodes, facts}:
       Bool.not(String.starts_with(namespace, "0x"))
 
-# The program's own files, hub packages aside.
 def Program.own(sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
   List.filter(~Lint.Source, ~Source.own, sources)
 
-# The nodes of every file, in order.
 def Program.nodes(
   sources: List<&2, Lint.Source>,
   out: List<&2, List<&2, Lint.Node>>

@@ -1,25 +1,14 @@
-# bend-lint, in Bend: what a rule sees. A rule file imports this file; a rules program imports cli.bend too, and calls
-# it with its rules (main.bend is the default one).
+# What a rule sees. A rule file imports this file; a rules program imports cli.bend too, and calls it with its rules.
 #
 # Design
-# - Only Bend rules. The target is the C lane; the JS lane must work too.
-# - The rules program is an ordinary Bend program: server.ts builds it once, and keeps the build. No restart, no rule
-#   cache.
-# - Bend's checker is TS for now. server.ts runs the program and answers its questions about Bend files over local
-#   TCP (wire.bend). When the checker is Bend, the server goes, and these questions become calls.
-# - Rules are pure, so they run in parallel. A rule asks the checker about types through Ask (`do Lint.Ask<A>:`);
-#   the runner answers every rule's questions of a round in one batch.
-# - A rule reads the program once per check, shared by every rule: a flat list of syntax nodes per file, parents
-#   first; the file's declarations with their uses, built once; and, if it needs them, the checker's facts on the
-#   source's terms, each tied to its node.
-# - Findings come first. A fix is a list of typed operations that the rule requests, in any of the program's own files;
-#   the linter plans them and decides their safety. Until Bend's checker is Bend, it proves only a fix that writes
-#   comments over comments safe (`--fix`); every other fix is dangerous (`--fix-dangerously`).
-#
-# Files: lint.bend (this), wire.bend (every request to the server, and its answers), program.bend
-# (the program a check gives, and its declarations), directives.bend (bend-lint: comments),
-# config.bend (bend-lint.json), fixes.bend (planning and making fixes), cli.bend (running and
-# output).
+# - The rules program is an ordinary Bend program. server.ts builds it once and keeps the build. The C lane is the
+#   target; the JS lane must work too.
+# - Bend's checker is TS for now: server.ts answers the program's questions about Bend files over local TCP
+#   (wire.bend). When the checker is Bend, the server goes, and these questions become calls.
+# - Rules are pure, so they run in parallel. The runner answers every rule's questions of a round in one batch.
+# - A check is read once and shared by every rule. Facts and declarations are collected only if a rule needs them.
+# - A rule requests a fix as typed operations; the linter plans them and decides their safety. Until Bend's checker
+#   is Bend, only a fix that writes comments over comments is safe (`--fix`).
 import Base
 import ../shared/utils.bend as Utils
 
@@ -131,7 +120,7 @@ type Program is Data:
 type Declaration is Data:
   Declaration{node: Node, references: List<&2, Node>}
 
-# A node's name as written, or "" for no node.
+# "" for no node, as are the next two.
 def Node.name(node: Maybe<&2, Node>) -> String:
   match node:
     case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
@@ -139,7 +128,6 @@ def Node.name(node: Maybe<&2, Node>) -> String:
     case None{}:
       ""
 
-# The global name a node declares or uses, as the check names it, or "" for no node.
 def Node.target(node: Maybe<&2, Node>) -> String:
   match node:
     case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
@@ -147,7 +135,6 @@ def Node.target(node: Maybe<&2, Node>) -> String:
     case None{}:
       ""
 
-# Where a node is, if there is a node and it says.
 def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
   match node:
     case Some{Node{id, parent, owner, syntax, name, binder, quantity, span, target}}:
@@ -155,7 +142,6 @@ def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
     case None{}:
       None{}
 
-# The text of `source`, a file's text, at `span`; "" for none.
 def Span.text(source: String, span: Maybe<&2, Span>) -> String:
   match span:
     case Some{Span{path, beg, end}}:
@@ -198,7 +184,6 @@ def Node.parent_key(node: Node) -> String:
 def Children.of(nodes: List<&2, Node>) -> Children:
   Children{Utils.Group.of(~Node, ~Node.parent_key, nodes, Map.new(&2, List<&2, Node>))}
 
-# The nodes directly under the node numbered `id`, in order.
 def Children.get(children: Children, id: U32) -> List<&2, Node>:
   match children:
     case Children{groups}:
@@ -307,15 +292,12 @@ type Operation is Data:
 type Fix is Data:
   Fix{title: String, operations: List<&2, Operation>}
 
-# What a rule finds: how severe, where, what to do about it, and the fixes it offers.
 type Finding is Data:
   Finding{severity: Severity, span: Span, message: String, fixes: List<&2, Fix>}
 
-# A finding, with the id of the rule that found it.
 type Found is Data:
   Found{rule: String, finding: Finding}
 
-# Where each finding starts, in order.
 def Found.offsets(founds: List<&2, Found>, out: List<&2, U32>) -> List<&2, U32>:
   match founds:
     case Nil{}:
@@ -329,8 +311,6 @@ type Index is Data:
 
 # Options
 # =======
-
-# An option's value: a whole number, a flag, or text.
 type Value is Data:
   Num{n: U32}
   Flag{on: Bool}
@@ -372,8 +352,7 @@ type Whole is Data:
 # Asking the checker
 # ==================
 
-# A question to the checker about types: how a type is shown (as the file it came from spells it), whether two types
-# are the same (as the checker compares them), and a type's normal form.
+# Show spells a type as its file does; Same compares as the checker does.
 type Question is Data:
   Show{of: TypeRef}
   Same{a: TypeRef, b: TypeRef}
@@ -389,8 +368,8 @@ type Step<-R: Type> is Type:
   Finished{value: R}
   Pending{questions: List<&2, Question>, then: List<&2, Answer> -> Step<R>}
 
-# A computation that may ask the checker: `do Lint.Ask<A>:` blocks build it. It is given what to do with its value,
-# and gives a Step, so binding it needs no recursion; the runner answers the questions in rounds.
+# A computation that may ask the checker, in `do Lint.Ask<A>:` blocks. Continuation-passing, so binding needs no
+# recursion. A run may ask only cli.bend's `budget()` rounds, so ask for everything at once (show_all).
 def Ask(-A: Type) -> Type:
   @-R: Type -> @k: (A -> Step<R>) -> Step<R>
 
@@ -411,7 +390,6 @@ def ask.step(-R: Type, questions: List<&2, Question>, k: List<&2, Answer> -> Ste
 def ask(questions: List<&2, Question>) -> Ask(List<&2, Answer>):
   R => k => ask.step(R, questions, k)
 
-# Findings, with nothing to ask.
 def done(findings: List<&2, Finding>) -> Ask(List<&2, Finding>):
   Ask.pure(List<&2, Finding>, findings)
 
@@ -436,7 +414,6 @@ def Answer.type(fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
     case _:
       fallback
 
-# How a type is shown, as the file it came from spells it.
 def show(t: TypeRef) -> Ask(String):
   Ask.bind(
     List<&2, Answer>,
@@ -445,7 +422,6 @@ def show(t: TypeRef) -> Ask(String):
     answers => Ask.pure(String, Answer.text(answers))
   )
 
-# Whether two types are the same, as the checker compares them.
 def same(a: TypeRef, b: TypeRef) -> Ask(Bool):
   Ask.bind(
     List<&2, Answer>,
@@ -454,7 +430,6 @@ def same(a: TypeRef, b: TypeRef) -> Ask(Bool):
     answers => Ask.pure(Bool, Answer.same(answers))
   )
 
-# A type's normal form.
 def normal(+t: TypeRef) -> Ask(TypeRef):
   Ask.bind(
     List<&2, Answer>,
@@ -501,41 +476,38 @@ type Run is Type:
   OnFile{run: @+here: Here -> Ask(List<&2, Finding>)}
   OnProgram{every: Bool, run: @+whole: Whole -> Ask(List<&2, Finding>)}
 
-# A rule: its id (`namespace/.../name`), what it needs, the options it declares, and how it runs.
 type Rule is Type:
   Rule{id: String, needs: Needs, options: List<&2, Declared>, run: Run}
 
-# The path of the file a rule runs on.
 def Here.path(here: Here) -> String:
   match here:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       path
 
-# The namespace of the file a rule runs on, in its check: "" for the checked file.
+# "" for the checked file.
 def Here.namespace(here: Here) -> String:
   match here:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       namespace
 
-# The text of the file a rule runs on, as on disk.
 def Here.text(here: Here) -> String:
   match here:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       text
 
-# The nodes of the file a rule runs on, parents first.
+# Parents first.
 def Here.nodes(here: Here) -> List<&2, Node>:
   match here:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       nodes
 
-# The checker's facts on the terms of the file a rule runs on, if the rule needs them.
+# Empty unless the rule needs facts.
 def Here.facts(here: Here) -> List<&2, Fact>:
   match here:
     case Here{program, Source{path, namespace, text, nodes, facts}, declarations, index, options}:
       facts
 
-# Every file of the check, the one a rule runs on among them, hub packages aside.
+# Every file of the check, hub packages aside.
 def Here.sources(here: Here) -> List<&2, Source>:
   match here:
     case Here{Program{sources}, source, declarations, index, options}:
@@ -546,7 +518,6 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
     case Here{program, source, declarations, index, options}:
       declarations
 
-# The node with id `id`, of the file a rule runs on: a node's parent, say.
 def Here.node(here: Here, id: U32) -> Maybe<&2, Node>:
   match here:
     case Here{program, source, declarations, Index{first, nodes}, options}:
@@ -708,7 +679,7 @@ def Here.live.go(chain: List<&2, Node>, ok: Bool, prev: U32, +here: Here) -> Boo
 def Here.live(+here: Here, +id: U32) -> Bool:
   Here.live.go(List.tail(&2, Node, Here.ancestors(here, id)), True{}, id, here)
 
-# The value of the rule's option `name`: the config's, or its default.
+# The config's value, or the default.
 def Here.option(here: Here, name: String) -> Maybe<&2, Value>:
   match here:
     case Here{program, source, declarations, index, options}:
@@ -724,7 +695,6 @@ def Whole.sources(whole: Whole) -> List<&2, Source>:
     case Whole{Program{sources}, declarations, options}:
       sources
 
-# The value of the rule's option `name`: the config's, or its default.
 def Whole.option(whole: Whole, name: String) -> Maybe<&2, Value>:
   match whole:
     case Whole{program, declarations, options}:
@@ -764,6 +734,6 @@ def findings.go(
     case Con{x, rest}:
       findings.go(~A, ~f, rest, Utils.onto(&2, Finding, f(x), out))
 
-# The findings `f(x)` gives for each `x` of `xs`, in order.
+# `f(x)` for each `x`, in order.
 def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:
   findings.go(~A, ~f, xs, [])

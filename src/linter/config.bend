@@ -1,9 +1,4 @@
-# The config: bend-lint.json, the nearest one up from the named file. It says what varies per project; the rules
-# program says which rules there are.
-#   {"entries": ["src/main.bend"], "imports": true, "rules": {"layout/case": "off", "no-unused/imports": "error"}}
-# - entries: files that check the program the named file belongs to, relative to the config's folder.
-# - imports: whether to lint the files the named file imports too. The command line's flag wins.
-# - rules: a rule's setting: "off", a severity, or {"severity"?: <severity>, <option>: <value>, ...}.
+# bend-lint.json. Its format is in the README.
 import Base
 import ../json-parser/json.bend as Json
 import ../shared/utils.bend as Utils
@@ -18,7 +13,6 @@ type Setting is Data:
   RuleOff{}
   RuleOn{severity: Maybe<&2, Lint.Severity>, options: List<&2, Utils.Named<Lint.Value>>}
 
-# What a project's config says: the entries (paths), whether to lint imports (unless the command line says), and each rule's setting.
 type Project is Data:
   Project{
     entries: List<&2, String>,
@@ -26,7 +20,6 @@ type Project is Data:
     rules: List<&2, Utils.Named<Setting>>
   }
 
-# A severity's setting, by its name.
 def Setting.severities(
   names: List<&2, Utils.Named<Lint.Severity>>
 ) -> List<&2, Utils.Named<Setting>>:
@@ -59,7 +52,6 @@ def Parsed.entries(
         e: String <- Parsed.entry(folder, i)
         Parsed.entries(folder, rest, e <> out)
 
-# An option's value: a whole number, a flag or text.
 def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
   match value:
     case Json.JNumber{text}:
@@ -160,7 +152,6 @@ def Parsed.rules(
         r: Utils.Named<Setting> <- Parsed.rule(f)
         Parsed.rules(rest, r <> out)
 
-# A config's keys.
 type Key is Data:
   Entries{}
   Imports{}
@@ -222,7 +213,6 @@ def Parsed.set(
     case _ _ _:
       Fail{"unknown key " ++ key}
 
-# A config with one field more: `key` set to `value`.
 def Parsed.field(
   folder: String,
   field: Json.JField,
@@ -324,7 +314,6 @@ def parsed(path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project)
     case Fail{why}:
       IO.die(Project, 2, "bend-lint: " ++ path ++ ": " ++ why)
 
-# The config in `folder`, read from the file `file`.
 def read(+folder: String, file: File) -> IO(Project):
   IO.bind(
     String,

@@ -27,7 +27,6 @@ type Token is Data:
   TWord{text: String}
   TSkip{}
 
-# What a character is to the lexer.
 type JGlyph is Data:
   GOpen{}
   GClose{}
@@ -102,7 +101,6 @@ def Token.of(glyph: JGlyph) -> Token:
     case _:
       TSkip{}
 
-# A character after a \ in a string.
 def Json.unescaped(+c: Char) -> Char:
   Bool.pick(
     Char,
@@ -151,7 +149,6 @@ def Lex.go(s: String, lex: Lex) -> Lex:
     case SCon{+c, t}:
       Lex.go(t, Lex.step(lex, JGlyph.of(c), c))
 
-# The tokens of a text, in order.
 def Lex.done(lex: Lex) -> List<&2, Token>:
   match lex:
     case Lex{InWord{}, text, tokens}:
@@ -231,7 +228,6 @@ def Read.done(r: Read) -> Maybe<&2, Json>:
     case _:
       None{}
 
-# The JSON value of a text, if it is JSON.
 def read(text: String) -> Maybe<&2, Json>:
   Read.done(Read.go(Lex.done(Lex.go(text, Lex{Between{}, "", []})), Read{[], None{}}))
 
@@ -271,7 +267,6 @@ def escaped.go(s: String, out: String) -> String:
     case SCon{+c, rest}:
       escaped.go(rest, escaped.char(U32.is_lt(Char.to_u32(c), 32), c, out))
 
-# A string as JSON writes it: quoted, escaped.
 def quoted(s: String) -> String:
   "\"" ++ escaped.go(s, "") ++ "\""
 
@@ -325,6 +320,5 @@ def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, S
     case 1n+f Con{PValue{v}, rest}:
       write(f, pieces(v, rest), out)
 
-# A value as JSON text.
 def show(v: Json) -> String:
   Utils.joined(write(4294967295n, [PValue{v}], []), "")

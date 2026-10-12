@@ -18,7 +18,6 @@ export type Outcome = { code: number; out: string; err: string };
 // Functions
 // =========
 
-// How `cmd` ends when it runs in `cwd`.
 export const getCommandOutcome = async (cmd: string[], cwd: string): Promise<Outcome> => {
   const child = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [code, out, err] = await Promise.all([
@@ -43,7 +42,6 @@ export const tryGetOrUndefined = <T>(f: () => T): T | undefined => {
   }
 };
 
-// The text's sha256, in hex.
 export const getSha256Hex = (text: string): string =>
   createHash("sha256").update(text).digest("hex");
 

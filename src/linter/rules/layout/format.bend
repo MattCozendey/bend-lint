@@ -734,9 +734,6 @@ def comment(r: Run) -> Scan:
     case Run{text, len, rest, last}:
       Tok{text, len, rest, last, Comment{}, Word{}, False{}, None{}}
 
-# The token at the start of s; prev is the character before it. Literals
-# and comment text are kept verbatim: a quote or # inside a string is not
-# syntax. Successor notation (1n+) and quantities (&2) are single tokens.
 # A run of whitespace on one line.
 def blanks(s: String, keep: String, n: U32, last: Char) -> Scan:
   match s:
@@ -749,6 +746,9 @@ def blanks(s: String, keep: String, n: U32, last: Char) -> Scan:
     case _:
       Blank{keep, last, n}
 
+# The token at the start of s; prev is the character before it. Literals
+# and comment text are kept verbatim: a quote or # inside a string is not
+# syntax. Successor notation (1n+) and quantities (&2) are single tokens.
 def lex.token(s: String, keep: String, prev: Char) -> Scan:
   match s:
     case SNil{}:
@@ -1123,7 +1123,6 @@ def is_leaf(n: Tree) -> Bool:
     case _:
       False{}
 
-# Whether n is a token spelled as s.
 def leaf_is(n: Tree, s: Sym) -> Bool:
   match n:
     case Leaf{t}:
@@ -1270,7 +1269,6 @@ def str.of(s: String, m: Measure) -> Doc:
     case Measure{+width, tail, +keep}:
       str.split(U32.is_eq(width, keep), s, width, tail, keep)
 
-# A doc for any text.
 def str(+s: String) -> Doc:
   str.of(s, measure(s, 0, None{}, 0))
 
@@ -1480,7 +1478,6 @@ def depth.go(levels: List<&2, U32>, n: U32) -> U32:
     case Con{top, more}:
       depth.go(more, (n + 1: U32))
 
-# How many levels are open above the base.
 def depth(levels: List<&2, U32>) -> U32:
   (depth.go(levels, 0) - 1: U32)
 
@@ -2141,7 +2138,6 @@ def split_hash(+s: String) -> Hash:
 def import_space.of(+rest: String, s: String) -> String:
   Bool.pick(String, head_is(~is_blank, rest), "import " ++ drop_blank(rest), s)
 
-# "import" and its whitespace as "import ".
 def import_space(+s: String) -> String:
   import_space.of(String.drop(s, 6n), s)
 
@@ -2152,7 +2148,6 @@ def alias_at.as(s: String) -> Bool:
     case _:
       False{}
 
-# Whether whitespace, "as" and whitespace start at s.
 def alias_at(+s: String) -> Bool:
   head_is(~is_blank, s) && alias_at.as(drop_blank(s))
 
@@ -2165,7 +2160,6 @@ def alias.go(s: String, hit: Bool, acc: String) -> String:
     case SCon{c, +rest} False{}:
       alias.go(rest, alias_at(rest), SCon{c, acc})
 
-# The first whitespace, "as" and whitespace as " as ".
 def alias(+s: String) -> String:
   alias.go(s, alias_at(s), "")
 
@@ -2234,7 +2228,6 @@ def joined(xs: List<&2, Tree>, acc: List<&2, String>) -> String:
     case Con{x, rest}:
       joined(rest, Token.text(first(x)) <> acc)
 
-# Whether the record's tokens spell @unsafe.
 def is_unsafe(at: Bool, record: List<&2, Tree>) -> Bool:
   match at:
     case True{}:
