@@ -56,6 +56,16 @@ A rule is `Rule{id, needs, options, run}`. Its `run` says how it runs:
   check finds, `True{}` what all find.
 - Make a rule idempotent: its fixes make its findings go.
 
+Each rule file starts with a comment header, in this order:
+
+1. `# <id>: <what it reports>.`
+2. `Fix:` what its fix does, and the flag that applies it (`--fix` or `--fix-dangerously`).
+3. `Options:` each option, with its default.
+4. `Heuristics:` how the rule decides, and when it can be wrong. A rule with a dangerous fix, or a
+   rule that guesses (by statistics, a threshold, or a pattern that can miss), must have it.
+
+Leave out a part that does not apply. Notes on the code come after the header, after a `#` line.
+
 ## Running rules
 
 A rules program calls `Cli.run` with its rules:

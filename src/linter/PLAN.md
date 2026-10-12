@@ -71,6 +71,9 @@ These cost rules apply to all code, not only to parallel code. Most of them repe
 - Prefer tail recursion. A non-tail self call allocates a frame per call.
 - Do not `match` on U32 literals in hot code. Use `word` or `pick` chains.
 - Do not claim a speedup without a measurement. Measure as `bend guide shaders` describes.
+- `bun run c-cpu-prof-md <rules program.bend> <server args...>` profiles the C lane, like bun's
+  `--cpu-prof-md`: it writes `C-CPU.*.md`, with calls (not time) per def, and the `.c` it points
+  into. It needs clang's `llvm-profdata` and `llvm-cov`.
 
 ## 4. After you write code
 
