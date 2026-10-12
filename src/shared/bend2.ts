@@ -1,5 +1,7 @@
-// Finding bend2: the folder the user names, else a
-// downloaded release. The docs give the order.
+// Finding bend2, in this order:
+// 1. $BEND_DIR: a bend checkout or its bend2 folder.
+// 2. A downloaded release: the one `bend version` names, or, if bend is not
+//    installed, the pinned one (package.json's bendRelease).
 
 // Imports
 // =======

@@ -12,7 +12,7 @@
     "c-cpu-prof-md": "bun ./src/meta/c-cpu-prof-md.ts",
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
-    "lint": "bun ./src/meta/link-bend.ts && oxlint .",
+    "lint": "bun ./src/meta/link-bend.ts && oxlint . && bun ./src/linter/server.ts $(git ls-files \"*.bend\")",
     "sync-bend": "bun ./src/meta/sync-bend.ts",
     "test": "bun test --parallel",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
