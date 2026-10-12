@@ -323,6 +323,10 @@ const STALE = 7 * 24 * 60 * 60 * 1000;
 // it again before it runs (about 0.2 s on Windows), so not on every run.
 const USED = 24 * 60 * 60 * 1000;
 
+// A prune stats each entry of its folder (about 0.1 s for 9000 entries), so
+// not on every run.
+const PRUNE_EVERY = 24 * 60 * 60 * 1000;
+
 // Functions
 // =========
 
@@ -1481,9 +1485,16 @@ const cached = (file: string): Entry | undefined =>
   });
 
 // Deletes the entries of the cache folder `dir` unused for longer than
-// STALE; one that another run deletes first is skipped. A folder that cannot
-// be read keeps its entries.
+// STALE, unless its .pruned file shows a prune in the last PRUNE_EVERY; one
+// that another run deletes first is skipped. A folder that cannot be read
+// keeps its entries.
 const prune = (dir: string): void => {
+  const marker = nodePath.join(dir, ".pruned");
+  const last = nodeFs.statSync(marker, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  if (Date.now() - last < PRUNE_EVERY) {
+    return;
+  }
+  tryGetOrUndefined(() => nodeFs.writeFileSync(marker, ""));
   tryGetOrUndefined(() =>
     nodeFs
       .readdirSync(dir)

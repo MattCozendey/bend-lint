@@ -72,10 +72,10 @@ setDefaultTimeout(120_000);
   });
 
   test("long files and deep nesting format", async () => {
-    const cases = Array.from({ length: 1000 }, (_, i) => `    case ${i}n: ${i}\n`).join("");
+    const cases = Array.from({ length: 1000 }, (_, i) => `    case ${i}: ${i}\n`).join("");
     expect(
       await found(
-        "import Base\n\ndef pick(n: Nat) -> U32:\n  match n:\n" + cases + "    case _: 1000\n",
+        "import Base\n\ndef pick(n: U32) -> U32:\n  match n:\n" + cases + "    case _: 1000\n",
       ),
     ).toEqual([]);
     const depth = 300;
