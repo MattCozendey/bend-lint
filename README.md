@@ -28,7 +28,7 @@ and says so on each run.
 ## Run
 
 ```sh
-bunx bend-lint <file or glob>... [--fix | --fix-dangerously] [--show-suppressed] [--json]
+bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json]
                [--jobs <number or max>]
 ```
 
@@ -40,6 +40,8 @@ bunx bend-lint <file or glob>... [--fix | --fix-dangerously] [--show-suppressed]
 | `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr       |
 | `--jobs`            | how many files to lint at once: a number, or `max` (default: half the CPU threads) |
 
+- With no files, it lints the `.bend` files in the folder you run it in: those git lists (so none
+  that `.gitignore` lists), and none in `node_modules` or a hidden folder.
 - Quote globs, and use `/` in paths.
 - bend-lint builds your rules on its first run (about 40 s), and keeps the build until a rule or
   Bend changes.
@@ -71,8 +73,8 @@ bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
 - `rules`: each rule to run, by its id: its path in `bend-lint-rules/`, without `.bend`
   (`bend-lint-rules/style/no-foo.bend` is `style/no-foo`). Give it `"off"`, a severity (`error`,
   `warning`, `information`, `hint`), or an object of its options and a `"severity"`.
-- `entries`: your program's entry files. A rule that reads the whole program ("this def is never
-  used") then sees it, even when you lint one file.
+- `entries`: your program's entry files, as paths from the folder of `bend-lint.json`. A rule that
+  reads the whole program ("this def is never used") then sees it, even when you lint one file.
 - `imports`: also lint every file the named file imports (not Base, nor hub packages).
 
 bend-lint ships more rules, in [bend-lint-rules/](bend-lint-rules/). Each file's header says what

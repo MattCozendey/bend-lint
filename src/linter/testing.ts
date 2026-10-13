@@ -65,18 +65,23 @@ export const build = async (id: string): Promise<string> => {
   return id;
 };
 
-// How the rule `id` ends on `named`, with the command line's other `args`
-// (flags, more files or globs), after it writes `files` (names to text) into
-// `dir`, a fresh folder unless given. It runs in that folder, whose
-// bend-lint.json turns `id` on, with what a bend-lint.json among `files` says,
-// and whose bend-lint-rules links the folder that holds `id`. Its stderr
-// leaves out what bend-lint says of how this machine runs it.
+// A fresh folder for a case.
+export const fresh = (): string =>
+  fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
+
+// How the rule `id` ends on `named` (none: on what bend-lint lints when it is
+// given no file), with the command line's other `args` (flags, more files or
+// globs), after it writes `files` (names to text) into `dir`, a fresh folder
+// unless given. It runs in that folder, whose bend-lint.json turns `id` on,
+// with what a bend-lint.json among `files` says, and whose bend-lint-rules
+// links the folder that holds `id`. Its stderr leaves out what bend-lint says
+// of how this machine runs it.
 export const run = async (
   id: string,
   files: Record<string, string>,
-  named: string,
+  named: string | undefined,
   args: string[] = [],
-  dir: string = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-"))),
+  dir: string = fresh(),
 ): Promise<Ran> => {
   Object.entries(files).forEach(([name, text]) => {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
@@ -92,7 +97,8 @@ export const run = async (
   if (!fs.existsSync(rules)) {
     fs.symlinkSync(path.join(projectOfRule(id), "bend-lint-rules"), rules, "junction");
   }
-  const ran = await getCommandOutcome(["bun", SERVER, path.join(dir, named), ...args], dir);
+  const inputs = named === undefined ? [] : [path.join(dir, named)];
+  const ran = await getCommandOutcome(["bun", SERVER, ...inputs, ...args], dir);
   return {
     ...ran,
     err: ran.err

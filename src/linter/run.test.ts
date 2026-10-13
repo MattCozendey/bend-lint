@@ -3,7 +3,8 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "./testing.ts";
+import { getCommandOutcome } from "../shared/utils.ts";
+import { build, BUILDS, fresh, lint, run } from "./testing.ts";
 
 // Constants
 // =========
@@ -124,6 +125,58 @@ setDefaultTimeout(120_000);
         "a.bend:1:1: hint tests/file: linted",
         "bend-lint: 2 finding(s)",
       ],
+    ]);
+  });
+
+  test("with no file, it lints the .bend files git lists, but none in node_modules or a hidden folder", async () => {
+    const dir = fresh();
+    await getCommandOutcome(["git", "init", "-q"], dir);
+    const util = ENTRIES["util.bend"];
+    const ran = await run(
+      FILE,
+      {
+        ".gitignore": "ignored/\n# run links it here\nbend-lint-rules\n",
+        "a.bend": util,
+        "sub/b.bend": util,
+        "ignored/c.bend": util,
+        "node_modules/d.bend": util,
+        ".hidden/e.bend": util,
+      },
+      undefined,
+      [],
+      dir,
+    );
+    expect([
+      ran.code,
+      ran.out
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, "")),
+    ]).toEqual([
+      0,
+      [
+        "a.bend:1:1: hint tests/file: linted",
+        "b.bend:1:1: hint tests/file: linted",
+        "bend-lint: 2 finding(s)",
+      ],
+    ]);
+  });
+
+  test("an entry that is not a file ends the run, and says which", async () => {
+    const ran = await run(
+      FILE,
+      {
+        "util.bend": ENTRIES["util.bend"],
+        "bend-lint.json": JSON.stringify({ entries: ["nope.bend"] }),
+      },
+      "util.bend",
+    );
+    expect([ran.code, ran.out, ran.err.trim()]).toEqual([
+      2,
+      "",
+      expect.stringMatching(
+        /^bend-lint: .*\/bend-lint\.json: the entry .*\/nope\.bend is not a file$/,
+      ),
     ]);
   });
 
