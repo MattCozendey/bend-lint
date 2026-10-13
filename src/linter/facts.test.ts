@@ -212,6 +212,20 @@ setDefaultTimeout(120_000);
     expect(await found(TYPES, "import Base\n\ndef one() -> U32:\n  1\n")).toEqual([]);
   });
 
+  test("a file whose check fails gets no facts, and a note names the rules that need them", async () => {
+    const broken = 'import Base\n\ndef main() -> U32:\n  "not a number"\n';
+    const ran = await run(TYPES, { "main.bend": broken }, "main.bend");
+    expect([ran.code, ran.out.trim(), ran.err.trim().split("\n")]).toEqual([
+      0,
+      "bend-lint: 0 finding(s)",
+      [
+        expect.stringMatching(
+          /^bend-lint: Bend's check of \S*main\.bend fails, so the rules that need its facts did not run on it: tests\/types; `bend <file> --check-only` says why$/,
+        ),
+      ],
+    ]);
+  });
+
   test("a rule that asks past the round budget fails, and says so", async () => {
     expect(await found(BUDGET, "import Base\n\ndef id(x: U32) -> U32:\n  x\n")).toEqual([
       {
