@@ -27,6 +27,11 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # The fork embeds a manifest in each binary, which MSVC's linker does with the Windows SDK's
+      # mt.exe: this puts it on PATH.
+      - name: Set up MSVC's tools
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
       - name: Pin Bend's main branch
         if:
           runner.os == 'Linux' && (github.event_name == 'schedule' || github.event_name ==
