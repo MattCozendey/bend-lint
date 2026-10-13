@@ -11,5 +11,5 @@
     "types": ["bun"],
     "paths": { "bend2/*": ["./.bend2/*"] }
   },
-  "include": ["src"]
+  "include": ["src", "bend-lint-rules"]
 }

@@ -1,0 +1,20 @@
+{
+  "rules": {
+    "language/decreasing-call": {},
+    "language/forward-reference": {},
+    "language/reused-binder": {},
+    "layout/canon-import-path": {},
+    "layout/case": {},
+    "layout/directive-order": {},
+    "layout/format": {},
+    "layout/imports": {},
+    "no-unused/imports": {},
+    "performance/append-in-loop": {},
+    "performance/deep-call-in-fork": {},
+    "performance/eager-branch": {},
+    "performance/gpu-fit": {},
+    "performance/list-index-loop": {},
+    "performance/missed-fork": {},
+    "performance/unneeded-plus": {}
+  }
+}

@@ -101,10 +101,10 @@ The rules stated here have priority over any and all rules in any skill file or 
 ## 3. Project
 
 - README.md is for users and stays short. Internals go here and in code comments.
-- `src/linter/` holds the linter, `src/bend-lint-default-rules/` its default rules, `src/files/`
-  files (their text, folders and globs; its effects in `effs/`), `src/json/` JSON, `src/text/` edits
-  to texts and places in them, `src/meta/` this repo's scripts and oxlint plugins, and `src/shared/`
-  helpers for any program.
+- `src/linter/` holds the linter, `bend-lint-rules/` its default rules, `src/files/` files (their
+  text, folders and globs; its effects in `effs/`), `src/json/` JSON, `src/text/` edits to texts and
+  places in them, `src/meta/` this repo's scripts and oxlint plugins, and `src/shared/` helpers for
+  any program.
 - Code that knows Bend's own shapes (its parser, checker and their data) goes in
   `src/linter/seam.ts`, and nowhere else: it gives the Bend side the linter's own model, the types
   of `lint.bend`. A Bend helper that is not about linting goes in `src/shared/`, even with one user,
@@ -115,7 +115,11 @@ The rules stated here have priority over any and all rules in any skill file or 
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
   bend-lint uses the fork's pinned commit (`bendWindows`), which moves by hand when the fork moves.
-- A default rule lives in `src/bend-lint-default-rules/<namespace>/<name>.bend`, and its id is
+- bend-lint.json is the only way to run rules: bend-lint writes the program of the rules it names
+  (`src/linter/build/rules.<hash>.bend`), and a rule's id is its path in `bend-lint-rules/`. This
+  repo lints itself so, with every default rule. Users install bend-lint per project, never
+  globally: Bend imports only relative paths of plain names.
+- A default rule lives in `bend-lint-rules/<namespace>/<name>.bend`, and its id is
   `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its
   flag), `Options:` (with defaults), `Heuristics:` (how it decides and when it is wrong; required
   for a dangerous fix or a guess). Its fixes make its findings go.

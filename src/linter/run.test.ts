@@ -11,8 +11,8 @@ import { build, BUILDS, lint, run } from "./testing.ts";
 // Built once, before the tests; nothing to build when bend does not run.
 const [FILE, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
   ? await Promise.all(
-      ["file", "written.rule", "some", "every", "across", "rename"].map((name) =>
-        build("linter/tests.bend", name),
+      ["file", "written", "some", "every", "across", "rename"].map((name) =>
+        build("tests/" + name),
       ),
     )
   : ["", "", "", "", "", ""];

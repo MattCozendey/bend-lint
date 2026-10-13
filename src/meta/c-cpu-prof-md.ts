@@ -1,9 +1,10 @@
-// Profiles a rules program's C lane, like bun's --cpu-prof-md: builds it with
-// clang's coverage, runs it through the server, and writes
-// C-CPU.<date>.<time>.<pid>.md, plus the .c its locations point into, to the
-// current folder. Exits with the run's status.
+// Profiles the C lane of the rules the nearest bend-lint.json turns on, like
+// bun's --cpu-prof-md: builds their program with clang's coverage where the
+// server runs it, runs the server, and writes C-CPU.<date>.<time>.<pid>.md,
+// plus the .c its locations point into, to the current folder. A build the
+// server kept there is put back. Exits with the run's status.
 //
-// usage: bun run c-cpu-prof-md <rules program.bend> <server args...>
+// usage: bun run c-cpu-prof-md <server args...>
 //
 // Coverage counts calls, not time. On the host each def segment is a function
 // WL_FID_<DEF>, its continuations WL_FID_<DEF>_K<n>, so a def's count is its
@@ -19,6 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { nativeOf, programOf, projectOf, ruleIdsOf } from "../linter/seam.ts";
 import { findClangOrUndefined, getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 
@@ -140,9 +142,10 @@ const getMarkdown = (command: string, c: string, defs: Row[], runtime: Row[]): s
 // Side effects
 // ============
 
-const [program, ...args] = process.argv.slice(2);
-if (program === undefined) {
-  console.error("usage: bun run c-cpu-prof-md <rules program.bend> <server args...>");
+const args = process.argv.slice(2);
+const project = projectOf(process.cwd());
+if (project === undefined) {
+  console.error("c-cpu-prof-md needs a bend-lint.json in this folder or above it");
   process.exit(2);
 }
 const clang = findClangOrUndefined();
@@ -153,10 +156,15 @@ if (clang === undefined) {
 const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", ".").slice(0, 15);
 const name = `C-CPU.${stamp}.${process.pid}`;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-c-cpu-prof-"));
+const dir = unwrap(await tryGetBend2SourceUrl());
+const program = programOf(project, ruleIdsOf(project));
+const exe = nativeOf(program, dir);
+const kept = exe + ".kept";
+fs.mkdirSync(path.dirname(exe), { recursive: true });
+if (fs.existsSync(exe)) fs.renameSync(exe, kept);
 try {
   const c = path.join(work, "program.c");
-  const exe = path.join(work, process.platform === "win32" ? "program.exe" : "program");
-  const bend = getBendCli(unwrap(await tryGetBend2SourceUrl()));
+  const bend = getBendCli(dir);
   run(bend.cmd[0], [...bend.cmd.slice(1), program, "-o", c], {
     env: { ...process.env, ...bend.env },
   });
@@ -171,7 +179,7 @@ try {
     "-o",
     exe,
   ]);
-  const ran = spawnSync(process.execPath, [SERVER, "--program", exe, ...args], {
+  const ran = spawnSync(process.execPath, [SERVER, ...args], {
     env: { ...process.env, LLVM_PROFILE_FILE: path.join(work, "program.%p.profraw") },
     stdio: "inherit",
   });
@@ -203,7 +211,7 @@ try {
   fs.writeFileSync(
     name + ".md",
     getMarkdown(
-      ["bun run c-cpu-prof-md", program, ...args].join(" "),
+      ["bun run c-cpu-prof-md", ...args].join(" "),
       name + ".c",
       getRowsFromFunctions(functions.filter(isDef), (f) =>
         f.replace(/^WL_FID_/, "").replace(/_K\d+$/, ""),
@@ -218,4 +226,6 @@ try {
   process.exitCode = ran.status ?? 1;
 } finally {
   fs.rmSync(work, { recursive: true, force: true });
+  fs.rmSync(exe, { force: true });
+  if (fs.existsSync(kept)) fs.renameSync(kept, exe);
 }

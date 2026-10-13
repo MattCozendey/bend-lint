@@ -4,6 +4,19 @@ A linter and formatter for Bend 2, with rules written in Bend.
 
 ## Install
 
+Install bend-lint in each project, never globally:
+
+```sh
+bun add -D github:MattCozendey/bend-lint
+bunx bend-lint init
+```
+
+`init` writes `bend-lint.json` and `bend-lint-rules/format.bend`, which turns on the formatter.
+
+> **Why per project:** a Bend limitation. Bend imports a file only by a relative path of plain names
+> (or from BendHub), so your rules can reach bend-lint's files only inside your project. bend-lint
+> refuses to run from anywhere else.
+
 Needs Bun 1.4.3. bend-lint downloads the Bend it is tested with, once. With clang 14 or newer, it
 builds your rules natively; without clang, it builds them to JavaScript, about 3 to 8 times slower,
 and says so on each run.
@@ -12,21 +25,15 @@ and says so on each run.
 > [MattCozendey/bend](https://github.com/MattCozendey/bend/tree/feature/cuda-and-windows), because
 > Bend's releases do not run on Windows. bend-lint says so on each run.
 
-```sh
-bun add -g github:MattCozendey/bend-lint
-```
-
 ## Run
 
 ```sh
-bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports]
-          [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]
+bunx bend-lint <file or glob>... [--fix | --fix-dangerously] [--show-suppressed] [--json]
+               [--jobs <number or max>]
 ```
 
 | Flag                | Does                                                                               |
 | ------------------- | ---------------------------------------------------------------------------------- |
-| `--program`         | runs your rules program (default: [main.bend](src/linter/main.bend))               |
-| `--imports`         | also lints every file the one named file imports (not Base, nor hub packages)      |
 | `--fix`             | applies the fixes proven safe. For now: those that only rewrite comments           |
 | `--fix-dangerously` | applies every fix. These can change what the program does, or break it             |
 | `--show-suppressed` | also prints the findings that a directive covers                                   |
@@ -34,8 +41,8 @@ bend-lint [--program <rules program>] <file or glob>... [--imports | --no-import
 | `--jobs`            | how many files to lint at once: a number, or `max` (default: half the CPU threads) |
 
 - Quote globs, and use `/` in paths.
-- A `.bend` rules program builds on its first run (about 40 s), and stays built until it or Bend
-  changes.
+- bend-lint builds your rules on its first run (about 40 s), and keeps the build until a rule or
+  Bend changes.
 - A fix that touches an earlier fix's edits waits for the next run.
 - bend-lint runs at low priority: a long run slows down, not your computer.
 - bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a
@@ -46,28 +53,31 @@ bend-lint [--program <rules program>] <file or glob>... [--imports | --no-import
 
 ## Config
 
-The nearest `bend-lint.json`, from the named file's folder up:
+`bend-lint.json` is the only place that picks the rules: a rule runs only if `rules` names it.
+bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
 
 ```json
 {
   "entries": ["src/main.bend"],
   "imports": true,
   "rules": {
-    "layout/case": "off",
-    "no-unused/imports": "error",
-    "layout/format": { "tabWidth": 4, "severity": "hint" }
+    "format": { "tabWidth": 4, "severity": "hint" },
+    "style/no-foo": "error",
+    "style/no-bar": "off"
   }
 }
 ```
 
+- `rules`: each rule to run, by its id: its path in `bend-lint-rules/`, without `.bend`
+  (`bend-lint-rules/style/no-foo.bend` is `style/no-foo`). Give it `"off"`, a severity (`error`,
+  `warning`, `information`, `hint`), or an object of its options and a `"severity"`.
 - `entries`: your program's entry files. A rule that reads the whole program ("this def is never
   used") then sees it, even when you lint one file.
-- `imports`: as `--imports`. The flag wins.
-- `rules`: per rule, `"off"`, a severity (`error`, `warning`, `information`, `hint`), or its options
-  and a `"severity"`.
+- `imports`: also lint every file the named file imports (not Base, nor hub packages).
 
-The rules are in [src/bend-lint-default-rules/](src/bend-lint-default-rules/). Each file's header
-says what the rule reports, what its fix does, and its options.
+bend-lint ships more rules, in [bend-lint-rules/](bend-lint-rules/). Each file's header says what
+the rule reports, what its fix does, and its options. To use one, add a file to your
+`bend-lint-rules/` that imports it, as `format.bend` does.
 
 ## Suppress findings
 
@@ -92,6 +102,15 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
 
 ## Write a rule
 
-A rule is a Bend file that imports [lint.bend](src/linter/lint.bend), whose comments are the API. To
-run your rules, copy [main.bend](src/linter/main.bend) in a clone of this repo, and pass it to
-`--program`.
+A rule is a file in `bend-lint-rules/`. It imports bend-lint's toolkit,
+[lint.bend](src/linter/lint.bend), whose comments are the API, and defines `rule()`:
+
+```
+import Base
+import ../node_modules/bend-lint/src/linter/lint.bend as Lint
+
+def rule() -> Lint.Rule:
+  ...
+```
+
+Then name it in `bend-lint.json`. A rule in a subfolder starts its import with one more `../`.

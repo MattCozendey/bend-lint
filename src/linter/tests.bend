@@ -190,7 +190,11 @@ def written.said(syntax: Lint.Syntax, name: String) -> Maybe<&2, String>:
     case _:
       None{}
 
-def written(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+def written.visit(
+  +u: Unit,
+  +path: List<&2, Lint.Above>,
+  +node: Lint.Node
+) -> List<&2, Lint.Finding>:
   match node:
     case Lint.Node{syntax, name, Some{span}, kids, facts}:
       Maybe.default(
@@ -301,35 +305,19 @@ def counted(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
 # tests/types: the type of each variable use that has a fact, in one round, then whether the first two are the same
 # type, in a second.
 def types() -> Lint.Rule:
-  Lint.Rule{
-    "tests/types",
-    Lint.Needs{True{}, False{}},
-    [],
-    Lint.OnFile{here => showing(Types{}, True{}, here)}
-  }
+  Lint.Rule{Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Types{}, True{}, here)}}
 
 # tests/binders: the type each binder declares, with its quantity: `name (quantity): type`.
 def binders() -> Lint.Rule:
-  Lint.Rule{
-    "tests/binders",
-    Lint.Needs{True{}, False{}},
-    [],
-    Lint.OnFile{here => showing(Binders{}, False{}, here)}
-  }
+  Lint.Rule{Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Binders{}, False{}, here)}}
 
 # tests/terms: the type of each call, construction and literal that has a fact: `call: type`.
 def terms() -> Lint.Rule:
-  Lint.Rule{
-    "tests/terms",
-    Lint.Needs{True{}, False{}},
-    [],
-    Lint.OnFile{here => showing(Terms{}, False{}, here)}
-  }
+  Lint.Rule{Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Terms{}, False{}, here)}}
 
 # tests/uses: how often the body of each binder the checker closed uses it: `name: used quantity`.
 def uses() -> Lint.Rule:
   Lint.Rule{
-    "tests/uses",
     Lint.Needs{True{}, False{}},
     [],
     Lint.OnFile{
@@ -340,7 +328,6 @@ def uses() -> Lint.Rule:
 # tests/budget: one question per round, more rounds than the runner allows.
 def budget() -> Lint.Rule:
   Lint.Rule{
-    "tests/budget",
     Lint.Needs{True{}, False{}},
     [],
     Lint.OnFile{
@@ -353,7 +340,6 @@ def budget() -> Lint.Rule:
 # tests/file: one mark at the start of each linted file.
 def file() -> Lint.Rule:
   Lint.Rule{
-    "tests/file",
     Lint.Needs{False{}, False{}},
     [],
     Lint.OnFile{
@@ -364,20 +350,20 @@ def file() -> Lint.Rule:
   }
 
 # tests/written: each reference, call and lambda that the file writes.
-def written.rule() -> Lint.Rule:
+def written() -> Lint.Rule:
   Lint.Rule{
-    "tests/written",
     Lint.Needs{False{}, False{}},
     [],
     Lint.OnFile{
-      here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~written, Unit{}, Lint.Here.nodes(here)))
+      here => Lint.done(
+        Lint.visit(~Unit, ~Lint.Finding, ~written.visit, Unit{}, Lint.Here.nodes(here))
+      )
     }
   }
 
 # tests/rename: offers to rename each def and each parameter named foo to bar.
 def rename() -> Lint.Rule:
   Lint.Rule{
-    "tests/rename",
     Lint.Needs{False{}, False{}},
     [],
     Lint.OnFile{
@@ -388,17 +374,16 @@ def rename() -> Lint.Rule:
 # tests/every: a program rule merged as every-entry: in each file of a check, a mark at offset 0, and one at the number
 # of files the check read.
 def every() -> Lint.Rule:
-  Lint.Rule{"tests/every", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{True{}, counted}}
+  Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnProgram{True{}, counted}}
 
 # tests/some: the same, merged as some-entry.
 def some() -> Lint.Rule:
-  Lint.Rule{"tests/some", Lint.Needs{False{}, False{}}, [], Lint.OnProgram{False{}, counted}}
+  Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnProgram{False{}, counted}}
 
 # tests/across: a program rule: in each file of a check, a mark at offset 0, with a fix that writes a comment line at
 # the start of every file.
 def across() -> Lint.Rule:
   Lint.Rule{
-    "tests/across",
     Lint.Needs{False{}, False{}},
     [],
     Lint.OnProgram{

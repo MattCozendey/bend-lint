@@ -10,7 +10,7 @@ import type { Found } from "./testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("bend-lint-default-rules/no-unused/imports.bend") : "";
+const PROGRAM = BUILDS ? await build("no-unused/imports") : "";
 
 const UTIL = "import Base\n\ndef two() -> U32:\n  2\n";
 

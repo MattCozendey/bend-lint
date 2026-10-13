@@ -1,8 +1,8 @@
-# What a rule sees. A rule file imports this file; a rules program imports cli.bend too, and calls it with its rules.
+# What a rule sees. A rule file imports this file, and defines `rule()`.
 #
 # Design
-# - The rules program is an ordinary Bend program. seam.ts builds it once and keeps the build. The C lane is the
-#   target; the JS lane must work too.
+# - The rules run in an ordinary Bend program that seam.ts writes from bend-lint.json, builds once and keeps. The C
+#   lane is the target; the JS lane must work too.
 # - Bend's checker is TS for now: seam.ts makes each check's program of what Bend's parser and checker give, and answers
 #   the questions rules ask about its types, over local TCP (see Seam in cli.bend). When the checker is Bend, glue in
 #   Bend makes the same program, and the questions become calls.
@@ -1055,5 +1055,7 @@ type Run is Type:
   OnFile{run: @+here: Here -> Ask(List<&2, Finding>)}
   OnProgram{every: Bool, run: @+whole: Whole -> Ask(List<&2, Finding>)}
 
+# A rule: what it needs, the options it declares, and how it runs. Its id is its path in bend-lint-rules/, without
+# .bend, as bend-lint.json names it.
 type Rule is Type:
-  Rule{id: String, needs: Needs, options: List<&2, Declared>, run: Run}
+  Rule{needs: Needs, options: List<&2, Declared>, run: Run}

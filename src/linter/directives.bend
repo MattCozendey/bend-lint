@@ -339,11 +339,11 @@ def Draft.kind(parts: List<&2, String>) -> Maybe<&2, Keyword>:
     case _:
       None{}
 
-# Whether a rule id is two or more non-empty parts, split by /.
+# Whether a rule id is one or more non-empty parts, split by /: its path in bend-lint-rules/.
 def Draft.rule_ok(parts: List<&2, String>) -> Bool:
   match parts:
-    case Con{a, Con{b, rest}}:
-      Bool.not(List.any(~&2, ~String, ~String.is_empty, Con{a, Con{b, rest}}))
+    case Con{a, rest}:
+      Bool.not(List.any(~&2, ~String, ~String.is_empty, Con{a, rest}))
     case _:
       False{}
 

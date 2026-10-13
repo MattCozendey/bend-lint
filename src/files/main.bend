@@ -172,62 +172,6 @@ def write(path: String, text: String) -> IO(Bool):
     opened => write.opened(text, opened)
   )
 
-# Nearest
-# =======
-
-# The folders a path's folder parts make, nearest first; `at` is the folder so far, `out` the folders so far
-# (nearest first).
-def folders.go(parts: List<&2, String>, +at: String, out: List<&2, String>) -> List<&2, String>:
-  match parts:
-    case Nil{}:
-      out
-    case Con{+p, rest}:
-      folders.go(rest, at ++ "/" ++ p, (at ++ "/" ++ p) <> out)
-
-def folders.from(parts: List<&2, String>) -> List<&2, String>:
-  match parts:
-    case Con{+first, rest}:
-      folders.go(rest, first, [first])
-    case Nil{}:
-      []
-
-# A path's folder parts: its parts, less the last (the file's name).
-def folders.parts(reversed: List<&2, String>) -> List<&2, String>:
-  match reversed:
-    case Con{name, rest}:
-      List.reverse(&2, String, rest)
-    case Nil{}:
-      []
-
-# The folders a path is in, nearest first: "C:/a/b/c.bend" gives "C:/a/b", "C:/a", "C:"; "/a/b.bend" gives "/a", "".
-def folders(path: String) -> List<&2, String>:
-  folders.from(folders.parts(List.reverse(&2, String, String.split(path, '/'))))
-
-# The file named `name` in the nearest folder of `folders` that has one, from the last attempt to open one (in
-# `folder`).
-def nearest.go(
-  folders: List<&2, String>,
-  +name: String,
-  opened: Result<&1, &1, U32 & String, File>,
-  folder: String
-) -> IO(Maybe<&1, String & File>):
-  match folders opened:
-    case _ Done{file}:
-      IO.pure(Maybe<&1, String & File>, Some{(folder, file)})
-    case Con{+next, rest} Fail{why}:
-      IO.bind(
-        Result<&1, &1, U32 & String, File>,
-        Maybe<&1, String & File>,
-        File.open(next ++ "/" ++ name, "r"),
-        r => nearest.go(rest, name, r, next)
-      )
-    case Nil{} Fail{why}:
-      IO.pure(Maybe<&1, String & File>, None{})
-
-# The file named `name` in the nearest folder that holds the file at `path`, opened to read, and that folder.
-def nearest(path: String, name: String) -> IO(Maybe<&1, String & File>):
-  nearest.go(folders(path), name, Fail{(0, "")}, "")
-
 # Globs
 # =====
 def Glyph.of(+c: Char) -> Glyph:

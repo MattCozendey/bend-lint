@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs a
-// rules program, and answers its requests about Bend files over local TCP until the program exits
-// (Seam in cli.bend sends them, and reads the answers). A check's answer is the linter's program, as Bend's
-// parser and checker give it: each file's syntax tree, and, for facts, what the checker found on its
+// The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs the
+// program of the rules bend-lint.json names (see programOf), and answers its requests about Bend
+// files over local TCP until the program exits (Seam in cli.bend sends them, and reads the
+// answers). A check's answer is the linter's program, as Bend's parser and checker give it: each file's syntax tree, and, for facts, what the checker found on its
 // nodes (Lint.Source, in lint.bend). When Bend's checker is Bend, glue in Bend makes the same program
 // and this file goes, so mutation and any optimization are fair here. Node 24.2 or later runs a
 // built program too, but a large program needs --max-old-space-size=8192.
@@ -194,7 +194,36 @@ const CHECKS_DIR = url.fileURLToPath(new URL("checks/", SERVER_CACHE_DIR));
 
 const PROGRAMS_DIR = url.fileURLToPath(new URL("programs/", SERVER_CACHE_DIR));
 
-const MAIN = url.fileURLToPath(new URL("main.bend", import.meta.url));
+// Where the programs bend-lint writes (one per list of rules) live: Bend imports only relative
+// paths of plain names, so they live beside cli.bend, which they import.
+export const BUILD = url.fileURLToPath(new URL("build/", import.meta.url));
+
+// The config, and the folder of rules beside it.
+const CONFIG = "bend-lint.json";
+const RULES = "bend-lint-rules";
+
+// bend-lint's own folder, and its toolkit, which every rule imports.
+const PACKAGE = nodePath.resolve(url.fileURLToPath(new URL("../../", import.meta.url)));
+const TOOLKIT = nodePath.join(PACKAGE, "src", "linter", "lint.bend");
+
+// A path Bend imports: up, then names (letters, digits, _ and -).
+const PLAIN = /^(\.\.\/)*([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/;
+
+// Why a rule cannot reach bend-lint's files, or bend-lint a rule.
+const PER_PROJECT =
+  "install bend-lint in this project (bun add -D bend-lint): Bend imports files only by relative paths of plain names, so it cannot reach bend-lint's files elsewhere";
+
+// What `bend-lint init` writes: a config that turns on the formatter, and the formatter's rule,
+// which uses the one bend-lint ships. `{lint}` and `{format}` are the paths to bend-lint's files.
+const INIT_CONFIG = `{\n  "rules": {\n    "format": "warning"\n  }\n}\n`;
+const INIT_FORMAT =
+  "# format: the formatter bend-lint ships (layout/format). Its options go in bend-lint.json; see\n" +
+  "# bend-lint's README.\n" +
+  "import Base\n" +
+  "import {lint} as Lint\n" +
+  "import {format} as Format\n\n" +
+  "def rule() -> Lint.Rule:\n" +
+  "  Format.rule()\n";
 
 // An import by a relative path: of a .bend file, or, quoted, of an effect's.
 const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
@@ -1655,12 +1684,9 @@ const builder = (dir: URL): string => {
     .join("\0");
 };
 
-// The program the rules program `source` builds to, with the Bend in the bend2 folder `dir`:
-// native, if clang can build it, else JavaScript, until clang can. A build is kept, and used
-// again until a file the program imports, or the Bend that builds it, changes; its use keeps it
-// from prune (see USED). It goes to a folder of its own first, so a kept build is never partial,
-// and runs that build one program at once share one build.
-export const built = async (source: string, dir: URL): Promise<string> => {
+// Where the native build of the rules program `source`, by the Bend in the bend2 folder `dir`, is
+// kept: named by what it is built of.
+export const nativeOf = (source: string, dir: URL): string => {
   const file = nodePath.resolve(source);
   const from = nodePath.dirname(file);
   const key = getSha256Hex(
@@ -1670,11 +1696,22 @@ export const built = async (source: string, dir: URL): Promise<string> => {
     ].join("\0"),
   ).slice(0, 16);
   const name = `${nodePath.basename(source, ".bend")}.${key}`;
-  const native = nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
+  return nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
+};
+
+// The program the rules program `source` builds to, with the Bend in the bend2 folder `dir`:
+// native, if clang can build it, else JavaScript, until clang can. A build is kept, and used
+// again until a file the program imports, or the Bend that builds it, changes; its use keeps it
+// from prune (see USED). It goes to a folder of its own first, so a kept build is never partial,
+// and runs that build one program at once share one build.
+export const built = async (source: string, dir: URL): Promise<string> => {
+  const file = nodePath.resolve(source);
+  const from = nodePath.dirname(file);
+  const native = nativeOf(source, dir);
   const exe =
     nodeFs.existsSync(native) || findClangOrUndefined() !== undefined
       ? native
-      : nodePath.join(PROGRAMS_DIR, name + ".js");
+      : native.replace(/(\.exe)?$/, ".js");
   const kept = nodeFs.statSync(exe, { throwIfNoEntry: false });
   if (kept !== undefined) {
     if (Date.now() - kept.mtimeMs > USED) {
@@ -1908,19 +1945,113 @@ const serve = async (
   );
 };
 
-// The checker, the rules program `named` (built first if it is a .bend file), and what to say
+// The checker, the rules program `named`, built first, and what to say
 // first of the Bend bend-lint uses (see bend2.ts). The checker comes first, so a drift stops the
 // run before a build.
 const started = async (named: string): Promise<[Checker, string, string[]]> => {
   const dir = unwrap(await tryGetBend2SourceUrl());
   const checker = load(dir);
   const [program, version] = await Promise.all([
-    named.endsWith(".bend") ? built(named, dir) : named,
+    built(named, dir),
     getBendVersionNoteOrUndefined(dir),
   ]);
-  const javascript =
-    named.endsWith(".bend") && program.endsWith(".js") ? JAVASCRIPT_NOTE : undefined;
+  const javascript = program.endsWith(".js") ? JAVASCRIPT_NOTE : undefined;
   return [checker, program, [PINNED_BEND_NOTE, version, javascript].filter((n) => n !== undefined)];
+};
+
+// The folder of the nearest bend-lint.json up from `dir`, if there is one.
+export const projectOf = (dir: string): string | undefined => {
+  const up = nodePath.dirname(dir);
+  return nodeFs.existsSync(nodePath.join(dir, CONFIG))
+    ? dir
+    : up === dir
+      ? undefined
+      : projectOf(up);
+};
+
+// The ids of the rules the bend-lint.json in `project` turns on: its "rules" but those "off". The
+// runner checks the rest of the config.
+export const ruleIdsOf = (project: string): string[] => {
+  const config = JSON.parse(nodeFs.readFileSync(nodePath.join(project, CONFIG), "utf8")) as {
+    rules?: unknown;
+  };
+  const rules = config.rules ?? {};
+  if (typeof rules !== "object" || rules === null || Array.isArray(rules)) {
+    throw new Error(CONFIG + ": rules must map rule ids to settings");
+  }
+  return Object.entries(rules)
+    .filter(([, setting]) => setting !== "off")
+    .map(([id]) => id);
+};
+
+// `to` as Bend imports it from a file in the folder `from`, if it can: see PLAIN.
+const importOf = (from: string, to: string): string | undefined => {
+  const relative = getPathWithForwardSlashes(nodePath.relative(from, to));
+  return PLAIN.test(relative) ? relative : undefined;
+};
+
+// The program that runs the rules `ids` of the project in `project`, written in BUILD and named by
+// its text. Rule `id` is bend-lint-rules/<id>.bend there, imported at its real path, so a link is
+// followed. An error says which rule is missing, or why Bend cannot import it.
+export const programOf = (project: string, ids: string[]): string => {
+  const imports = ids.map((id, n) => {
+    if (!/^[A-Za-z_][\w-]*(\/[A-Za-z_][\w-]*)*$/.test(id)) {
+      throw new Error(`${id} is not a rule id: a path in ${RULES}/ of plain names, without .bend`);
+    }
+    const real = tryGetOrUndefined(() =>
+      nodeFs.realpathSync(nodePath.join(project, RULES, ...id.split("/")) + ".bend"),
+    );
+    if (real === undefined) {
+      throw new Error(`there is no rule ${id}: ${RULES}/${id}.bend does not exist`);
+    }
+    const rule = importOf(BUILD, real);
+    if (rule === undefined || importOf(nodePath.dirname(real), TOOLKIT) === undefined) {
+      throw new Error(PER_PROJECT);
+    }
+    return `import ${rule} as Rule${n}`;
+  });
+  const run = ids.map((id, n) => `Cli.Rule{${JSON.stringify(id)}, Rule${n}.rule()}`).join(", ");
+  const text = [
+    "import Base",
+    "import ../cli.bend as Cli",
+    ...imports,
+    "",
+    "def main() -> IO(Unit):",
+    `  Cli.run(~[${run}])`,
+    "",
+  ].join("\n");
+  const source = nodePath.join(BUILD, `rules.${getSha256Hex(text).slice(0, 16)}.bend`);
+  if (!nodeFs.existsSync(source)) {
+    nodeFs.mkdirSync(BUILD, { recursive: true });
+    writeFileAtomically(source, text);
+  }
+  return source;
+};
+
+// Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there.
+const init = (dir: string): void => {
+  const rules = nodePath.join(dir, RULES);
+  const lint = importOf(rules, TOOLKIT);
+  const format = importOf(rules, nodePath.join(PACKAGE, RULES, "layout", "format.bend"));
+  if (lint === undefined || format === undefined) {
+    throw new Error(PER_PROJECT);
+  }
+  const files: Array<[string, string]> = [
+    [nodePath.join(dir, CONFIG), INIT_CONFIG],
+    [
+      nodePath.join(rules, "format.bend"),
+      INIT_FORMAT.replace("{lint}", lint).replace("{format}", format),
+    ],
+  ];
+  files.forEach(([file, text]) => {
+    if (nodeFs.existsSync(file)) {
+      console.log("bend-lint: " + file + " is there already; it stays as it is");
+      return;
+    }
+    nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    nodeFs.writeFileSync(file, text);
+    console.log("bend-lint: wrote " + file);
+  });
 };
 
 // Side effects
@@ -1930,19 +2061,30 @@ if (import.meta.main) {
   // A run, and every process it starts (they inherit it), runs at low priority: a long run slows
   // down, not the machine.
   tryGetOrUndefined(() => os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL));
-  const argv = process.argv.slice(2);
-  const at = argv.indexOf("--program");
-  const named = at === -1 ? MAIN : argv[at + 1];
-  if (named === undefined) {
-    console.error("usage: bend-lint [--program <rules program>] <args...>");
+  const args = process.argv.slice(2);
+  if (args[0] === "init") {
+    try {
+      init(process.cwd());
+    } catch (e) {
+      console.error("bend-lint: " + getErrorMessageFromUnknown(e));
+      process.exit(2);
+    }
+    process.exit(0);
+  }
+  const project = projectOf(process.cwd());
+  if (project === undefined) {
+    console.error(
+      "bend-lint: no " + CONFIG + " in this folder or above it; `bunx bend-lint init` makes one",
+    );
     process.exit(2);
   }
-  const args = argv.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
 
-  const [checker, program, notes] = await started(named).catch((e: unknown) => {
-    console.error("bend-lint: " + getErrorMessageFromUnknown(e));
-    return process.exit(2);
-  });
+  const [checker, program, notes] = await Promise.resolve()
+    .then(() => started(programOf(project, ruleIdsOf(project))))
+    .catch((e: unknown) => {
+      console.error("bend-lint: " + getErrorMessageFromUnknown(e));
+      return process.exit(2);
+    });
   notes.forEach((note) => console.error(note));
 
   const inTurn = serially();
@@ -1955,7 +2097,11 @@ if (import.meta.main) {
     ? [process.execPath, [program, ...args]]
     : [program, args];
   const child = spawn(command, commandArgs, {
-    env: { ...process.env, BEND_LINT_PORT: String((server.address() as net.AddressInfo).port) },
+    env: {
+      ...process.env,
+      BEND_LINT_PORT: String((server.address() as net.AddressInfo).port),
+      BEND_LINT_PROJECT: project,
+    },
     stdio: "inherit",
   });
   const [code] = (await once(child, "exit")) as [number | null];

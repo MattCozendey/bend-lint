@@ -1,5 +1,5 @@
-// What the rules' tests share: build a program that holds one rule, and
-// lint files with it through the server.
+// What the rules' tests share: build the program of one rule, and lint files
+// with it through the server, as a user's project does.
 
 // Imports
 // =======
@@ -11,13 +11,9 @@ import { fileURLToPath } from "node:url";
 
 import { isMachineNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { OK, unwrap } from "../shared/result.ts";
-import {
-  getCommandOutcome,
-  getPathWithForwardSlashes,
-  writeFileAtomically,
-} from "../shared/utils.ts";
+import { getCommandOutcome, writeFileAtomically } from "../shared/utils.ts";
 import type { Outcome } from "../shared/utils.ts";
-import { built } from "./seam.ts";
+import { BUILD, built, programOf } from "./seam.ts";
 
 // Types
 // =====
@@ -33,12 +29,12 @@ export type Ran = Outcome & { files: Record<string, string>; dir: string };
 // =========
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.dirname(HERE);
+const ROOT = path.dirname(path.dirname(HERE));
 const SERVER = path.join(HERE, "seam.ts");
 
-// Bend imports only relative paths of plain names, so the programs the
-// tests build live in this folder.
-const BUILD = path.join(HERE, "build");
+// The project of the test rules: tests/<def> is the def <def> of tests.bend,
+// through a rule file in its bend-lint-rules/.
+const FIXTURES = path.join(BUILD, "fixtures");
 
 const LINE = /^(.*):(\d+:\d+): (\w+) (\S+): (.*)$/;
 
@@ -49,24 +45,34 @@ export const BUILDS: boolean = OK in (await tryGetBend2SourceUrl());
 // Functions
 // =========
 
-// The program that lints with the rule the def `def` of `file` (a path under
-// src/) gives; the path of its executable, which the server builds and keeps.
-export const build = async (file: string, def = "rule"): Promise<string> => {
-  const name = (file.replace(/\.bend$/, "") + "_" + def).replace(/\W/g, "_");
-  const source = path.join(BUILD, name + ".bend");
-  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(SRC, file)));
-  const text = `import Base\nimport ../cli.bend as Cli\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Cli.run(~[Rule.${def}()])\n`;
-  fs.mkdirSync(BUILD, { recursive: true });
-  writeFileAtomically(source, text);
-  return built(source, unwrap(await tryGetBend2SourceUrl()));
+// The project whose bend-lint-rules/ holds the rule `id`: this repo, or
+// FIXTURES for tests/<def>.
+const projectOfRule = (id: string): string => (id.startsWith("tests/") ? FIXTURES : ROOT);
+
+// Builds the program of the rule `id` alone, as the server does for a project
+// that turns on only it, before the tests that use it; gives `id`.
+export const build = async (id: string): Promise<string> => {
+  if (id.startsWith("tests/")) {
+    const file = path.join(FIXTURES, "bend-lint-rules", ...id.split("/")) + ".bend";
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    writeFileAtomically(
+      file,
+      "import Base\nimport ../../../../lint.bend as Lint\nimport ../../../../tests.bend as Tests\n\n" +
+        `def rule() -> Lint.Rule:\n  Tests.${id.slice("tests/".length)}()\n`,
+    );
+  }
+  await built(programOf(projectOfRule(id), [id]), unwrap(await tryGetBend2SourceUrl()));
+  return id;
 };
 
-// How `program` ends on `named`, with the command line's other `args`
+// How the rule `id` ends on `named`, with the command line's other `args`
 // (flags, more files or globs), after it writes `files` (names to text) into
-// `dir`, a fresh folder unless given. It runs in that folder. Its stderr leaves
-// out what bend-lint says of how this machine runs it.
+// `dir`, a fresh folder unless given. It runs in that folder, whose
+// bend-lint.json turns `id` on, with what a bend-lint.json among `files` says,
+// and whose bend-lint-rules links the folder that holds `id`. Its stderr
+// leaves out what bend-lint says of how this machine runs it.
 export const run = async (
-  program: string,
+  id: string,
   files: Record<string, string>,
   named: string,
   args: string[] = [],
@@ -76,10 +82,17 @@ export const run = async (
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), text);
   });
-  const ran = await getCommandOutcome(
-    ["bun", SERVER, "--program", program, path.join(dir, named), ...args],
-    dir,
-  );
+  const config = path.join(dir, "bend-lint.json");
+  const given = files["bend-lint.json"];
+  if (given !== undefined || !fs.existsSync(config)) {
+    const read = (given === undefined ? {} : JSON.parse(given)) as { rules?: object };
+    fs.writeFileSync(config, JSON.stringify({ ...read, rules: { [id]: {}, ...read.rules } }));
+  }
+  const rules = path.join(dir, "bend-lint-rules");
+  if (!fs.existsSync(rules)) {
+    fs.symlinkSync(path.join(projectOfRule(id), "bend-lint-rules"), rules, "junction");
+  }
+  const ran = await getCommandOutcome(["bun", SERVER, path.join(dir, named), ...args], dir);
   return {
     ...ran,
     err: ran.err
@@ -93,14 +106,14 @@ export const run = async (
   };
 };
 
-// What `program` finds in `named`, after it writes `files` (names to text)
-// into a fresh folder.
+// What the rule `id` finds in `named`, after it writes `files` (names to
+// text) into a fresh folder.
 export const lint = async (
-  program: string,
+  id: string,
   files: Record<string, string>,
   named: string,
 ): Promise<Found[]> =>
-  (await run(program, files, named)).out.split("\n").flatMap((line) => {
+  (await run(id, files, named)).out.split("\n").flatMap((line) => {
     const m = LINE.exec(line);
     return m === null
       ? []

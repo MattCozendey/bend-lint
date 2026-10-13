@@ -1,4 +1,4 @@
-# A rules program calls `run` with its rules: `Cli.run(~[R.rule()])`.
+# The program seam.ts writes from bend-lint.json calls `run` with its rules: `Cli.run(~[Cli.Rule{"x", X.rule()}])`.
 import Base
 import ../files/main.bend as Files
 import ../json/main.bend as Json
@@ -269,21 +269,34 @@ def Config.read(+folder: String, text: Result<&2, &2, String, String>) -> IO(Pro
     case Fail{why}:
       IO.die(Project, 2, "bend-lint: reading a config failed: " ++ why)
 
-def Config.opened(nearest: Maybe<&1, String & File>) -> IO(Project):
-  match nearest:
-    case Some{Tuple{folder, file}}:
+def Config.opened(folder: String, opened: Result<&1, &1, U32 & String, File>) -> IO(Project):
+  match opened:
+    case Done{file}:
       IO.bind(
         Result<&2, &2, String, String>,
         Project,
         Files.read(file),
         text => Config.read(folder, text)
       )
-    case None{}:
-      IO.pure(Project, Project{[], None{}, []})
+    case Fail{Tuple{code, why}}:
+      IO.die(Project, 2, "bend-lint: reading " ++ folder ++ "/bend-lint.json failed: " ++ why)
 
-# The config of the file at the real path `path`: the nearest bend-lint.json up from it, or an empty one.
-def Config.find(path: String) -> IO(Project):
-  IO.bind(Maybe<&1, String & File>, Project, Files.nearest(path, "bend-lint.json"), Config.opened)
+def Config.at(+folder: String) -> IO(Project):
+  IO.bind(
+    Result<&1, &1, U32 & String, File>,
+    Project,
+    File.open(folder ++ "/bend-lint.json", "r"),
+    opened => Config.opened(folder, opened)
+  )
+
+# The run's config: the bend-lint.json the server found, in the folder it names in BEND_LINT_PROJECT.
+def Config.load() -> IO(Project):
+  IO.bind(
+    String,
+    Project,
+    IO.try(String, IO.get_env("BEND_LINT_PROJECT")),
+    folder => Config.at(folder)
+  )
 
 # Seam
 # ====
@@ -445,7 +458,7 @@ def Wire.port.of(port: Maybe<&2, U32>) -> IO(U32):
       IO.die(
         U32,
         2,
-        "bend-lint: BEND_LINT_PORT is not a port; run this program with `bend-lint --program <it>`"
+        "bend-lint: BEND_LINT_PORT is not a port; bend-lint runs this program, and gives it one"
       )
 
 def Wire.port() -> IO(U32):
@@ -886,18 +899,23 @@ def Check.forget(check: U32) -> IO(Unit):
 # Rules
 # =====
 
+# A rule, with its id: its path in bend-lint-rules/, without .bend, as bend-lint.json names it. The program bend-lint
+# writes from bend-lint.json gives `run` its rules so.
+type Rule is Type:
+  Rule{id: String, rule: Lint.Rule}
+
 # What the runner reads of a rule, besides its run: its id, what it needs, the options it declares, and, for a program
 # rule, whether its findings must be found by every check.
 type About is Data:
   About{id: String, needs: Lint.Needs, options: List<&2, Lint.Declared>, every: Maybe<&2, Bool>}
 
-def About.all(rules: List<&1, Lint.Rule>, out: List<&2, About>) -> List<&2, About>:
+def About.all(rules: List<&1, Rule>, out: List<&2, About>) -> List<&2, About>:
   match rules:
     case Nil{}:
       List.reverse(&2, About, out)
-    case Con{Lint.Rule{id, needs, options, Lint.OnFile{run}}, rest}:
+    case Con{Rule{id, Lint.Rule{needs, options, Lint.OnFile{run}}}, rest}:
       About.all(rest, About{id, needs, options, None{}} <> out)
-    case Con{Lint.Rule{id, needs, options, Lint.OnProgram{every, run}}, rest}:
+    case Con{Rule{id, Lint.Rule{needs, options, Lint.OnProgram{every, run}}}, rest}:
       About.all(rest, About{id, needs, options, Some{every}} <> out)
 
 def About.facts(about: About) -> Bool:
@@ -968,7 +986,7 @@ def About.on(
         )
       )
 
-def Rule.keep.if(on: Bool, rule: Lint.Rule, out: List<&1, Lint.Rule>) -> List<&1, Lint.Rule>:
+def Rule.keep.if(on: Bool, rule: Rule, out: List<&1, Rule>) -> List<&1, Rule>:
   match on:
     case True{}:
       rule <> out
@@ -976,22 +994,18 @@ def Rule.keep.if(on: Bool, rule: Lint.Rule, out: List<&1, Lint.Rule>) -> List<&1
       out
 
 def Rule.on(
-  rules: List<&1, Lint.Rule>,
+  rules: List<&1, Rule>,
   +settings: List<&2, Names.Named<Setting>>,
-  out: List<&1, Lint.Rule>
-) -> List<&1, Lint.Rule>:
+  out: List<&1, Rule>
+) -> List<&1, Rule>:
   match rules:
     case Nil{}:
-      List.reverse(&1, Lint.Rule, out)
-    case Con{Lint.Rule{+id, needs, options, run}, rest}:
+      List.reverse(&1, Rule, out)
+    case Con{Rule{+id, rule}, rest}:
       Rule.on(
         rest,
         settings,
-        Rule.keep.if(
-          Setting.on(Names.lookup(Setting, id, settings)),
-          Lint.Rule{id, needs, options, run},
-          out
-        )
+        Rule.keep.if(Setting.on(Names.lookup(Setting, id, settings)), Rule{id, rule}, out)
       )
 
 def About.ids(abouts: List<&2, About>, out: List<&2, String>) -> List<&2, String>:
@@ -1240,13 +1254,9 @@ def Job.start(
   ]
 
 # A rule's job at `place`: none where it does not run.
-def Rule.at(
-  rule: Lint.Rule,
-  +settings: List<&2, Names.Named<Setting>>,
-  +place: Place
-) -> List<&1, Job>:
+def Rule.at(rule: Rule, +settings: List<&2, Names.Named<Setting>>, +place: Place) -> List<&1, Job>:
   match rule place:
-    case Lint.Rule{+id, needs, declared, Lint.OnFile{run}} AtFile{+here}:
+    case Rule{+id, Lint.Rule{needs, declared, Lint.OnFile{run}}} AtFile{+here}:
       Job.start(
         id,
         settings,
@@ -1254,7 +1264,10 @@ def Rule.at(
         0,
         run(Here.with(here, Setting.options(Names.lookup(Setting, id, settings))))
       )
-    case Lint.Rule{+id, needs, declared, Lint.OnProgram{every, run}} AtProgram{whole, path, check}:
+    case Rule{
+      +id,
+      Lint.Rule{needs, declared, Lint.OnProgram{every, run}}
+    } AtProgram{whole, path, check}:
       Job.start(
         id,
         settings,
@@ -1266,7 +1279,7 @@ def Rule.at(
       []
 
 def Rule.each(
-  rules: List<&1, Lint.Rule>,
+  rules: List<&1, Rule>,
   +settings: List<&2, Names.Named<Setting>>,
   +place: Place,
   out: List<&1, Job>
@@ -1281,7 +1294,7 @@ def Rule.each(
 # `depth` runs out.
 def Rule.all(
   +depth: Nat,
-  halves: List<&1, Lint.Rule> & List<&1, Lint.Rule>,
+  halves: List<&1, Rule> & List<&1, Rule>,
   +settings: List<&2, Names.Named<Setting>>,
   +place: Place
 ) -> List<&1, Job>:
@@ -1291,21 +1304,21 @@ def Rule.all(
     case 1n+d Tuple{a, b}:
       x y = Rule.all(
         d,
-        Lists.deal(&1, Lint.Rule, a),
+        Lists.deal(&1, Rule, a),
         settings,
         place
-      ) Rule.all(d, Lists.deal(&1, Lint.Rule, b), settings, place)
+      ) Rule.all(d, Lists.deal(&1, Rule, b), settings, place)
       Lists.append(&1, Job, x, y)
 
 def Rule.jobs(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +settings: List<&2, Names.Named<Setting>>,
   place: Place
 ) -> List<&1, Job>:
-  Rule.all(3n, Lists.deal(&1, Lint.Rule, Rule.on(rules, settings, [])), settings, place)
+  Rule.all(3n, Lists.deal(&1, Rule, Rule.on(rules, settings, [])), settings, place)
 
 def File.each(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   files: List<&2, Lint.Source>,
   +settings: List<&2, Names.Named<Setting>>,
   +program: Lint.Program,
@@ -1333,7 +1346,7 @@ def File.each(
 # The jobs of the file rules on each file of both halves: the halves in parallel, dealt again until `depth` runs out.
 # `declare` says whether a rule needs declarations.
 def File.all(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +depth: Nat,
   halves: List<&2, Lint.Source> & List<&2, Lint.Source>,
   +settings: List<&2, Names.Named<Setting>>,
@@ -1362,7 +1375,7 @@ def File.all(
 # The jobs of the program rules on the whole program of each check, numbered from `check`; `declare` says whether a
 # rule needs declarations.
 def Check.jobs(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   programs: List<&2, Lint.Program>,
   +settings: List<&2, Names.Named<Setting>>,
   +path: String,
@@ -1391,7 +1404,7 @@ def Check.jobs(
 
 # The jobs of the program rules on each check, if one is on (`whole`): else none, and no whole program is built.
 def Check.jobs.if(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   whole: Bool,
   programs: List<&2, Lint.Program>,
   settings: List<&2, Names.Named<Setting>>,
@@ -2302,7 +2315,7 @@ def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
 # config leaves on. Program rules run on each check; `partial` says whether an entry that reads the named file failed
 # its check.
 def lint(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +linted: List<&2, Lint.Source>,
   path: String,
   +programs: List<&2, Lint.Program>,
@@ -2379,10 +2392,6 @@ def Source.at(
         Lists.when(Lint.Source, String.eq(p, path), Lint.Source{p, namespace, text, nodes}),
         path
       )
-
-# Whether to lint the files the named file imports: as the command line says, else as the config says, else not.
-def imports(flag: Maybe<&2, Bool>, project: Maybe<&2, Bool>) -> Bool:
-  Maybe.default(&2, Bool, Maybe.or(&2, Bool, flag, project), False{})
 
 # The checks of the named file: the programs to lint it in (the first one's file rules run); the entries that read it
 # and failed their check; whether its own check failed (then the program is what it parsed, if it parsed the files);
@@ -2464,7 +2473,7 @@ def unentered(
       IO.pure(Unit, Unit{})
 
 def checked(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +path: String,
   imports: Bool,
   +settings: List<&2, Names.Named<Setting>>,
@@ -2627,7 +2636,6 @@ type Jobs is Data:
 type Options is Data:
   Options{
     inputs: List<&2, String>,
-    imports: Maybe<&2, Bool>,
     fixing: Maybe<&2, Bool>,
     shown: Bool,
     json: Bool,
@@ -2639,12 +2647,12 @@ type Options is Data:
 def Options.single(imports: Bool, many: Bool) -> IO(Unit):
   match imports many:
     case True{} True{}:
-      IO.die(Unit, 2, "bend-lint: --imports takes one file to lint, also from the config")
+      IO.die(Unit, 2, "bend-lint: a config with \"imports\" lints one file at a time")
     case _ _:
       IO.pure(Unit, Unit{})
 
 def settled(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +path: String,
   +imports: Bool,
   json: Bool,
@@ -2666,15 +2674,15 @@ def settled(
 
 # Lints the file at `path` as its config says: `many` says whether the run lints more than one file.
 def configured(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   path: String,
   +options: Options,
   many: Bool,
   project: Project
 ) -> IO(Outcome):
   match options project:
-    case Options{inputs, flag, fixing, shown, json, worker, jobs} Project{entries, from, +settings}:
-      +on = imports(flag, from)
+    case Options{inputs, fixing, shown, json, worker, jobs} Project{entries, from, +settings}:
+      +on = Maybe.default(&2, Bool, from, False{})
       do IO<Outcome>:
         Options.checked(About.problem(About.all(rules, []), settings))
         Options.single(on, many)
@@ -2689,7 +2697,6 @@ def configured(
         )
 
 type Flag is Data:
-  ImportsFlag{on: Bool}
   FixFlag{fixing: Maybe<&2, Bool>}
   ShownFlag{}
   JsonFlag{}
@@ -2698,8 +2705,6 @@ type Flag is Data:
 
 def flags() -> List<&2, Names.Named<Flag>>:
   [
-    Names.Named{"--imports", ImportsFlag{True{}}},
-    Names.Named{"--no-imports", ImportsFlag{False{}}},
     Names.Named{"--fix", FixFlag{Some{False{}}}},
     Names.Named{"--fix-dangerously", FixFlag{Some{True{}}}},
     Names.Named{"--show-suppressed", ShownFlag{}},
@@ -2710,16 +2715,14 @@ def flags() -> List<&2, Names.Named<Flag>>:
 
 def Options.set(flag: Maybe<&2, Flag>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match flag options:
-    case Some{ImportsFlag{on}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{inputs, Some{on}, fixing, shown, json, worker, jobs}}
-    case Some{FixFlag{set}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{inputs, imports, set, shown, json, worker, jobs}}
-    case Some{ShownFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{inputs, imports, fixing, True{}, json, worker, jobs}}
-    case Some{JsonFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{inputs, imports, fixing, shown, True{}, worker, jobs}}
-    case Some{WorkerFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{inputs, imports, fixing, shown, json, True{}, jobs}}
+    case Some{FixFlag{set}} Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, set, shown, json, worker, jobs}}
+    case Some{ShownFlag{}} Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, fixing, True{}, json, worker, jobs}}
+    case Some{JsonFlag{}} Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, fixing, shown, True{}, worker, jobs}}
+    case Some{WorkerFlag{}} Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, fixing, shown, json, True{}, jobs}}
     case Some{JobsFlag{}} Some{o}:
       Some{o}
     case _ _:
@@ -2745,15 +2748,15 @@ def Jobs.of(+text: String) -> Maybe<&2, Jobs>:
 
 def Options.jobs(jobs: Maybe<&2, Jobs>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match jobs options:
-    case Some{j} Some{Options{inputs, imports, fixing, shown, json, worker, old}}:
-      Some{Options{inputs, imports, fixing, shown, json, worker, j}}
+    case Some{j} Some{Options{inputs, fixing, shown, json, worker, old}}:
+      Some{Options{inputs, fixing, shown, json, worker, j}}
     case _ _:
       None{}
 
 def Options.input(input: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
-      Some{Options{input <> inputs, imports, fixing, shown, json, worker, jobs}}
+    case Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{input <> inputs, fixing, shown, json, worker, jobs}}
     case None{}:
       None{}
 
@@ -2767,18 +2770,8 @@ def Options.arg(flag: Bool, arg: String, options: Maybe<&2, Options>) -> Maybe<&
 # The options, once every argument is read: the files in order; none if there are none.
 def Options.done(options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{Con{first, more}, imports, fixing, shown, json, worker, jobs}}:
-      Some{
-        Options{
-          List.reverse(&2, String, Con{first, more}),
-          imports,
-          fixing,
-          shown,
-          json,
-          worker,
-          jobs
-        }
-      }
+    case Some{Options{Con{first, more}, fixing, shown, json, worker, jobs}}:
+      Some{Options{List.reverse(&2, String, Con{first, more}), fixing, shown, json, worker, jobs}}
     case _:
       None{}
 
@@ -2798,16 +2791,11 @@ def Options.read(args: List<String>, options: Maybe<&2, Options>, jobs: Bool) ->
         String.eq(a, "--jobs")
       )
 
-def File.lint(
-  ~rules: List<&1, Lint.Rule>,
-  +path: String,
-  options: Options,
-  many: Bool
-) -> IO(Outcome):
+def File.lint(~rules: List<&1, Rule>, path: String, options: Options, many: Bool) -> IO(Outcome):
   IO.bind(
     Project,
     Outcome,
-    Config.find(path),
+    Config.load(),
     project => configured(~rules, path, options, many, project)
   )
 
@@ -2815,13 +2803,13 @@ def File.lint(
 # Workers); another run shows it.
 def ended(options: Options, total: Outcome) -> IO(Unit):
   match options:
-    case Options{inputs, imports, fixing, shown, json, True{}, jobs}:
+    case Options{inputs, fixing, shown, json, True{}, jobs}:
       IO.print(Json.show(Outcome.json(total)))
-    case Options{inputs, imports, fixing, shown, json, False{}, jobs}:
+    case Options{inputs, fixing, shown, json, False{}, jobs}:
       end(json, total, shown, fixing)
 
 def Paths.lint(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   paths: List<&2, String>,
   +options: Options,
   +many: Bool,
@@ -2946,15 +2934,6 @@ def Worker.outcome(ran: Ran()) -> IO(Outcome):
     case Fail{(code, why)}:
       IO.die(Outcome, 1, "bend-lint: a worker did not run: " ++ why)
 
-def Worker.imports(imports: Maybe<&2, Bool>) -> List<String>:
-  match imports:
-    case Some{True{}}:
-      ["--imports"]
-    case Some{False{}}:
-      ["--no-imports"]
-    case None{}:
-      []
-
 def Worker.flag(on: Bool, flag: String) -> List<String>:
   match on:
     case True{}:
@@ -2965,20 +2944,15 @@ def Worker.flag(on: Bool, flag: String) -> List<String>:
 # The command line of the worker of the file at `path`: its threads, then the flags of this run that it reads.
 def Worker.args(options: Options, path: String, threads: String) -> List<String>:
   match options:
-    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
+    case Options{inputs, fixing, shown, json, worker, jobs}:
       "--threads"
         <> threads
         <> "--worker"
         <> List.append(
           &1,
           String,
-          Worker.imports(imports),
-          List.append(
-            &1,
-            String,
-            Worker.flag(shown, "--show-suppressed"),
-            List.append(&1, String, Worker.flag(json, "--json"), [path])
-          )
+          Worker.flag(shown, "--show-suppressed"),
+          List.append(&1, String, Worker.flag(json, "--json"), [path])
         )
 
 # Runs a worker once one of `slots` is free, then frees it.
@@ -3059,7 +3033,7 @@ def Workers.run(
   +threads: U32
 ) -> IO(Unit):
   match options:
-    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
+    case Options{inputs, fixing, shown, json, worker, jobs}:
       +count = Jobs.count(jobs, threads)
       do IO<Unit>:
         slots: Chan(Unit) <- Slots.of(count)
@@ -3099,7 +3073,7 @@ def Workers.native(+program: String) -> Bool:
 # Whether a run lints its files in workers: a run of several files, that fixes none, by a native build.
 def Workers.wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
   match options:
-    case Options{inputs, imports, None{}, shown, json, False{}, jobs}:
+    case Options{inputs, None{}, shown, json, False{}, jobs}:
       Workers.native(program) && Nat.is_gt(Lists.length(&2, String, paths), 1n)
     case _:
       False{}
@@ -3107,11 +3081,11 @@ def Workers.wanted(program: String, paths: List<&2, String>, options: Options) -
 # Whether the run lints more than one file: a worker's does, for the run it lints for.
 def Options.many(options: Options, paths: List<&2, String>) -> Bool:
   match options:
-    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
+    case Options{inputs, fixing, shown, json, worker, jobs}:
       worker || Nat.is_gt(Lists.length(&2, String, paths), 1n)
 
 def Paths.go(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   workers: Bool,
   program: String,
   +paths: List<&2, String>,
@@ -3131,16 +3105,16 @@ def Paths.go(
 
 # Lints `paths` as `options` say: in workers, if the run can (see Workers), else here.
 def Paths.run(
-  ~rules: List<&1, Lint.Rule>,
+  ~rules: List<&1, Rule>,
   +program: String,
   +paths: List<&2, String>,
   +options: Options
 ) -> IO(Unit):
   Paths.go(~rules, Workers.wanted(program, paths, options), program, paths, options)
 
-def checking(~rules: List<&1, Lint.Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
+def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+inputs, flag, fixing, shown, json, worker, jobs}}:
+    case Some{Options{+inputs, fixing, shown, json, worker, jobs}}:
       IO.bind(
         List<&2, String>,
         Unit,
@@ -3149,31 +3123,27 @@ def checking(~rules: List<&1, Lint.Rule>, program: String, options: Maybe<&2, Op
           ~rules,
           program,
           paths,
-          Options{inputs, flag, fixing, shown, json, worker, jobs}
+          Options{inputs, fixing, shown, json, worker, jobs}
         )
       )
     case None{}:
       IO.die(
         Unit,
         2,
-        "usage: bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
+        "usage: bend-lint <file or glob>... [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
       )
 
 # Runs the command line `args`: the program as invoked, then its arguments.
-def started(~rules: List<&1, Lint.Rule>, args: List<String>) -> IO(Unit):
+def started(~rules: List<&1, Rule>, args: List<String>) -> IO(Unit):
   match args:
     case Con{program, rest}:
       checking(
         ~rules,
         program,
-        Options.read(
-          rest,
-          Some{Options{[], None{}, None{}, False{}, False{}, False{}, Half{}}},
-          False{}
-        )
+        Options.read(rest, Some{Options{[], None{}, False{}, False{}, False{}, Half{}}}, False{})
       )
     case Nil{}:
       checking(~rules, "", None{})
 
-def run(~rules: List<&1, Lint.Rule>) -> IO(Unit):
+def run(~rules: List<&1, Rule>) -> IO(Unit):
   IO.bind(List<String>, Unit, IO.args(), args => started(~rules, args))
