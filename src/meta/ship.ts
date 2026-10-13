@@ -36,8 +36,11 @@ const API_FILES = new Set(closure(path.join(SRC, "linter", "lint.bend")));
 
 // The npm package holds these files of this repo, but those it leaves out: tests, these scripts,
 // the test rules, and the rule API.
-const SHIPPED = /^(src\/|package\.json$|README\.md$|LICENSE$)/;
+const SHIPPED = /^(src\/|README\.md$|LICENSE$)/;
 const LEFT_OUT = /(\.test\.ts$|^src\/meta\/|^src\/linter\/(testing\.ts|tests\.bend)$)/;
+
+// What the npm package's package.json leaves out of this repo's: what only this repo uses.
+const DEV_ONLY = new Set(["private", "scripts", "devDependencies", "packageManager"]);
 
 // Functions
 // =========
@@ -56,28 +59,27 @@ const tracked = (): string[] => {
     .map((p) => path.join(ROOT, p));
 };
 
-// `text`, of the .bend file `file` of the package `at` (files of this repo to their paths in it),
-// with each import of a file the package holds following that file, and each of a rule API file
-// from BendHub.
-const relocated = (file: string, text: string, at: Map<string, string>): string =>
-  text.replace(IMPORT, (line: string, relative: string) => {
-    const target = path.resolve(path.dirname(file), relative);
-    const held = at.get(target);
-    if (held !== undefined) {
-      const to = path.posix.relative(path.posix.dirname(at.get(file) ?? ""), held);
-      return line.replace(relative, to.startsWith("../") ? to : "./" + to);
-    }
-    if (API_FILES.has(target)) return line.replace(relative, API + "/" + from(SRC, target));
-    throw new Error(from(ROOT, file) + " imports " + relative + ", which its package lacks");
-  });
-
 // The package of the files of this repo `at` (files to their paths in it), and of `more` (paths to
-// texts): paths to texts.
+// texts): paths to texts. A .bend file's imports of files the package holds follow them, and its
+// imports of rule API files come from BendHub.
 const packed = (at: Map<string, string>, more: Array<[string, string]> = []): Map<string, string> =>
   new Map([
     ...[...at].map(([file, to]): [string, string] => {
       const text = fs.readFileSync(file, "utf8");
-      return [to, file.endsWith(".bend") ? relocated(file, text, at) : text];
+      if (!file.endsWith(".bend")) return [to, text];
+      return [
+        to,
+        text.replace(IMPORT, (line: string, relative: string) => {
+          const target = path.resolve(path.dirname(file), relative);
+          const held = at.get(target);
+          if (held !== undefined) {
+            const moved = path.posix.relative(path.posix.dirname(to), held);
+            return line.replace(relative, moved.startsWith("../") ? moved : "./" + moved);
+          }
+          if (API_FILES.has(target)) return line.replace(relative, API + "/" + from(SRC, target));
+          throw new Error(from(ROOT, file) + " imports " + relative + ", which its package lacks");
+        }),
+      ];
     }),
     ...more,
   ]);
@@ -109,16 +111,21 @@ export const defaultsOf = (): Map<string, string> => {
   ]);
 };
 
-// The npm package.
-export const npmOf = (): Map<string, string> =>
-  packed(
+// The npm package. A project that trusts it runs its postinstall (see seam.ts).
+export const npmOf = (): Map<string, string> => {
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as object;
+  const kept = Object.entries(config).filter(([key]) => !DEV_ONLY.has(key));
+  const scripts = { postinstall: "bun ./src/linter/seam.ts postinstall" };
+  return packed(
     new Map(
       tracked()
         .filter((file) => !API_FILES.has(file))
         .map((file): [string, string] => [file, from(ROOT, file)])
         .filter(([, p]) => SHIPPED.test(p) && !LEFT_OUT.test(p)),
     ),
+    [["package.json", JSON.stringify({ ...Object.fromEntries(kept), scripts }, null, 2) + "\n"]],
   );
+};
 
 // The hash of the package of `files` (paths to texts), as `bend --publish` makes it.
 export const hashOf = (files: Map<string, string>): string =>

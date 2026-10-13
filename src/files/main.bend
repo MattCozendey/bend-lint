@@ -698,35 +698,26 @@ def git.listed(
     case Fail{why}:
       None{}
 
-# The paths, from the current folder, of the files under it that git lists and `pathspec` matches: tracked, or
-# untracked and not ignored (by .gitignore files, and git's other ignore files). None if git does not list them, at
-# most 64 MiB of them in a minute (outside a repository, for one).
-def git.files(pathspec: String) -> IO(Maybe<&2, List<&2, String>>):
-  IO.bind(
-    Result<&1, &1, U32 & String, U32 & (String & String)>,
-    Maybe<&2, List<&2, String>>,
-    Process.run(
-      "git",
-      ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec],
-      "",
-      67108864,
-      60000
-    ),
-    ran => IO.pure(Maybe<&2, List<&2, String>>, git.listed(ran))
-  )
-
 # Whether a part of a path is node_modules, or starts with ".".
 def listed.hidden(+part: String) -> Bool:
   String.eq(part, "node_modules") || Strings.starts(part, '.')
 
-# Whether no part of `path` is node_modules, or starts with ".".
-def listed.shown(path: String) -> Bool:
-  Bool.not(Lists.any(~String, ~(part => listed.hidden(part)), String.split(path, '/')))
-
-# The files of `paths` that `listed.shown` keeps, sorted, each once, as real paths.
+# The files of `paths` with no part that is node_modules or starts with ".", sorted, each once, as real paths.
 def listed.kept(paths: List<&2, String>) -> IO(List<&2, String>):
   reals(
-    Lists.sort(~String, ~String.is_le, List.filter(~String, ~listed.shown, paths)),
+    Lists.sort(
+      ~String,
+      ~String.is_le,
+      List.filter(
+        ~String,
+        ~(
+          path => Bool.not(
+            Lists.any(~String, ~(part => listed.hidden(part)), String.split(path, '/'))
+          )
+        ),
+        paths
+      )
+    ),
     Seen{Set.new(), []}
   )
 
@@ -743,11 +734,27 @@ def listed.found(found: Maybe<&2, List<&2, String>>, pattern: String) -> IO(List
       )
 
 # The files under the current folder whose names match the glob segment `pattern`, sorted, each once, as real paths:
-# those git lists (see git.files), or all if git does not list them; but none that `listed.shown` drops.
+# those git lists (tracked, or untracked and not ignored, by .gitignore files and git's other ignore files; at most 64
+# MiB of paths, in a minute), or all if git does not list them (outside a repository, for one); but none that
+# `listed.kept` drops.
 def listed(+pattern: String) -> IO(List<&2, String>):
   IO.bind(
-    Maybe<&2, List<&2, String>>,
+    Result<&1, &1, U32 & String, U32 & (String & String)>,
     List<&2, String>,
-    git.files(":(glob)**/" ++ pattern),
-    found => listed.found(found, pattern)
+    Process.run(
+      "git",
+      [
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        ":(glob)**/" ++ pattern
+      ],
+      "",
+      67108864,
+      60000
+    ),
+    ran => listed.found(git.listed(ran), pattern)
   )

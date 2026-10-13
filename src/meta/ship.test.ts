@@ -2,6 +2,7 @@
 // =======
 
 import { expect, setDefaultTimeout, test } from "bun:test";
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { API, DEFAULTS } from "../linter/seam.ts";
@@ -44,17 +45,24 @@ const host = (lib: string, named: string, files: Map<string, string>): void => {
 setDefaultTimeout(600_000);
 
 (BUILDS ? test : test.skip)(
-  "a project lints with the shipped package: init's formatter, and a rule of a package on BendHub",
+  "a project that installs the npm package lints: init's formatter, and a rule of a package on BendHub",
   async () => {
     const dir = fresh();
     const lib = path.join(dir, "lib");
+    const npm = path.join(dir, "npm");
     const project = path.join(dir, "project");
+    const env = { BEND_LIB: lib };
     host(lib, API, apiOf());
     host(lib, DEFAULTS, defaultsOf());
     host(lib, "demo-rules@1.0.0.0", new Map([["no-one.bend", DEMO]]));
-    writeFiles(path.join(project, "node_modules", "bend-lint"), npmOf());
-    const server = path.join(project, "node_modules", "bend-lint", "src", "linter", "seam.ts");
-    const init = await getCommandOutcome(["bun", server, "init"], project, { BEND_LIB: lib });
+    writeFiles(npm, npmOf());
+    const packed = await getCommandOutcome(["bun", "pm", "pack"], npm);
+    const tgz = path.join(npm, fs.readdirSync(npm).find((name) => name.endsWith(".tgz")) ?? "");
+    writeFiles(project, new Map([["package.json", '{ "name": "demo", "private": true }\n']]));
+    const added = await getCommandOutcome(["bun", "add", "-D", "--trust", tgz], project, env);
+    const inited = ["bend-lint.json", "bend-lint-rules/format.bend"].map((name) =>
+      fs.existsSync(path.join(project, name)),
+    );
     writeFiles(
       project,
       new Map([
@@ -68,9 +76,11 @@ setDefaultTimeout(600_000);
         ["main.bend", "import Base\n\n\n\ndef one() -> U32:\n  1\n"],
       ]),
     );
-    const ran = await getCommandOutcome(["bun", server, "main.bend"], project, { BEND_LIB: lib });
+    const ran = await getCommandOutcome(["bunx", "bend-lint", "main.bend"], project, env);
     expect([
-      init.code,
+      packed.code,
+      added.code,
+      inited,
       ran.code,
       ran.out
         .trim()
@@ -78,6 +88,8 @@ setDefaultTimeout(600_000);
         .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, "")),
     ]).toEqual([
       0,
+      0,
+      [true, true],
       0,
       [
         "main.bend:1:1: warning demo-rules/no-one: demo",

@@ -2058,21 +2058,22 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
   return source;
 };
 
-// Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there.
-const init = (dir: string): void => {
+// Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there; gives
+// those it wrote, and those it kept.
+const init = (dir: string): { wrote: string[]; kept: string[] } => {
   const files: Array<[string, string]> = [
     [nodePath.join(dir, CONFIG), INIT_CONFIG],
     [nodePath.join(dir, RULES, "format.bend"), INIT_FORMAT],
   ];
-  files.forEach(([file, text]) => {
-    if (nodeFs.existsSync(file)) {
-      console.log("bend-lint: " + file + " is there already; it stays as it is");
-      return;
-    }
-    nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-    nodeFs.writeFileSync(file, text);
-    console.log("bend-lint: wrote " + file);
-  });
+  const kept = files.filter(([file]) => nodeFs.existsSync(file)).map(([file]) => file);
+  const wrote = files
+    .filter(([file]) => !kept.includes(file))
+    .map(([file, text]) => {
+      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+      nodeFs.writeFileSync(file, text);
+      return file;
+    });
+  return { wrote, kept };
 };
 
 // Side effects
@@ -2085,10 +2086,35 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args[0] === "init") {
     try {
-      init(process.cwd());
+      const { wrote, kept } = init(process.cwd());
+      wrote.forEach((file) => console.log("bend-lint: wrote " + file));
+      kept.forEach((file) =>
+        console.log("bend-lint: " + file + " is there already; it stays as it is"),
+      );
     } catch (e) {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e));
       process.exit(2);
+    }
+    process.exit(0);
+  }
+  // An install of bend-lint: the project that installs it in its node_modules gets what init
+  // makes, and bend-lint downloads its Bend now, not on its first run. It never fails the install.
+  if (args[0] === "postinstall") {
+    try {
+      const project = process.env.INIT_CWD ?? "";
+      const modules = tryGetOrUndefined(() =>
+        nodeFs.realpathSync(nodePath.join(project, "node_modules")),
+      );
+      const relative =
+        modules === undefined
+          ? ".."
+          : nodePath.relative(modules, url.fileURLToPath(new URL("../../", import.meta.url)));
+      if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
+        init(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
+      }
+      unwrap(await tryGetBend2SourceUrl());
+    } catch (e) {
+      console.error("bend-lint: " + getErrorMessageFromUnknown(e) + "; its first run tries again");
     }
     process.exit(0);
   }

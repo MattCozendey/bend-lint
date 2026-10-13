@@ -18,15 +18,13 @@
     "test": "bun test --parallel",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
-  "dependencies": {
-    "@oxlint/plugins": "1.88.0",
-    "typebox": "1.3.37"
-  },
   "devDependencies": {
+    "@oxlint/plugins": "1.88.0",
     "@types/bun": "1.4.3",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "oxlint-tsgolint": "7.0.2004",
+    "typebox": "1.3.37",
     "typescript": "7.0.2"
   },
   "engines": {
