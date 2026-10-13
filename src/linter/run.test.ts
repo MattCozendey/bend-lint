@@ -87,14 +87,19 @@ setDefaultTimeout(120_000);
     expect(await found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
-  test("an entry that reads the file and fails its check leaves the checking to Bend", async () => {
+  test("an entry that reads the file and fails its check leaves the checking to Bend, and says so", async () => {
     const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
     const ran = await run(FILE, { ...ENTRIES, "b.bend": broken }, "util.bend");
-    expect([ran.code, ran.out.trim().split("\n")]).toEqual([
+    expect([ran.code, ran.out.trim().split("\n"), ran.err.trim().split("\n")]).toEqual([
       0,
       [
         expect.stringMatching(/util\.bend:1:1: hint tests\/file: linted$/),
         "bend-lint: 1 finding(s)",
+      ],
+      [
+        expect.stringMatching(
+          /^bend-lint: Bend's check of the entry \S*b\.bend fails, so \S*util\.bend was linted without it; `bend <file> --check-only` says why$/,
+        ),
       ],
     ]);
   });
