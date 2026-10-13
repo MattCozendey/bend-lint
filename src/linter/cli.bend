@@ -487,7 +487,7 @@ def Wire.port() -> IO(U32):
 # An answer's records, unless the server says it failed to answer (`fail` and why): that stops the run.
 def Wire.answered(records: List<&2, List<&2, String>>) -> IO(List<&2, List<&2, String>>):
   match records:
-    case Con{Con{SCon{'f', SCon{'a', SCon{'i', SCon{'l', SNil{}}}}}, Con{why, Nil{}}}, Nil{}}:
+    case Con{Con{"fail", Con{why, Nil{}}}, Nil{}}:
       IO.die(List<&2, List<&2, String>>, 1, "bend-lint: the checker failed: " ++ why)
     case _:
       IO.pure(List<&2, List<&2, String>>, records)
@@ -507,11 +507,11 @@ def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
 # A quantity as an answer writes it (see `quantity` in seam.ts).
 def Quantity.of(field: String) -> Lint.Quantity:
   match field:
-    case SCon{'e', SNil{}}:
+    case "e":
       Lint.Erased{}
-    case SCon{'o', SNil{}}:
+    case "o":
       Lint.Once{}
-    case SCon{'t', SNil{}}:
+    case "t":
       Lint.Template{}
     case _:
       Lint.Many{}
@@ -693,7 +693,7 @@ def Reader.node(
 
 def Role.of(field: String) -> Lint.Role:
   match field:
-    case SCon{'b', SNil{}}:
+    case "b":
       Lint.OfBinder{}
     case _:
       Lint.OfTerm{}
@@ -771,7 +771,7 @@ def Reader.read(path: String, r: Reader) -> Reader:
 # failed, a file it read, or a file it parsed.
 def Reader.add(fields: List<&2, String>, r: Reader) -> Reader:
   match fields:
-    case Con{SCon{'+', SNil{}}, Con{role, Con{q, Con{used, Con{handle, Nil{}}}}}}:
+    case Con{"+", Con{role, Con{q, Con{used, Con{handle, Nil{}}}}}}:
       Reader.fact(role, q, used, handle, r)
     case Con{SCon{tag, SNil{}}, Con{name, Con{beg, Con{end, Con{kids, Con{a, Con{b, Nil{}}}}}}}}:
       Reader.node(Syntax.of(tag, a, b), name, beg, end, kids, r)
