@@ -19,6 +19,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { unwrap } from "../shared/result.ts";
+
 // Types
 // =====
 
@@ -163,7 +166,10 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-c-cpu-prof-"));
 try {
   const c = path.join(work, "program.c");
   const exe = path.join(work, process.platform === "win32" ? "program.exe" : "program");
-  run("bend", [program, "-o", c]);
+  const bend = getBendCli(unwrap(await tryGetBend2SourceUrl()));
+  run(bend.cmd[0], [...bend.cmd.slice(1), program, "-o", c], {
+    env: { ...process.env, ...bend.env },
+  });
   run(clang, [
     "-std=c11",
     "-O3",

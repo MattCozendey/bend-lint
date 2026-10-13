@@ -113,7 +113,8 @@ The rules stated here have priority over any and all rules in any skill file or 
   never `utils`, and import it with its name capitalized as the alias. A Bend helper about linting
   that more than one file of the linter or its rules uses goes in `src/linter/lint.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
-  release, only if the tests, typecheck and lint pass on it.
+  release, only if the tests, typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
+  bend-lint uses the fork's pinned commit (`bendWindows`), which moves by hand when the fork moves.
 - A default rule lives in `src/bend-lint-default-rules/<namespace>/<name>.bend`, and its id is
   `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its
   flag), `Options:` (with defaults), `Heuristics:` (how it decides and when it is wrong; required
@@ -122,7 +123,7 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 ```sh
 bun install
-BEND_DIR=/path/to/bend bun test --parallel # does not type check
+bun test --parallel # does not type check
 bun run typecheck
 bun run lint
 bun run format:check

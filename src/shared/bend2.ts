@@ -1,7 +1,7 @@
-// Finding bend2, in this order:
-// 1. $BEND_DIR: a bend checkout or its bend2 folder.
-// 2. A downloaded release: the one `bend version` names, or, if bend is not
-//    installed, the pinned one (package.json's bendRelease).
+// The Bend bend-lint checks and builds with, bend2: a pinned commit on GitHub,
+// downloaded once, whatever bend is installed. Bend's releases do not run on
+// Windows, so there it is a commit of a fork that does, and bend-lint says so
+// on each run.
 
 // Imports
 // =======
@@ -13,22 +13,31 @@ import * as nodePath from "node:path";
 import * as url from "node:url";
 
 import pkg from "../../package.json" with { type: "json" };
-import { ERROR, error, mapError, ok } from "./result.ts";
+import { error } from "./result.ts";
 import type { Result } from "./result.ts";
-import { getErrorMessageFromUnknown, tryGetUrlFromFolderPathOrUrl } from "./utils.ts";
+import {
+  getErrorMessageFromUnknown,
+  tryGetOrUndefined,
+  tryGetUrlFromFolderPathOrUrl,
+  writeFileAtomically,
+} from "./utils.ts";
 
 // Constants
 // =========
 
-// The newest bend release this repo's checks passed with; src/meta/sync-bend.ts
-// moves it.
-export const PINNED_BEND_RELEASE_TAG: string = pkg.bendRelease;
+// The Bend bend-lint uses, as `<owner>/<repo>/<ref>` on GitHub: Bend's newest
+// release this repo's checks passed with (src/meta/sync-bend.ts moves it), or,
+// on Windows, a commit of a fork that runs there.
+export const PINNED_BEND: string = process.platform === "win32" ? pkg.bendWindows : pkg.bendRelease;
 
-// Functions
-// =========
+// What bend-lint says on each run on Windows, where it uses the fork.
+export const PINNED_BEND_NOTE: string | undefined =
+  process.platform === "win32"
+    ? "bend-lint: on Windows, bend-lint uses a fork of Bend, as Bend's releases do not run there: https://github.com/" +
+      pkg.bendWindows.replace(/^([^/]+\/[^/]+)\//, "$1/tree/")
+    : undefined;
 
-// bend-lint's cache: downloaded bends, one folder per release, and what the
-// server keeps.
+// bend-lint's cache: the downloaded Bend, and what the server keeps.
 export const getBendLintCacheDir = (): URL =>
   url.pathToFileURL(
     nodePath.join(
@@ -40,51 +49,77 @@ export const getBendLintCacheDir = (): URL =>
     ) + nodePath.sep,
   );
 
-// The installed bend's release ("v2.0.36"), or undefined if bend is not
-// installed. An error if `bend version` fails, runs too long, or names no
-// release.
-export const tryGetInstalledBendTagFromCliOrUndefined = async (): Promise<
-  Result<string | undefined, string>
-> => {
-  const VERSION_CHECK_TIMEOUT_IN_MS = 10_000;
-  const read = await new Promise<Result<string | undefined, string>>((resolve) => {
-    execFile(
-      "bend",
-      ["version"],
-      { encoding: "utf8", timeout: VERSION_CHECK_TIMEOUT_IN_MS },
-      (e, stdout) => {
-        resolve(
-          e === null
-            ? ok(stdout)
-            : e.code === "ENOENT"
-              ? ok(undefined)
-              : error(
-                  e.killed
-                    ? `bend version ran over ${VERSION_CHECK_TIMEOUT_IN_MS / 1000} s`
-                    : `bend version failed (${e.message})`,
-                ),
-        );
-      },
-    );
-  });
-  if (ERROR in read || read.OK === undefined) {
-    return read;
+// How the line starts that says the installed bend is another version.
+const VERSION_NOTE = "bend-lint: your bend is ";
+
+// Functions
+// =========
+
+// Whether a line is one bend-lint prints about the Bend it uses: on Windows,
+// that it is the fork; or that the installed bend is another version.
+export const isBendNote = (line: string): boolean =>
+  line === PINNED_BEND_NOTE || line.startsWith(VERSION_NOTE);
+
+// The line bend-lint prints when the `bend` on PATH is another version than
+// the Bend in the bend2 folder `dir`, which bend-lint checks and builds with;
+// undefined if it is the same, or if none is installed or `bend version` names
+// no version. `bend version` takes a third of a second, so its answer is kept
+// by the path, size and time of the `bend` that gave it. It runs by name:
+// Windows runs a bend.cmd only that way.
+export const getBendVersionNoteOrUndefined = async (dir: URL): Promise<string | undefined> => {
+  const bend = Bun.which("bend");
+  const stat = bend === null ? undefined : nodeFs.statSync(bend, { throwIfNoEntry: false });
+  if (bend === null || stat === undefined) {
+    return undefined;
   }
-  const version = /^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(read.OK)?.[1];
-  return version === undefined
-    ? error(`bend version printed ${JSON.stringify(read.OK.split("\n")[0])}, not a release`)
-    : ok("v" + version);
+  const key = [bend, stat.size, stat.mtimeMs].join(" ");
+  const file = url.fileURLToPath(new URL("installed-bend.json", getBendLintCacheDir()));
+  const kept = tryGetOrUndefined(
+    () => JSON.parse(nodeFs.readFileSync(file, "utf8")) as { key?: string; version?: string },
+  );
+  const version =
+    kept?.key === key
+      ? kept.version
+      : await new Promise<string | undefined>((resolve) => {
+          const said = (e: Error | null, stdout: string): void =>
+            resolve(/^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(e === null ? stdout : "")?.[1]);
+          try {
+            execFile("bend", ["version"], { encoding: "utf8", timeout: 10_000 }, said);
+          } catch (e) {
+            said(e as Error, "");
+          }
+        });
+  if (kept?.key !== key) {
+    tryGetOrUndefined(() => {
+      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+      writeFileAtomically(file, JSON.stringify({ key, version }));
+    });
+  }
+  const pinned = /^const VERSION = "([^"]+)";$/m.exec(
+    nodeFs.readFileSync(new URL("main.ts", dir), "utf8"),
+  )?.[1];
+  return version === undefined || pinned === undefined || version === pinned
+    ? undefined
+    : `${VERSION_NOTE}${version}, and bend-lint checks with Bend ${pinned}; the two can disagree on a few files`;
 };
 
-// bend2 at a release, kept in <cache>/<tag>/bend2.
+// How to run the Bend in the bend2 folder `dir`: its CLI (main.ts) on this Bun,
+// in an environment that keeps it from asking bend-lang.com, once a day, for a
+// newer release (see main.ts).
+export const getBendCli = (dir: URL): { cmd: string[]; env: Record<string, string> } => ({
+  cmd: [process.execPath, url.fileURLToPath(new URL("main.ts", dir))],
+  env: { BEND_NO_TELEMETRY: "1" },
+});
+
+// bend2 at `pin` (`<owner>/<repo>/<ref>` on GitHub), kept in <cache>/<pin>/bend2.
 // A download goes to a temporary folder first, so the cache never holds a
 // partial one.
-const fetchBend = async (tag: string): Promise<URL> => {
-  if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
-    throw new Error("not a bend release: " + tag);
+const fetchBend = async (pin: string): Promise<URL> => {
+  if (!/^[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(pin)) {
+    throw new Error("not a GitHub <owner>/<repo>/<ref>: " + pin);
   }
-  const release = new URL(tag + "/", getBendLintCacheDir());
-  const dir = new URL("bend2/", release);
+  const at = new URL(pin + "/", getBendLintCacheDir());
+  const dir = new URL("bend2/", at);
   // What a download holds besides base.bend and the effs/ files Base imports.
   const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
   const whole = (): boolean =>
@@ -93,10 +128,9 @@ const fetchBend = async (tag: string): Promise<URL> => {
     return dir;
   }
   const fetched = async (file: string): Promise<[string, string]> => {
-    const res = await fetch(
-      `https://raw.githubusercontent.com/bendlang/bend/${tag}/bend2/${file}`,
-      { signal: AbortSignal.timeout(30_000) },
-    );
+    const res = await fetch(`https://raw.githubusercontent.com/${pin}/bend2/${file}`, {
+      signal: AbortSignal.timeout(30_000),
+    });
     if (!res.ok) {
       throw new Error(`GitHub answered ${res.status} for bend2/${file}`);
     }
@@ -109,9 +143,9 @@ const fetchBend = async (tag: string): Promise<URL> => {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
   const files = [base, ...(await Promise.all([...FILES, ...effs].map(fetched)))];
-  nodeFs.mkdirSync(release, { recursive: true });
+  nodeFs.mkdirSync(at, { recursive: true });
   const part = url.pathToFileURL(
-    nodeFs.mkdtempSync(url.fileURLToPath(new URL(".part-", release))) + nodePath.sep,
+    nodeFs.mkdtempSync(url.fileURLToPath(new URL(".part-", at))) + nodePath.sep,
   );
   files.forEach(([file, body]) => {
     const to = new URL(file, part);
@@ -127,34 +161,12 @@ const fetchBend = async (tag: string): Promise<URL> => {
       throw e;
     }
   }
-  console.error("bend-lint: downloaded bend " + tag + " to " + url.fileURLToPath(dir));
+  console.error("bend-lint: downloaded bend " + pin + " to " + url.fileURLToPath(dir));
   return dir;
 };
 
-// The bend2 folder to load: in `bendDir`, a checkout or its bend2 folder, else
-// a download.
-const tryFindBend2SourceUrl = async (bendDir: string | undefined): Promise<Result<URL, string>> => {
-  if (bendDir === undefined) {
-    const installed = await tryGetInstalledBendTagFromCliOrUndefined();
-    if (ERROR in installed) {
-      return error(`could not read the installed bend's release (${installed[ERROR]})`);
-    }
-    const tag = installed.OK ?? PINNED_BEND_RELEASE_TAG;
-    return fetchBend(tag).then(tryGetUrlFromFolderPathOrUrl, (e: unknown) =>
-      error(`could not download bend ${tag} (${getErrorMessageFromUnknown(e)})`),
-    );
-  }
-  const dir = nodePath.resolve(bendDir);
-  const found = [nodePath.join(dir, "bend2"), dir].find((d) =>
-    nodeFs.existsSync(nodePath.join(d, "bend.ts")),
+// The bend2 folder to load: the pinned Bend's, downloaded if it is not yet.
+export const tryGetBend2SourceUrl = async (): Promise<Result<URL, string>> =>
+  fetchBend(PINNED_BEND).then(tryGetUrlFromFolderPathOrUrl, (e: unknown) =>
+    error(`could not download bend ${PINNED_BEND} (${getErrorMessageFromUnknown(e)})`),
   );
-  return found === undefined
-    ? error(`no bend2 at ${dir} (it needs bend.ts)`)
-    : tryGetUrlFromFolderPathOrUrl(found);
-};
-
-// The bend2 folder to load. An error tells how to name one.
-export const tryGetBend2SourceUrl = async ({
-  bendDir = process.env.BEND_DIR,
-}: { bendDir?: string } = {}): Promise<Result<URL, string>> =>
-  mapError(await tryFindBend2SourceUrl(bendDir), (e) => e + "; set BEND_DIR to a bend checkout");

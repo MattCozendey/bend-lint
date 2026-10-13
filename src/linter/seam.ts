@@ -41,7 +41,13 @@ import * as url from "node:url";
 import type { Ann, Body, Book, Ctx, HTerm, LTerm, Patt, Quant, Span, TLD } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
-import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import {
+  getBendCli,
+  getBendLintCacheDir,
+  getBendVersionNoteOrUndefined,
+  PINNED_BEND_NOTE,
+  tryGetBend2SourceUrl,
+} from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 import {
   getCommandOutcome,
@@ -1637,21 +1643,16 @@ const closure = (file: string, seen: Set<string> = new Set()): string[] => {
 // time: a compiled bend is large), and the paths and texts of the bend2 sources in `dir`, which
 // hold Base and the compiler when that `bend` runs a checkout.
 const builder = (dir: URL): string => {
-  const bend = Bun.which("bend");
-  const stat = bend === null ? undefined : nodeFs.statSync(bend);
   const sources = url.fileURLToPath(dir);
-  return [
-    stat === undefined ? "" : [bend, stat.size, stat.mtimeMs].join(" "),
-    ...nodeFs
-      .readdirSync(sources, { recursive: true, encoding: "utf8" })
-      .filter((f) => [".ts", ".bend"].includes(nodePath.extname(f)))
-      .sort()
-      .flatMap((f) => [f, nodeFs.readFileSync(nodePath.join(sources, f), "latin1")]),
-  ].join("\0");
+  return nodeFs
+    .readdirSync(sources, { recursive: true, encoding: "utf8" })
+    .filter((f) => [".ts", ".bend"].includes(nodePath.extname(f)))
+    .sort()
+    .flatMap((f) => [f, nodeFs.readFileSync(nodePath.join(sources, f), "latin1")])
+    .join("\0");
 };
 
-// The executable of the rules program `source`, built by the `bend` on PATH with the bend2
-// sources in `dir`. A build is kept, and used again until a file the program imports, or the bend
+// The executable of the rules program `source`, built by the Bend in the bend2 folder `dir`. A build is kept, and used again until a file the program imports, or the bend
 // that builds it, changes; its use keeps it from prune (see USED). It goes to a folder of its own
 // first, so a kept executable is never partial, and runs that build one program at once share one
 // executable.
@@ -1677,7 +1678,8 @@ export const built = async (source: string, dir: URL): Promise<string> => {
   const part = nodeFs.mkdtempSync(nodePath.join(PROGRAMS_DIR, ".part-"));
   try {
     const out = nodePath.join(part, nodePath.basename(exe));
-    const ran = await getCommandOutcome(["bend", file, "-o", out], from);
+    const bend = getBendCli(dir);
+    const ran = await getCommandOutcome([...bend.cmd, file, "-o", out], from, bend.env);
     if (ran.code !== 0) {
       throw new Error(`could not build ${source}:\n${ran.out}${ran.err}`);
     }
@@ -1898,12 +1900,17 @@ const serve = async (
   );
 };
 
-// The checker, and the rules program `named`: built first if it is a .bend file. The checker
-// comes first, so a drift stops the run before a build.
-const started = async (named: string): Promise<[Checker, string]> => {
+// The checker, the rules program `named` (built first if it is a .bend file), and what to say
+// first of the Bend bend-lint uses (see bend2.ts). The checker comes first, so a drift stops the
+// run before a build.
+const started = async (named: string): Promise<[Checker, string, string[]]> => {
   const dir = unwrap(await tryGetBend2SourceUrl());
   const checker = load(dir);
-  return [checker, named.endsWith(".bend") ? await built(named, dir) : named];
+  const [program, version] = await Promise.all([
+    named.endsWith(".bend") ? built(named, dir) : named,
+    getBendVersionNoteOrUndefined(dir),
+  ]);
+  return [checker, program, [PINNED_BEND_NOTE, version].filter((n) => n !== undefined)];
 };
 
 // Side effects
@@ -1919,10 +1926,11 @@ if (import.meta.main) {
   }
   const args = argv.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
 
-  const [checker, program] = await started(named).catch((e: unknown) => {
+  const [checker, program, notes] = await started(named).catch((e: unknown) => {
     console.error("bend-lint: " + getErrorMessageFromUnknown(e));
     return process.exit(2);
   });
+  notes.forEach((note) => console.error(note));
 
   const inTurn = serially();
   const server = net.createServer((socket) => void serve(checker, inTurn, socket));

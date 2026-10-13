@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { tryGetBend2SourceUrl, tryGetInstalledBendTagFromCliOrUndefined } from "../shared/bend2.ts";
+import { isBendNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { OK, unwrap } from "../shared/result.ts";
 import {
   getCommandOutcome,
@@ -42,11 +42,9 @@ const BUILD = path.join(HERE, "build");
 
 const LINE = /^(.*):(\d+:\d+): (\w+) (\S+): (.*)$/;
 
-// Whether the bend that build runs is installed. The server finds its
-// release too, if BEND_DIR is not set.
-export const BUILDS: boolean = await tryGetInstalledBendTagFromCliOrUndefined().then(
-  (installed) => OK in installed && installed.OK !== undefined,
-);
+// Whether bend-lint has its Bend to build with: the pinned one, which it
+// downloads once.
+export const BUILDS: boolean = OK in (await tryGetBend2SourceUrl());
 
 // Functions
 // =========
@@ -65,7 +63,8 @@ export const build = async (file: string, def = "rule"): Promise<string> => {
 
 // How `program` ends on `named`, with the command line's other `args`
 // (flags, more files or globs), after it writes `files` (names to text) into
-// `dir`, a fresh folder unless given. It runs in that folder.
+// `dir`, a fresh folder unless given. It runs in that folder. Its stderr leaves
+// out what bend-lint says of the Bend it uses, which depends on the machine.
 export const run = async (
   program: string,
   files: Record<string, string>,
@@ -83,6 +82,10 @@ export const run = async (
   );
   return {
     ...ran,
+    err: ran.err
+      .split("\n")
+      .filter((line) => !isBendNote(line.trimEnd()))
+      .join("\n"),
     files: Object.fromEntries(
       Object.keys(files).map((name) => [name, fs.readFileSync(path.join(dir, name), "utf8")]),
     ),

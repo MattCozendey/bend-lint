@@ -18,8 +18,18 @@ export type Outcome = { code: number; out: string; err: string };
 // Functions
 // =========
 
-export const getCommandOutcome = async (cmd: string[], cwd: string): Promise<Outcome> => {
-  const child = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+// How `cmd` ends, run in `cwd`, with `env` added to this process's environment.
+export const getCommandOutcome = async (
+  cmd: string[],
+  cwd: string,
+  env: Record<string, string> = {},
+): Promise<Outcome> => {
+  const child = Bun.spawn(cmd, {
+    cwd,
+    env: { ...process.env, ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [code, out, err] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
