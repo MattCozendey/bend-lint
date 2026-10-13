@@ -3,6 +3,7 @@
 // The C twins of files.js. A path crosses as UTF-8: Windows reads it so, as
 // every Bend binary has a UTF-8 manifest.
 
+#include <sys/stat.h>
 #ifndef _WIN32
 #include <dirent.h>
 #endif
