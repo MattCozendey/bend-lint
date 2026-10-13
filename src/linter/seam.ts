@@ -207,30 +207,30 @@ export const BUILD = url.fileURLToPath(new URL("build/", import.meta.url));
 const CONFIG = "bend-lint.json";
 const RULES = "bend-lint-rules";
 
-// bend-lint's own folder.
-const PACKAGE = nodePath.resolve(url.fileURLToPath(new URL("../../", import.meta.url)));
-
 // The rule API, as rules import it from BendHub: src/linter/lint.bend and the files it imports, at
 // their paths from src/, in the package bend-lint, at bend-lint's version (see ship.ts).
 export const API = `bend-lint@${pkg.version}.0`;
 
+// bend-lint's own rules, as projects get them from BendHub, at bend-lint's version: each at its
+// path from bend-lint-rules/ (see ship.ts).
+export const DEFAULTS = `bend-lint-rules@${pkg.version}.0`;
+
 // A path Bend imports: up, then names (letters, digits, _ and -).
 const PLAIN = /^(\.\.\/)*([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/;
 
-// Why bend-lint cannot reach a project's rules, or they its formatter.
+// Why bend-lint cannot reach a project's rules.
 const PER_PROJECT =
   "install bend-lint in this project (bun add -D bend-lint): Bend imports files only by relative paths of plain names, so bend-lint cannot reach your rules from elsewhere";
 
 // What `bend-lint init` writes: a config that turns on the formatter, and the formatter's rule,
-// which uses the one bend-lint ships. `{api}` is the rule API's entry, `{format}` the path to
-// bend-lint's formatter.
+// which uses bend-lint's own.
 const INIT_CONFIG = `{\n  "rules": {\n    "format": "warning"\n  }\n}\n`;
 const INIT_FORMAT =
-  "# format: the formatter bend-lint ships (layout/format). Its options go in bend-lint.json; see\n" +
+  "# format: bend-lint's formatter (layout/format). Its options go in bend-lint.json; see\n" +
   "# bend-lint's README.\n" +
   "import Base\n" +
-  "import {api} as Lint\n" +
-  "import {format} as Format\n\n" +
+  `import ${API}/linter/lint.bend as Lint\n` +
+  `import ${DEFAULTS}/layout/format.bend as Format\n\n` +
   "def rule() -> Lint.Rule:\n" +
   "  Format.rule()\n";
 
@@ -2060,17 +2060,9 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
 
 // Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there.
 const init = (dir: string): void => {
-  const rules = nodePath.join(dir, RULES);
-  const format = importOf(rules, nodePath.join(PACKAGE, RULES, "layout", "format.bend"));
-  if (format === undefined) {
-    throw new Error(PER_PROJECT);
-  }
   const files: Array<[string, string]> = [
     [nodePath.join(dir, CONFIG), INIT_CONFIG],
-    [
-      nodePath.join(rules, "format.bend"),
-      INIT_FORMAT.replace("{api}", API + "/linter/lint.bend").replace("{format}", format),
-    ],
+    [nodePath.join(dir, RULES, "format.bend"), INIT_FORMAT],
   ];
   files.forEach(([file, text]) => {
     if (nodeFs.existsSync(file)) {

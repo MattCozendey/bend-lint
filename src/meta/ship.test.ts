@@ -4,10 +4,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as path from "node:path";
 
-import { API } from "../linter/seam.ts";
+import { API, DEFAULTS } from "../linter/seam.ts";
 import { BUILDS, fresh } from "../linter/testing.ts";
 import { getCommandOutcome } from "../shared/utils.ts";
-import { apiOf, hashOf, writeFiles, writeNpm } from "./ship.ts";
+import { apiOf, defaultsOf, hashOf, npmOf, writeFiles } from "./ship.ts";
 
 // Constants
 // =========
@@ -49,10 +49,10 @@ setDefaultTimeout(600_000);
     const dir = fresh();
     const lib = path.join(dir, "lib");
     const project = path.join(dir, "project");
-    const api = apiOf();
-    host(lib, API, api);
+    host(lib, API, apiOf());
+    host(lib, DEFAULTS, defaultsOf());
     host(lib, "demo-rules@1.0.0.0", new Map([["no-one.bend", DEMO]]));
-    writeNpm(path.join(project, "node_modules", "bend-lint"), api);
+    writeFiles(path.join(project, "node_modules", "bend-lint"), npmOf());
     const server = path.join(project, "node_modules", "bend-lint", "src", "linter", "seam.ts");
     const init = await getCommandOutcome(["bun", server, "init"], project, { BEND_LIB: lib });
     writeFiles(
