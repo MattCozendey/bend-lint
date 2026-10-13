@@ -1665,7 +1665,7 @@ const prune = (dir: string): void => {
           Date.now() - (nodeFs.statSync(old, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) >
           STALE,
       )
-      .forEach((old) => nodeFs.rmSync(old, { force: true })),
+      .forEach((old) => nodeFs.rmSync(old, { recursive: true, force: true })),
   );
 };
 
