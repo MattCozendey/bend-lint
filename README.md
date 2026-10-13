@@ -32,7 +32,7 @@ bend-lint [--program <rules program>] <file or glob>... [--imports | --no-import
   changes.
 - A fix that touches an earlier fix's edits waits for the next run.
 - bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a
-  file fails, the rules that need its types do not run on it.
+  file fails, the rules that need its types do not run on it, and bend-lint says so on stderr.
 - Exit code: 0 no errors (warnings do not count), 1 an error, 2 a usage or config error.
 - Builds and cached checks go to `~/.cache/bend-lint/`. You can delete it at any time.
 

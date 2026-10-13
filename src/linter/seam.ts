@@ -1465,8 +1465,13 @@ const check = async (
     }
     Bend.book_valid(book, base.order.length);
     passed = true;
-  } catch {
-    // A check that fails gives no facts; `bend <file> --check-only` says why.
+  } catch (e) {
+    // A check that fails gives no facts; `bend <file> --check-only` says why. What bend.ts throws
+    // for the file is an Err; anything else is a fault of the checker or of this glue, not of the
+    // file, and its message goes to the user.
+    if ((e as { $?: unknown } | null)?.$ !== "Err") {
+      throw new Error(`checking ${path}: ${getErrorMessageFromUnknown(e)}`, { cause: e });
+    }
   } finally {
     untrace();
   }
