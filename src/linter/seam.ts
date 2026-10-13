@@ -42,9 +42,11 @@ import type { Ann, Body, Book, Ctx, HTerm, LTerm, Patt, Quant, Span, TLD } from 
 import type * as BendModule from "bend2/bend.ts";
 
 import {
+  findClangOrUndefined,
   getBendCli,
   getBendLintCacheDir,
   getBendVersionNoteOrUndefined,
+  JAVASCRIPT_NOTE,
   PINNED_BEND_NOTE,
   tryGetBend2SourceUrl,
 } from "../shared/bend2.ts";
@@ -1652,10 +1654,11 @@ const builder = (dir: URL): string => {
     .join("\0");
 };
 
-// The executable of the rules program `source`, built by the Bend in the bend2 folder `dir`. A build is kept, and used again until a file the program imports, or the bend
-// that builds it, changes; its use keeps it from prune (see USED). It goes to a folder of its own
-// first, so a kept executable is never partial, and runs that build one program at once share one
-// executable.
+// The program the rules program `source` builds to, with the Bend in the bend2 folder `dir`:
+// native, if clang can build it, else JavaScript, until clang can. A build is kept, and used
+// again until a file the program imports, or the Bend that builds it, changes; its use keeps it
+// from prune (see USED). It goes to a folder of its own first, so a kept build is never partial,
+// and runs that build one program at once share one build.
 export const built = async (source: string, dir: URL): Promise<string> => {
   const file = nodePath.resolve(source);
   const from = nodePath.dirname(file);
@@ -1666,7 +1669,11 @@ export const built = async (source: string, dir: URL): Promise<string> => {
     ].join("\0"),
   ).slice(0, 16);
   const name = `${nodePath.basename(source, ".bend")}.${key}`;
-  const exe = nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
+  const native = nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
+  const exe =
+    nodeFs.existsSync(native) || findClangOrUndefined() !== undefined
+      ? native
+      : nodePath.join(PROGRAMS_DIR, name + ".js");
   const kept = nodeFs.statSync(exe, { throwIfNoEntry: false });
   if (kept !== undefined) {
     if (Date.now() - kept.mtimeMs > USED) {
@@ -1910,7 +1917,9 @@ const started = async (named: string): Promise<[Checker, string, string[]]> => {
     named.endsWith(".bend") ? built(named, dir) : named,
     getBendVersionNoteOrUndefined(dir),
   ]);
-  return [checker, program, [PINNED_BEND_NOTE, version].filter((n) => n !== undefined)];
+  const javascript =
+    named.endsWith(".bend") && program.endsWith(".js") ? JAVASCRIPT_NOTE : undefined;
+  return [checker, program, [PINNED_BEND_NOTE, version, javascript].filter((n) => n !== undefined)];
 };
 
 // Side effects

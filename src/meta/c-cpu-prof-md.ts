@@ -19,7 +19,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { findClangOrUndefined, getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 
 // Types
@@ -55,20 +55,6 @@ const run = (cmd: string, args: string[], options: SpawnSyncOptions = {}): void 
   if (out.error !== undefined || out.status !== 0) {
     throw new Error(`${path.basename(cmd)} failed: ${out.error?.message ?? String(out.stderr)}`);
   }
-};
-
-// The first clang that answers, in bend's order: $CC, clang on PATH, then,
-// on Windows, where LLVM's installer puts it.
-const findClang = (): string => {
-  const found = [
-    process.env.CC,
-    "clang",
-    process.platform === "win32"
-      ? path.join(process.env.ProgramFiles ?? "C:\\Program Files", "LLVM", "bin", "clang.exe")
-      : undefined,
-  ].find((cc) => cc !== undefined && spawnSync(cc, ["--version"]).status === 0);
-  if (found === undefined) throw new Error("no clang: set CC, or put clang on PATH");
-  return found;
 };
 
 const findTool = (clang: string, tool: string): string =>
@@ -159,7 +145,11 @@ if (program === undefined) {
   console.error("usage: bun run c-cpu-prof-md <rules program.bend> <server args...>");
   process.exit(2);
 }
-const clang = findClang();
+const clang = findClangOrUndefined();
+if (clang === undefined) {
+  console.error("c-cpu-prof-md needs clang 14 or newer: set CC, or put clang on PATH");
+  process.exit(2);
+}
 const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", ".").slice(0, 15);
 const name = `C-CPU.${stamp}.${process.pid}`;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-c-cpu-prof-"));

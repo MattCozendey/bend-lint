@@ -4,7 +4,9 @@ A linter and formatter for Bend 2, with rules written in Bend.
 
 ## Install
 
-Needs Bun 1.4.3 and clang 14 or newer. bend-lint downloads the Bend it is tested with, once.
+Needs Bun 1.4.3. bend-lint downloads the Bend it is tested with, once. With clang 14 or newer, it
+builds your rules natively; without clang, it builds them to JavaScript, about 3 to 8 times slower,
+and says so on each run.
 
 > **On Windows, bend-lint uses a fork of Bend**,
 > [MattCozendey/bend](https://github.com/MattCozendey/bend/tree/feature/cuda-and-windows), because

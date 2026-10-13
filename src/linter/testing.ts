@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isBendNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { isMachineNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { OK, unwrap } from "../shared/result.ts";
 import {
   getCommandOutcome,
@@ -64,7 +64,7 @@ export const build = async (file: string, def = "rule"): Promise<string> => {
 // How `program` ends on `named`, with the command line's other `args`
 // (flags, more files or globs), after it writes `files` (names to text) into
 // `dir`, a fresh folder unless given. It runs in that folder. Its stderr leaves
-// out what bend-lint says of the Bend it uses, which depends on the machine.
+// out what bend-lint says of how this machine runs it.
 export const run = async (
   program: string,
   files: Record<string, string>,
@@ -84,7 +84,7 @@ export const run = async (
     ...ran,
     err: ran.err
       .split("\n")
-      .filter((line) => !isBendNote(line.trimEnd()))
+      .filter((line) => !isMachineNote(line.trimEnd()))
       .join("\n"),
     files: Object.fromEntries(
       Object.keys(files).map((name) => [name, fs.readFileSync(path.join(dir, name), "utf8")]),
