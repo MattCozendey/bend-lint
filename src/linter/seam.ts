@@ -393,14 +393,20 @@ const unfield = (text: string): string =>
 
 const record = (fields: string[]): string => fields.map(field).join("\t") + "\n";
 
-// A fresh book that holds Base, as main.ts's book_seed makes it.
-const seeded = (Bend: Bend, base: Book): Book => ({
-  ...Bend.book_nil(),
-  tlds: Object.fromEntries(Object.entries(base.tlds).map(([k, tld]) => [k, { ...tld }])),
-  ctrs: { ...base.ctrs },
-  order: [...base.order],
-  tmps: Object.fromEntries(Object.entries(base.tmps).map(([k, m]) => [k, new Map(m)])),
-});
+// A fresh book that holds Base, as main.ts's book_seed makes it: in book_nil's tables, which have
+// no prototype, so a name such as `toString` is free.
+const seeded = (Bend: Bend, base: Book): Book => {
+  const book = Bend.book_nil();
+  for (const [k, tld] of Object.entries(base.tlds)) {
+    book.tlds[k] = { ...tld };
+  }
+  Object.assign(book.ctrs, base.ctrs);
+  for (const [k, m] of Object.entries(base.tmps)) {
+    book.tmps[k] = new Map(m);
+  }
+  book.order.push(...base.order);
+  return book;
+};
 
 const drift = (text: string): Error =>
   Object.assign(new Error(text + "; update EDITS, TRACED or KEPT in src/linter/seam.ts"), {
