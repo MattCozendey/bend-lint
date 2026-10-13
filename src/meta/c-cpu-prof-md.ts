@@ -7,7 +7,8 @@
 //
 // Coverage counts calls, not time. On the host each def segment is a function
 // WL_FID_<DEF>, its continuations WL_FID_<DEF>_K<n>, so a def's count is its
-// segments' sum.
+// segments' sum. A run of several files lints each in a worker process; the
+// counts are those of every process.
 
 // Imports
 // =======
@@ -31,7 +32,7 @@ type CoverageExport = {
 // Constants
 // =========
 
-const SERVER = path.resolve(import.meta.dir, "..", "linter", "server.ts");
+const SERVER = path.resolve(import.meta.dir, "..", "linter", "seam.ts");
 const RUNTIME_ROWS = 30;
 const NUMBER_COLUMNS = new Set([
   "Calls%",
@@ -174,14 +175,17 @@ try {
     "-o",
     exe,
   ]);
-  const raw = path.join(work, "program.profraw");
   const ran = spawnSync(process.execPath, [SERVER, "--program", exe, ...args], {
-    env: { ...process.env, LLVM_PROFILE_FILE: raw },
+    env: { ...process.env, LLVM_PROFILE_FILE: path.join(work, "program.%p.profraw") },
     stdio: "inherit",
   });
-  if (!fs.existsSync(raw)) throw new Error("the run wrote no profile");
+  const raws = fs
+    .readdirSync(work)
+    .filter((f) => f.endsWith(".profraw"))
+    .map((f) => path.join(work, f));
+  if (raws.length === 0) throw new Error("the run wrote no profile");
   const data = path.join(work, "program.profdata");
-  run(findTool(clang, "llvm-profdata"), ["merge", "-sparse", raw, "-o", data]);
+  run(findTool(clang, "llvm-profdata"), ["merge", "-sparse", ...raws, "-o", data]);
   const json = path.join(work, "coverage.json");
   const jsonFd = fs.openSync(json, "w");
   try {

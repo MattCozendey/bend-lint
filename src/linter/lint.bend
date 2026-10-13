@@ -1,10 +1,10 @@
 # What a rule sees. A rule file imports this file; a rules program imports cli.bend too, and calls it with its rules.
 #
 # Design
-# - The rules program is an ordinary Bend program. server.ts builds it once and keeps the build. The C lane is the
+# - The rules program is an ordinary Bend program. seam.ts builds it once and keeps the build. The C lane is the
 #   target; the JS lane must work too.
-# - Bend's checker is TS for now: server.ts answers the program's questions about Bend files over local TCP
-#   (wire.bend). When the checker is Bend, the server goes, and these questions become calls.
+# - Bend's checker is TS for now: seam.ts answers the program's questions about Bend files over local TCP
+#   (seam.bend). When the checker is Bend, the server goes, and these questions become calls.
 # - Rules are pure, so they run in parallel. The runner answers every rule's questions of a round in one batch.
 # - A check is read once and shared by every rule. Facts and declarations are collected only if a rule needs them.
 # - A rule requests a fix as typed operations; the linter plans them and decides their safety. Until Bend's checker
@@ -86,10 +86,18 @@ type Node is Data:
     target: String
   }
 
-# A type the checker holds: a handle, good in the check it came from. Rules ask about it (show, same, normal). Two
-# types are the same only over the binders their scopes share: `A` of one def is not `A` of another.
+# A type the checker holds: a handle, good in the check it came from, in a scope of that check, as the file at its
+# node spells it, with the binders of its scope. Rules ask about it (show, same, normal). Two types are the same only
+# over the binders their scopes share: `A` of one def is not `A` of another.
 type TypeRef is Data:
-  TypeRef{check: U32, id: U32}
+  TypeRef{check: U32, handle: U32, scope: U32, file: U32, binders: List<&2, Binder>}
+
+# A binder of a type's scope, by level: the node that declares it, or else its entry in the checker's context; none if
+# the context has none there.
+type Binder is Data:
+  NodeBinder{id: U32}
+  EntryBinder{id: U32}
+  NoBinder{}
 
 # What a fact says of its node: the type its term has, or the type its binder declares (a parameter, field, pattern
 # variable, lambda, forall or let binding).
@@ -365,7 +373,7 @@ type Question is Data:
 type Answer is Data:
   Shown{text: String}
   Equal{same: Bool}
-  Normalized{to: TypeRef}
+  Normalized{handle: U32}
 
 # A run so far: finished, or waiting for the answers to its questions, in order.
 type Step<-R: Type> is Type:
@@ -411,12 +419,13 @@ def Answer.same(answers: List<&2, Answer>) -> Bool:
     case _:
       False{}
 
-def Answer.type(fallback: TypeRef, answers: List<&2, Answer>) -> TypeRef:
-  match answers:
-    case Con{Normalized{to}, rest}:
-      to
-    case _:
-      fallback
+# `t` with the handle of its normal form, if the answers give one.
+def Answer.type(t: TypeRef, answers: List<&2, Answer>) -> TypeRef:
+  match t answers:
+    case TypeRef{check, handle, scope, file, binders} Con{Normalized{h}, rest}:
+      TypeRef{check, h, scope, file, binders}
+    case _ _:
+      t
 
 def show(t: TypeRef) -> Ask(String):
   Ask.bind(

@@ -5,14 +5,14 @@
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "Apache-2.0",
   "bin": {
-    "bend-lint": "./src/linter/server.ts"
+    "bend-lint": "./src/linter/seam.ts"
   },
   "type": "module",
   "scripts": {
     "c-cpu-prof-md": "bun ./src/meta/c-cpu-prof-md.ts",
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
-    "lint": "bun ./src/meta/link-bend.ts && oxlint . && bun ./src/linter/server.ts $(git ls-files \"*.bend\")",
+    "lint": "bun ./src/meta/link-bend.ts && oxlint . && bun ./src/linter/seam.ts $(git ls-files \"*.bend\")",
     "sync-bend": "bun ./src/meta/sync-bend.ts",
     "test": "bun test --parallel",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"

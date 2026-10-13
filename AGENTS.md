@@ -104,7 +104,8 @@ The rules stated here have priority over any and all rules in any skill file or 
 - `src/linter/` holds the linter, `src/bend-lint-default-rules/` its default rules, `src/files/`
   files (their text, folders and globs; its effects in `effs/`), `src/json/` JSON, `src/meta/` this
   repo's scripts and oxlint plugins, and `src/shared/` helpers for any program.
-- Code that touches Bend's internals goes in `src/linter/server.ts`. A Bend helper that is not about
+- Code that knows Bend's own shapes (its parser, checker and their data) goes in
+  `src/linter/seam.ts` and `src/linter/seam.bend`, and nowhere else. A Bend helper that is not about
   linting goes in `src/shared/`, even with one user, in the file of its concept (`lists.bend`,
   `strings.bend`, ...). Name a shared Bend file after its concept, never `utils`, and import it with
   its name capitalized as the alias. A Bend helper about linting that more than one file of the

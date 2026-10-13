@@ -145,3 +145,37 @@ def interleave.go(
 # The halves `deal` made, back in their order: one of `xs`, one of `ys`, and so on.
 def interleave(a, -A: Kind(a), xs: List<a, A>, ys: List<a, A>) -> List<a, A>:
   interleave.go(a, A, 4294967295n, xs, ys, [])
+
+# A list a fork maps: whole, or dealt into its two halves (see `deal`).
+type Fork<-A: Data> is Data:
+  Whole{xs: List<&2, A>}
+  Halves{evens: List<&2, A>, odds: List<&2, A>}
+
+def Fork.of(-A: Data, halves: List<&2, A> & List<&2, A>) -> Fork<A>:
+  match halves:
+    case Tuple{evens, odds}:
+      Halves{evens, odds}
+
+# `f(c, x)` for each `x` of the list `part` holds, in order: the halves in parallel. `fuel` bounds the halvings; 64 is
+# enough for any list.
+def fork(
+  ~C: Data,
+  ~A: Data,
+  ~B: Data,
+  ~f: @+c: C -> A -> B,
+  fuel: Nat,
+  +c: C,
+  part: Fork<A>
+) -> List<&2, B>:
+  match fuel part:
+    case _ Whole{Nil{}}:
+      []
+    case _ Whole{Con{x, Nil{}}}:
+      [f(c, x)]
+    case 1n++k Whole{xs}:
+      fork(~C, ~A, ~B, ~f, k, c, Fork.of(A, deal(&2, A, xs)))
+    case 1n++k Halves{evens, odds}:
+      a b = fork(~C, ~A, ~B, ~f, k, c, Whole{evens}) fork(~C, ~A, ~B, ~f, k, c, Whole{odds})
+      interleave(&2, B, a, b)
+    case 0n _:
+      []

@@ -38,12 +38,15 @@ type JGlyph is Data:
   GBlank{}
   GOther{}
 
-# Where the lexer is: between tokens, in a string, after a \ in one, or in a word; the text so far (last first); and
-# the tokens so far (last first).
+# Where the lexer is: between tokens, in a string, after a \ in one, in a \u escape (the code so far, and how many hex
+# digits are left), after a \u escape of a high surrogate, or in a word; the text so far (last first); and the tokens so
+# far (last first). `high` is the high surrogate an escape follows, or 0.
 type LexMode is Data:
   Between{}
   InText{}
-  InEscape{}
+  InEscape{high: U32}
+  InHex{code: U32, left: U32, high: U32}
+  InHigh{high: U32}
   InWord{}
 
 type Lex is Data:
@@ -109,6 +112,93 @@ def Json.unescaped(+c: Char) -> Char:
     Bool.pick(Char, Char.is_eq(c, 't'), '\t', Bool.pick(Char, Char.is_eq(c, 'r'), '\r', c))
   )
 
+# The replacement character, for a surrogate an escape leaves alone.
+def Lex.replacement() -> Char:
+  Char.from_u32(65533)
+
+# `text` after the high surrogate `high`, if no low one follows it: with a replacement for it.
+def Lex.lone(high: U32, text: String) -> String:
+  match high:
+    case 0:
+      text
+    case _:
+      SCon{Lex.replacement(), text}
+
+def Lex.escape(c: Char, high: U32, text: String, tokens: List<&2, Token>) -> Lex:
+  match c:
+    case 'u':
+      Lex{InHex{0, 4, high}, text, tokens}
+    case e:
+      Lex{InText{}, SCon{Json.unescaped(e), Lex.lone(high, text)}, tokens}
+
+# `code` with the hex digit `c` after it.
+def Lex.digit(code: U32, +c: Char) -> U32:
+  (
+    code
+      * 16
+      + Bool.pick(
+        U32,
+        U32.is_le(Char.to_u32(c), Char.to_u32('9')),
+        (Char.to_u32(c) - Char.to_u32('0'): U32),
+        (Char.to_u32(c) % 32 + 9: U32)
+      ): U32
+  )
+
+def Surrogate.high(+u: U32) -> Bool:
+  U32.is_le(55296, u) && U32.is_le(u, 56319)
+
+def Surrogate.low(+u: U32) -> Bool:
+  U32.is_le(56320, u) && U32.is_le(u, 57343)
+
+# A \u escape of `code`, alone: a high surrogate waits for its low one; a low one alone is replaced.
+def Lex.single(high: Bool, low: Bool, code: U32, text: String, tokens: List<&2, Token>) -> Lex:
+  match high low:
+    case True{} _:
+      Lex{InHigh{code}, text, tokens}
+    case False{} True{}:
+      Lex{InText{}, SCon{Lex.replacement(), text}, tokens}
+    case False{} False{}:
+      Lex{InText{}, SCon{Char.from_u32(code), text}, tokens}
+
+# A \u escape of `code` after one of the high surrogate `high` (or 0): a low surrogate makes one character with it.
+def Lex.paired(pair: Bool, +code: U32, high: U32, text: String, tokens: List<&2, Token>) -> Lex:
+  match pair:
+    case True{}:
+      Lex{
+        InText{},
+        SCon{Char.from_u32((65536 + (high - 55296) * 1024 + (code - 56320): U32)), text},
+        tokens
+      }
+    case False{}:
+      Lex.single(Surrogate.high(code), Surrogate.low(code), code, Lex.lone(high, text), tokens)
+
+def Lex.hexed(
+  done: Bool,
+  +code: U32,
+  left: U32,
+  +high: U32,
+  text: String,
+  tokens: List<&2, Token>
+) -> Lex:
+  match done:
+    case True{}:
+      Lex.paired(Surrogate.low(code) && Surrogate.high(high), code, high, text, tokens)
+    case False{}:
+      Lex{InHex{code, left, high}, text, tokens}
+
+def Lex.hex(code: U32, +left: U32, high: U32, text: String, tokens: List<&2, Token>) -> Lex:
+  Lex.hexed(U32.is_eq(left, 0), code, left, high, text, tokens)
+
+# A step in a string: a quote closes it, a backslash starts an escape, another character goes on it.
+def Lex.text(glyph: JGlyph, c: Char, text: String, tokens: List<&2, Token>) -> Lex:
+  match glyph:
+    case GQuote{}:
+      Lex{Between{}, "", TString{String.reverse(text)} <> tokens}
+    case GBackslash{}:
+      Lex{InEscape{0}, text, tokens}
+    case _:
+      Lex{InText{}, SCon{c, text}, tokens}
+
 # A step between tokens: a quote opens a string, a blank or separator is skipped, another character starts a word.
 def Lex.between(glyph: JGlyph, c: Char, tokens: List<&2, Token>) -> Lex:
   match glyph:
@@ -129,14 +219,16 @@ def Lex.step(lex: Lex, glyph: JGlyph, c: Char) -> Lex:
   match lex glyph:
     case Lex{Between{}, text, tokens} _:
       Lex.between(glyph, c, tokens)
-    case Lex{InText{}, text, tokens} GQuote{}:
-      Lex{Between{}, "", TString{String.reverse(text)} <> tokens}
-    case Lex{InText{}, text, tokens} GBackslash{}:
-      Lex{InEscape{}, text, tokens}
     case Lex{InText{}, text, tokens} _:
-      Lex{InText{}, SCon{c, text}, tokens}
-    case Lex{InEscape{}, text, tokens} _:
-      Lex{InText{}, SCon{Json.unescaped(c), text}, tokens}
+      Lex.text(glyph, c, text, tokens)
+    case Lex{InEscape{high}, text, tokens} _:
+      Lex.escape(c, high, text, tokens)
+    case Lex{InHex{code, left, high}, text, tokens} _:
+      Lex.hex(Lex.digit(code, c), (left - 1: U32), high, text, tokens)
+    case Lex{InHigh{high}, text, tokens} GBackslash{}:
+      Lex{InEscape{high}, text, tokens}
+    case Lex{InHigh{high}, text, tokens} _:
+      Lex.text(glyph, c, Lex.lone(high, text), tokens)
     case Lex{InWord{}, text, tokens} GOther{}:
       Lex{InWord{}, SCon{c, text}, tokens}
     case Lex{InWord{}, text, tokens} _:

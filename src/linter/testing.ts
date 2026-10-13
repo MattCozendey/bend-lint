@@ -17,7 +17,7 @@ import {
   writeFileAtomically,
 } from "../shared/utils.ts";
 import type { Outcome } from "../shared/utils.ts";
-import { built } from "./server.ts";
+import { built } from "./seam.ts";
 
 // Types
 // =====
@@ -34,7 +34,7 @@ export type Ran = Outcome & { files: Record<string, string>; dir: string };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.dirname(HERE);
-const SERVER = path.join(HERE, "server.ts");
+const SERVER = path.join(HERE, "seam.ts");
 
 // Bend imports only relative paths of plain names, so the programs the
 // tests build live in this folder.
