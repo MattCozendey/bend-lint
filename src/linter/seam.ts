@@ -2,10 +2,11 @@
 // The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs the
 // program of the rules bend-lint.json names (see programOf), and answers its requests about Bend
 // files over local TCP until the program exits (Seam in cli.bend sends them, and reads the
-// answers). A check's answer is the linter's program, as Bend's parser and checker give it: each file's syntax tree, and, for facts, what the checker found on its
-// nodes (Lint.Source, in lint.bend). When Bend's checker is Bend, glue in Bend makes the same program
-// and this file goes, so mutation and any optimization are fair here. Node 24.2 or later runs a
-// built program too, but a large program needs --max-old-space-size=8192.
+// answers). A check's answer is the linter's program, as Bend's parser and checker give it: each
+// file's syntax tree, and, for facts, what the checker found on its nodes (Lint.Source, in
+// lint.bend). When Bend's checker is Bend, glue in Bend makes the same program, and the code here
+// that knows bend.ts goes, so mutation and any optimization are fair here. Node 24.2 or later runs
+// a built program too, but a large program needs --max-old-space-size=8192.
 //
 // It loads a copy of bend.ts in which each TRACED function reports its calls: the parser's give each
 // file's syntax before lowering; the checker's judgments, on each def's elaborated body, give the
@@ -58,7 +59,9 @@ import {
   getErrorMessageFromUnknown,
   getPathWithForwardSlashes,
   getSha256Hex,
+  tryGetJsonOrUndefined,
   tryGetOrUndefined,
+  tryWriteJsonAtomically,
   writeFileAtomically,
 } from "../shared/utils.ts";
 
@@ -81,9 +84,23 @@ type Entry = { files: Array<[string, string]>; answer: string; digest: string; t
 // The facts a check gives: none, or those of the files at `paths` (all, if none).
 type Wanted = { paths: string[] } | undefined;
 
-// A check this server answered: its root, the facts it gives, its answer's digest, numbered 0,
-// and how many types its answer names. Enough to check it again with the same handles.
-type Answered = { path: string; facts: Wanted; digest: string; types: number };
+// What checking a file gives: its answer, numbered 0 if it passed, each file it read, with the
+// text it read, and, if it passed, what it holds.
+type Made = { answer: string; read: Array<[string, string]>; held?: Held };
+
+// A passed check this server numbered: its cache entry, its root, the facts it gives, its answer's
+// digest (numbered 0) and how many types its answer names, enough to check it again with the same
+// handles; what it holds, while a question may read it (a question about a check that holds
+// nothing checks it again); and its memo, once a question looks for one.
+type Answered = {
+  file: string;
+  path: string;
+  facts: Wanted;
+  digest: string;
+  types: number;
+  held?: Held;
+  memo?: Memo;
+};
 
 // The answers to questions about a check's types, by question with its checks numbered 0, kept
 // beside its cache entry (`digest` is the entry's): a later run that asks them checks nothing again.
@@ -177,9 +194,6 @@ type Placer = {
 // What building one declaration's trees reads: its file's placer, the check's declarations and
 // constructors, and the spans that references own so far (see `reference`).
 type Builder = { at: Placer; book: Book; owned: Set<string> };
-
-// A binder of a declaration's type, as the checker opens it.
-type Domain = Extract<HTerm, { $: "All" }>;
 
 // A binder of a telescope, as the parser reads it: its quantity, name, level, type and span.
 type Cell = [Quant, string, number, LTerm, Span];
@@ -320,6 +334,32 @@ const TAGS = {
   PatternConstructor: "X",
 } as const;
 
+// The kind of node each kind of term makes; but a variable can name a global (see `term`), and the
+// applications at one span make one call (see `application`).
+const KINDS: Record<LTerm["$"], Syntax> = {
+  Var: "Variable",
+  Ref: "Reference",
+  Sub: "Substitution",
+  Let: "Let",
+  Typ: "Sort",
+  Qnt: "QuantityType",
+  Qua: "QuantityLiteral",
+  Min: "QuantityMinimum",
+  All: "Forall",
+  Lam: "Lambda",
+  App: "Application",
+  ADT: "TypeApplication",
+  Ctr: "Construction",
+  Lit: "Literal",
+  Mat: "Elimination",
+  Efq: "Absurd",
+  Eql: "Equality",
+  Rfl: "Reflexivity",
+  Rwt: "Rewrite",
+  Hol: "Hole",
+  Ann: "Annotation",
+};
+
 // The kinds of node that declare a binder.
 const BINDS: ReadonlySet<Syntax> = new Set([
   "Parameter",
@@ -331,6 +371,9 @@ const BINDS: ReadonlySet<Syntax> = new Set([
 ]);
 
 const NONE: ReadonlySet<string> = new Set();
+
+// The uses of each judgment that closes no binder, most of them: one array for all.
+const UNCLOSED: ReadonlyArray<[number, Quant]> = [];
 
 const HOOKED = new Map<string, Hook | undefined>();
 
@@ -359,20 +402,10 @@ const MADE = { nodes: 0 };
 // A number for each file a span of the check that runs is in.
 const FILES = new Map<unknown, number>();
 
-// The checks answered, by number (from 1), and the checks whose holds are gone: freed, or answered
-// from the cache. A question about one checks it again.
-const CHECKS: Array<Held | undefined> = [];
+// The passed checks this server numbered, by number (from 1), and the number of each by its cache
+// entry: the requests of one entry share one check.
 const ANSWERED: Answered[] = [];
-const GONE = new Set<number>();
-
-// The number of each check answered from or to the cache, by its entry's path: the files of one
-// entry share one check.
 const NUMBERS = new Map<string, number>();
-
-// The memo of each check numbered so far that a question asked about, and those with answers not
-// kept yet.
-const MEMOS = new Map<number, Memo>();
-const UNKEPT = new Set<number>();
 
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
@@ -408,11 +441,6 @@ const seeded = (Bend: Bend, base: Book): Book => {
   return book;
 };
 
-const drift = (text: string): Error =>
-  Object.assign(new Error(text + "; update EDITS, TRACED or KEPT in src/linter/seam.ts"), {
-    name: "DriftError",
-  });
-
 // bend.ts with EDITS made in order and PROBES appended, and BEND_DIR kept at `dir`, so the copy
 // finds base.bend where the original does: `true ? dir :` puts Bend's own expression in a branch
 // that never runs. Each edit's first string, and each TRACED function, must occur once in the text
@@ -428,7 +456,9 @@ const patched = (dir: string, src: string): string =>
     (out, [at, to]) => {
       const n = out.split(at).length - 1;
       if (n !== 1) {
-        throw drift(`bend.ts has ${n} of ${JSON.stringify(at)}, not 1`);
+        throw new Error(
+          `bend.ts has ${n} of ${JSON.stringify(at)}, not 1; update EDITS, TRACED or KEPT in src/linter/seam.ts`,
+        );
       }
       return out.replace(at, () => to);
     },
@@ -443,17 +473,16 @@ const copied = (dir: URL): URL => {
   );
   const file = new URL(`${getSha256Hex(text).slice(0, 16)}/bend.ts`, SERVER_CACHE_DIR);
   if (!nodeFs.existsSync(file)) {
-    nodeFs.mkdirSync(new URL(".", file), { recursive: true });
-    nodeFs.writeFileSync(file, text);
+    writeFileAtomically(url.fileURLToPath(file), text);
   }
   return file;
 };
 
 const realpath = (p: nodeFs.PathLike): string => getPathWithForwardSlashes(nodeFs.realpathSync(p));
 
-// path.posix.resolve from `cwd`, where a drive letter is a root.
-const resolvePosix = (cwd: string, ...ps: string[]): string => {
-  const all = [cwd, ...ps].map(getPathWithForwardSlashes);
+// path.posix.resolve, where a drive letter is a root.
+const resolvePosix = (...ps: string[]): string => {
+  const all = [process.cwd(), ...ps].map(getPathWithForwardSlashes);
   const drive =
     all
       .filter((p) => DRIVE.test(p))
@@ -486,11 +515,7 @@ const shared = (): Shared => ({
     ...nodePath,
     join: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.join(...ps)),
     resolve: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.resolve(...ps)),
-    posix: {
-      ...nodePath.posix,
-      resolve: (...ps: string[]): string => resolvePosix(process.cwd(), ...ps),
-      relative: relativePosix,
-    },
+    posix: { ...nodePath.posix, resolve: resolvePosix, relative: relativePosix },
   },
 });
 
@@ -499,25 +524,24 @@ const shared = (): Shared => ({
 const load = (dir: URL): Checker => {
   const bend = copied(dir);
   let loading: Promise<Loaded> | undefined;
-  const loaded = (): Promise<Loaded> => {
-    loading ??= (async () => {
-      (globalThis as { BEND_LINT?: Shared }).BEND_LINT = shared();
-      const Bend = (await import(bend.href)) as Bend;
-      const base = Bend.book_nil();
-      await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
-      Bend.book_valid(base, 0);
-      return { Bend, base };
-    })();
-    return loading;
+  return {
+    version: getSha256Hex(
+      [
+        nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
+        bend.href,
+        nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
+      ].join("\n"),
+    ),
+    loaded: () =>
+      (loading ??= (async () => {
+        (globalThis as { BEND_LINT?: Shared }).BEND_LINT = shared();
+        const Bend = (await import(bend.href)) as Bend;
+        const base = Bend.book_nil();
+        await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
+        Bend.book_valid(base, 0);
+        return { Bend, base };
+      })()),
   };
-  const version = getSha256Hex(
-    [
-      nodeFs.readFileSync(url.fileURLToPath(import.meta.url), "utf8"),
-      bend.href,
-      nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
-    ].join("\n"),
-  );
-  return { version, loaded };
 };
 
 // Points the TRACED function `name` at `hook`, or back at its original. A binding bend.ts sets is
@@ -585,8 +609,8 @@ const traceJudgments = (Bend: Bend, judgments: Map<LTerm, Judgment>): void => {
     const mark = closed.length;
     try {
       const judged = f(...args) as { tm: LTerm };
-      const used = closed.length === mark ? [] : closed.slice(mark);
       if (!judgments.has(judged.tm)) {
+        const used = closed.length === mark ? UNCLOSED : closed.slice(mark);
         judgments.set(judged.tm, { qt, ctx, dep, used });
       }
       return judged;
@@ -735,11 +759,7 @@ const tree = (
 ): Tree => ({ id: MADE.nodes++, syntax, name, range, kids, origin, notes: [], ...more });
 
 // The last part of a global name: after its last `.` or `:`.
-const last = (name: string): string =>
-  name
-    .slice(name.lastIndexOf(".") + 1)
-    .split(":")
-    .at(-1) ?? "";
+const last = (name: string): string => name.split(/[.:]/).at(-1) ?? "";
 
 // A reference to `k` at `s`, written there if the span spells it (a name of `k`, or an operator)
 // and no reference of the declaration owns the span yet: a copy of one is the parser's.
@@ -755,14 +775,8 @@ const reference = (b: Builder, k: string, s: Span | undefined): Tree => {
 };
 
 // A use of the global name `k` at `s`, with its name as written.
-const used = (
-  b: Builder,
-  syntax: Syntax,
-  k: string,
-  s: Span | undefined,
-  origin: Span | undefined,
-  kids: Tree[],
-): Tree => tree(syntax, spelled(b.at, s), range(b.at, s), origin, kids, { target: k });
+const used = (b: Builder, syntax: Syntax, k: string, s: Span | undefined, kids: Tree[]): Tree =>
+  tree(syntax, spelled(b.at, s), range(b.at, s), s, kids, { target: k });
 
 const quantified = (q: Quant | undefined): Partial<Tree> =>
   q === undefined ? {} : { quantity: quantity(q) };
@@ -791,6 +805,43 @@ const application = (b: Builder, t: Extract<LTerm, { $: "App" }>): Tree => {
   return tree("Application", "", written ? at : undefined, t.s, [h, ...kids]);
 };
 
+// The terms right under a term, in order, as the checker walks them: none under a variable (a value
+// it has is a substitution's), and only the term an annotation annotates.
+const subterms = (t: LTerm): LTerm[] => {
+  switch (t.$) {
+    case "Sub":
+      return [t.f];
+    case "Let":
+      return [...t.v, t.f];
+    case "Typ":
+      return [t.g];
+    case "Min":
+      return [t.a, t.b];
+    case "All":
+      return [t.A, t.B];
+    case "Lam":
+      return [t.f];
+    case "App":
+      return [t.f, t.x];
+    case "ADT":
+    case "Ctr":
+      return t.x;
+    case "Mat":
+      return [t.h, t.m];
+    case "Eql":
+      return [t.a, t.b, t.T];
+    case "Rwt":
+      return [t.e, t.p, t.f];
+    case "Ann":
+      return [t.x];
+    default:
+      return [];
+  }
+};
+
+// The trees of the terms right under `t`.
+const terms = (b: Builder, t: LTerm): Tree[] => subterms(t).map((x) => term(b, x));
+
 // The tree of a term, as the parser read it.
 const term = (b: Builder, t: LTerm): Tree => {
   const at = range(b.at, t.s);
@@ -813,60 +864,30 @@ const term = (b: Builder, t: LTerm): Tree => {
         ),
         term(b, t.f),
       ]);
-    case "Typ":
-      return tree("Sort", "", at, t.s, [term(b, t.g)]);
-    case "Qnt":
-      return tree("QuantityType", "", at, t.s, []);
     case "Qua":
       return tree("QuantityLiteral", "", at, t.s, [], quantified(t.q));
-    case "Min":
-      return tree("QuantityMinimum", "", at, t.s, [term(b, t.a), term(b, t.b)]);
     case "All":
-      return tree("Forall", t.k, at, t.s, [term(b, t.A), term(b, t.B)], {
-        binder: t.i,
-        ...quantified(t.q),
-      });
+      return tree("Forall", t.k, at, t.s, terms(b, t), { binder: t.i, ...quantified(t.q) });
     case "Lam":
-      return tree("Lambda", t.k, spelled(b.at, t.s) === t.k ? at : undefined, t.s, [term(b, t.f)], {
+      return tree("Lambda", t.k, spelled(b.at, t.s) === t.k ? at : undefined, t.s, terms(b, t), {
         binder: t.i,
         ...quantified(t.q),
       });
     case "App":
       return application(b, t);
     case "ADT":
-      return used(
-        b,
-        "TypeApplication",
-        t.k,
-        t.s,
-        t.s,
-        t.x.map((x) => term(b, x)),
-      );
     case "Ctr":
-      return used(
-        b,
-        "Construction",
-        t.k,
-        t.s,
-        t.s,
-        t.x.map((x) => term(b, x)),
-      );
+      return used(b, KINDS[t.$], t.k, t.s, terms(b, t));
     case "Lit":
       return tree("Literal", String(t.v), at, t.s, [], { target: t.k });
     case "Mat":
-      return tree("Elimination", "", at, t.s, [term(b, t.h), term(b, t.m)], { target: t.k });
-    case "Efq":
-      return tree("Absurd", "", at, t.s, []);
-    case "Eql":
-      return tree("Equality", "", at, t.s, [term(b, t.a), term(b, t.b), term(b, t.T)]);
-    case "Rfl":
-      return tree("Reflexivity", "", at, t.s, []);
-    case "Rwt":
-      return tree("Rewrite", "", at, t.s, [term(b, t.e), term(b, t.p), term(b, t.f)]);
+      return tree("Elimination", "", at, t.s, terms(b, t), { target: t.k });
     case "Hol":
       return tree("Hole", t.k, at, t.s, []);
     case "Ann":
       return tree("Annotation", "", at, t.s, [term(b, t.x), term(b, t.T)]);
+    default:
+      return tree(KINDS[t.$], "", at, t.s, terms(b, t));
   }
 };
 
@@ -881,7 +902,6 @@ const pattern = (b: Builder, p: Patt): Tree =>
         "PatternConstructor",
         p.k,
         p.s,
-        undefined,
         p.x.map((x) => pattern(b, x)),
       );
 
@@ -956,13 +976,8 @@ const declared = (b: Builder, syntax: Syntax, head: Frame, kids: Tree[]): Tree =
 };
 
 // The declaration a file's calls from `head` on make: a def at the last name it reads; a
-// constructor; a type (by `datatypes`, the check's); or a law, whose signature is the type Bend
-// builds from its clauses.
-const declaration = (
-  b: Builder,
-  [head, ...frames]: Frame[],
-  datatypes: ReadonlySet<string>,
-): Tree[] => {
+// constructor; a type; or a law, whose signature is the type Bend builds from its clauses.
+const declaration = (b: Builder, [head, ...frames]: Frame[]): Tree[] => {
   if (head.name === "parse_def") {
     const name = head.kids.filter(isHead).at(-1);
     return name === undefined ? [] : [declared(b, "Definition", name, unders(b, head.kids))];
@@ -970,7 +985,7 @@ const declaration = (
   const syntax: Syntax =
     head.name === "parse_fresh" && head.args[2] === b.book.ctrs
       ? "Constructor"
-      : datatypes.has(head.out as string)
+      : b.book.tlds[head.out as string]?.$ === "ADT"
         ? "Datatype"
         : "Law";
   const higher = frames.filter((f) => f.name === "term_higher").at(-1);
@@ -988,36 +1003,36 @@ const declaration = (
   ];
 };
 
-// The imports of a file, each with its alias (Bend gives one to each import but Base's, in order)
-// and the file it loads, with the path it writes; Base's writes none.
-const imports = (file: Parsed, at: Placer, base: string): Tree[] => {
+// The imports of a file, each with its alias (Bend gives one to each import but `import Base`, in
+// order) and the file it loads, with the path it writes; Base's writes none.
+const imports = (file: Parsed, at: Placer): Tree[] => {
   const aliases = [...file.aliases];
   return file.loads.map((load) => {
-    const path = load.args[1] as string;
+    const target = load.args[1] as string;
     const unit = (load.args[4] as Span | undefined)?.beg ?? 0;
-    const from = at.point(unit);
-    const alias = path === base ? undefined : aliases.shift();
-    if (alias === undefined) {
-      return tree("Import", "Base", [from, from + 4], undefined, [], { target: path });
-    }
     const rest = file.text.slice(unit);
-    const written = /^[^ \t\r\n]*/.exec(rest)?.[0] ?? "";
-    const gap = /^\s+as\s+/.exec(rest.slice(written.length))?.[0].length ?? 0;
-    const name = from + Array.from(written).length + gap;
+    const written = rest.split(/\s/, 1)[0];
+    const from = at.point(unit);
+    const to = from + Array.from(written).length;
+    if (written === "Base") {
+      return tree("Import", "Base", [from, to], undefined, [], { target });
+    }
+    const alias = aliases.shift() ?? "";
+    const name = to + (/^\s+as\s+/.exec(rest.slice(written.length))?.[0].length ?? 0);
     return tree(
       "Import",
       alias,
       [name, name + alias.length],
       undefined,
-      [tree("ImportPath", written, [from, from + Array.from(written).length], undefined, [])],
-      { target: path },
+      [tree("ImportPath", written, [from, to], undefined, [])],
+      { target },
     );
   });
 };
 
 // The trees of a file: its imports, then its declarations, each constructor under its type. Each
 // declaration's references own their spans apart (see `reference`).
-const trees = (file: Parsed, book: Book, base: string, datatypes: ReadonlySet<string>): Tree[] => {
+const trees = (file: Parsed, book: Book): Tree[] => {
   const at = placer(file);
   const heads = file.frames.reduce<Frame[][]>((groups, f) => {
     if (f.name === "parse_def" || isHead(f)) {
@@ -1028,7 +1043,7 @@ const trees = (file: Parsed, book: Book, base: string, datatypes: ReadonlySet<st
     return groups;
   }, []);
   const tops = heads
-    .flatMap((group) => declaration({ at, book, owned: new Set() }, group, datatypes))
+    .flatMap((group) => declaration({ at, book, owned: new Set() }, group))
     .reduce<Tree[]>((out, t) => {
       if (t.syntax === "Constructor") {
         out.at(-1)?.kids.push(t);
@@ -1037,7 +1052,7 @@ const trees = (file: Parsed, book: Book, base: string, datatypes: ReadonlySet<st
       }
       return out;
     }, []);
-  return [...imports(file, at, base), ...tops];
+  return [...imports(file, at), ...tops];
 };
 
 // The nodes of `trees` and under them, parents first, onto `out`.
@@ -1088,70 +1103,13 @@ const isTyping = (t: LTerm): t is Extract<LTerm, { $: "Ann" }> & { T: { v: HTerm
 // A term without the checker's annotations.
 const bare = (t: LTerm): LTerm => (isTyping(t) ? bare(t.x) : t);
 
-// The terms right under a checked term, in order: none under a variable (a value it has is a
-// substitution's), and only the term an annotation annotates.
-const subterms = (t: LTerm): LTerm[] => {
-  switch (t.$) {
-    case "Sub":
-      return [t.f];
-    case "Let":
-      return [...t.v, t.f];
-    case "Typ":
-      return [t.g];
-    case "Min":
-      return [t.a, t.b];
-    case "All":
-      return [t.A, t.B];
-    case "Lam":
-      return [t.f];
-    case "App":
-      return [t.f, t.x];
-    case "ADT":
-    case "Ctr":
-      return t.x;
-    case "Mat":
-      return [t.h, t.m];
-    case "Eql":
-      return [t.a, t.b, t.T];
-    case "Rwt":
-      return [t.e, t.p, t.f];
-    case "Ann":
-      return [t.x];
-    default:
-      return [];
-  }
-};
-
-// The kind of node a checked term is, but for a variable and a call, which need more to tell.
-const KINDS: Partial<Record<LTerm["$"], Syntax>> = {
-  Ref: "Reference",
-  Sub: "Substitution",
-  Let: "Let",
-  Typ: "Sort",
-  Qnt: "QuantityType",
-  Qua: "QuantityLiteral",
-  Min: "QuantityMinimum",
-  All: "Forall",
-  Lam: "Lambda",
-  ADT: "TypeApplication",
-  Ctr: "Construction",
-  Lit: "Literal",
-  Mat: "Elimination",
-  Efq: "Absurd",
-  Eql: "Equality",
-  Rfl: "Reflexivity",
-  Rwt: "Rewrite",
-  Hol: "Hole",
-  Ann: "Annotation",
-};
-
 // Whether each of `terms` was read at its place in `spans`.
 const sameSpans = (terms: LTerm[], spans: Array<Span | undefined>): boolean =>
   terms.length === spans.length && terms.every((t, n) => spanEq(bare(t).s, spans[n]));
 
 // The binder node of each entry of `scope`'s context, by level, as `same` tells them apart: the
 // node the facts' walk found it is, else the entry itself.
-const levels = (Bend: Bend, binders: Map<Ann, number>, { ctx, dep }: Scope): unknown[] =>
+const bindersOf = (Bend: Bend, binders: Map<Ann, number>, { ctx, dep }: Scope): unknown[] =>
   Array.from({ length: dep }, (_, level) => {
     const entry = Bend.pmap_get(ctx, level) ?? undefined;
     return entry === undefined ? Symbol() : (binders.get(entry) ?? entry);
@@ -1184,7 +1142,7 @@ const deepest = (t: LTerm, dep: number): number => {
 // their scopes share (the same binder at each, from the first): a type that uses a level past them
 // names another variable there.
 const sameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
-  const [x, y] = [levels(Bend, held.binders, a), levels(Bend, held.binders, b)];
+  const [x, y] = [bindersOf(Bend, held.binders, a), bindersOf(Bend, held.binders, b)];
   const shared = x.findIndex((v, n) => n >= y.length || v !== y[n]);
   const n = shared < 0 ? Math.min(x.length, y.length) : shared;
   const inside = (t: Typed): boolean =>
@@ -1220,7 +1178,7 @@ const collect = (
   tops: Tree[],
 ): void => {
   const { binders } = held;
-  const nodes: Tree[] = [];
+  const origins = new Map<string, Tree[]>();
   for (const top of tops) {
     const mine = preorder([top], []);
     const declarers = new Map<number, Tree>();
@@ -1233,18 +1191,14 @@ const collect = (
       if (o.syntax === "Variable" && o.binder !== undefined) {
         o.declarer = declarers.get(o.binder);
       }
-      nodes.push(o);
-    }
-  }
-  const origins = new Map<string, Tree[]>();
-  for (const o of nodes) {
-    if (o.origin !== undefined) {
-      const key = spanKey(o.origin);
-      const known = origins.get(key);
-      if (known === undefined) {
-        origins.set(key, [o]);
-      } else {
-        known.push(o);
+      if (o.origin !== undefined) {
+        const key = spanKey(o.origin);
+        const known = origins.get(key);
+        if (known === undefined) {
+          origins.set(key, [o]);
+        } else {
+          known.push(o);
+        }
       }
     }
   }
@@ -1291,7 +1245,7 @@ const collect = (
           )
         );
       default:
-        return KINDS[t.$] !== undefined && o.syntax === KINDS[t.$];
+        return o.syntax === KINDS[t.$];
     }
   };
   // Whether a call's head and arguments are the node's children, but the leading ones a
@@ -1315,14 +1269,14 @@ const collect = (
   const declare = (
     s: Span | undefined,
     names: string[],
-    at: number[],
+    levels: number[],
     j: Judgment | undefined,
     inner: Judgment | undefined,
     declares: boolean,
   ): void => {
     names.forEach((k, n) => {
       const o = binder(s, k);
-      const e = entry(inner, at[n]);
+      const e = entry(inner, levels[n]);
       if (o === undefined || e === undefined) {
         return;
       }
@@ -1333,10 +1287,16 @@ const collect = (
       if (o.syntax !== "Parameter" || o.notes.length === 0) {
         note(o, "b", e.T, j, e.q, s.file);
       }
-      const q = j.used.find(([l]) => l === at[n])?.[1];
-      o.used = q === undefined ? o.used : o.used === undefined ? q : join(o.used, q);
+      const q = j.used.find(([l]) => l === levels[n])?.[1];
+      if (q !== undefined) {
+        o.used = o.used === undefined ? q : join(o.used, q);
+      }
     });
   };
+  // Puts on the nodes that `u` is the type the checker gave it, in the annotation it put over it,
+  // judged as `u` was (else as the term above, judged `up`), and walks on: from a call (its
+  // applications at one span, as `application` reads them), to its head as the checker typed it,
+  // then to its arguments; from another term, to the terms under it.
   const walk = (u: LTerm, up: Judgment | undefined): void => {
     let t = u;
     let ty: HTerm | undefined;
@@ -1347,47 +1307,38 @@ const collect = (
       j ??= judgments.get(t);
     }
     j ??= up;
-    const s = t.s;
-    if (t.$ === "App") {
-      const args: LTerm[] = [];
-      let typed: LTerm = t;
-      let head: LTerm = t;
-      while (head.$ === "App") {
-        args.unshift(head.x);
-        typed = head.f;
-        head = bare(typed);
-        if (!spanEq(head.s, s)) {
-          break;
+    const args: LTerm[] = [];
+    let typed = t;
+    let head = t;
+    while (head.$ === "App") {
+      args.unshift(head.x);
+      typed = head.f;
+      head = bare(typed);
+      if (!spanEq(head.s, t.s)) {
+        break;
+      }
+    }
+    if (t.s !== undefined && ty !== undefined && j !== undefined) {
+      for (const o of at(t.s)) {
+        if (t.$ === "App" ? calls(head, args, o) : fits(t, j, o)) {
+          note(o, "t", ty, j, j.qt, t.s.file);
         }
       }
-      if (s !== undefined && ty !== undefined && j !== undefined) {
-        const [type, scope, q] = [ty, j, j.qt];
-        at(s)
-          .filter((o) => calls(head, args, o))
-          .forEach((o) => note(o, "t", type, scope, q, s.file));
-      }
-      [typed, ...args].forEach((x) => walk(x, j));
-      return;
-    }
-    if (s !== undefined && ty !== undefined && j !== undefined) {
-      const [type, scope, q] = [ty, j, j.qt];
-      at(s)
-        .filter((o) => fits(t, scope, o))
-        .forEach((o) => note(o, "t", type, scope, q, s.file));
     }
     if (t.$ === "Lam" || t.$ === "Let") {
-      const [names, at] = t.$ === "Lam" ? [[t.k], [t.i]] : [t.k, t.i];
-      declare(s, names, at, j, judgment(t.f), true);
+      const [names, levels] = t.$ === "Lam" ? [[t.k], [t.i]] : [t.k, t.i];
+      declare(t.s, names, levels, j, judgment(t.f), true);
     } else if (t.$ === "All") {
-      declare(s, [t.k], [t.i], j, judgment(t.B), false);
+      declare(t.s, [t.k], [t.i], j, judgment(t.B), false);
     }
-    subterms(t).forEach((x) => walk(x, j));
+    (t.$ === "App" ? [typed, ...args] : subterms(t)).forEach((x) => walk(x, j));
   };
   // Each binder of a declaration's type, as the checker opens it: the type it declares, with its
   // quantity, in the scope before it; and the node its entry is.
   const domains = (T: HTerm): void => {
     let ctx = Bend.ctx_nil();
-    for (let t = T, i = 0; t.$ === "All"; t = (t as Domain).B(Bend.Var(t.k, i)), i++) {
+    let t = T;
+    for (let i = 0; t.$ === "All"; i++) {
       const scope = { ctx, dep: i };
       ctx = Bend.ctx_bind(ctx, i, t.q, t.k, t.A);
       const o = binder(t.s, t.k);
@@ -1398,6 +1349,7 @@ const collect = (
           binders.set(e, o.id);
         }
       }
+      t = t.B(Bend.Var(t.k, i));
     }
   };
   own.forEach((k) => {
@@ -1416,19 +1368,21 @@ const collect = (
       walk(tld.e, undefined);
     }
   });
-  nodes.forEach((o) => {
-    o.notes = o.notes.filter(
-      (a, n) =>
-        !o.notes
-          .slice(0, n)
-          .some(
-            (b) =>
-              b.role === a.role &&
-              b.quantity.$ === a.quantity.$ &&
-              sameType(Bend, held, b.type, a.type),
-          ),
-    );
-  });
+  origins.forEach((nodes) =>
+    nodes.forEach((o) => {
+      o.notes = o.notes.filter(
+        (a, n) =>
+          !o.notes
+            .slice(0, n)
+            .some(
+              (b) =>
+                b.role === a.role &&
+                b.quantity.$ === a.quantity.$ &&
+                sameType(Bend, held, b.type, a.type),
+            ),
+      );
+    }),
+  );
 };
 
 // Answers
@@ -1488,22 +1442,17 @@ const unTemplated = (t: LTerm, bok: Book): LTerm => {
 const rooted = (path: string): string =>
   tryGetOrUndefined(() => realpath(path)) ?? getPathWithForwardSlashes(nodePath.resolve(path));
 
-// The answer to `check <path> <facts|syntax> <paths...>`: the check's number (for `ask` and
-// `forget`), or `failed` and each file it read; then each file it parsed, if it loaded them: its
-// path, namespace and text, then its nodes (see `written`). A passed check gives the facts of the
-// files at `paths` (all, if none), and the files it read, with the text it read; its number is
-// `number`, or the next. The hooks are global, so checks must not overlap.
-const check = async (
-  checker: Checker,
-  path: string,
-  facts: Wanted,
-  number?: number,
-): Promise<{ answer: string; read?: Array<[string, string]>; number?: number; types?: number }> => {
+// Checks the file at `path`, as `check <path> <facts|syntax> <paths...>` asks. Its answer: `check`
+// and the check's number, here 0 (see `numbered`), or `failed` and each file it read; then each
+// file it parsed, if it loaded them: its path, namespace and text, then its nodes (see `written`).
+// A passed check gives the facts of the files at `facts.paths` (all, if none). The hooks are
+// global, so checks must not overlap.
+const check = async (checker: Checker, path: string, facts: Wanted): Promise<Made> => {
   const { Bend, base } = await checker.loaded();
   const book = seeded(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
-  const judgments = facts === undefined ? undefined : new Map<LTerm, Judgment>();
+  const judgments = new Map<LTerm, Judgment>();
   let loaded = false;
   let passed = false;
   READS.clear();
@@ -1511,9 +1460,8 @@ const check = async (
   traceParsing(root);
   try {
     await Bend.book_load(book, rooted(path), "", seen);
-    untrace();
     loaded = true;
-    if (judgments !== undefined) {
+    if (facts !== undefined) {
       traceJudgments(Bend, judgments);
     }
     Bend.book_valid(book, base.order.length);
@@ -1528,20 +1476,18 @@ const check = async (
   } finally {
     untrace();
   }
-  const own = [...new Set(book.order.slice(base.order.length))];
-  const datatypes = new Set(own.filter((k) => book.tlds[k]?.$ === "ADT"));
   const files = loaded ? parsedFiles(root.kids, []) : [];
-  const forest = files.map((file) => trees(file, book, Bend.BASE_BEND, datatypes));
+  const forest = files.map((file) => trees(file, book));
   const held: Held = { bok: book, types: [], binders: new Map() };
-  if (passed && judgments !== undefined) {
+  if (passed && facts !== undefined) {
     collect(
       Bend,
       held,
-      own,
+      [...new Set(book.order.slice(base.order.length))],
       judgments,
-      facts?.paths.length === 0
+      facts.paths.length === 0
         ? undefined
-        : new Set(facts?.paths.map((p) => seen.get(rooted(p)) ?? undefined)),
+        : new Set(facts.paths.map((p) => seen.get(rooted(p)) ?? undefined)),
       forest.flat(),
     );
   }
@@ -1551,70 +1497,63 @@ const check = async (
       [record(["file", file.path, file.ns, file.text])],
     ),
   );
-  if (!passed) {
-    return {
-      answer: [
-        record(["failed"]),
-        ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
-        ...program,
-      ].join(""),
-    };
-  }
-  const id = number ?? CHECKS.push(undefined);
-  CHECKS[id - 1] = held;
-  return {
-    answer: [record(["check", String(id)]), ...program].join(""),
-    read: [...READS],
-    number: id,
-    types: held.types.length,
-  };
+  const read = [...READS];
+  return passed
+    ? { answer: [record(["check", "0"]), ...program].join(""), read, held }
+    : {
+        answer: [
+          record(["failed"]),
+          ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
+          ...program,
+        ].join(""),
+        read,
+      };
 };
 
 // The answer to one question about types: `show:<check>:<type>`, `same:<check>:<type>:<check>:<type>`
 // or `normal:<check>:<type>`, each type a handle its check's answer, or a `normal` of it, gave.
-const question = ({ Bend }: Loaded, q: string): string => {
+// Types of two checks are never the same. A check that holds nothing is checked again first.
+const question = async (checker: Checker, q: string): Promise<string> => {
   const [op, ...ns] = q.split(":");
-  const n = ns.map(Number);
-  const held = (c: number): Held => {
-    const h = CHECKS[c - 1];
-    if (h === undefined) {
-      throw new Error("no check " + c);
-    }
-    return h;
-  };
-  const typed = (c: number, t: number): Typed => {
-    const ty = held(c).types[t] as Typed | undefined;
+  const [c, t, d, u] = ns.map(Number);
+  if (op === "same" && c !== d) {
+    return record(["same", "false"]);
+  }
+  const answered = ANSWERED[c - 1];
+  if (answered === undefined) {
+    throw new Error("no check " + c);
+  }
+  const held = (answered.held ??= await revive(checker, answered));
+  const { Bend } = await checker.loaded();
+  const typed = (h: number): Typed => {
+    const ty = held.types[h] as Typed | undefined;
     if (ty === undefined) {
-      throw new Error("no type " + c + ":" + t);
+      throw new Error("no type " + c + ":" + h);
     }
     return ty;
   };
   if (op === "show") {
-    const t = typed(n[0], n[1]);
-    const names = Array.from({ length: t.dep }, (_, level) => Bend.pmap_get(t.ctx, level)?.k);
+    const ty = typed(t);
+    const names = Array.from({ length: ty.dep }, (_, level) => Bend.pmap_get(ty.ctx, level)?.k);
     return record([
       "shown",
       Bend.term_show(
-        unTemplated(Bend.term_lower(t.ty, t.dep), held(n[0]).bok),
+        unTemplated(Bend.term_lower(ty.ty, ty.dep), held.bok),
         -1,
         names as string[],
-        t.file,
+        ty.file,
       ),
     ]);
   }
   if (op === "same") {
-    return record([
-      "same",
-      String(n[0] === n[2] && sameType(Bend, held(n[0]), typed(n[0], n[1]), typed(n[2], n[3]))),
-    ]);
+    return record(["same", String(sameType(Bend, held, typed(t), typed(u)))]);
   }
   if (op === "normal") {
-    const t = typed(n[0], n[1]);
-    const h = held(n[0]);
+    const ty = typed(t);
     return record([
       "normal",
-      String(n[0]),
-      String(h.types.push({ ...t, ty: Bend.term_snf(h.bok, t.ty) }) - 1),
+      String(c),
+      String(held.types.push({ ...ty, ty: Bend.term_snf(held.bok, ty.ty) }) - 1),
     ]);
   }
   throw new Error("unknown question " + q);
@@ -1686,9 +1625,8 @@ export const closure = (file: string, seen: Set<string> = new Set()): string[] =
   ];
 };
 
-// What a build depends on besides the program's files: the `bend` on PATH (its path, size and
-// time: a compiled bend is large), and the paths and texts of the bend2 sources in `dir`, which
-// hold Base and the compiler when that `bend` runs a checkout.
+// What a build depends on besides the program's files: the paths and texts of the bend2 sources in
+// `dir`, which hold Base and the compiler.
 const builder = (dir: URL): string => {
   const sources = url.fileURLToPath(dir);
   return nodeFs
@@ -1756,180 +1694,114 @@ export const built = async (source: string, dir: URL): Promise<string> => {
   return exe;
 };
 
-// Keeps `entry` at `file`, whole or not at all. A cache that cannot be written is skipped: the
-// next run checks again.
-const keep = (file: string, entry: Entry): void => {
-  tryGetOrUndefined(() => {
-    nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-    writeFileAtomically(file, JSON.stringify(entry));
-  });
-};
-
-// Notes the check numbered `number`, of the cache entry at `file`; `gone` says whether what it
-// holds is gone. Gives the number.
-const answered = (file: string, check: Answered, number: number, gone: boolean): number => {
-  ANSWERED[number - 1] = check;
-  NUMBERS.set(file, number);
-  if (gone) {
-    GONE.add(number);
-  }
-  return number;
-};
-
 // The answer to `check <path> <facts|syntax> <paths...>`: from the cache, if each file the check
-// read is unchanged, numbered as before in this server, or anew with what it holds gone; else from
-// Bend, and a passed check goes to the cache.
+// read is unchanged, else from Bend, and a passed check goes to the cache (whole or not at all; a
+// cache that cannot be written is skipped). A passed check is numbered as before in this server,
+// or anew. What it holds is large, and only a question reads it, so it holds nothing.
 const checked = async (checker: Checker, path: string, facts: Wanted): Promise<string> => {
   const file = cachePathOf(checker, path, facts);
-  const entry = cached(file);
-  const known = NUMBERS.get(file);
-  if (entry !== undefined) {
-    return numbered(
-      entry.answer,
-      known !== undefined && ANSWERED[known - 1].digest === entry.digest
-        ? known
-        : answered(
-            file,
-            { path, facts, digest: entry.digest, types: entry.types },
-            CHECKS.push(undefined),
-            true,
-          ),
-    );
-  }
-  const made = await check(checker, path, facts);
-  if (made.read !== undefined && made.number !== undefined && made.types !== undefined) {
-    const answer = numbered(made.answer, 0);
-    const sum = getSha256Hex(answer);
-    // What a check holds is large, and only a question reads it: a question checks it again.
-    CHECKS[made.number - 1] = undefined;
-    answered(file, { path, facts, digest: sum, types: made.types }, made.number, true);
-    keep(file, {
+  let entry = cached(file);
+  if (entry === undefined) {
+    const made = await check(checker, path, facts);
+    if (made.held === undefined) {
+      return made.answer;
+    }
+    entry = {
       files: made.read.map(([p, text]) => [p, getSha256Hex(text)]),
-      answer,
-      digest: sum,
-      types: made.types,
-    });
+      answer: made.answer,
+      digest: getSha256Hex(made.answer),
+      types: made.held.types.length,
+    };
+    tryWriteJsonAtomically(file, entry);
   }
-  return made.answer;
+  const known = NUMBERS.get(file);
+  const number =
+    known !== undefined && ANSWERED[known - 1].digest === entry.digest
+      ? known
+      : ANSWERED.push({ file, path, facts, digest: entry.digest, types: entry.types });
+  NUMBERS.set(file, number);
+  return numbered(entry.answer, number);
 };
 
-// Checks again the check numbered `number`, whose hold is gone, with the same numbers. Its answer
-// must be the one rules have.
-const revive = async (checker: Checker, number: number): Promise<void> => {
-  const { path, facts, digest: was } = ANSWERED[number - 1];
-  const made = await check(checker, path, facts, number);
-  if (made.read === undefined || getSha256Hex(numbered(made.answer, 0)) !== was) {
-    nodeFs.rmSync(cachePathOf(checker, path, facts), { force: true });
+// What the check `answered` holds, checked again: its answer must be the one rules have.
+const revive = async (checker: Checker, answered: Answered): Promise<Held> => {
+  const made = await check(checker, answered.path, answered.facts);
+  if (made.held === undefined || getSha256Hex(made.answer) !== answered.digest) {
+    nodeFs.rmSync(answered.file, { force: true });
     throw new Error("a check changed since its answer; run again");
   }
-  GONE.delete(number);
+  return made.held;
 };
 
-// The checks whose holds a question reads: its check, or none for a `same` of two checks (see
-// `question`).
-const checksOf = (q: string): number[] => {
-  const [op, c, , d] = q.split(":");
-  return op === "same" && c !== d ? [] : [Number(c)];
-};
+const memoPathOf = (answered: Answered): string => answered.file + ".answers";
 
-// Where a question is kept, if its answer is the same in any run: its check, and the question with
-// its checks numbered 0. Not `normal`, whose handle is the next of this run, nor a question about a
-// type a `normal` of this run made.
-const memoKeyOf = (q: string): { check: number; key: string } | undefined => {
-  const parts = q.split(":");
-  const n = parts.map(Number);
-  const handles = parts[0] === "show" ? [n[2]] : parts[0] === "same" ? [n[2], n[4]] : [];
-  const own = ANSWERED[n[1] - 1]?.types;
-  return handles.length === 0 ||
-    own === undefined ||
-    handles.some((h) => h >= own) ||
-    checksOf(q).length === 0
-    ? undefined
-    : {
-        check: n[1],
-        key: parts.map((x, i) => (i === 1 || (i === 3 && parts[0] === "same") ? "0" : x)).join(":"),
-      };
-};
-
-const memoPathOf = (checker: Checker, check: number): string => {
-  const { path, facts } = ANSWERED[check - 1];
-  return cachePathOf(checker, path, facts) + ".answers";
-};
-
-// The memo of the check numbered `check`: kept, if its entry's digest is the one this server
-// answered with, else new.
-const memoOf = (checker: Checker, check: number): Memo => {
-  const known = MEMOS.get(check);
-  if (known !== undefined) {
-    return known;
+// Where the answer to `q` is kept, if it is the same in any run: in its check's memo (kept, if its
+// digest is the one this server answered with, else new), under the question with its checks
+// numbered 0. Not `normal`, whose handle is the next of this run, nor a question about a type a
+// `normal` of this run made, nor a `same` of two checks.
+const memoOf = (
+  q: string,
+): { answered: Answered; answers: Record<string, string>; key: string } | undefined => {
+  const [op, c, t, d, u] = q.split(":");
+  const answered = ANSWERED[Number(c) - 1];
+  const handles = op === "show" ? [t] : op === "same" && c === d ? [t, u] : [];
+  if (
+    answered === undefined ||
+    handles.length === 0 ||
+    handles.some((h) => Number(h) >= answered.types)
+  ) {
+    return undefined;
   }
-  const { digest } = ANSWERED[check - 1];
-  const kept = tryGetOrUndefined(
-    () => JSON.parse(nodeFs.readFileSync(memoPathOf(checker, check), "utf8")) as Memo,
-  );
-  const memo = kept?.digest === digest ? kept : { digest, answers: {} };
-  MEMOS.set(check, memo);
-  return memo;
+  const kept = answered.memo ?? (tryGetJsonOrUndefined(memoPathOf(answered)) as Memo | undefined);
+  answered.memo =
+    kept?.digest === answered.digest ? kept : { digest: answered.digest, answers: {} };
+  return {
+    answered,
+    answers: answered.memo.answers,
+    key: [op, 0, t, ...(op === "same" ? [0, u] : [])].join(":"),
+  };
 };
 
 // The answer to `ask <question>...`: one record per question, in order, from the memos where they
-// have it. The checks the others ask about whose holds are gone are checked again first; their
-// answers go to the memos.
+// have it; the others' answers go to the memos.
 const ask = async (checker: Checker, questions: string[]): Promise<string> => {
-  try {
-    const keys = questions.map(memoKeyOf);
-    const recalled = keys.map((k) =>
-      k === undefined ? undefined : memoOf(checker, k.check).answers[k.key],
-    );
-    const numbers = new Set(
-      questions.flatMap((q, i) => (recalled[i] === undefined ? checksOf(q) : [])),
-    );
-    for (const number of [...numbers].filter((n) => GONE.has(n))) {
-      await revive(checker, number);
+  const asked = new Set<Answered>();
+  const answers: string[] = [];
+  for (const q of questions) {
+    const memo = memoOf(q);
+    let got = memo?.answers[memo.key];
+    if (got === undefined) {
+      got = await question(checker, q);
+      if (memo !== undefined) {
+        memo.answers[memo.key] = got;
+        asked.add(memo.answered);
+      }
     }
-    const loaded = recalled.every((r) => r !== undefined) ? undefined : await checker.loaded();
-    const answers = questions.map((q, i) => {
-      const r = recalled[i];
-      if (r !== undefined || loaded === undefined) {
-        return r ?? "";
-      }
-      const got = question(loaded, q);
-      const k = keys[i];
-      if (k !== undefined) {
-        memoOf(checker, k.check).answers[k.key] = got;
-        UNKEPT.add(k.check);
-      }
-      return got;
-    });
-    UNKEPT.forEach((check) =>
-      tryGetOrUndefined(() =>
-        writeFileAtomically(memoPathOf(checker, check), JSON.stringify(memoOf(checker, check))),
-      ),
-    );
-    UNKEPT.clear();
-    return answers.join("");
-  } catch (e) {
-    return record(["fail", getErrorMessageFromUnknown(e)]);
+    answers.push(got);
   }
+  asked.forEach((answered) => tryWriteJsonAtomically(memoPathOf(answered), answered.memo));
+  return answers.join("");
 };
 
 // The answer to `forget <check>`: what the server holds of the check is freed. A question about it
 // checks it again.
 const forget = (check: number): string => {
-  CHECKS[check - 1] = undefined;
-  GONE.add(check);
+  const answered = ANSWERED[check - 1];
+  if (answered !== undefined) {
+    answered.held = undefined;
+  }
   return record(["forgot"]);
 };
 
-const answer = (checker: Checker, line: string): Promise<string> => {
+const answer = async (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(unfield);
   return op === "check" && args.length >= 2
     ? checked(checker, args[0], args[1] === "facts" ? { paths: args.slice(2) } : undefined)
     : op === "forget" && args.length === 1
-      ? Promise.resolve(forget(Number(args[0])))
+      ? forget(Number(args[0]))
       : op === "ask"
         ? ask(checker, args)
-        : Promise.resolve(record(["fail", "unknown request: " + line]));
+        : record(["fail", "unknown request: " + line]);
 };
 
 // Runs each request it is given after the one before ends: a program's workers ask at once, and
@@ -1960,9 +1832,8 @@ const serve = async (
   );
 };
 
-// The checker, the rules program `named`, built first, and what to say
-// first of the Bend bend-lint uses (see bend2.ts). The checker comes first, so a drift stops the
-// run before a build.
+// The checker, the rules program `named`, built first, and what to say first of the Bend bend-lint
+// uses (see bend2.ts). The checker comes first, so a drift stops the run before a build.
 const started = async (named: string): Promise<[Checker, string, string[]]> => {
   const dir = unwrap(await tryGetBend2SourceUrl());
   const checker = load(dir);
@@ -2029,7 +1900,7 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
     if (!/^[A-Za-z_][\w-]*(\/[A-Za-z_][\w-]*)*$/.test(id)) {
       throw new Error(`${id} is not a rule id: a path of plain names, without .bend`);
     }
-    const [name = "", ...rest] = id.split("/");
+    const [name, ...rest] = id.split("/");
     const version = packages.get(name);
     if (version !== undefined && rest.length > 0) {
       return `import ${name}@${version}/${rest.join("/")}.bend as Rule${n}`;
@@ -2058,7 +1929,6 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
   ].join("\n");
   const source = nodePath.join(BUILD, `rules.${getSha256Hex(text).slice(0, 16)}.bend`);
   if (!nodeFs.existsSync(source)) {
-    nodeFs.mkdirSync(BUILD, { recursive: true });
     writeFileAtomically(source, text);
   }
   return source;
@@ -2075,8 +1945,7 @@ const init = (dir: string): { wrote: string[]; kept: string[] } => {
   const wrote = files
     .filter(([file]) => !kept.includes(file))
     .map(([file, text]) => {
-      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-      nodeFs.writeFileSync(file, text);
+      writeFileAtomically(file, text);
       return file;
     });
   return { wrote, kept };

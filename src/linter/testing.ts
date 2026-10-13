@@ -53,10 +53,8 @@ const projectOfRule = (id: string): string => (id.startsWith("tests/") ? FIXTURE
 // that turns on only it, before the tests that use it; gives `id`.
 export const build = async (id: string): Promise<string> => {
   if (id.startsWith("tests/")) {
-    const file = path.join(FIXTURES, "bend-lint-rules", ...id.split("/")) + ".bend";
-    fs.mkdirSync(path.dirname(file), { recursive: true });
     writeFileAtomically(
-      file,
+      path.join(FIXTURES, "bend-lint-rules", ...id.split("/")) + ".bend",
       "import Base\nimport ../../../../lint.bend as Lint\nimport ../../../../tests.bend as Tests\n\n" +
         `def rule() -> Lint.Rule:\n  Tests.${id.slice("tests/".length)}()\n`,
     );

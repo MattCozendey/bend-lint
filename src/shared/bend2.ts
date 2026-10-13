@@ -17,9 +17,10 @@ import { error } from "./result.ts";
 import type { Result } from "./result.ts";
 import {
   getErrorMessageFromUnknown,
+  tryGetJsonOrUndefined,
   tryGetOrUndefined,
   tryGetUrlFromFolderPathOrUrl,
-  writeFileAtomically,
+  tryWriteJsonAtomically,
 } from "./utils.ts";
 
 // Constants
@@ -109,9 +110,7 @@ export const getBendVersionNoteOrUndefined = async (dir: URL): Promise<string | 
   }
   const key = [bend, stat.size, stat.mtimeMs].join(" ");
   const file = url.fileURLToPath(new URL("installed-bend.json", getBendLintCacheDir()));
-  const kept = tryGetOrUndefined(
-    () => JSON.parse(nodeFs.readFileSync(file, "utf8")) as { key?: string; version?: string },
-  );
+  const kept = tryGetJsonOrUndefined(file) as { key?: string; version?: string } | undefined;
   const version =
     kept?.key === key
       ? kept.version
@@ -125,10 +124,7 @@ export const getBendVersionNoteOrUndefined = async (dir: URL): Promise<string | 
           }
         });
   if (kept?.key !== key) {
-    tryGetOrUndefined(() => {
-      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-      writeFileAtomically(file, JSON.stringify({ key, version }));
-    });
+    tryWriteJsonAtomically(file, { key, version });
   }
   const pinned = /^const VERSION = "([^"]+)";$/m.exec(
     nodeFs.readFileSync(new URL("main.ts", dir), "utf8"),
