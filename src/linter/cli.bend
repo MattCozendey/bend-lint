@@ -915,6 +915,14 @@ def About.whole(about: About) -> Bool:
     case About{id, needs, options, every}:
       Maybe.is_some(&2, Bool, every)
 
+# Whether a rule's findings must be found by every check.
+def About.every(about: About) -> Bool:
+  match about:
+    case About{id, needs, options, Some{True{}}}:
+      True{}
+    case _:
+      False{}
+
 def Setting.on(setting: Maybe<&2, Setting>) -> Bool:
   match setting:
     case Some{RuleOff{}}:
@@ -2406,21 +2414,39 @@ def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<
         []
       )
 
-# Says, if the named file's check failed and a rule on needs its facts, that those rules did not run.
-def unchecked(failed: Bool, needs: Bool, path: String) -> IO(Unit):
-  match failed needs:
-    case True{} True{}:
+# Says, if the named file's check failed, which rules on did not run on it, as they need its facts (`skipped`), if any.
+def unchecked(failed: Bool, skipped: List<&2, String>, path: String) -> IO(Unit):
+  match failed skipped:
+    case True{} Con{id, rest}:
       IO.print_err(
         "bend-lint: Bend's check of "
           ++ path
-          ++ " fails, so the rules that need its facts did not run; `bend <file> --check-only` says why"
+          ++ " fails, so the rules that need its facts did not run on it: "
+          ++ String.join(Con{id, rest}, ", ")
+          ++ "; `bend <file> --check-only` says why"
       )
     case _ _:
       IO.pure(Unit, Unit{})
 
+# What a note on a failed entry adds of the rules on whose findings every entry must find (`every`): they report
+# nothing.
+def silenced(every: List<&2, String>) -> String:
+  match every:
+    case Nil{}:
+      ""
+    case Con{id, rest}:
+      ", and the rules whose findings every entry must find report nothing on it: "
+        ++ String.join(Con{id, rest}, ", ")
+
 # Says, for each entry of `failing` that reads the named file and failed its check, that the file was linted without
-# it. If the file's own check failed too (`failed`), `unchecked` says so instead.
-def unentered(failed: Bool, failing: List<&2, String>, +path: String) -> IO(Unit):
+# it, and which rules report nothing on it (`every`). If the file's own check failed too (`failed`), `unchecked` says
+# so instead.
+def unentered(
+  failed: Bool,
+  failing: List<&2, String>,
+  +every: List<&2, String>,
+  +path: String
+) -> IO(Unit):
   match failed failing:
     case False{} Con{entry, rest}:
       do IO<Unit>:
@@ -2429,9 +2455,11 @@ def unentered(failed: Bool, failing: List<&2, String>, +path: String) -> IO(Unit
             ++ entry
             ++ " fails, so "
             ++ path
-            ++ " was linted without it; `bend <file> --check-only` says why"
+            ++ " was linted without it"
+            ++ silenced(every)
+            ++ "; `bend <file> --check-only` says why"
         )
-        unentered(False{}, rest, path)
+        unentered(False{}, rest, every, path)
     case _ _:
       IO.pure(Unit, Unit{})
 
@@ -2446,13 +2474,10 @@ def checked(
 ) -> IO(Outcome):
   match checks:
     case Checks{Con{Lint.Program{+sources}, rest}, +failing, +failed, forget}:
+      +on = About.on(About.all(rules, []), settings, [])
       do IO<Outcome>:
-        unchecked(
-          failed,
-          Lists.any(~About, ~About.facts, About.on(About.all(rules, []), settings, [])),
-          path
-        )
-        unentered(failed, failing, path)
+        unchecked(failed, About.ids(List.filter(~About, ~About.facts, on), []), path)
+        unentered(failed, failing, About.ids(List.filter(~About, ~About.every, on), []), path)
         o: Outcome <- lint(
           ~rules,
           linted(imports, path, sources),
