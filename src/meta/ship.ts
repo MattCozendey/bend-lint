@@ -18,10 +18,10 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { API, closure, DEFAULTS, IMPORT } from "../linter/seam.ts";
+import { API, DEFAULTS, getClosure, IMPORT } from "../linter/seam.ts";
 import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
-import { getPathWithForwardSlashes, getSha256Hex } from "../shared/utils.ts";
+import { getPathWithForwardSlashes, getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
 
 // Constants
 // =========
@@ -32,7 +32,7 @@ const RULES = path.join(ROOT, "bend-lint-rules");
 const LICENSE = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8");
 
 // The rule API's files.
-const API_FILES = new Set(closure(path.join(SRC, "linter", "lint.bend")));
+const API_FILES = new Set(getClosure(path.join(SRC, "linter", "lint.bend")));
 
 // The npm package holds these files of this repo, but those it leaves out: tests, these scripts,
 // the test rules, and the rule API.
@@ -46,11 +46,11 @@ const DEV_ONLY = new Set(["private", "scripts", "devDependencies", "packageManag
 // =========
 
 // The path of `file` from the folder `dir`, with "/" between its parts.
-const from = (dir: string, file: string): string =>
+const getPathFrom = (dir: string, file: string): string =>
   getPathWithForwardSlashes(path.relative(dir, file));
 
 // The files git tracks in this repo.
-const tracked = (): string[] => {
+const getTrackedFiles = (): string[] => {
   const listed = spawnSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" });
   if (listed.status !== 0) throw new Error("git ls-files failed: " + listed.stderr);
   return listed.stdout
@@ -62,7 +62,10 @@ const tracked = (): string[] => {
 // The package of the files of this repo `at` (files to their paths in it), and of `more` (paths to
 // texts): paths to texts. A .bend file's imports of files the package holds follow them, and its
 // imports of rule API files come from BendHub.
-const packed = (at: Map<string, string>, more: Array<[string, string]> = []): Map<string, string> =>
+const getPackage = (
+  at: Map<string, string>,
+  more: Array<[string, string]> = [],
+): Map<string, string> =>
   new Map([
     ...[...at].map(([file, to]): [string, string] => {
       const text = fs.readFileSync(file, "utf8");
@@ -76,8 +79,11 @@ const packed = (at: Map<string, string>, more: Array<[string, string]> = []): Ma
             const moved = path.posix.relative(path.posix.dirname(to), held);
             return line.replace(relative, moved.startsWith("../") ? moved : "./" + moved);
           }
-          if (API_FILES.has(target)) return line.replace(relative, API + "/" + from(SRC, target));
-          throw new Error(from(ROOT, file) + " imports " + relative + ", which its package lacks");
+          if (API_FILES.has(target))
+            return line.replace(relative, API + "/" + getPathFrom(SRC, target));
+          throw new Error(
+            getPathFrom(ROOT, file) + " imports " + relative + ", which its package lacks",
+          );
         }),
       ];
     }),
@@ -85,42 +91,47 @@ const packed = (at: Map<string, string>, more: Array<[string, string]> = []): Ma
   ]);
 
 // The rule API.
-export const apiOf = (): Map<string, string> =>
-  packed(new Map([...API_FILES].map((file): [string, string] => [file, from(SRC, file)])), [
-    ["linter/LICENSE", LICENSE],
-  ]);
+export const getApiPackage = (): Map<string, string> =>
+  getPackage(
+    new Map([...API_FILES].map((file): [string, string] => [file, getPathFrom(SRC, file)])),
+    [["linter/LICENSE", LICENSE]],
+  );
 
 // bend-lint's own rules.
-export const defaultsOf = (): Map<string, string> => {
-  const rules = tracked().filter(
+export const getDefaultsPackage = (): Map<string, string> => {
+  const rules = getTrackedFiles().filter(
     (file) => file.startsWith(RULES + path.sep) && file.endsWith(".bend"),
   );
   const seen = new Set(API_FILES);
   const at = new Map(
     rules
-      .flatMap((rule) => closure(rule, seen))
+      .flatMap((rule) => getClosure(rule, seen))
       .map((file): [string, string] => [
         file,
-        file.startsWith(RULES + path.sep) ? from(RULES, file) : "lib/" + from(SRC, file),
+        file.startsWith(RULES + path.sep)
+          ? getPathFrom(RULES, file)
+          : "lib/" + getPathFrom(SRC, file),
       ]),
   );
-  const entry = rules.map((rule, n) => `import ./${from(RULES, rule)} as Rule${n}\n`).join("");
-  return packed(at, [
+  const entry = rules
+    .map((rule, n) => `import ./${getPathFrom(RULES, rule)} as Rule${n}\n`)
+    .join("");
+  return getPackage(at, [
     ["rules.bend", "import Base\n" + entry],
     ["LICENSE", LICENSE],
   ]);
 };
 
 // The npm package. A project that trusts it runs its postinstall (see seam.ts).
-export const npmOf = (): Map<string, string> => {
+export const getNpmPackage = (): Map<string, string> => {
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as object;
   const kept = Object.entries(config).filter(([key]) => !DEV_ONLY.has(key));
   const scripts = { postinstall: "bun ./src/linter/seam.ts postinstall" };
-  return packed(
+  return getPackage(
     new Map(
-      tracked()
+      getTrackedFiles()
         .filter((file) => !API_FILES.has(file))
-        .map((file): [string, string] => [file, from(ROOT, file)])
+        .map((file): [string, string] => [file, getPathFrom(ROOT, file)])
         .filter(([, p]) => SHIPPED.test(p) && !LEFT_OUT.test(p)),
     ),
     [["package.json", JSON.stringify({ ...Object.fromEntries(kept), scripts }, null, 2) + "\n"]],
@@ -128,7 +139,7 @@ export const npmOf = (): Map<string, string> => {
 };
 
 // The hash of the package of `files` (paths to texts), as `bend --publish` makes it.
-export const hashOf = (files: Map<string, string>): string =>
+export const getPackageHash = (files: Map<string, string>): string =>
   "0x" +
   getSha256Hex(
     [...files]
@@ -139,11 +150,7 @@ export const hashOf = (files: Map<string, string>): string =>
 
 // Writes `files` (paths to texts) into `dir`.
 export const writeFiles = (dir: string, files: Map<string, string>): void =>
-  files.forEach((text, at) => {
-    const to = path.join(dir, at);
-    fs.mkdirSync(path.dirname(to), { recursive: true });
-    fs.writeFileSync(to, text);
-  });
+  files.forEach((text, at) => writeFileAtomically(path.join(dir, at), text));
 
 // Side effects
 // ============
@@ -160,14 +167,14 @@ if (import.meta.main) {
   }
   // Each BendHub package: its folder, its entry there, and its name. The rules import the API.
   const hub: Array<[string, string, string, Map<string, string>]> = [
-    ["api", "linter/lint.bend", API, apiOf()],
-    ["rules", "rules.bend", DEFAULTS, defaultsOf()],
+    ["api", "linter/lint.bend", API, getApiPackage()],
+    ["rules", "rules.bend", DEFAULTS, getDefaultsPackage()],
   ];
   hub.forEach(([name, , named, files]) => {
     writeFiles(path.join(dir, name), files);
-    console.log(named + " is " + hashOf(files));
+    console.log(named + " is " + getPackageHash(files));
   });
-  writeFiles(path.join(dir, "npm"), npmOf());
+  writeFiles(path.join(dir, "npm"), getNpmPackage());
   if (flag === "--publish") {
     const bend = getBendCli(unwrap(await tryGetBend2SourceUrl()));
     const failed = hub.find(

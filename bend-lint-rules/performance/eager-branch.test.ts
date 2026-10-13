@@ -3,13 +3,12 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint } from "../../src/linter/testing.ts";
+import { buildRule, BUILDS, getFindingTexts } from "../../src/linter/testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("performance/eager-branch") : "";
+const RULE = "performance/eager-branch";
 
 // A loop over n, on lines 3 to 8.
 const SPIN =
@@ -23,23 +22,21 @@ const ADVICE =
 // =========
 
 // A file with `spin` and then `defs`, which start on line 10.
-const file = (defs: string): string => "import Base\n\n" + SPIN + "\n" + defs;
+const getFile = (defs: string): string => "import Base\n\n" + SPIN + "\n" + defs;
 
 // Where each finding is, and what it says. The file must pass Bend's check.
-const found = async (text: string): Promise<string[]> =>
-  (await lint(PROGRAM, { "main.bend": text }, "main.bend")).map(
-    ({ at, code, message }) => `${at} ${code}: ${message}`,
-  );
+const getReports = (text: string): Promise<string[]> => getFindingTexts(RULE, text);
 
 // Side effects
 // ============
 
+await buildRule(RULE);
 setDefaultTimeout(120_000);
 
-(BUILDS ? describe : describe.skip)("performance/eager-branch", () => {
+(BUILDS ? describe : describe.skip)(RULE, () => {
   test("a value of Bool.pick that calls a loop is reported, with what to do", async () => {
     expect(
-      await found(file("def f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, spin(9n, 0))\n")),
+      await getReports(getFile("def f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, spin(9n, 0))\n")),
     ).toEqual([
       "11:24 performance/eager-branch: Bool.pick computes both of its values before it picks one, so this call of spin runs even when the condition picks the other value" +
         ADVICE +
@@ -49,9 +46,9 @@ setDefaultTimeout(120_000);
 
   test("the right side of && that calls a loop is reported", async () => {
     expect(
-      (await found(file("def f(c: Bool) -> Bool:\n  c && U32.is_eq(spin(9n, 0), 9)\n"))).map(
-        (f) => f.split(", so")[0],
-      ),
+      (
+        await getReports(getFile("def f(c: Bool) -> Bool:\n  c && U32.is_eq(spin(9n, 0), 9)\n"))
+      ).map((f) => f.split(", so")[0]),
     ).toEqual([
       "11:8 performance/eager-branch: && computes its right side even when its left side decides the result (False)",
     ]);
@@ -60,7 +57,7 @@ setDefaultTimeout(120_000);
   test("a loop's own call is reported as walking to its end", async () => {
     expect(
       (
-        await found(
+        await getReports(
           "import Base\n\ndef has(xs: List<&2, U32>, +x: U32) -> Bool:\n  match xs:\n    case Nil{}:\n      False{}\n    case Con{h, t}:\n      U32.is_eq(h, x) || has(t, x)\n",
         )
       ).map((f) => f.split(". Measured")[0]),
@@ -71,8 +68,8 @@ setDefaultTimeout(120_000);
 
   test("calls that do not loop, calls in a lambda, and a match pass", async () => {
     expect(
-      await found(
-        file(
+      await getReports(
+        getFile(
           "def one() -> U32:\n  1\n\ndef f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, one())\n\ndef g(c: Bool) -> U32 -> U32:\n  Bool.pick(U32 -> U32, c, x => x, x => spin(9n, x))\n\ndef h(c: Bool) -> U32:\n  match c:\n    case True{}:\n      7\n    case False{}:\n      spin(9n, 0)\n",
         ),
       ),

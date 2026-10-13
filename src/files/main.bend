@@ -222,7 +222,7 @@ def Glyph.of(+c: Char) -> Glyph:
   )
 
 # Whether a glyph makes a segment a pattern.
-def Glyph.wild(glyph: Glyph) -> Bool:
+def Glyph.is_wild(glyph: Glyph) -> Bool:
   match glyph:
     case GStar{}:
       True{}
@@ -234,12 +234,12 @@ def Glyph.wild(glyph: Glyph) -> Bool:
       False{}
 
 # Whether `s` has a glyph that makes a segment a pattern, or `found` says one came before it.
-def wild(s: String, found: Bool) -> Bool:
+def has_wild(s: String, found: Bool) -> Bool:
   match s found:
     case _ True{}:
       True{}
     case SCon{c, t} False{}:
-      wild(t, Glyph.wild(Glyph.of(c)))
+      has_wild(t, Glyph.is_wild(Glyph.of(c)))
     case SNil{} False{}:
       False{}
 
@@ -359,7 +359,7 @@ def matches.go(fuel: Nat, matching: Matching) -> Bool:
     case _ _:
       False{}
 
-def matches.shown(shown: Bool, name: String, pattern: String) -> Bool:
+def matches.if(shown: Bool, name: String, pattern: String) -> Bool:
   match shown:
     case True{}:
       matches.go(4294967295n, Matching{name, pattern, None{}})
@@ -369,7 +369,11 @@ def matches.shown(shown: Bool, name: String, pattern: String) -> Bool:
 # Whether `name` matches the glob segment `pattern`: `*` matches any characters, `?` one, and `[...]` one of a class
 # (`[!...]` or `[^...]`, one outside it). A name that starts with "." matches only a pattern that does.
 def matches(+name: String, +pattern: String) -> Bool:
-  matches.shown(Bool.not(Strings.starts(name, '.')) || Strings.starts(pattern, '.'), name, pattern)
+  matches.if(
+    Bool.not(Strings.starts_with(name, '.')) || Strings.starts_with(pattern, '.'),
+    name,
+    pattern
+  )
 
 # The scan after the glob's character `c` (a `glyph`), with `t` after it.
 def Braces.step(scan: Braces, glyph: Glyph, c: Char, t: String) -> Braces:
@@ -451,7 +455,7 @@ def Segment.deep(deep: Bool, +segment: String) -> Segment:
     case True{}:
       Deep{}
     case False{}:
-      Segment.wild(wild(segment, False{}), segment)
+      Segment.wild(has_wild(segment, False{}), segment)
 
 # The path of `name` in the folder at `path`: "" is the current folder, so a name after it is relative, and an empty
 # name after it is the root.
@@ -483,7 +487,7 @@ def Walk.deep(
           Walk,
           Lists.when(
             Walk,
-            Bool.not(Strings.starts(name, '.')),
+            Bool.not(Strings.starts_with(name, '.')),
             Walk{join(path, name), "**" <> more}
           ),
           out
@@ -546,16 +550,16 @@ def Walk.step(+path: String, segments: List<&2, String>) -> IO(List<&2, Walk>):
       Walk.segment(Segment.deep(String.eq(segment, "**"), segment), path, more)
 
 # The files the walks of `todo` find, onto `out`.
-def Walk.loop(fuel: Nat, todo: List<&2, Walk>, out: List<&2, String>) -> IO(List<&2, String>):
+def Walk.go(fuel: Nat, todo: List<&2, Walk>, out: List<&2, String>) -> IO(List<&2, String>):
   match fuel todo:
     case 1n+k Con{Found{path}, rest}:
-      Walk.loop(k, rest, path <> out)
+      Walk.go(k, rest, path <> out)
     case 1n+k Con{Walk{path, segments}, rest}:
       IO.bind(
         List<&2, Walk>,
         List<&2, String>,
         Walk.step(path, segments),
-        more => Walk.loop(k, Lists.onto(&2, Walk, more, rest), out)
+        more => Walk.go(k, Lists.onto(&2, Walk, more, rest), out)
       )
     case _ _:
       IO.pure(List<&2, String>, out)
@@ -573,7 +577,7 @@ def glob(glob: String) -> IO(List<&2, String>):
   IO.bind(
     List<&2, String>,
     List<&2, String>,
-    Walk.loop(4294967295n, Walk.starts(expand(4294967295n, Expanding{[glob], []}), []), []),
+    Walk.go(4294967295n, Walk.starts(expand(4294967295n, Expanding{[glob], []}), []), []),
     found => IO.pure(List<&2, String>, Lists.sort(~String, ~String.is_le, found))
   )
 
@@ -699,8 +703,8 @@ def git.listed(
       None{}
 
 # Whether a part of a path is node_modules, or starts with ".".
-def listed.hidden(+part: String) -> Bool:
-  String.eq(part, "node_modules") || Strings.starts(part, '.')
+def listed.is_hidden(+part: String) -> Bool:
+  String.eq(part, "node_modules") || Strings.starts_with(part, '.')
 
 # The files of `paths` with no part that is node_modules or starts with ".", sorted, each once, as real paths.
 def listed.kept(paths: List<&2, String>) -> IO(List<&2, String>):
@@ -712,7 +716,7 @@ def listed.kept(paths: List<&2, String>) -> IO(List<&2, String>):
         ~String,
         ~(
           path => Bool.not(
-            Lists.any(~String, ~(part => listed.hidden(part)), String.split(path, '/'))
+            Lists.any(~String, ~(part => listed.is_hidden(part)), String.split(path, '/'))
           )
         ),
         paths

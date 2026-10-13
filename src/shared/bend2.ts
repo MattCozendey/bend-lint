@@ -17,8 +17,10 @@ import { error } from "./result.ts";
 import type { Result } from "./result.ts";
 import {
   getErrorMessageFromUnknown,
-  tryGetOrUndefined,
+  tryGet,
+  tryGetJson,
   tryGetUrlFromFolderPathOrUrl,
+  tryWriteJsonAtomically,
   writeFileAtomically,
 } from "./utils.ts";
 
@@ -50,7 +52,7 @@ export const getBendLintCacheDir = (): URL =>
   );
 
 // What bend-lint says on each run whose rules it built as JavaScript, as it
-// found no clang (see findClangOrUndefined).
+// found no clang (see getClang).
 export const JAVASCRIPT_NOTE =
   "bend-lint: found no clang 14 or newer, so the rules run as JavaScript, about 3 to 8 times slower; install clang to speed them up";
 
@@ -70,13 +72,13 @@ export const isMachineNote = (line: string): boolean =>
 // cc_find picks it (main.ts): the first of $CC, clang, each clang-NN on PATH
 // (the newest first), and on Windows where LLVM's installer puts it, that is
 // clang 14 or newer.
-export const findClangOrUndefined = (): string | undefined => {
-  const listed = (dir: string): string[] => tryGetOrUndefined(() => nodeFs.readdirSync(dir)) ?? [];
+export const getClang = (): string | undefined => {
+  const getFileNames = (dir: string): string[] => tryGet(() => nodeFs.readdirSync(dir)) ?? [];
   const numbered = [
     ...new Set(
       (process.env.PATH ?? "")
         .split(nodePath.delimiter)
-        .flatMap(listed)
+        .flatMap(getFileNames)
         .filter((f) => /^clang-\d+$/.test(f)),
     ),
   ].sort((a, b) => Number(b.slice(6)) - Number(a.slice(6)));
@@ -101,7 +103,7 @@ export const findClangOrUndefined = (): string | undefined => {
 // no version. `bend version` takes a third of a second, so its answer is kept
 // by the path, size and time of the `bend` that gave it. It runs by name:
 // Windows runs a bend.cmd only that way.
-export const getBendVersionNoteOrUndefined = async (dir: URL): Promise<string | undefined> => {
+export const getBendVersionNote = async (dir: URL): Promise<string | undefined> => {
   const bend = Bun.which("bend");
   const stat = bend === null ? undefined : nodeFs.statSync(bend, { throwIfNoEntry: false });
   if (bend === null || stat === undefined) {
@@ -109,26 +111,21 @@ export const getBendVersionNoteOrUndefined = async (dir: URL): Promise<string | 
   }
   const key = [bend, stat.size, stat.mtimeMs].join(" ");
   const file = url.fileURLToPath(new URL("installed-bend.json", getBendLintCacheDir()));
-  const kept = tryGetOrUndefined(
-    () => JSON.parse(nodeFs.readFileSync(file, "utf8")) as { key?: string; version?: string },
-  );
+  const kept = tryGetJson(file) as { key?: string; version?: string } | undefined;
   const version =
     kept?.key === key
       ? kept.version
       : await new Promise<string | undefined>((resolve) => {
-          const said = (e: Error | null, stdout: string): void =>
+          const resolveVersion = (e: Error | null, stdout: string): void =>
             resolve(/^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(e === null ? stdout : "")?.[1]);
           try {
-            execFile("bend", ["version"], { encoding: "utf8", timeout: 10_000 }, said);
+            execFile("bend", ["version"], { encoding: "utf8", timeout: 10_000 }, resolveVersion);
           } catch (e) {
-            said(e as Error, "");
+            resolveVersion(e as Error, "");
           }
         });
   if (kept?.key !== key) {
-    tryGetOrUndefined(() => {
-      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-      writeFileAtomically(file, JSON.stringify({ key, version }));
-    });
+    tryWriteJsonAtomically(file, { key, version });
   }
   const pinned = /^const VERSION = "([^"]+)";$/m.exec(
     nodeFs.readFileSync(new URL("main.ts", dir), "utf8"),
@@ -147,22 +144,20 @@ export const getBendCli = (dir: URL): { cmd: string[]; env: Record<string, strin
 });
 
 // bend2 at `pin` (`<owner>/<repo>/<ref>` on GitHub), kept in <cache>/<pin>/bend2.
-// A download goes to a temporary folder first, so the cache never holds a
-// partial one.
-const fetchBend = async (pin: string): Promise<URL> => {
+// Each file goes in whole (see writeFileAtomically), base.bend last, and none is
+// ever replaced: runs at once may each download, while others read the files.
+const getDownloadedBend = async (pin: string): Promise<URL> => {
   if (!/^[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(pin)) {
     throw new Error("not a GitHub <owner>/<repo>/<ref>: " + pin);
   }
-  const at = new URL(pin + "/", getBendLintCacheDir());
-  const dir = new URL("bend2/", at);
+  const dir = new URL(pin + "/bend2/", getBendLintCacheDir());
   // What a download holds besides base.bend and the effs/ files Base imports.
   const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
-  const whole = (): boolean =>
-    [...FILES, "base.bend"].every((f) => nodeFs.existsSync(new URL(f, dir)));
-  if (whole()) {
+  const isMissing = (file: string): boolean => !nodeFs.existsSync(new URL(file, dir));
+  if (![...FILES, "base.bend"].some(isMissing)) {
     return dir;
   }
-  const fetched = async (file: string): Promise<[string, string]> => {
+  const getFetchedFile = async (file: string): Promise<[string, string]> => {
     const res = await fetch(`https://raw.githubusercontent.com/${pin}/bend2/${file}`, {
       signal: AbortSignal.timeout(30_000),
     });
@@ -171,37 +166,25 @@ const fetchBend = async (pin: string): Promise<URL> => {
     }
     return [file, await res.text()];
   };
-  const base = await fetched("base.bend");
+  const base = await getFetchedFile("base.bend");
   const effs = new Set([...base[1].matchAll(/^\s*import "\.\/(effs\/[^"]+)"/gm)].map((m) => m[1]));
   const odd = [...effs].find((f) => !/^effs\/[\w.-]+$/.test(f));
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
-  const files = [base, ...(await Promise.all([...FILES, ...effs].map(fetched)))];
-  nodeFs.mkdirSync(at, { recursive: true });
-  const part = url.pathToFileURL(
-    nodeFs.mkdtempSync(url.fileURLToPath(new URL(".part-", at))) + nodePath.sep,
+  [...(await Promise.all([...effs, ...FILES].map(getFetchedFile))), base].forEach(
+    ([file, body]) => {
+      if (isMissing(file)) {
+        writeFileAtomically(url.fileURLToPath(new URL(file, dir)), body);
+      }
+    },
   );
-  files.forEach(([file, body]) => {
-    const to = new URL(file, part);
-    nodeFs.mkdirSync(new URL(".", to), { recursive: true });
-    nodeFs.writeFileSync(to, body);
-  });
-  try {
-    nodeFs.rmSync(dir, { recursive: true, force: true });
-    nodeFs.renameSync(part, dir);
-  } catch (e) {
-    nodeFs.rmSync(part, { recursive: true, force: true });
-    if (!whole()) {
-      throw e;
-    }
-  }
   console.error("bend-lint: downloaded bend " + pin + " to " + url.fileURLToPath(dir));
   return dir;
 };
 
 // The bend2 folder to load: the pinned Bend's, downloaded if it is not yet.
 export const tryGetBend2SourceUrl = async (): Promise<Result<URL, string>> =>
-  fetchBend(PINNED_BEND).then(tryGetUrlFromFolderPathOrUrl, (e: unknown) =>
+  getDownloadedBend(PINNED_BEND).then(tryGetUrlFromFolderPathOrUrl, (e: unknown) =>
     error(`could not download bend ${PINNED_BEND} (${getErrorMessageFromUnknown(e)})`),
   );

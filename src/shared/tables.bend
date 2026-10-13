@@ -10,31 +10,39 @@ type Table<-A: Data> is Data:
 # lowest bit, a bit a level), so a value numbered `i` is about log2(i) levels down.
 
 # The value numbered `i` in `t`: `odd` is whether `i` is.
-def Table.get(-A: Data, t: Table<A>, +i: U32, odd: Bool) -> Maybe<&2, A>:
+def Table.get.go(-A: Data, t: Table<A>, +i: U32, odd: Bool) -> Maybe<&2, A>:
   match t odd:
     case TLeaf{v} _:
       Bool.pick(Maybe<&2, A>, U32.is_zero(i), v, None{})
     case TNode{e, o} False{}:
-      Table.get(A, e, U32.shr(i), U32.is_eq(U32.and(U32.shr(i), 1), 1))
+      Table.get.go(A, e, U32.shr(i), U32.is_eq(U32.and(U32.shr(i), 1), 1))
     case TNode{e, o} True{}:
-      Table.get(A, o, U32.shr(i), U32.is_eq(U32.and(U32.shr(i), 1), 1))
+      Table.get.go(A, o, U32.shr(i), U32.is_eq(U32.and(U32.shr(i), 1), 1))
 
-def Table.read(-A: Data, t: Table<A>, +i: U32) -> Maybe<&2, A>:
-  Table.get(A, t, i, U32.is_eq(U32.and(i, 1), 1))
+def Table.get(-A: Data, t: Table<A>, +i: U32) -> Maybe<&2, A>:
+  Table.get.go(A, t, i, U32.is_eq(U32.and(i, 1), 1))
 
 # `t` with `x` numbered `i`: `odd` is whether `i` is, and `zero` whether it is 0. A leaf of another number parts
 # first. `fuel` bounds the levels: two a bit.
-def Table.put(-A: Data, fuel: Nat, t: Table<A>, +i: U32, x: A, odd: Bool, zero: Bool) -> Table<A>:
+def Table.set.go(
+  -A: Data,
+  fuel: Nat,
+  t: Table<A>,
+  +i: U32,
+  x: A,
+  odd: Bool,
+  zero: Bool
+) -> Table<A>:
   match fuel t odd zero:
     case 0n _ _ _:
       t
     case 1n+f TLeaf{v} _ True{}:
       TLeaf{Some{x}}
     case 1n+f TLeaf{v} _ False{}:
-      Table.put(A, f, TNode{TLeaf{v}, TLeaf{None{}}}, i, x, odd, zero)
+      Table.set.go(A, f, TNode{TLeaf{v}, TLeaf{None{}}}, i, x, odd, zero)
     case 1n+f TNode{e, o} False{} _:
       TNode{
-        Table.put(
+        Table.set.go(
           A,
           f,
           e,
@@ -48,7 +56,7 @@ def Table.put(-A: Data, fuel: Nat, t: Table<A>, +i: U32, x: A, odd: Bool, zero: 
     case 1n+f TNode{e, o} True{} _:
       TNode{
         e,
-        Table.put(
+        Table.set.go(
           A,
           f,
           o,
@@ -60,4 +68,4 @@ def Table.put(-A: Data, fuel: Nat, t: Table<A>, +i: U32, x: A, odd: Bool, zero: 
       }
 
 def Table.set(-A: Data, t: Table<A>, +i: U32, x: A) -> Table<A>:
-  Table.put(A, 66n, t, i, x, U32.is_eq(U32.and(i, 1), 1), U32.is_zero(i))
+  Table.set.go(A, 66n, t, i, x, U32.is_eq(U32.and(i, 1), 1), U32.is_zero(i))

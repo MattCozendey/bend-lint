@@ -1,7 +1,15 @@
+// no-type-synonyms: a type alias that only renames another type (`type A = B`).
+
+// Imports
+// =======
+
 import { defineRule } from "@oxlint/plugins";
 import type { Rule } from "@oxlint/plugins";
 
-export const noTypeSynonyms: Rule = defineRule({
+// Constants
+// =========
+
+export const NO_TYPE_SYNONYMS: Rule = defineRule({
   meta: {
     type: "suggestion",
     schema: [],

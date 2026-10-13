@@ -6,9 +6,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { API, DEFAULTS } from "../linter/seam.ts";
-import { BUILDS, fresh } from "../linter/testing.ts";
+import { BUILDS, getFreshFolder } from "../linter/testing.ts";
 import { getCommandOutcome } from "../shared/utils.ts";
-import { apiOf, defaultsOf, hashOf, npmOf, writeFiles } from "./ship.ts";
+import {
+  getApiPackage,
+  getDefaultsPackage,
+  getNpmPackage,
+  getPackageHash,
+  writeFiles,
+} from "./ship.ts";
 
 // Constants
 // =========
@@ -34,7 +40,7 @@ const DEMO = [
 
 // Puts the package of `files` (paths to texts) in `lib`, a BEND_LIB, as BendHub's `named`.
 const host = (lib: string, named: string, files: Map<string, string>): void => {
-  const hash = hashOf(files);
+  const hash = getPackageHash(files);
   writeFiles(path.join(lib, hash), files);
   writeFiles(path.join(lib, "names"), new Map([[named, hash + "\n"]]));
 };
@@ -47,15 +53,15 @@ setDefaultTimeout(600_000);
 (BUILDS ? test : test.skip)(
   "a project that installs the npm package lints: init's formatter, and a rule of a package on BendHub",
   async () => {
-    const dir = fresh();
+    const dir = getFreshFolder();
     const lib = path.join(dir, "lib");
     const npm = path.join(dir, "npm");
     const project = path.join(dir, "project");
     const env = { BEND_LIB: lib };
-    host(lib, API, apiOf());
-    host(lib, DEFAULTS, defaultsOf());
+    host(lib, API, getApiPackage());
+    host(lib, DEFAULTS, getDefaultsPackage());
     host(lib, "demo-rules@1.0.0.0", new Map([["no-one.bend", DEMO]]));
-    writeFiles(npm, npmOf());
+    writeFiles(npm, getNpmPackage());
     const packed = await getCommandOutcome(["bun", "pm", "pack"], npm);
     const tgz = path.join(npm, fs.readdirSync(npm).find((name) => name.endsWith(".tgz")) ?? "");
     writeFiles(project, new Map([["package.json", '{ "name": "demo", "private": true }\n']]));

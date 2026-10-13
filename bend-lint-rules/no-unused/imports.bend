@@ -1,5 +1,5 @@
 # no-unused/imports: an import that nothing in its file uses.
-# Fix: deletes the import's line (--fix-dangerously).
+# Fix: deletes the import's line.
 # Heuristics: a use is a name written through the import's alias, or, for Base, a name that only Base
 # declares (Imported in lint.bend).
 import Base

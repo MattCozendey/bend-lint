@@ -20,8 +20,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { nativeOf, programOf, projectOf, rulesOf } from "../linter/seam.ts";
-import { findClangOrUndefined, getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
+import { getNativePath, getProject, getRules, getRulesProgram } from "../linter/seam.ts";
+import { getBendCli, getClang, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 
 // Types
@@ -59,7 +59,7 @@ const run = (cmd: string, args: string[], options: SpawnSyncOptions = {}): void 
   }
 };
 
-const findTool = (clang: string, tool: string): string =>
+const getTool = (clang: string, tool: string): string =>
   spawnSync(clang, ["--print-prog-name=" + tool], { encoding: "utf8" }).stdout.trim();
 
 const getRowsFromFunctions = (
@@ -143,12 +143,12 @@ const getMarkdown = (command: string, c: string, defs: Row[], runtime: Row[]): s
 // ============
 
 const args = process.argv.slice(2);
-const project = projectOf(process.cwd());
+const project = getProject(process.cwd());
 if (project === undefined) {
   console.error("c-cpu-prof-md needs a bend-lint.json in this folder or above it");
   process.exit(2);
 }
-const clang = findClangOrUndefined();
+const clang = getClang();
 if (clang === undefined) {
   console.error("c-cpu-prof-md needs clang 14 or newer: set CC, or put clang on PATH");
   process.exit(2);
@@ -157,8 +157,8 @@ const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", ".").sl
 const name = `C-CPU.${stamp}.${process.pid}`;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-c-cpu-prof-"));
 const dir = unwrap(await tryGetBend2SourceUrl());
-const program = programOf(project, rulesOf(project));
-const exe = nativeOf(program, dir);
+const program = getRulesProgram(project, getRules(project));
+const exe = getNativePath(program, dir);
 const kept = exe + ".kept";
 fs.mkdirSync(path.dirname(exe), { recursive: true });
 if (fs.existsSync(exe)) fs.renameSync(exe, kept);
@@ -189,12 +189,12 @@ try {
     .map((f) => path.join(work, f));
   if (raws.length === 0) throw new Error("the run wrote no profile");
   const data = path.join(work, "program.profdata");
-  run(findTool(clang, "llvm-profdata"), ["merge", "-sparse", ...raws, "-o", data]);
+  run(getTool(clang, "llvm-profdata"), ["merge", "-sparse", ...raws, "-o", data]);
   const json = path.join(work, "coverage.json");
   const jsonFd = fs.openSync(json, "w");
   try {
     run(
-      findTool(clang, "llvm-cov"),
+      getTool(clang, "llvm-cov"),
       ["export", "-format=text", "-skip-expansions", "-instr-profile", data, exe],
       { stdio: ["ignore", jsonFd, "pipe"] },
     );

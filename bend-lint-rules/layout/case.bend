@@ -1,5 +1,5 @@
 # layout/case: a name whose case does not follow the kind of what it names.
-# Fix: renames the declaration, with its uses (--fix-dangerously).
+# Fix: renames the declaration, with its uses.
 # Heuristics: the kind comes from the syntax and the written types, not from the checker:
 #
 # | Kind                                              | Case              | Examples                     |
@@ -31,28 +31,28 @@ type Case is Data:
 
 # Case
 # ====
-def no_underscore(s: String) -> Bool:
+def has_no_underscore(s: String) -> Bool:
   match s:
     case SNil{}:
       True{}
     case SCon{'_', rest}:
       False{}
     case SCon{c, rest}:
-      no_underscore(rest)
+      has_no_underscore(rest)
 
-def no_capital(s: String, ok: Bool) -> Bool:
+def has_no_capital(s: String, ok: Bool) -> Bool:
   match s ok:
     case _ False{}:
       False{}
     case SNil{} True{}:
       True{}
     case SCon{c, rest} True{}:
-      no_capital(rest, Bool.not(Char.is_upper(c)))
+      has_no_capital(rest, Bool.not(Char.is_upper(c)))
 
 def is_pascal.rest(upper: Bool, rest: String) -> Bool:
   match upper:
     case True{}:
-      no_underscore(rest)
+      has_no_underscore(rest)
     case False{}:
       False{}
 
@@ -68,7 +68,7 @@ def is_snake.of(empty: Bool, s: String) -> Bool:
     case True{}:
       False{}
     case False{}:
-      no_capital(s, True{})
+      has_no_capital(s, True{})
 
 def is_snake(+s: String) -> Bool:
   is_snake.of(String.is_empty(s), s)
@@ -82,14 +82,14 @@ def fits(want: Case, +s: String) -> Bool:
     case Either{}:
       Bool.or(is_pascal(s), is_snake(s))
 
-def small_head(s: String) -> Bool:
+def has_small_head(s: String) -> Bool:
   match s:
     case SCon{c, rest}:
       Char.is_lower(c)
     case SNil{}:
       False{}
 
-def capital_head(s: String) -> Bool:
+def has_capital_head(s: String) -> Bool:
   match s:
     case SCon{c, rest}:
       Char.is_upper(c)
@@ -113,16 +113,16 @@ def snake(s: String, capital: Bool, +prev: U32, acc: String) -> String:
     case SCon{c, +rest} True{}:
       snake(
         rest,
-        capital_head(rest),
+        has_capital_head(rest),
         2,
         snake_cap(
-          Bool.or(U32.is_eq(prev, 1), Bool.and(U32.is_eq(prev, 2), small_head(rest))),
+          Bool.or(U32.is_eq(prev, 1), Bool.and(U32.is_eq(prev, 2), has_small_head(rest))),
           c,
           acc
         )
       )
     case SCon{+c, +rest} False{}:
-      snake(rest, capital_head(rest), Bool.pick(U32, Char.is_eq(c, '_'), 0, 1), SCon{c, acc})
+      snake(rest, has_capital_head(rest), Bool.pick(U32, Char.is_eq(c, '_'), 0, 1), SCon{c, acc})
 
 # `s` in PascalCase: `_` goes, and the character after it becomes a capital.
 def pascal(s: String, up: Bool, acc: String) -> String:
@@ -141,7 +141,7 @@ def recased(want: Case, +s: String) -> String:
     case Pascal{}:
       pascal(s, True{}, "")
     case _:
-      snake(s, capital_head(s), 0, "")
+      snake(s, has_capital_head(s), 0, "")
 
 # Written types
 # =============
@@ -237,15 +237,15 @@ def what(syntax: Lint.Syntax, want: Case) -> String:
       "this name is snake_case, or PascalCase if it is a type"
 
 # Whether a name is a binder's: only its own declaration names it, so a rename touches no other file.
-def local.of(declares: Maybe<&2, Bool>) -> Bool:
+def is_local.of(declares: Maybe<&2, Bool>) -> Bool:
   match declares:
     case Some{False{}}:
       True{}
     case _:
       False{}
 
-def local(syntax: Lint.Syntax) -> Bool:
-  local.of(Lint.Syntax.declares(syntax))
+def is_local(syntax: Lint.Syntax) -> Bool:
+  is_local.of(Lint.Syntax.declares(syntax))
 
 # The fix that renames a local name to `to`, if recasing made one that fits.
 def renames(ok: Bool, at: Lint.Span, full: String, to: String) -> List<&2, Lint.Fix>:
@@ -272,7 +272,7 @@ def misfit(
       Lint.Warning{},
       span,
       rename ++ ": " ++ what(syntax, want) ++ ".",
-      renames(Bool.and(ok, local(syntax)), span, to, recased(want, seg))
+      renames(Bool.and(ok, is_local(syntax)), span, to, recased(want, seg))
     }
   ]
 

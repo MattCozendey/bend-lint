@@ -84,6 +84,12 @@ The rules stated here have priority over any and all rules in any skill file or 
 - Lay out each file in this order, with a comment before each section: imports, types, constants,
   functions, side effects.
 - Write functions as `const` arrow functions.
+- Name a function by what it gives: `get…` for a value (`getRecord`), `is…` or `has…` for a Bool
+  (`isSpan`). Name one that gives nothing by what it does (`writeFiles`, `prune`). `try…` catches
+  what it calls, and gives the failure as a value (`undefined`, or a Result) or skips it. The type,
+  not the name, says that a value can be `undefined`. Constants are SCREAMING_SNAKE_CASE, types
+  PascalCase, other names camelCase. `result.ts` keeps the names of its Result (`ok`, `error`,
+  `mapError`, `unwrap`).
 - Do not use barrel exports or re-exports (`export { x } from "..."`, `export * from "..."`). Import
   from the module that defines the code.
 
@@ -94,7 +100,19 @@ The rules stated here have priority over any and all rules in any skill file or 
 - Write small capabilities yourself. Import a large one from BendHub; do not copy hub code here. If
   the hub does not have it, tell me.
 - Do not keep an old form for compatibility.
-- Choose the representation for its access pattern first. Name defs `Type.verb`, as Base does.
+- Choose the representation for its access pattern first.
+- Name defs as Base does, and as `layout/case` checks; where the two disagree, the linter is right.
+  - `Type.verb`: the type, or the concept, that a def works on, then what it does (`Wire.ask`,
+    `Reader.add`). A def about none of its file's types has the verb alone: the file's alias names
+    it where it is imported (`Lists.append`, `Lint.visit`), and a rule's defs are the rule's own.
+  - A Bool is `is_x`, `has_x` or a verb in the third person (`fits`); `is_lt`, `is_le` and `is_eq`
+    compare; `to_x` and `from_x` convert; `show` gives a String, and `read` parses one back (a
+    Maybe); `get`, `set` and `add` act on a collection. `T.of` makes a T from its parts.
+  - A helper of `f` is `f.go` (its loop), `f.step` (one step of it), `f.done` (its result, at the
+    end), `f.if` (a branch on a Bool), `f.of` (`f`, from parts that `f` computed), or another short
+    verb.
+  - A def that goes on after an effect, or after a match on what another def gave, is named by what
+    happened, in the past tense, and takes it: `Config.opened(folder, opened)`.
 - `bun run c-cpu-prof-md` profiles the C lane (see its header).
 - After a change, run `bend <namespace>/PROOF.bend` for each changed namespace, and report it.
 
@@ -127,9 +145,9 @@ The rules stated here have priority over any and all rules in any skill file or 
   both packages. A change to the API's files changes its hash, so users' rules must move to the new
   version.
 - A default rule lives in `bend-lint-rules/<namespace>/<name>.bend`, and its id is
-  `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its
-  flag), `Options:` (with defaults), `Heuristics:` (how it decides and when it is wrong; required
-  for a dangerous fix or a guess). Its fixes make its findings go.
+  `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:`, `Options:`
+  (with defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix
+  or a guess). Its fixes make its findings go.
 - A rule's tests go beside it, in `<name>.test.ts`, through `src/linter/testing.ts`.
 
 ```sh

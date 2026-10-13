@@ -59,7 +59,7 @@ def slots(nodes: List<&2, Lint.Node>, +current: String, out: List<&2, Slot>) -> 
       slots(rest, current, out)
 
 # Whether a parameter of this quantity is there at run time.
-def runtime(quantity: Lint.Quantity) -> Bool:
+def is_runtime(quantity: Lint.Quantity) -> Bool:
   match quantity:
     case Lint.Erased{}:
       False{}
@@ -74,7 +74,7 @@ def params(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Param>:
     case Nil{}:
       List.reverse(&2, Param, out)
     case Con{Lint.Node{Lint.Parameter{b, q}, n, s, kids, f}, rest}:
-      params(rest, Lists.push(Param, Lists.when(Param, runtime(q), Param{n, plain(kids)}), out))
+      params(rest, Lists.push(Param, Lists.when(Param, is_runtime(q), Param{n, plain(kids)}), out))
     case Con{node, rest}:
       params(rest, out)
 
@@ -132,7 +132,7 @@ def program.defs(
     case Con{Lint.Source{path, ns, text, nodes}, rest}:
       program.defs(rest, defs(nodes, out))
 
-def scalar(t: String) -> Bool:
+def is_scalar(t: String) -> Bool:
   List.contains(
     ~String,
     ~String.eq,
@@ -147,16 +147,16 @@ def fields(slots: List<&2, Slot>, +t: String, out: List<&2, String>) -> List<&2,
     case Con{Slot{o, ty}, rest}:
       fields(rest, t, Lists.push(String, Lists.when(String, String.eq(o, t), ty), out))
 
-def known(slots: List<&2, Slot>, hit: Bool, +t: String) -> Bool:
+def is_known(slots: List<&2, Slot>, hit: Bool, +t: String) -> Bool:
   match slots hit:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
     case Con{Slot{o, ty}, rest} False{}:
-      known(rest, String.eq(o, t), t)
+      is_known(rest, String.eq(o, t), t)
 
-def flat.expand(
+def is_flat.expand(
   known: Bool,
   t: String,
   rest: List<&2, String>,
@@ -170,7 +170,7 @@ def flat.expand(
 
 # What is left to check after `t`: its fields, if it is a datatype; nothing more, if it is a number;
 # none (data), else.
-def flat.next(
+def is_flat.next(
   number: Bool,
   +t: String,
   rest: List<&2, String>,
@@ -180,11 +180,11 @@ def flat.next(
     case True{}:
       Some{rest}
     case False{}:
-      flat.expand(known(slots, False{}, t), t, rest, slots)
+      is_flat.expand(is_known(slots, False{}, t), t, rest, slots)
 
 # Whether the types of `todo` are numbers, or records of numbers. `fuel` bounds the steps, so a
 # recursive type, which never ends, is data.
-def flat(fuel: Nat, todo: Maybe<&2, List<&2, String>>, +slots: List<&2, Slot>) -> Bool:
+def is_flat(fuel: Nat, todo: Maybe<&2, List<&2, String>>, +slots: List<&2, Slot>) -> Bool:
   match fuel todo:
     case _ None{}:
       False{}
@@ -193,7 +193,7 @@ def flat(fuel: Nat, todo: Maybe<&2, List<&2, String>>, +slots: List<&2, Slot>) -
     case 0n _:
       False{}
     case 1n+f Some{Con{+t, rest}}:
-      flat(f, flat.next(scalar(t), t, rest, slots), slots)
+      is_flat(f, is_flat.next(is_scalar(t), t, rest, slots), slots)
 
 # The first parameter of `params` that is data, if one is.
 def data(
@@ -207,7 +207,7 @@ def data(
     case Nil{} None{}:
       None{}
     case Con{Param{n, +ty}, rest} None{}:
-      data(rest, Lists.when(Param, Bool.not(flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
+      data(rest, Lists.when(Param, Bool.not(is_flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
 
 def Def.forks(info: Maybe<&2, Def>) -> Bool:
   match info:

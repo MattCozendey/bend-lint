@@ -1,6 +1,8 @@
 # layout/directive-order: directives that stack on consecutive comment-only lines, out of order: by
 # rule, then severity, then keyword.
-# Fix: writes them in that order, over the same comments (--fix: it writes only comments).
+# Fix: writes them in that order, over the same comments.
+# Heuristics: it reads the directives as written, and its fix writes the same comments over them, so a
+# fix keeps the program.
 import Base
 import ../../src/linter/directives.bend as Directives
 import ../../src/linter/lint.bend as Lint
@@ -44,7 +46,7 @@ def key(draft: Maybe<&2, Maybe<&2, Directives.Draft>>) -> Maybe<&2, String>:
     case _:
       None{}
 
-def Slot.le(a: Slot, b: Slot) -> Bool:
+def Slot.is_le(a: Slot, b: Slot) -> Bool:
   match a b:
     case Slot{k, x, y, t} Slot{j, v, w, u}:
       String.is_le(k, j)
@@ -77,7 +79,7 @@ def Runs.close(
         [
           Lint.Fix{
             "Order the directives",
-            Slot.order(ordered, Lists.sort(~Slot, ~Slot.le, ordered), path, [])
+            Slot.order(ordered, Lists.sort(~Slot, ~Slot.is_le, ordered), path, [])
           }
         ]
       }
@@ -174,7 +176,7 @@ def found(marked: Bool, text: String, path: String) -> List<&2, Lint.Finding>:
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +text = Lint.Here.text(here)
-  Lint.done(found(Directives.marked(text, False{}), text, Lint.Here.path(here)))
+  Lint.done(found(Directives.has_mark(text, False{}), text, Lint.Here.path(here)))
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

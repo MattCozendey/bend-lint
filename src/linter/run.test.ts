@@ -4,19 +4,16 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { getCommandOutcome } from "../shared/utils.ts";
-import { build, BUILDS, fresh, lint, run } from "./testing.ts";
+import { buildRule, BUILDS, getFindings, getFreshFolder, getRunOutcome } from "./testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const [FILE, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
-  ? await Promise.all(
-      ["file", "written", "some", "every", "across", "rename"].map((name) =>
-        build("tests/" + name),
-      ),
-    )
-  : ["", "", "", "", "", ""];
+// The test rules this file runs: tests/<def> runs the def <def> of tests.bend.
+const RULES = ["file", "written", "some", "every", "across", "rename"].map(
+  (name) => "tests/" + name,
+);
+const [FILE, WRITTEN, SOME, EVERY, ACROSS, RENAME] = RULES;
 
 // A file with sugar the parser expands: a do-block, `A & B`, an operator.
 const SUGARED =
@@ -35,16 +32,17 @@ const ENTRIES = {
 // Functions
 // =========
 
-const found = async (
+const getReports = async (
   program: string,
   files: Record<string, string>,
   named: string,
 ): Promise<string[]> =>
-  (await lint(program, files, named)).map(({ at, message }) => at + " " + message);
+  (await getFindings(program, files, named)).map(({ at, message }) => at + " " + message);
 
 // Side effects
 // ============
 
+await Promise.all(RULES.map(buildRule));
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("run", () => {
@@ -71,13 +69,13 @@ setDefaultTimeout(120_000);
     ];
     // The do-block's `IO` is written too, but its parser keeps no term of it.
     const allowed = [...written, "4:6 reference IO"];
-    const got = await found(WRITTEN, { "main.bend": SUGARED }, "main.bend");
+    const got = await getReports(WRITTEN, { "main.bend": SUGARED }, "main.bend");
     expect(got).toEqual(expect.arrayContaining(written));
     expect(got.filter((x) => !allowed.includes(x))).toEqual([]);
   });
 
   test("a some-entry program rule keeps what any check finds", async () => {
-    expect(await found(SOME, ENTRIES, "util.bend")).toEqual([
+    expect(await getReports(SOME, ENTRIES, "util.bend")).toEqual([
       "1:1 at 0",
       "1:3 at the count",
       "1:4 at the count",
@@ -85,12 +83,12 @@ setDefaultTimeout(120_000);
   });
 
   test("an every-entry program rule keeps what every check finds", async () => {
-    expect(await found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
+    expect(await getReports(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
   test("an entry that reads the file and fails its check leaves the checking to Bend, and says so", async () => {
     const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
-    const ran = await run(FILE, { ...ENTRIES, "b.bend": broken }, "util.bend");
+    const ran = await getRunOutcome(FILE, { ...ENTRIES, "b.bend": broken }, "util.bend");
     expect([ran.code, ran.out.trim().split("\n"), ran.err.trim().split("\n")]).toEqual([
       0,
       [
@@ -106,7 +104,7 @@ setDefaultTimeout(120_000);
   });
 
   test("each file the paths and globs name is linted once, in turn, with one summary", async () => {
-    const ran = await run(
+    const ran = await getRunOutcome(
       FILE,
       { "a.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
       "util.bend",
@@ -129,10 +127,10 @@ setDefaultTimeout(120_000);
   });
 
   test("with no file, it lints the .bend files git lists, but none in node_modules or a hidden folder", async () => {
-    const dir = fresh();
+    const dir = getFreshFolder();
     await getCommandOutcome(["git", "init", "-q"], dir);
     const util = ENTRIES["util.bend"];
-    const ran = await run(
+    const ran = await getRunOutcome(
       FILE,
       {
         ".gitignore": "ignored/\n# run links it here\nbend-lint-rules\n",
@@ -163,7 +161,7 @@ setDefaultTimeout(120_000);
   });
 
   test("an entry that is not a file ends the run, and says which", async () => {
-    const ran = await run(
+    const ran = await getRunOutcome(
       FILE,
       {
         "util.bend": ENTRIES["util.bend"],
@@ -181,7 +179,7 @@ setDefaultTimeout(120_000);
   });
 
   test("a file Bend does not load is not linted, it says so, and the others are linted", async () => {
-    const ran = await run(
+    const ran = await getRunOutcome(
       FILE,
       { "bad.bend": "import Base\n\ndef bad(\n", "util.bend": ENTRIES["util.bend"] },
       "bad.bend",
@@ -198,41 +196,43 @@ setDefaultTimeout(120_000);
     const util =
       "# bend-lint: disable-file tests/across -- kept not-expected-because: it is not always found\n" +
       ENTRIES["util.bend"];
-    const ran = await run(
+    const ran = await getRunOutcome(
       ACROSS,
       { "main.bend": ENTRIES["a.bend"], "util.bend": util },
       "main.bend",
       ["util.bend", "--json"],
     );
-    const named = (key: string, value: unknown): unknown =>
+    const getWithoutFolder = (key: string, value: unknown): unknown =>
       key === "path" && typeof value === "string" ? value.replace(/^.*\//, "") : value;
-    const at = (line: number, character: number) => ({ line, character });
-    const insert = (path: string) => ({
+    const getPosition = (line: number, character: number) => ({ line, character });
+    const getInsertEdit = (path: string) => ({
       path,
-      range: { start: at(0, 0), end: at(0, 0) },
+      range: { start: getPosition(0, 0), end: getPosition(0, 0) },
       text: "# fixed\n",
     });
-    const mark = (path: string, edits: string[]) => ({
+    const getMarkFinding = (path: string, edits: string[]) => ({
       code: "tests/across",
       severity: "hint",
       message: "at 0",
       path,
-      range: { start: at(0, 0), end: at(0, 1) },
-      fixes: [{ title: "Mark every file", applicability: "dangerous", edits: edits.map(insert) }],
+      range: { start: getPosition(0, 0), end: getPosition(0, 1) },
+      fixes: [
+        { title: "Mark every file", applicability: "dangerous", edits: edits.map(getInsertEdit) },
+      ],
     });
-    expect([ran.code, JSON.parse(ran.out, named), ran.err.trim()]).toEqual([
+    expect([ran.code, JSON.parse(ran.out, getWithoutFolder), ran.err.trim()]).toEqual([
       0,
       {
         ok: true,
-        findings: [mark("main.bend", ["main.bend", "util.bend"])],
-        suppressed: [mark("util.bend", ["util.bend"])],
+        findings: [getMarkFinding("main.bend", ["main.bend", "util.bend"])],
+        suppressed: [getMarkFinding("util.bend", ["util.bend"])],
       },
       "bend-lint: 1 finding(s), 1 suppressed",
     ]);
   });
 
   test("--fix-dangerously renames a local name, but no global one: files the check did not read can use it", async () => {
-    const ran = await run(
+    const ran = await getRunOutcome(
       RENAME,
       { "main.bend": "import Base\n\ndef foo(foo: U32) -> U32:\n  foo\n" },
       "main.bend",
@@ -245,7 +245,7 @@ setDefaultTimeout(120_000);
   });
 
   test("--fix-dangerously makes a fix whole, in each file it edits", async () => {
-    const ran = await run(
+    const ran = await getRunOutcome(
       ACROSS,
       { "main.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
       "main.bend",

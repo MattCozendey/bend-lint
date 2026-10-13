@@ -59,7 +59,7 @@ def below(
 ) -> List<&2, Lint.Finding>:
   match hit:
     case True{}:
-      Lint.finding(Lint.Warning{}, Lint.live(path), span, message(used, user))
+      Lint.finding(Lint.Warning{}, Lint.is_live(path), span, message(used, user))
     case False{}:
       []
 
