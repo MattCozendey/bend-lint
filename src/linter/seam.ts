@@ -42,6 +42,7 @@ import * as url from "node:url";
 import type { Ann, Body, Book, Ctx, HTerm, LTerm, Patt, Quant, Span, TLD } from "bend2/bend.ts";
 import type * as BendModule from "bend2/bend.ts";
 
+import pkg from "../../package.json" with { type: "json" };
 import {
   findClangOrUndefined,
   getBendCli,
@@ -183,6 +184,10 @@ type Domain = Extract<HTerm, { $: "All" }>;
 // A binder of a telescope, as the parser reads it: its quantity, name, level, type and span.
 type Cell = [Quant, string, number, LTerm, Span];
 
+// What bend-lint.json says of its rules: the ids of those it turns on, and the BendHub packages
+// that rules come from, names to versions.
+type Rules = { ids: string[]; packages: Map<string, string> };
+
 // Constants
 // =========
 
@@ -202,31 +207,35 @@ export const BUILD = url.fileURLToPath(new URL("build/", import.meta.url));
 const CONFIG = "bend-lint.json";
 const RULES = "bend-lint-rules";
 
-// bend-lint's own folder, and its toolkit, which every rule imports.
+// bend-lint's own folder.
 const PACKAGE = nodePath.resolve(url.fileURLToPath(new URL("../../", import.meta.url)));
-const TOOLKIT = nodePath.join(PACKAGE, "src", "linter", "lint.bend");
+
+// The rule API, as rules import it from BendHub: src/linter/lint.bend and the files it imports, at
+// their paths from src/, in the package bend-lint, at bend-lint's version (see ship.ts).
+export const API = `bend-lint@${pkg.version}.0`;
 
 // A path Bend imports: up, then names (letters, digits, _ and -).
 const PLAIN = /^(\.\.\/)*([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/;
 
-// Why a rule cannot reach bend-lint's files, or bend-lint a rule.
+// Why bend-lint cannot reach a project's rules, or they its formatter.
 const PER_PROJECT =
-  "install bend-lint in this project (bun add -D bend-lint): Bend imports files only by relative paths of plain names, so it cannot reach bend-lint's files elsewhere";
+  "install bend-lint in this project (bun add -D bend-lint): Bend imports files only by relative paths of plain names, so bend-lint cannot reach your rules from elsewhere";
 
 // What `bend-lint init` writes: a config that turns on the formatter, and the formatter's rule,
-// which uses the one bend-lint ships. `{lint}` and `{format}` are the paths to bend-lint's files.
+// which uses the one bend-lint ships. `{api}` is the rule API's entry, `{format}` the path to
+// bend-lint's formatter.
 const INIT_CONFIG = `{\n  "rules": {\n    "format": "warning"\n  }\n}\n`;
 const INIT_FORMAT =
   "# format: the formatter bend-lint ships (layout/format). Its options go in bend-lint.json; see\n" +
   "# bend-lint's README.\n" +
   "import Base\n" +
-  "import {lint} as Lint\n" +
+  "import {api} as Lint\n" +
   "import {format} as Format\n\n" +
   "def rule() -> Lint.Rule:\n" +
   "  Format.rule()\n";
 
 // An import by a relative path: of a .bend file, or, quoted, of an effect's.
-const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
+export const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
 
 // A drive letter that starts a path with `/`.
 const DRIVE = /^[A-Za-z]:(?=\/)/;
@@ -1656,7 +1665,7 @@ const prune = (dir: string): void => {
 
 // The .bend file at `file` and every file it imports by a relative path (.bend files at any
 // depth, and effects' files), each once.
-const closure = (file: string, seen: Set<string> = new Set()): string[] => {
+export const closure = (file: string, seen: Set<string> = new Set()): string[] => {
   if (seen.has(file)) {
     return [];
   }
@@ -1969,19 +1978,34 @@ export const projectOf = (dir: string): string | undefined => {
       : projectOf(up);
 };
 
-// The ids of the rules the bend-lint.json in `project` turns on: its "rules" but those "off". The
-// runner checks the rest of the config.
-export const ruleIdsOf = (project: string): string[] => {
+// The entries of `value`, if it is a JSON object.
+const entriesOf = (value: unknown): Array<[string, unknown]> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? Object.entries(value)
+    : undefined;
+
+// What the bend-lint.json in `project` says of its rules: those of "rules" but those "off", and
+// "packages". Bend checks the packages' names and versions; the runner, the rest of the config.
+export const rulesOf = (project: string): Rules => {
   const config = JSON.parse(nodeFs.readFileSync(nodePath.join(project, CONFIG), "utf8")) as {
     rules?: unknown;
+    packages?: unknown;
   };
-  const rules = config.rules ?? {};
-  if (typeof rules !== "object" || rules === null || Array.isArray(rules)) {
+  const rules = entriesOf(config.rules ?? {});
+  const packages = entriesOf(config.packages ?? {});
+  if (rules === undefined) {
     throw new Error(CONFIG + ": rules must map rule ids to settings");
   }
-  return Object.entries(rules)
-    .filter(([, setting]) => setting !== "off")
-    .map(([id]) => id);
+  if (
+    packages === undefined ||
+    !packages.every((entry): entry is [string, string] => typeof entry[1] === "string")
+  ) {
+    throw new Error(CONFIG + ": packages must map BendHub names to versions");
+  }
+  return {
+    ids: rules.filter(([, setting]) => setting !== "off").map(([id]) => id),
+    packages: new Map(packages),
+  };
 };
 
 // `to` as Bend imports it from a file in the folder `from`, if it can: see PLAIN.
@@ -1990,13 +2014,19 @@ const importOf = (from: string, to: string): string | undefined => {
   return PLAIN.test(relative) ? relative : undefined;
 };
 
-// The program that runs the rules `ids` of the project in `project`, written in BUILD and named by
-// its text. Rule `id` is bend-lint-rules/<id>.bend there, imported at its real path, so a link is
-// followed. An error says which rule is missing, or why Bend cannot import it.
-export const programOf = (project: string, ids: string[]): string => {
+// The program that runs the rules of the project in `project`, written in BUILD and named by its
+// text. A rule whose id starts with a package's name, then "/", is that package's file at the rest
+// of the id, from BendHub; another is bend-lint-rules/<id>.bend in `project`, imported at its real
+// path, so a link is followed. An error says which rule is missing, or why Bend cannot import it.
+export const programOf = (project: string, { ids, packages }: Rules): string => {
   const imports = ids.map((id, n) => {
     if (!/^[A-Za-z_][\w-]*(\/[A-Za-z_][\w-]*)*$/.test(id)) {
-      throw new Error(`${id} is not a rule id: a path in ${RULES}/ of plain names, without .bend`);
+      throw new Error(`${id} is not a rule id: a path of plain names, without .bend`);
+    }
+    const [name = "", ...rest] = id.split("/");
+    const version = packages.get(name);
+    if (version !== undefined && rest.length > 0) {
+      return `import ${name}@${version}/${rest.join("/")}.bend as Rule${n}`;
     }
     const real = tryGetOrUndefined(() =>
       nodeFs.realpathSync(nodePath.join(project, RULES, ...id.split("/")) + ".bend"),
@@ -2005,7 +2035,7 @@ export const programOf = (project: string, ids: string[]): string => {
       throw new Error(`there is no rule ${id}: ${RULES}/${id}.bend does not exist`);
     }
     const rule = importOf(BUILD, real);
-    if (rule === undefined || importOf(nodePath.dirname(real), TOOLKIT) === undefined) {
+    if (rule === undefined) {
       throw new Error(PER_PROJECT);
     }
     return `import ${rule} as Rule${n}`;
@@ -2031,16 +2061,15 @@ export const programOf = (project: string, ids: string[]): string => {
 // Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there.
 const init = (dir: string): void => {
   const rules = nodePath.join(dir, RULES);
-  const lint = importOf(rules, TOOLKIT);
   const format = importOf(rules, nodePath.join(PACKAGE, RULES, "layout", "format.bend"));
-  if (lint === undefined || format === undefined) {
+  if (format === undefined) {
     throw new Error(PER_PROJECT);
   }
   const files: Array<[string, string]> = [
     [nodePath.join(dir, CONFIG), INIT_CONFIG],
     [
       nodePath.join(rules, "format.bend"),
-      INIT_FORMAT.replace("{lint}", lint).replace("{format}", format),
+      INIT_FORMAT.replace("{api}", API + "/linter/lint.bend").replace("{format}", format),
     ],
   ];
   files.forEach(([file, text]) => {
@@ -2080,7 +2109,7 @@ if (import.meta.main) {
   }
 
   const [checker, program, notes] = await Promise.resolve()
-    .then(() => started(programOf(project, ruleIdsOf(project))))
+    .then(() => started(programOf(project, rulesOf(project))))
     .catch((e: unknown) => {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e));
       return process.exit(2);

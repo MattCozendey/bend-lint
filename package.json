@@ -13,6 +13,7 @@
     "format": "oxfmt --write --disable-nested-config .",
     "format:check": "oxfmt --check --disable-nested-config .",
     "lint": "bun ./src/meta/link-bend.ts && oxlint . && bun ./src/linter/seam.ts $(git ls-files \"*.bend\")",
+    "ship": "bun ./src/meta/ship.ts",
     "sync-bend": "bun ./src/meta/sync-bend.ts",
     "test": "bun test --parallel",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"

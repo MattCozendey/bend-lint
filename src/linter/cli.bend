@@ -158,16 +158,19 @@ def Parsed.rules(
         r: Names.Named<Setting> <- Parsed.rule(f)
         Parsed.rules(rest, r <> out)
 
+# A key of the config. The server reads packages, as it writes the program, so the runner takes any value of it.
 type Key is Data:
   Entries{}
   Imports{}
   Rules{}
+  Packages{}
 
 def Key.names() -> List<&2, Names.Named<Key>>:
   [
     Names.Named{"entries", Entries{}},
     Names.Named{"imports", Imports{}},
-    Names.Named{"rules", Rules{}}
+    Names.Named{"rules", Rules{}},
+    Names.Named{"packages", Packages{}}
   ]
 
 def Parsed.set(
@@ -216,6 +219,8 @@ def Parsed.set(
       Fail{"imports must be true or false"}
     case Some{Rules{}} _ _:
       Fail{"rules must map rule ids to settings"}
+    case Some{Packages{}} _ c:
+      Done{c}
     case _ _ _:
       Fail{"unknown key " ++ key}
 

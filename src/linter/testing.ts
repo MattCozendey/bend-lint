@@ -61,7 +61,10 @@ export const build = async (id: string): Promise<string> => {
         `def rule() -> Lint.Rule:\n  Tests.${id.slice("tests/".length)}()\n`,
     );
   }
-  await built(programOf(projectOfRule(id), [id]), unwrap(await tryGetBend2SourceUrl()));
+  await built(
+    programOf(projectOfRule(id), { ids: [id], packages: new Map() }),
+    unwrap(await tryGetBend2SourceUrl()),
+  );
   return id;
 };
 

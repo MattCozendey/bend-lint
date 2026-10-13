@@ -20,7 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { nativeOf, programOf, projectOf, ruleIdsOf } from "../linter/seam.ts";
+import { nativeOf, programOf, projectOf, rulesOf } from "../linter/seam.ts";
 import { findClangOrUndefined, getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 
@@ -157,7 +157,7 @@ const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", ".").sl
 const name = `C-CPU.${stamp}.${process.pid}`;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-c-cpu-prof-"));
 const dir = unwrap(await tryGetBend2SourceUrl());
-const program = programOf(project, ruleIdsOf(project));
+const program = programOf(project, rulesOf(project));
 const exe = nativeOf(program, dir);
 const kept = exe + ".kept";
 fs.mkdirSync(path.dirname(exe), { recursive: true });
