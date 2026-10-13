@@ -31,14 +31,44 @@ def named(~A: Data, ~show: A -> String, xs: List<&2, A>) -> List<&2, Named<A>>:
 def lookup(-A: Data, key: String, table: List<&2, Named<A>>) -> Maybe<&2, A>:
   lookup.go(A, key, table, None{})
 
-# The values of `named`, by name, onto `out`: a table for `find`, which reads a name in one pass over it, however many
+# The value `key` names in `table`, a map by name (as `Lint.definitions` makes): one pass over the name, however many
 # names there are.
-def table(-A: Data, named: List<&2, Named<A>>, out: Map<&2, Maybe<&2, A>>) -> Map<&2, Maybe<&2, A>>:
-  match named:
-    case Nil{}:
-      out
-    case Con{Named{name, value}, rest}:
-      table(A, rest, Map.set(&2, Maybe<&2, A>, out, name, Some{value}))
-
 def find(-A: Data, table: Map<&2, Maybe<&2, A>>, key: String) -> Maybe<&2, A>:
   Pair.snd(Map<&2, Maybe<&2, A>>, Maybe<&2, A>, Map.get(Maybe<&2, A>, None{}, table, key))
+
+# Groups
+# ======
+# Values by name, in a map: each name's values, last first.
+def Group.add.to(
+  -A: Data,
+  got: Map<&2, List<&2, A>> & List<&2, A>,
+  key: String,
+  x: A
+) -> Map<&2, List<&2, A>>:
+  match got:
+    case Tuple{groups, old}:
+      Map.set(&2, List<&2, A>, groups, key, x <> old)
+
+# `groups` with `x` added under `key`. A key's list is last first; `Group.get` gives it in order.
+def Group.add(-A: Data, groups: Map<&2, List<&2, A>>, +key: String, x: A) -> Map<&2, List<&2, A>>:
+  Group.add.to(A, Map.get(List<&2, A>, [], groups, key), key, x)
+
+# What is added under `key`, in the order added.
+def Group.get(-A: Data, groups: Map<&2, List<&2, A>>, key: String) -> List<&2, A>:
+  List.reverse(
+    &2,
+    A,
+    Pair.snd(Map<&2, List<&2, A>>, List<&2, A>, Map.get(List<&2, A>, [], groups, key))
+  )
+
+def Group.of(
+  ~A: Data,
+  ~key: A -> String,
+  xs: List<&2, A>,
+  groups: Map<&2, List<&2, A>>
+) -> Map<&2, List<&2, A>>:
+  match xs:
+    case Nil{}:
+      groups
+    case Con{+x, rest}:
+      Group.of(~A, ~key, rest, Group.add(A, groups, key(x), x))

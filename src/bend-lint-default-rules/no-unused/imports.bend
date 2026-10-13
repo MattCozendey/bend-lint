@@ -19,7 +19,10 @@ def deleted(+text: String, path: String, at: U32) -> List<&2, Lint.Fix>:
 
 def unused(text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
   match d:
-    case Lint.Declaration{Lint.Node{Lint.Import{t}, name, Some{Lint.Span{+path, +beg, end}}, k, f}, Nil{}}:
+    case Lint.Declaration{
+      Lint.Node{Lint.Import{t}, name, Some{Lint.Span{+path, +beg, end}}, k, f},
+      Nil{}
+    }:
       [
         Lint.Finding{
           Lint.Warning{},

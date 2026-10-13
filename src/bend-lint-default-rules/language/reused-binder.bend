@@ -39,13 +39,10 @@ def Once.of(+bare: Bool, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
   match path node:
     case _ Lint.Node{Lint.Parameter{b, Lint.Once{}}, name, s, k, f}:
       Bool.pick(List<&2, Once>, bare, [], [Once{b, name}])
-    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, at}, up} Lint.Node{
-      Lint.PatternVariable{b, Lint.Once{}},
-      name,
-      s,
-      k,
-      f
-    }:
+    case Con{
+      Lint.Above{Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, at},
+      up
+    } Lint.Node{Lint.PatternVariable{b, Lint.Once{}}, name, s, k, f}:
       [Once{b, name}]
     case _ _:
       []
@@ -54,18 +51,13 @@ def Once.of(+bare: Bool, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
 # constructor.
 def scrutinee(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
   match path node:
-    case Con{Lint.Above{Lint.Node{Lint.Match{}, mn, ms, mk, mf}, at}, up} Lint.Node{Lint.Variable{b}, n, s, k, f}:
+    case Con{
+      Lint.Above{Lint.Node{Lint.Match{}, mn, ms, mk, mf}, at},
+      up
+    } Lint.Node{Lint.Variable{b}, n, s, k, f}:
       [b]
     case _ _:
       []
-
-# Whether a parameter among `nodes` is written bare (`def f(x)`, filling a law).
-def bare(nodes: List<&2, Lint.Node>) -> Bool:
-  match nodes:
-    case Nil{}:
-      False{}
-    case Con{+n, rest}:
-      Lint.Node.bare(n) || bare(rest)
 
 # Whether the nodes under `node`, which is live if `live`, are: a body is; a type is not (an equality, a function or
 # pair type, a type's arguments). An annotation's type is not either: see `scan`.
@@ -99,7 +91,7 @@ def is_annotation(syntax: Lint.Syntax) -> Bool:
       False{}
 
 # What a node's uses of `b` are: its own, if it is a live use, else `under`'s, those under it.
-def Seen.of(+node: Lint.Node, +b: U32, live: Bool, under: Seen) -> Seen:
+def Seen.of(+node: Lint.Node, b: U32, live: Bool, under: Seen) -> Seen:
   match node live:
     case Lint.Node{Lint.Variable{v}, n, Some{span}, k, f} True{}:
       Bool.pick(Seen, U32.is_eq(v, b), Seen{Some{span}, None{}}, under)
@@ -111,7 +103,7 @@ def Seen.then(apart: Bool, seen: Seen, next: Seen) -> Seen:
   match apart seen next:
     case True{} Seen{f, s} Seen{g, t}:
       Seen{Maybe.or(&2, Lint.Span, f, g), Maybe.or(&2, Lint.Span, s, t)}
-    case False{} Seen{Some{+f}, s} Seen{g, t}:
+    case False{} Seen{Some{f}, s} Seen{g, t}:
       Seen{Some{f}, Maybe.or(&2, Lint.Span, s, g)}
     case False{} Seen{None{}, s} Seen{g, t}:
       Seen{g, Maybe.or(&2, Lint.Span, s, t)}
@@ -131,7 +123,7 @@ def scan(
   match nodes:
     case Nil{}:
       seen
-    case Con{Lint.Node{+syntax, +name, +span, +kids, +facts}, rest}:
+    case Con{Lint.Node{+syntax, name, span, +kids, facts}, rest}:
       +node = {Lint.Node{syntax, name, span, kids, facts}: Lint.Node}
       +here = live && Bool.not(typed && U32.is_gt(at, 0))
       scan(
@@ -161,10 +153,18 @@ def scan(
         )
       )
 
-def finding(second: Seen, +name: String) -> List<&2, Lint.Finding>:
+def finding(second: Seen, name: String) -> List<&2, Lint.Finding>:
   match second:
     case Seen{f, s}:
       Lint.finding(Lint.Warning{}, True{}, s, message(name))
+
+# The finding about a binder of `owner` used twice on one path, unless a match takes it apart (`matched`).
+def judged(matched: Bool, owner: Lint.Node, b: U32, name: String) -> List<&2, Lint.Finding>:
+  match matched:
+    case True{}:
+      []
+    case False{}:
+      finding(scan([owner], b, False{}, False{}, False{}, 0, Seen{None{}, None{}}), name)
 
 # The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes apart
 # (`matched`) is skipped.
@@ -177,7 +177,7 @@ def judge(
   match onces:
     case Nil{}:
       out
-    case Con{Once{+b, +name}, rest}:
+    case Con{Once{+b, name}, rest}:
       judge(
         owner,
         rest,
@@ -185,12 +185,7 @@ def judge(
         Lists.onto(
           &2,
           Lint.Finding,
-          Bool.pick(
-            List<&2, Lint.Finding>,
-            List.contains(~U32, ~U32.is_eq, matched, b),
-            [],
-            finding(scan([owner], b, False{}, False{}, False{}, 0, Seen{None{}, None{}}), name)
-          ),
+          judged(List.contains(~U32, ~U32.is_eq, matched, b), owner, b, name),
           out
         )
       )
@@ -199,13 +194,13 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Li
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{t, u}, n, s, +k, f}, rest}:
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       defs(
         rest,
         judge(
           owner,
-          Lint.visit(~Bool, ~Once, ~Once.of, bare(k), [owner]),
+          Lint.visit(~Bool, ~Once, ~Once.of, Lists.any(~Lint.Node, ~Lint.Node.bare, k), [owner]),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
           out
         )

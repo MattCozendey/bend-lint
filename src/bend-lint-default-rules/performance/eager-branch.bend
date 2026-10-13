@@ -25,7 +25,6 @@ type Owner is Data:
 
 # Functions
 # =========
-
 def loop.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Unit>:
   Bool.pick(List<&2, Unit>, Lint.recursive(path, node), [Unit{}], [])
 
@@ -34,7 +33,7 @@ def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
       loops(
         rest,
         Lists.push(
@@ -45,7 +44,13 @@ def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>
               List.is_empty(
                 &2,
                 Unit,
-                Lint.visit(~Unit, ~Unit, ~loop.visit, Unit{}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}])
+                Lint.visit(
+                  ~Unit,
+                  ~Unit,
+                  ~loop.visit,
+                  Unit{},
+                  [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+                )
               )
             ),
             t
@@ -61,7 +66,12 @@ def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>
 def eager(kids: List<&2, Lint.Node>, +at: U32) -> String:
   match kids:
     case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, Con{ty, Con{c, Con{x, Con{y, rest}}}}}:
-      Bool.pick(String, String.eq(t, "Bool.pick") && (U32.is_eq(at, 3) || U32.is_eq(at, 4)), "pick", "")
+      Bool.pick(
+        String,
+        String.eq(t, "Bool.pick") && (U32.is_eq(at, 3) || U32.is_eq(at, 4)),
+        "pick",
+        ""
+      )
     case Con{Lint.Node{Lint.Reference{+t}, n, s, k, f}, Con{left, Con{right, Nil{}}}}:
       Bool.pick(
         String,
@@ -136,7 +146,7 @@ def judged(eager: Maybe<&2, Eager>, callee: String, own: Bool) -> List<&2, Lint.
 
 def looping(
   hit: Bool,
-  +path: List<&2, Lint.Above>,
+  path: List<&2, Lint.Above>,
   callee: String,
   own: Bool
 ) -> List<&2, Lint.Finding>:
@@ -148,29 +158,47 @@ def looping(
 
 def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match owner node:
-    case Owner{loops, target} Lint.Node{
+    case Owner{
+      loops,
+      target
+    } Lint.Node{
       Lint.Application{},
       n,
       s,
       Con{Lint.Node{Lint.Reference{+called}, callee, rs, rk, rf}, args},
       f
     }:
-      looping(List.contains(~String, ~String.eq, loops, called), path, callee, String.eq(called, target))
+      looping(
+        List.contains(~String, ~String.eq, loops, called),
+        path,
+        callee,
+        String.eq(called, target)
+      )
     case _ _:
       []
 
-def defs(nodes: List<&2, Lint.Node>, +loops: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def defs(
+  nodes: List<&2, Lint.Node>,
+  +loops: List<&2, String>,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
       defs(
         rest,
         loops,
         Lists.onto(
           &2,
           Lint.Finding,
-          Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner{loops, t}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]),
+          Lint.visit(
+            ~Owner,
+            ~Lint.Finding,
+            ~visit,
+            Owner{loops, t},
+            [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+          ),
           out
         )
       )

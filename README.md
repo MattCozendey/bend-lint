@@ -31,8 +31,9 @@ bend-lint [--program <rules program>] <file or glob>... [--imports | --no-import
 - A `.bend` rules program builds on its first run (about 20 s), and stays built until it or Bend
   changes.
 - A fix that touches an earlier fix's edits waits for the next run.
-- Exit code: 0 no errors (warnings do not count), 1 an error or a failed check, 2 a usage or config
-  error.
+- bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a
+  file fails, the rules that need its types do not run on it.
+- Exit code: 0 no errors (warnings do not count), 1 an error, 2 a usage or config error.
 - Builds and cached checks go to `~/.cache/bend-lint/`. You can delete it at any time.
 
 ## Config
@@ -77,7 +78,7 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
 | `line`          | its own line, after code                     |
 
 - A finding is covered when it starts on a covered line.
-- `bend/...` and `bend-lint/...` findings cannot be suppressed.
+- `bend-lint/...` findings cannot be suppressed.
 - bend-lint reports a wrong directive and an unmet `expect` as errors, and a `disable` that covers
   nothing as a warning.
 

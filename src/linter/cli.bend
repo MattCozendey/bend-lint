@@ -2,15 +2,878 @@
 import Base
 import ../files/main.bend as Files
 import ../json/main.bend as Json
-import ../shared/edits.bend as Edits
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
-import ../shared/places.bend as Places
-import ./config.bend as Config
+import ../text/main.bend as Text
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
 import ./lint.bend as Lint
-import ./seam.bend as Seam
+
+# Config
+# ======
+# bend-lint.json. Its format is in the README.
+
+# What the config says of a rule: turn it off, or run it, with a severity for its findings if it gives one, and option
+# values. Before a run, the runner checks the values against what the rule declares, and adds the defaults.
+type Setting is Data:
+  RuleOff{}
+  RuleOn{severity: Maybe<&2, Lint.Severity>, options: List<&2, Names.Named<Lint.Value>>}
+
+type Project is Data:
+  Project{
+    entries: List<&2, String>,
+    imports: Maybe<&2, Bool>,
+    rules: List<&2, Names.Named<Setting>>
+  }
+
+def Setting.severities(
+  names: List<&2, Names.Named<Lint.Severity>>
+) -> List<&2, Names.Named<Setting>>:
+  match names:
+    case Nil{}:
+      []
+    case Con{Names.Named{name, severity}, rest}:
+      Names.Named{name, RuleOn{Some{severity}, []}} <> Setting.severities(rest)
+
+def Setting.names() -> List<&2, Names.Named<Setting>>:
+  Names.Named{"off", RuleOff{}} <> Setting.severities(Lint.Severity.names())
+
+def Parsed.entry(folder: String, item: Json.Json) -> Maybe<&2, String>:
+  match item:
+    case Json.JString{path}:
+      Some{folder ++ "/" ++ path}
+    case _:
+      None{}
+
+def Parsed.entries(
+  +folder: String,
+  items: List<&2, Json.Json>,
+  out: List<&2, String>
+) -> Maybe<&2, List<&2, String>>:
+  match items:
+    case Nil{}:
+      Some{List.reverse(&2, String, out)}
+    case Con{i, rest}:
+      do Maybe<&2, List<&2, String>>:
+        e: String <- Parsed.entry(folder, i)
+        Parsed.entries(folder, rest, e <> out)
+
+def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
+  match value:
+    case Json.JNumber{text}:
+      Maybe.map(&2, U32, Lint.Value, n => Lint.Num{n}, U32.read(text))
+    case Json.JTrue{}:
+      Some{Lint.Flag{True{}}}
+    case Json.JFalse{}:
+      Some{Lint.Flag{False{}}}
+    case Json.JString{text}:
+      Some{Lint.Text{text}}
+    case _:
+      None{}
+
+def Parsed.option(
+  severity: Bool,
+  key: String,
+  value: Json.Json,
+  out: Maybe<&2, List<&2, Names.Named<Lint.Value>>>
+) -> Maybe<&2, List<&2, Names.Named<Lint.Value>>>:
+  match severity:
+    case True{}:
+      out
+    case False{}:
+      do Maybe<&2, List<&2, Names.Named<Lint.Value>>>:
+        values: List<&2, Names.Named<Lint.Value>> <- out
+        v: Lint.Value <- Parsed.value(value)
+        return Names.Named{key, v} <> values
+
+# The option values of a rule's object, last first: every field but "severity".
+def Parsed.options(
+  fields: List<&2, Json.JField>,
+  out: Maybe<&2, List<&2, Names.Named<Lint.Value>>>
+) -> Maybe<&2, List<&2, Names.Named<Lint.Value>>>:
+  match fields:
+    case Nil{}:
+      out
+    case Con{Json.JField{+key, value}, rest}:
+      Parsed.options(rest, Parsed.option(String.eq(key, "severity"), key, value, out))
+
+def Parsed.severity.of(
+  here: Bool,
+  value: Json.Json,
+  found: Maybe<&2, Maybe<&2, Lint.Severity>>
+) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
+  match here value:
+    case True{} Json.JString{s}:
+      Maybe.map(
+        &2,
+        Lint.Severity,
+        Maybe<&2, Lint.Severity>,
+        sev => Some{sev},
+        Names.lookup(Lint.Severity, s, Lint.Severity.names())
+      )
+    case True{} _:
+      None{}
+    case False{} _:
+      found
+
+# The severity a rule's object gives in "severity": none if it gives none (Some{None{}}), or None{} if it is not one.
+def Parsed.severity(
+  fields: List<&2, Json.JField>,
+  found: Maybe<&2, Maybe<&2, Lint.Severity>>
+) -> Maybe<&2, Maybe<&2, Lint.Severity>>:
+  match fields:
+    case Nil{}:
+      found
+    case Con{Json.JField{key, value}, rest}:
+      Parsed.severity(rest, Parsed.severity.of(String.eq(key, "severity"), value, found))
+
+# A rule's setting: "off", a severity, or an object of a severity (if any) and option values.
+def Parsed.rule(field: Json.JField) -> Maybe<&2, Names.Named<Setting>>:
+  match field:
+    case Json.JField{id, Json.JString{s}}:
+      Maybe.map(
+        &2,
+        Setting,
+        Names.Named<Setting>,
+        setting => Names.Named{id, setting},
+        Names.lookup(Setting, s, Setting.names())
+      )
+    case Json.JField{+id, Json.JObject{+fields}}:
+      do Maybe<&2, Names.Named<Setting>>:
+        severity: Maybe<&2, Lint.Severity> <- Parsed.severity(fields, Some{None{}})
+        options: List<&2, Names.Named<Lint.Value>> <- Parsed.options(fields, Some{[]})
+        return Names.Named{id, RuleOn{severity, List.reverse(&2, Names.Named<Lint.Value>, options)}}
+    case _:
+      None{}
+
+def Parsed.rules(
+  fields: List<&2, Json.JField>,
+  out: List<&2, Names.Named<Setting>>
+) -> Maybe<&2, List<&2, Names.Named<Setting>>>:
+  match fields:
+    case Nil{}:
+      Some{List.reverse(&2, Names.Named<Setting>, out)}
+    case Con{f, rest}:
+      do Maybe<&2, List<&2, Names.Named<Setting>>>:
+        r: Names.Named<Setting> <- Parsed.rule(f)
+        Parsed.rules(rest, r <> out)
+
+type Key is Data:
+  Entries{}
+  Imports{}
+  Rules{}
+
+def Key.names() -> List<&2, Names.Named<Key>>:
+  [
+    Names.Named{"entries", Entries{}},
+    Names.Named{"imports", Imports{}},
+    Names.Named{"rules", Rules{}}
+  ]
+
+def Parsed.set(
+  which: Maybe<&2, Key>,
+  key: String,
+  folder: String,
+  value: Json.Json,
+  config: Project
+) -> Result<&2, &2, String, Project>:
+  match which value config:
+    case Some{Entries{}} Json.JArray{items} Project{entries, imports, rules}:
+      Maybe.default(
+        &2,
+        Result<&2, &2, String, Project>,
+        Maybe.map(
+          &2,
+          List<&2, String>,
+          Result<&2, &2, String, Project>,
+          es => Done{Project{es, imports, rules}},
+          Parsed.entries(folder, items, [])
+        ),
+        Fail{"entries must be a list of paths"}
+      )
+    case Some{Imports{}} Json.JTrue{} Project{entries, imports, rules}:
+      Done{Project{entries, Some{True{}}, rules}}
+    case Some{Imports{}} Json.JFalse{} Project{entries, imports, rules}:
+      Done{Project{entries, Some{False{}}, rules}}
+    case Some{Rules{}} Json.JObject{fields} Project{entries, imports, rules}:
+      Maybe.default(
+        &2,
+        Result<&2, &2, String, Project>,
+        Maybe.map(
+          &2,
+          List<&2, Names.Named<Setting>>,
+          Result<&2, &2, String, Project>,
+          rs => Done{Project{entries, imports, rs}},
+          Parsed.rules(fields, [])
+        ),
+        Fail{
+          "a rule's setting is \"off\", a severity, or an object of a severity and option values"
+        }
+      )
+    case Some{Entries{}} _ _:
+      Fail{"entries must be a list of paths"}
+    case Some{Imports{}} _ _:
+      Fail{"imports must be true or false"}
+    case Some{Rules{}} _ _:
+      Fail{"rules must map rule ids to settings"}
+    case _ _ _:
+      Fail{"unknown key " ++ key}
+
+def Parsed.field(
+  folder: String,
+  field: Json.JField,
+  parsed: Result<&2, &2, String, Project>
+) -> Result<&2, &2, String, Project>:
+  match field parsed:
+    case _ Fail{why}:
+      Fail{why}
+    case Json.JField{+key, value} Done{Project{entries, imports, rules}}:
+      Parsed.set(
+        Names.lookup(Key, key, Key.names()),
+        key,
+        folder,
+        value,
+        Project{entries, imports, rules}
+      )
+
+def Parsed.fields(
+  +folder: String,
+  fields: List<&2, Json.JField>,
+  parsed: Result<&2, &2, String, Project>
+) -> Result<&2, &2, String, Project>:
+  match fields:
+    case Nil{}:
+      parsed
+    case Con{f, rest}:
+      Parsed.fields(folder, rest, Parsed.field(folder, f, parsed))
+
+# The config a JSON value says, in the folder `folder`.
+def Parsed.of(folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, String, Project>:
+  match json:
+    case Some{Json.JObject{fields}}:
+      Parsed.fields(folder, fields, Done{Project{[], None{}, []}})
+    case _:
+      Fail{"not a JSON object"}
+
+def Config.parsed(path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project):
+  match parsed:
+    case Done{config}:
+      IO.pure(Project, config)
+    case Fail{why}:
+      IO.die(Project, 2, "bend-lint: " ++ path ++ ": " ++ why)
+
+def Config.read(+folder: String, text: Result<&2, &2, String, String>) -> IO(Project):
+  match text:
+    case Done{t}:
+      Config.parsed(folder ++ "/bend-lint.json", Parsed.of(folder, Json.read(t)))
+    case Fail{why}:
+      IO.die(Project, 2, "bend-lint: reading a config failed: " ++ why)
+
+def Config.opened(nearest: Maybe<&1, String & File>) -> IO(Project):
+  match nearest:
+    case Some{Tuple{folder, file}}:
+      IO.bind(
+        Result<&2, &2, String, String>,
+        Project,
+        Files.read(file),
+        text => Config.read(folder, text)
+      )
+    case None{}:
+      IO.pure(Project, Project{[], None{}, []})
+
+# The config of the file at the real path `path`: the nearest bend-lint.json up from it, or an empty one.
+def Config.find(path: String) -> IO(Project):
+  IO.bind(Maybe<&1, String & File>, Project, Files.nearest(path, "bend-lint.json"), Config.opened)
+
+# Seam
+# ====
+# The seam to Bend's checker, for as long as it is TS: the requests to seam.ts, and the reading of its answers. A
+# check's answer holds the linter's program as seam.ts makes it of what Bend's parser and checker gave (see `check` in
+# seam.ts). When the checker is Bend, glue in Bend makes the program, and this section goes.
+# - A request is one connection: one line out, the answer in, then the server closes.
+# - A line is fields split by a tab. A field escapes \, a tab and a newline as \\, \t and \n.
+# - The answer is one line per record. Its first field is its kind.
+
+# What checking a file gives: its program, and the check's number on the server; or, if the check failed, the files it
+# read, and, if it parsed them, the program they make, without facts.
+type Check is Data:
+  Passed{program: Lint.Program, check: U32}
+  Failed{read: List<&2, String>, parsed: Maybe<&2, Lint.Program>}
+
+# Requests
+# --------
+type Mark is Data:
+  Slash{}
+  Tab{}
+  Newline{}
+  Plain{}
+
+# An answer read so far: whether a \ came just before, the field, the record's fields and the records, each last
+# first.
+type Reading is Data:
+  Reading{
+    escaped: Bool,
+    field: String,
+    fields: List<&2, String>,
+    records: List<&2, List<&2, String>>
+  }
+
+def Wire.mark(c: Char) -> Mark:
+  match c:
+    case '\\':
+      Slash{}
+    case '\t':
+      Tab{}
+    case '\n':
+      Newline{}
+    case _:
+      Plain{}
+
+# A field's character with its escape undone: the character after a \.
+def Wire.unescaped(c: Char) -> Char:
+  match c:
+    case 'n':
+      '\n'
+    case 't':
+      '\t'
+    case _:
+      c
+
+def Wire.read(mark: Mark, c: Char, r: Reading) -> Reading:
+  match mark r:
+    case _ Reading{True{}, field, fields, records}:
+      Reading{False{}, SCon{Wire.unescaped(c), field}, fields, records}
+    case Slash{} Reading{False{}, field, fields, records}:
+      Reading{True{}, field, fields, records}
+    case Tab{} Reading{False{}, field, fields, records}:
+      Reading{False{}, "", String.reverse(field) <> fields, records}
+    case Newline{} Reading{False{}, field, fields, records}:
+      Reading{False{}, "", [], List.reverse(&2, String, String.reverse(field) <> fields) <> records}
+    case Plain{} Reading{False{}, field, fields, records}:
+      Reading{False{}, SCon{c, field}, fields, records}
+
+def Wire.read_text(s: String, r: Reading) -> Reading:
+  match s:
+    case SNil{}:
+      r
+    case SCon{+c, t}:
+      Wire.read_text(t, Wire.read(Wire.mark(c), c, r))
+
+# The records of an answer's chunks, in order. A last record with no newline is dropped.
+def Wire.records(chunks: List<&2, String>, r: Reading) -> List<&2, List<&2, String>>:
+  match chunks r:
+    case Nil{} Reading{escaped, field, fields, records}:
+      List.reverse(&2, List<&2, String>, records)
+    case Con{h, t} _:
+      Wire.records(t, Wire.read_text(h, r))
+
+# A character onto a field, escaped, onto `out`, which is last first.
+def Wire.write(mark: Mark, c: Char, out: String) -> String:
+  match mark:
+    case Slash{}:
+      SCon{'\\', SCon{'\\', out}}
+    case Tab{}:
+      SCon{'t', SCon{'\\', out}}
+    case Newline{}:
+      SCon{'n', SCon{'\\', out}}
+    case Plain{}:
+      SCon{c, out}
+
+def Wire.field(s: String, out: String) -> String:
+  match s:
+    case SNil{}:
+      out
+    case SCon{+c, t}:
+      Wire.field(t, Wire.write(Wire.mark(c), c, out))
+
+# A request's line, from its fields; `out` is the line so far, last first.
+def Wire.line(fields: List<&2, String>, out: String) -> String:
+  match fields:
+    case Nil{}:
+      String.reverse(SCon{'\n', out})
+    case Con{h, Nil{}}:
+      String.reverse(SCon{'\n', Wire.field(h, out)})
+    case Con{h, t}:
+      Wire.line(t, SCon{'\t', Wire.field(h, out)})
+
+# The chunks read until the server closes, last first, from the last read `step`. `fuel` bounds the reads.
+def Wire.receive(
+  fuel: Nat,
+  step: Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>,
+  got: List<&2, String>
+) -> IO(List<&2, String>):
+  match fuel step:
+    case 1n+k Tuple{s, Done{Some{text}}}:
+      IO.bind(
+        Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>,
+        List<&2, String>,
+        TCP.recv(s, 65536),
+        r => Wire.receive(k, r, text <> got)
+      )
+    case _ Tuple{s, Done{None{}}}:
+      do IO<List<&2, String>>:
+        Socket.close(s)
+        return got
+    case _ Tuple{s, Fail{Tuple{code, why}}}:
+      do IO<List<&2, String>>:
+        Socket.close(s)
+        IO.die(List<&2, String>, 1, "bend-lint: reading the checker's answer failed: " ++ why)
+    case 0n Tuple{s, Done{Some{text}}}:
+      do IO<List<&2, String>>:
+        Socket.close(s)
+        IO.die(List<&2, String>, 1, "bend-lint: the checker's answer is too long")
+
+def Wire.sent(r: Socket & Result<&1, &1, (U32 & String) & String, Unit>) -> IO(List<&2, String>):
+  match r:
+    case Tuple{s, Done{u}}:
+      IO.bind(
+        Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>,
+        List<&2, String>,
+        TCP.recv(s, 65536),
+        step => Wire.receive(4294967295n, step, [])
+      )
+    case Tuple{s, Fail{Tuple{Tuple{code, why}, rest}}}:
+      do IO<List<&2, String>>:
+        Socket.close(s)
+        IO.die(List<&2, String>, 1, "bend-lint: asking the checker failed: " ++ why)
+
+def Wire.port.of(port: Maybe<&2, U32>) -> IO(U32):
+  match port:
+    case Some{p}:
+      IO.pure(U32, p)
+    case None{}:
+      IO.die(
+        U32,
+        2,
+        "bend-lint: BEND_LINT_PORT is not a port; run this program with `bend-lint --program <it>`"
+      )
+
+def Wire.port() -> IO(U32):
+  do IO<U32>:
+    text: String <- IO.try(String, IO.get_env("BEND_LINT_PORT"))
+    Wire.port.of(U32.read(text))
+
+def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
+  do IO<List<&2, List<&2, String>>>:
+    p: U32 <- Wire.port()
+    sock: Socket <- IO.try(Socket, TCP.connect("127.0.0.1", p))
+    s: Socket
+      & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(sock, Wire.line(request, ""))
+    got: List<&2, String> <- Wire.sent(s)
+    return Wire.records(List.reverse(&2, String, got), Reading{False{}, "", [], []})
+
+# Programs
+# --------
+
+# A quantity as an answer writes it (see `quantity` in seam.ts).
+def Quantity.of(field: String) -> Lint.Quantity:
+  match field:
+    case SCon{'e', SNil{}}:
+      Lint.Erased{}
+    case SCon{'o', SNil{}}:
+      Lint.Once{}
+    case SCon{'t', SNil{}}:
+      Lint.Template{}
+    case _:
+      Lint.Many{}
+
+def Quantity.maybe(field: String) -> Maybe<&2, Lint.Quantity>:
+  match field:
+    case SNil{}:
+      None{}
+    case SCon{c, rest}:
+      Some{Quantity.of(SCon{c, rest})}
+
+def number(field: String) -> U32:
+  Maybe.default(&2, U32, U32.read(field), 0)
+
+# What a node is, from its tag (see TAGS in seam.ts) and what an answer writes of its kind: its target or binder (`a`),
+# then its quantity, or whether it is unsafe (`b`).
+def Syntax.of(tag: Char, a: String, b: String) -> Maybe<&2, Lint.Syntax>:
+  match tag:
+    case 'I':
+      Some{Lint.Import{a}}
+    case 'i':
+      Some{Lint.ImportPath{}}
+    case 'D':
+      Some{Lint.Definition{a, String.eq(b, "1")}}
+    case 'T':
+      Some{Lint.Datatype{a}}
+    case 'C':
+      Some{Lint.Constructor{a}}
+    case 'W':
+      Some{Lint.Law{a}}
+    case 'p':
+      Some{Lint.Parameter{number(a), Quantity.of(b)}}
+    case 'f':
+      Some{Lint.Field{number(a), Quantity.of(b)}}
+    case 'R':
+      Some{Lint.Returns{}}
+    case 'B':
+      Some{Lint.Body{}}
+    case 'v':
+      Some{Lint.Variable{number(a)}}
+    case 'r':
+      Some{Lint.Reference{a}}
+    case 's':
+      Some{Lint.Substitution{}}
+    case 'l':
+      Some{Lint.Let{}}
+    case 'b':
+      Some{Lint.Binding{number(a), Quantity.of(b)}}
+    case 'S':
+      Some{Lint.Sort{}}
+    case 'q':
+      Some{Lint.QuantityType{}}
+    case 'Q':
+      Some{Lint.QuantityLiteral{Quantity.of(b)}}
+    case 'm':
+      Some{Lint.QuantityMinimum{}}
+    case 'F':
+      Some{Lint.Forall{number(a), Quantity.of(b)}}
+    case 'L':
+      Some{Lint.Lambda{number(a), Quantity.maybe(b)}}
+    case 'A':
+      Some{Lint.Application{}}
+    case 't':
+      Some{Lint.TypeApplication{a}}
+    case 'c':
+      Some{Lint.Construction{a}}
+    case 'n':
+      Some{Lint.Literal{a}}
+    case 'E':
+      Some{Lint.Elimination{a}}
+    case 'a':
+      Some{Lint.Absurd{}}
+    case 'e':
+      Some{Lint.Equality{}}
+    case 'y':
+      Some{Lint.Reflexivity{}}
+    case 'w':
+      Some{Lint.Rewrite{}}
+    case 'h':
+      Some{Lint.Hole{}}
+    case 'N':
+      Some{Lint.Annotation{}}
+    case 'M':
+      Some{Lint.Match{}}
+    case 'k':
+      Some{Lint.Case{}}
+    case 'd':
+      Some{Lint.Destructure{Quantity.of(b)}}
+    case 'x':
+      Some{Lint.PatternVariable{number(a), Quantity.of(b)}}
+    case 'X':
+      Some{Lint.PatternConstructor{a}}
+    case _:
+      None{}
+
+# A check's answer as read so far: its number, whether it failed, the files it read (last first), the files read whole
+# (last first), the file being read, without its nodes, the nodes read of it whose parent is not read yet (last first),
+# and the facts read for the next node (last first). A node comes after the nodes under it.
+type Reader is Data:
+  Reader{
+    check: Maybe<&2, U32>,
+    failed: Bool,
+    read: List<&2, String>,
+    sources: List<&2, Lint.Source>,
+    open: Maybe<&2, Lint.Source>,
+    nodes: List<&2, Lint.Node>,
+    facts: List<&2, Lint.Fact>
+  }
+  Garbled{}
+
+def Span.of(path: String, beg: Maybe<&2, U32>, end: Maybe<&2, U32>) -> Maybe<&2, Lint.Span>:
+  match beg end:
+    case Some{b} Some{e}:
+      Some{Lint.Span{path, b, e}}
+    case _ _:
+      None{}
+
+# The top `n` of `stack`, in order (the last pushed last), and the rest of it.
+def pop(
+  n: Nat,
+  stack: List<&2, Lint.Node>,
+  out: List<&2, Lint.Node>
+) -> List<&2, Lint.Node>
+  & List<&2, Lint.Node>:
+  match n stack:
+    case 1n+k Con{x, rest}:
+      pop(k, rest, x <> out)
+    case _ _:
+      (out, stack)
+
+def Reader.made(
+  syntax: Lint.Syntax,
+  name: String,
+  span: Maybe<&2, Lint.Span>,
+  facts: List<&2, Lint.Fact>,
+  popped: List<&2, Lint.Node> & List<&2, Lint.Node>
+) -> List<&2, Lint.Node>:
+  match popped:
+    case Tuple{kids, rest}:
+      Lint.Node{syntax, name, span, kids, List.reverse(&2, Lint.Fact, facts)} <> rest
+
+def Reader.node(
+  syntax: Maybe<&2, Lint.Syntax>,
+  name: String,
+  beg: String,
+  end: String,
+  kids: String,
+  r: Reader
+) -> Reader:
+  match syntax r:
+    case Some{
+      s
+    } Reader{
+      check,
+      failed,
+      read,
+      sources,
+      Some{Lint.Source{+path, namespace, text, none}},
+      nodes,
+      facts
+    }:
+      Reader{
+        check,
+        failed,
+        read,
+        sources,
+        Some{Lint.Source{path, namespace, text, none}},
+        Reader.made(
+          s,
+          name,
+          Span.of(path, U32.read(beg), U32.read(end)),
+          facts,
+          pop(U32.to_nat(number(kids)), nodes, [])
+        ),
+        []
+      }
+    case _ _:
+      Garbled{}
+
+def Role.of(field: String) -> Lint.Role:
+  match field:
+    case SCon{'b', SNil{}}:
+      Lint.OfBinder{}
+    case _:
+      Lint.OfTerm{}
+
+def Reader.fact(role: String, q: String, used: String, handle: String, r: Reader) -> Reader:
+  match r:
+    case Reader{+check, failed, read, sources, open, nodes, facts}:
+      Reader{
+        check,
+        failed,
+        read,
+        sources,
+        open,
+        nodes,
+        Lint.Fact{
+          Role.of(role),
+          Quantity.of(q),
+          Quantity.maybe(used),
+          Lint.TypeRef{Maybe.default(&2, U32, check, 0), number(handle)}
+        }
+          <> facts
+      }
+    case Garbled{}:
+      Garbled{}
+
+# The files read whole, with the one being read, whose nodes are `nodes`.
+def Reader.close(
+  open: Maybe<&2, Lint.Source>,
+  nodes: List<&2, Lint.Node>,
+  sources: List<&2, Lint.Source>
+) -> List<&2, Lint.Source>:
+  match open:
+    case Some{Lint.Source{path, namespace, text, none}}:
+      Lint.Source{path, namespace, text, List.reverse(&2, Lint.Node, nodes)} <> sources
+    case None{}:
+      sources
+
+def Reader.file(path: String, namespace: String, text: String, r: Reader) -> Reader:
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      Reader{
+        check,
+        failed,
+        read,
+        Reader.close(open, nodes, sources),
+        Some{Lint.Source{path, namespace, text, []}},
+        [],
+        []
+      }
+    case Garbled{}:
+      Garbled{}
+
+def Reader.checked(n: Maybe<&2, U32>, r: Reader) -> Reader:
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      Reader{n, failed, read, sources, open, nodes, facts}
+    case Garbled{}:
+      Garbled{}
+
+def Reader.failed(r: Reader) -> Reader:
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      Reader{check, True{}, read, sources, open, nodes, facts}
+    case Garbled{}:
+      Garbled{}
+
+def Reader.read(path: String, r: Reader) -> Reader:
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      Reader{check, failed, path <> read, sources, open, nodes, facts}
+    case Garbled{}:
+      Garbled{}
+
+# The reader after a record of a check's answer (see `check` in seam.ts): a fact, a node, the check's number, that it
+# failed, a file it read, or a file it parsed.
+def Reader.add(fields: List<&2, String>, r: Reader) -> Reader:
+  match fields:
+    case Con{SCon{'+', SNil{}}, Con{role, Con{q, Con{used, Con{handle, Nil{}}}}}}:
+      Reader.fact(role, q, used, handle, r)
+    case Con{SCon{tag, SNil{}}, Con{name, Con{beg, Con{end, Con{kids, Con{a, Con{b, Nil{}}}}}}}}:
+      Reader.node(Syntax.of(tag, a, b), name, beg, end, kids, r)
+    case Con{SCon{'c', rest}, Con{n, Nil{}}}:
+      Reader.checked(U32.read(n), r)
+    case Con{SCon{'f', SCon{'a', rest}}, Nil{}}:
+      Reader.failed(r)
+    case Con{SCon{'r', rest}, Con{path, Nil{}}}:
+      Reader.read(path, r)
+    case Con{SCon{'f', SCon{'i', rest}}, Con{path, Con{namespace, Con{text, Nil{}}}}}:
+      Reader.file(path, namespace, text, r)
+    case _:
+      Garbled{}
+
+def Reader.go(records: List<&2, List<&2, String>>, r: Reader) -> Reader:
+  match records:
+    case Nil{}:
+      r
+    case Con{fields, rest}:
+      Reader.go(rest, Reader.add(fields, r))
+
+def Check.from(
+  failed: Bool,
+  check: Maybe<&2, U32>,
+  read: List<&2, String>,
+  sources: List<&2, Lint.Source>
+) -> Maybe<&2, Check>:
+  match failed check sources:
+    case False{} Some{n} _:
+      Some{Passed{Lint.Program{sources}, n}}
+    case True{} _ Nil{}:
+      Some{Failed{read, None{}}}
+    case True{} _ parsed:
+      Some{Failed{read, Some{Lint.Program{parsed}}}}
+    case _ _ _:
+      None{}
+
+# What an answer says, if it is one.
+def Reader.done(r: Reader) -> Maybe<&2, Check>:
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      Check.from(
+        failed,
+        check,
+        List.reverse(&2, String, read),
+        List.reverse(&2, Lint.Source, Reader.close(open, nodes, sources))
+      )
+    case Garbled{}:
+      None{}
+
+# Questions
+# ---------
+def Question.field(q: Lint.Question) -> String:
+  match q:
+    case Lint.Show{Lint.TypeRef{c, h}}:
+      "show:" ++ U32.show(c) ++ ":" ++ U32.show(h)
+    case Lint.Same{Lint.TypeRef{c, h}, Lint.TypeRef{d, i}}:
+      "same:" ++ U32.show(c) ++ ":" ++ U32.show(h) ++ ":" ++ U32.show(d) ++ ":" ++ U32.show(i)
+    case Lint.Normal{Lint.TypeRef{c, h}}:
+      "normal:" ++ U32.show(c) ++ ":" ++ U32.show(h)
+
+def Question.fields(questions: List<&2, Lint.Question>, out: List<&2, String>) -> List<&2, String>:
+  match questions:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{q, rest}:
+      Question.fields(rest, Question.field(q) <> out)
+
+def Answer.read(record: List<&2, String>) -> Maybe<&2, Lint.Answer>:
+  match record:
+    case Con{SCon{'s', SCon{'h', rest}}, Con{text, Nil{}}}:
+      Some{Lint.Shown{text}}
+    case Con{SCon{'s', SCon{'a', rest}}, Con{same, Nil{}}}:
+      Some{Lint.Equal{String.eq(same, "true")}}
+    case Con{SCon{'n', rest}, Con{check, Con{handle, Nil{}}}}:
+      Maybe.map(&2, U32, Lint.Answer, h => Lint.Normalized{h}, U32.read(handle))
+    case _:
+      None{}
+
+def Answer.all(
+  records: List<&2, List<&2, String>>,
+  out: List<&2, Lint.Answer>
+) -> Maybe<&2, List<&2, Lint.Answer>>:
+  match records:
+    case Nil{}:
+      Some{List.reverse(&2, Lint.Answer, out)}
+    case Con{r, rest}:
+      do Maybe<&2, List<&2, Lint.Answer>>:
+        a: Lint.Answer <- Answer.read(r)
+        Answer.all(rest, a <> out)
+
+def Answer.got(answers: Maybe<&2, List<&2, Lint.Answer>>) -> IO(List<&2, Lint.Answer>):
+  match answers:
+    case Some{a}:
+      IO.pure(List<&2, Lint.Answer>, a)
+    case None{}:
+      IO.die(List<&2, Lint.Answer>, 1, "bend-lint: the checker's answers are malformed")
+
+def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    List<&2, Lint.Answer>,
+    Wire.ask("ask" <> Question.fields(questions, [])),
+    records => Answer.got(Answer.all(records, []))
+  )
+
+# Checks
+# ------
+def Check.got(check: Maybe<&2, Check>) -> IO(Check):
+  match check:
+    case Some{c}:
+      IO.pure(Check, c)
+    case None{}:
+      IO.die(Check, 1, "bend-lint: the checker's answer is malformed")
+
+def Check.request(path: String, facts: Bool, wanted: List<&2, String>) -> List<&2, String>:
+  match facts:
+    case True{}:
+      "check" <> path <> "facts" <> wanted
+    case False{}:
+      ["check", path, "syntax"]
+
+# Checks the file at `path`: with `facts`, the checker's facts on the files at `wanted` (on each file, if none).
+def Check.file(path: String, facts: Bool, wanted: List<&2, String>) -> IO(Check):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Check,
+    Wire.ask(Check.request(path, facts, wanted)),
+    records => Check.got(
+      Reader.done(Reader.go(records, Reader{None{}, False{}, [], [], None{}, [], []}))
+    )
+  )
+
+# Frees what the server holds for the passed check numbered `check`: no rule asks about its types again.
+def Check.forget(check: U32) -> IO(Unit):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    Unit,
+    Wire.ask(["forget", U32.show(check)]),
+    records => IO.pure(Unit, Unit{})
+  )
 
 # Rules
 # =====
@@ -44,31 +907,31 @@ def About.whole(about: About) -> Bool:
     case About{id, needs, options, every}:
       Maybe.is_some(&2, Bool, every)
 
-def Setting.on(setting: Maybe<&2, Config.Setting>) -> Bool:
+def Setting.on(setting: Maybe<&2, Setting>) -> Bool:
   match setting:
-    case Some{Config.RuleOff{}}:
+    case Some{RuleOff{}}:
       False{}
     case _:
       True{}
 
-def Setting.severity(setting: Maybe<&2, Config.Setting>) -> Maybe<&2, Lint.Severity>:
+def Setting.severity(setting: Maybe<&2, Setting>) -> Maybe<&2, Lint.Severity>:
   match setting:
-    case Some{Config.RuleOn{severity, options}}:
+    case Some{RuleOn{severity, options}}:
       severity
     case _:
       None{}
 
 # A rule's option values, once settled: each declared one, given or its default.
-def Setting.options(setting: Maybe<&2, Config.Setting>) -> List<&2, Names.Named<Lint.Value>>:
+def Setting.options(setting: Maybe<&2, Setting>) -> List<&2, Names.Named<Lint.Value>>:
   match setting:
-    case Some{Config.RuleOn{severity, options}}:
+    case Some{RuleOn{severity, options}}:
       options
     case _:
       []
 
 def About.on(
   abouts: List<&2, About>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   out: List<&2, About>
 ) -> List<&2, About>:
   match abouts:
@@ -82,7 +945,7 @@ def About.on(
           About,
           Lists.when(
             About,
-            Setting.on(Names.lookup(Config.Setting, id, settings)),
+            Setting.on(Names.lookup(Setting, id, settings)),
             About{id, needs, options, every}
           ),
           out
@@ -98,7 +961,7 @@ def Rule.keep.if(on: Bool, rule: Lint.Rule, out: List<&1, Lint.Rule>) -> List<&1
 
 def Rule.on(
   rules: List<&1, Lint.Rule>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   out: List<&1, Lint.Rule>
 ) -> List<&1, Lint.Rule>:
   match rules:
@@ -109,7 +972,7 @@ def Rule.on(
         rest,
         settings,
         Rule.keep.if(
-          Setting.on(Names.lookup(Config.Setting, id, settings)),
+          Setting.on(Names.lookup(Setting, id, settings)),
           Lint.Rule{id, needs, options, run},
           out
         )
@@ -126,16 +989,16 @@ def About.ids(abouts: List<&2, About>, out: List<&2, String>) -> List<&2, String
 def About.unchecked(
   broken: Bool,
   abouts: List<&2, About>,
-  settings: List<&2, Names.Named<Config.Setting>>
-) -> List<&2, Names.Named<Config.Setting>>:
+  settings: List<&2, Names.Named<Setting>>
+) -> List<&2, Names.Named<Setting>>:
   match broken abouts:
     case True{} Con{About{id, Lint.Needs{facts, declarations}, options, every}, rest}:
       About.unchecked(
         True{},
         rest,
         Lists.push(
-          Names.Named<Config.Setting>,
-          Lists.when(Names.Named<Config.Setting>, facts, Names.Named{id, Config.RuleOff{}}),
+          Names.Named<Setting>,
+          Lists.when(Names.Named<Setting>, facts, Names.Named{id, RuleOff{}}),
           settings
         )
       )
@@ -258,10 +1121,7 @@ def Option.values(
       )
 
 # The first problem with a rule's options: a default its own spec does not accept, or what the config gives.
-def About.problem.of(
-  about: About,
-  settings: List<&2, Names.Named<Config.Setting>>
-) -> Maybe<&2, String>:
+def About.problem.of(about: About, settings: List<&2, Names.Named<Setting>>) -> Maybe<&2, String>:
   match about:
     case About{+id, needs, +options, every}:
       Maybe.map(
@@ -273,13 +1133,13 @@ def About.problem.of(
           &2,
           String,
           Option.defaults(options),
-          Option.given(Setting.options(Names.lookup(Config.Setting, id, settings)), options)
+          Option.given(Setting.options(Names.lookup(Setting, id, settings)), options)
         )
       )
 
 def About.problem(
   abouts: List<&2, About>,
-  +settings: List<&2, Names.Named<Config.Setting>>
+  +settings: List<&2, Names.Named<Setting>>
 ) -> Maybe<&2, String>:
   match abouts:
     case Nil{}:
@@ -287,34 +1147,31 @@ def About.problem(
     case Con{a, rest}:
       Maybe.or(&2, String, About.problem.of(a, settings), About.problem(rest, settings))
 
-def About.settle.of(
-  about: About,
-  setting: Maybe<&2, Config.Setting>
-) -> Names.Named<Config.Setting>:
+def About.settle.of(about: About, setting: Maybe<&2, Setting>) -> Names.Named<Setting>:
   match about setting:
-    case About{id, needs, options, every} Some{Config.RuleOff{}}:
-      Names.Named{id, Config.RuleOff{}}
-    case About{id, needs, options, every} Some{Config.RuleOn{severity, given}}:
-      Names.Named{id, Config.RuleOn{severity, Option.values(options, given, [])}}
+    case About{id, needs, options, every} Some{RuleOff{}}:
+      Names.Named{id, RuleOff{}}
+    case About{id, needs, options, every} Some{RuleOn{severity, given}}:
+      Names.Named{id, RuleOn{severity, Option.values(options, given, [])}}
     case About{id, needs, options, every} None{}:
-      Names.Named{id, Config.RuleOn{None{}, Option.values(options, [], [])}}
+      Names.Named{id, RuleOn{None{}, Option.values(options, [], [])}}
 
 # Each rule's setting, its option values settled: off, or on with its severity, if any, and every option it declares.
 def About.settle(
   abouts: List<&2, About>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
-  out: List<&2, Names.Named<Config.Setting>>
-) -> List<&2, Names.Named<Config.Setting>>:
+  +settings: List<&2, Names.Named<Setting>>,
+  out: List<&2, Names.Named<Setting>>
+) -> List<&2, Names.Named<Setting>>:
   match abouts:
     case Nil{}:
-      List.reverse(&2, Names.Named<Config.Setting>, out)
+      List.reverse(&2, Names.Named<Setting>, out)
     case Con{About{+id, needs, options, every}, rest}:
       About.settle(
         rest,
         settings,
         About.settle.of(
           About{id, needs, options, every},
-          Names.lookup(Config.Setting, id, settings)
+          Names.lookup(Setting, id, settings)
         )
           <> out
       )
@@ -351,7 +1208,7 @@ def Whole.with(whole: Lint.Whole, options: List<&2, Names.Named<Lint.Value>>) ->
 
 def Job.start(
   +id: String,
-  settings: List<&2, Names.Named<Config.Setting>>,
+  settings: List<&2, Names.Named<Setting>>,
   path: String,
   group: U32,
   run: Lint.Ask(List<&2, Lint.Finding>)
@@ -359,7 +1216,7 @@ def Job.start(
   [
     Job{
       id,
-      Setting.severity(Names.lookup(Config.Setting, id, settings)),
+      Setting.severity(Names.lookup(Setting, id, settings)),
       path,
       group,
       run(List<&2, Lint.Finding>, xs => Lint.Finished{xs})
@@ -369,7 +1226,7 @@ def Job.start(
 # A rule's job at `place`: none where it does not run.
 def Rule.at(
   rule: Lint.Rule,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +place: Place
 ) -> List<&1, Job>:
   match rule place:
@@ -379,7 +1236,7 @@ def Rule.at(
         settings,
         Lint.Here.path(here),
         0,
-        run(Here.with(here, Setting.options(Names.lookup(Config.Setting, id, settings))))
+        run(Here.with(here, Setting.options(Names.lookup(Setting, id, settings))))
       )
     case Lint.Rule{+id, needs, declared, Lint.OnProgram{every, run}} AtProgram{whole, path, check}:
       Job.start(
@@ -387,14 +1244,14 @@ def Rule.at(
         settings,
         path,
         check,
-        run(Whole.with(whole, Setting.options(Names.lookup(Config.Setting, id, settings))))
+        run(Whole.with(whole, Setting.options(Names.lookup(Setting, id, settings))))
       )
     case _ _:
       []
 
 def Rule.each(
   rules: List<&1, Lint.Rule>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +place: Place,
   out: List<&1, Job>
 ) -> List<&1, Job>:
@@ -409,7 +1266,7 @@ def Rule.each(
 def Rule.all(
   +depth: Nat,
   halves: List<&1, Lint.Rule> & List<&1, Lint.Rule>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +place: Place
 ) -> List<&1, Job>:
   match depth halves:
@@ -426,7 +1283,7 @@ def Rule.all(
 
 def Rule.jobs(
   ~rules: List<&1, Lint.Rule>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   place: Place
 ) -> List<&1, Job>:
   Rule.all(3n, Lists.deal(&1, Lint.Rule, Rule.on(rules, settings, [])), settings, place)
@@ -434,7 +1291,7 @@ def Rule.jobs(
 def File.each(
   ~rules: List<&1, Lint.Rule>,
   files: List<&2, Lint.Source>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +program: Lint.Program,
   +declare: Bool,
   out: List<&1, Job>
@@ -463,7 +1320,7 @@ def File.all(
   ~rules: List<&1, Lint.Rule>,
   +depth: Nat,
   halves: List<&2, Lint.Source> & List<&2, Lint.Source>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +program: Lint.Program,
   +declare: Bool
 ) -> List<&1, Job>:
@@ -491,7 +1348,7 @@ def File.all(
 def Check.jobs(
   ~rules: List<&1, Lint.Rule>,
   programs: List<&2, Lint.Program>,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   +path: String,
   +declare: Bool,
   +check: U32,
@@ -521,7 +1378,7 @@ def Check.jobs.if(
   ~rules: List<&1, Lint.Rule>,
   whole: Bool,
   programs: List<&2, Lint.Program>,
-  settings: List<&2, Names.Named<Config.Setting>>,
+  settings: List<&2, Names.Named<Setting>>,
   path: String,
   declare: Bool
 ) -> List<&1, Job>:
@@ -658,7 +1515,7 @@ def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
       IO.bind(
         List<&2, Lint.Answer>,
         List<&2, Tagged>,
-        Seam.answers(Con{q, qs}),
+        answers(Con{q, qs}),
         answers => Rounds.go(b, Round.hold(Round.resume(held, answers, []), [], []))
       )
 
@@ -823,7 +1680,7 @@ type Report is Data:
 
 # A finding with the edits of each of its fixes: None for a fix the linter cannot make.
 type Resolved is Data:
-  Resolved{found: Lint.Found, edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>}
+  Resolved{found: Lint.Found, edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>}
 
 # A finding as the run shows it: a line of text, or a JSON object.
 type Shown is Data:
@@ -907,7 +1764,7 @@ def report(
 # Each finding with the edits of its fixes, taken in order from `edits` (empty: none resolved).
 def Resolved.of(
   founds: List<&2, Lint.Found>,
-  +edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>,
+  +edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
   out: List<&2, Resolved>
 ) -> List<&2, Resolved>:
   match founds:
@@ -917,25 +1774,25 @@ def Resolved.of(
       +n = Lists.length(&2, Lint.Fix, fixes)
       Resolved.of(
         rest,
-        List.drop(&2, Maybe<&2, List<&2, Edits.Edit>>, edits, n),
+        List.drop(&2, Maybe<&2, List<&2, Text.Edit>>, edits, n),
         Resolved{
           Lint.Found{rule, Lint.Finding{severity, span, message, fixes}},
-          List.take(&2, Maybe<&2, List<&2, Edits.Edit>>, edits, n)
+          List.take(&2, Maybe<&2, List<&2, Text.Edit>>, edits, n)
         }
           <> out
       )
 
-def Edit.places(edits: List<&2, Edits.Edit>, out: List<&2, Places.Place>) -> List<&2, Places.Place>:
+def Edit.places(edits: List<&2, Text.Edit>, out: List<&2, Text.Place>) -> List<&2, Text.Place>:
   match edits:
     case Nil{}:
       out
-    case Con{Edits.Edit{+path, beg, end, text}, rest}:
-      Edit.places(rest, Places.Place{path, end} <> Places.Place{path, beg} <> out)
+    case Con{Text.Edit{+path, beg, end, text}, rest}:
+      Edit.places(rest, Text.Place{path, end} <> Text.Place{path, beg} <> out)
 
 def Fix.places(
-  edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>,
-  out: List<&2, Places.Place>
-) -> List<&2, Places.Place>:
+  edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
+  out: List<&2, Text.Place>
+) -> List<&2, Text.Place>:
   match edits:
     case Nil{}:
       out
@@ -949,20 +1806,20 @@ def Shown.more(
   json: Bool,
   path: String,
   end: U32,
-  edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>,
-  out: List<&2, Places.Place>
-) -> List<&2, Places.Place>:
+  edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
+  out: List<&2, Text.Place>
+) -> List<&2, Text.Place>:
   match json:
     case False{}:
       out
     case True{}:
-      Fix.places(edits, Places.Place{path, end} <> out)
+      Fix.places(edits, Text.Place{path, end} <> out)
 
 def Shown.places(
   +json: Bool,
   resolved: List<&2, Resolved>,
-  out: List<&2, Places.Place>
-) -> List<&2, Places.Place>:
+  out: List<&2, Text.Place>
+) -> List<&2, Text.Place>:
   match resolved:
     case Nil{}:
       out
@@ -973,25 +1830,25 @@ def Shown.places(
       },
       rest
     }:
-      Shown.places(json, rest, Shown.more(json, path, end, edits, Places.Place{path, beg} <> out))
+      Shown.places(json, rest, Shown.more(json, path, end, edits, Text.Place{path, beg} <> out))
 
-def Found.line.at(path: String, at: Places.Position, said: String) -> String:
+def Found.line.at(path: String, at: Text.Position, said: String) -> String:
   match at:
-    case Places.Position{line, column}:
+    case Text.Position{line, column}:
       path ++ ":" ++ U32.show(line) ++ ":" ++ U32.show(column) ++ ": " ++ said
 
-def Found.line(found: Lint.Found, places: Map<&2, Places.Position>) -> String:
+def Found.line(found: Lint.Found, places: Map<&2, Text.Position>) -> String:
   match found:
     case Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}}:
       Found.line.at(
         path,
-        Places.Place.at(places, path, beg),
+        Text.Place.at(places, path, beg),
         Lint.Severity.show(severity) ++ " " ++ rule ++ ": " ++ message
       )
 
-def Object.position(at: Places.Position) -> Json.Json:
+def Object.position(at: Text.Position) -> Json.Json:
   match at:
-    case Places.Position{line, column}:
+    case Text.Position{line, column}:
       Json.JObject{
         [
           Json.JField{"line", Json.JNumber{U32.show((line - 1: U32))}},
@@ -999,23 +1856,23 @@ def Object.position(at: Places.Position) -> Json.Json:
         ]
       }
 
-def Object.range(+places: Map<&2, Places.Position>, +path: String, beg: U32, end: U32) -> Json.Json:
+def Object.range(+places: Map<&2, Text.Position>, +path: String, beg: U32, end: U32) -> Json.Json:
   Json.JObject{
     [
-      Json.JField{"start", Object.position(Places.Place.at(places, path, beg))},
-      Json.JField{"end", Object.position(Places.Place.at(places, path, end))}
+      Json.JField{"start", Object.position(Text.Place.at(places, path, beg))},
+      Json.JField{"end", Object.position(Text.Place.at(places, path, end))}
     ]
   }
 
 def Object.edits(
-  edits: List<&2, Edits.Edit>,
-  +places: Map<&2, Places.Position>,
+  edits: List<&2, Text.Edit>,
+  +places: Map<&2, Text.Position>,
   out: List<&2, Json.Json>
 ) -> List<&2, Json.Json>:
   match edits:
     case Nil{}:
       List.reverse(&2, Json.Json, out)
-    case Con{Edits.Edit{+path, beg, end, text}, rest}:
+    case Con{Text.Edit{+path, beg, end, text}, rest}:
       Object.edits(
         rest,
         places,
@@ -1032,8 +1889,8 @@ def Object.edits(
 def Object.fix(
   safe: Bool,
   fix: Lint.Fix,
-  edits: List<&2, Edits.Edit>,
-  places: Map<&2, Places.Position>
+  edits: List<&2, Text.Edit>,
+  places: Map<&2, Text.Position>
 ) -> Json.Json:
   match fix:
     case Lint.Fix{title, ops}:
@@ -1048,8 +1905,8 @@ def Object.fix(
 # The fixes the linter can make, as JSON, onto `out`: `edits` says each one's edits.
 def Object.fixes(
   fixes: List<&2, Lint.Fix>,
-  edits: List<&2, Maybe<&2, List<&2, Edits.Edit>>>,
-  +places: Map<&2, Places.Position>,
+  edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
+  +places: Map<&2, Text.Position>,
   +comments: Set(),
   out: List<&2, Json.Json>
 ) -> List<&2, Json.Json>:
@@ -1070,7 +1927,7 @@ def Object.fixes(
 # `comments` says where a safe fix may write.
 def Object.finding(
   resolved: Resolved,
-  +places: Map<&2, Places.Position>,
+  +places: Map<&2, Text.Position>,
   comments: Set()
 ) -> Json.Json:
   match resolved:
@@ -1092,7 +1949,7 @@ def Object.finding(
 def Shown.one(
   json: Bool,
   resolved: Resolved,
-  places: Map<&2, Places.Position>,
+  places: Map<&2, Text.Position>,
   comments: Set()
 ) -> Shown:
   match json resolved:
@@ -1106,7 +1963,7 @@ def Shown.one(
 def Shown.of(
   +json: Bool,
   resolved: List<&2, Resolved>,
-  +places: Map<&2, Places.Position>,
+  +places: Map<&2, Text.Position>,
   +comments: Set(),
   out: List<&2, Shown>
 ) -> List<&2, Shown>:
@@ -1135,7 +1992,7 @@ def Shown.edits(
   founds: List<&2, Lint.Found>,
   declarations: List<&2, Lint.Declaration>,
   sources: List<&2, Lint.Source>
-) -> List<&2, Maybe<&2, List<&2, Edits.Edit>>>:
+) -> List<&2, Maybe<&2, List<&2, Text.Edit>>>:
   match json:
     case False{}:
       []
@@ -1367,7 +2224,7 @@ def outcome(
         Shown.of(
           json,
           resolved,
-          Places.places(Fixes.texts(sources, Map.new(&2, String)), Shown.places(json, resolved, [])),
+          Text.places(Fixes.texts(sources, Map.new(&2, String)), Shown.places(json, resolved, [])),
           Shown.safety(json, all, sources),
           []
         )
@@ -1423,7 +2280,7 @@ def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
     case Nil{}:
       IO.pure(Outcome, outcome)
     case Con{c, rest}:
-      IO.bind(Unit, Outcome, Seam.forget(c), done => forgotten(rest, outcome))
+      IO.bind(Unit, Outcome, Check.forget(c), done => forgotten(rest, outcome))
 
 # Lints `linted`, files of the first of `programs` (the checks of the named file, at `path`), with the rules the
 # config leaves on. Program rules run on each check; `partial` says whether an entry that reads the named file failed
@@ -1434,7 +2291,7 @@ def lint(
   path: String,
   +programs: List<&2, Lint.Program>,
   partial: Bool,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   json: Bool,
   fixing: Maybe<&2, Bool>
 ) -> IO(Outcome):
@@ -1552,7 +2409,7 @@ def checked(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
   imports: Bool,
-  +settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Setting>>,
   json: Bool,
   fixing: Maybe<&2, Bool>,
   checks: Checks
@@ -1560,7 +2417,11 @@ def checked(
   match checks:
     case Checks{Con{Lint.Program{+sources}, rest}, partial, +failed, forget}:
       do IO<Outcome>:
-        unchecked(failed, Lists.any(~About, ~About.facts, About.on(About.all(rules, []), settings, [])), path)
+        unchecked(
+          failed,
+          Lists.any(~About, ~About.facts, About.on(About.all(rules, []), settings, [])),
+          path
+        )
         o: Outcome <- lint(
           ~rules,
           linted(imports, path, sources),
@@ -1575,17 +2436,19 @@ def checked(
     case Checks{Nil{}, partial, failed, forget}:
       do IO<Outcome>:
         IO.print_err(
-          "bend-lint: Bend does not load " ++ path ++ ", so no rule ran on it; `bend <file> --check-only` says why"
+          "bend-lint: Bend does not load "
+            ++ path
+            ++ ", so no rule ran on it; `bend <file> --check-only` says why"
         )
         return Outcome{0n, [], [], False{}, 0}
 
 # The named file's own check, as the checks to lint it in. If it fails, the rules that need no facts run on what it
 # parsed, if it parsed the files.
-def Check.own(partial: Bool, check: Seam.Check) -> Checks:
+def Check.own(partial: Bool, check: Check) -> Checks:
   match check:
-    case Seam.Passed{p, c}:
+    case Passed{p, c}:
       Checks{[p], partial, False{}, [c]}
-    case Seam.Failed{read, parsed}:
+    case Failed{read, parsed}:
       Checks{
         Maybe.default(
           &2,
@@ -1598,26 +2461,26 @@ def Check.own(partial: Bool, check: Seam.Check) -> Checks:
         []
       }
 
-def Check.reads(path: String, +check: Seam.Check) -> Bool:
+def Check.reads(path: String, +check: Check) -> Bool:
   match check:
-    case Seam.Passed{Lint.Program{sources}, c}:
+    case Passed{Lint.Program{sources}, c}:
       Maybe.is_some(&2, Lint.Source, Source.at(sources, None{}, path))
-    case Seam.Failed{read, parsed}:
+    case Failed{read, parsed}:
       List.contains(~String, ~String.eq, read, path)
 
 # One check sorted into `checks`: if it reads the named file, its program joins the programs, or, if it failed, the
 # lint is partial.
-def Check.sort.step(reads: Bool, check: Seam.Check, checks: Checks) -> Checks:
+def Check.sort.step(reads: Bool, check: Check, checks: Checks) -> Checks:
   match reads check checks:
-    case True{} Seam.Passed{p, c} Checks{programs, partial, failed, forget}:
+    case True{} Passed{p, c} Checks{programs, partial, failed, forget}:
       Checks{p <> programs, partial, failed, forget}
-    case True{} Seam.Failed{read, parsed} Checks{programs, partial, failed, forget}:
+    case True{} Failed{read, parsed} Checks{programs, partial, failed, forget}:
       Checks{programs, True{}, failed, forget}
     case False{} _ _:
       checks
 
 # The checks that read the named file (at `path`): the programs of those that passed, and whether one failed.
-def Check.sort(checks: List<&2, Seam.Check>, +path: String, sorted: Checks) -> Checks:
+def Check.sort(checks: List<&2, Check>, +path: String, sorted: Checks) -> Checks:
   match checks sorted:
     case Nil{} Checks{programs, partial, failed, forget}:
       Checks{List.reverse(&2, Lint.Program, programs), partial, failed, forget}
@@ -1629,16 +2492,16 @@ def Check.all(
   entries: List<&2, String>,
   +facts: Bool,
   +path: String,
-  out: List<&2, Seam.Check>
-) -> IO(List<&2, Seam.Check>):
+  out: List<&2, Check>
+) -> IO(List<&2, Check>):
   match entries:
     case Nil{}:
-      IO.pure(List<&2, Seam.Check>, List.reverse(&2, Seam.Check, out))
+      IO.pure(List<&2, Check>, List.reverse(&2, Check, out))
     case Con{e, rest}:
       IO.bind(
-        Seam.Check,
-        List<&2, Seam.Check>,
-        Seam.check(e, facts, [path]),
+        Check,
+        List<&2, Check>,
+        Check.file(e, facts, [path]),
         c => Check.all(rest, facts, path, c <> out)
       )
 
@@ -1647,9 +2510,9 @@ def Check.chosen(sorted: Checks, +path: String, facts: Bool) -> IO(Checks):
   match sorted:
     case Checks{Nil{}, partial, failed, forget}:
       IO.bind(
-        Seam.Check,
+        Check,
         Checks,
-        Seam.check(path, facts, [path]),
+        Check.file(path, facts, [path]),
         c => IO.pure(Checks, Check.own(partial, c))
       )
     case _:
@@ -1661,23 +2524,27 @@ def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bo
   match imports entries:
     case False{} Con{e, es}:
       IO.bind(
-        List<&2, Seam.Check>,
+        List<&2, Check>,
         Checks,
         Check.all(Con{e, es}, facts, path, []),
-        checks => Check.chosen(Check.sort(checks, path, Checks{[], False{}, False{}, []}), path, facts)
+        checks => Check.chosen(
+          Check.sort(checks, path, Checks{[], False{}, False{}, []}),
+          path,
+          facts
+        )
       )
     case True{} _:
       IO.bind(
-        Seam.Check,
+        Check,
         Checks,
-        Seam.check(path, facts, []),
+        Check.file(path, facts, []),
         c => IO.pure(Checks, Check.own(False{}, c))
       )
     case False{} Nil{}:
       IO.bind(
-        Seam.Check,
+        Check,
         Checks,
-        Seam.check(path, facts, [path]),
+        Check.file(path, facts, [path]),
         c => IO.pure(Checks, Check.own(False{}, c))
       )
 
@@ -1714,7 +2581,7 @@ def settled(
   json: Bool,
   fixing: Maybe<&2, Bool>,
   entries: List<&2, String>,
-  +settings: List<&2, Names.Named<Config.Setting>>
+  +settings: List<&2, Names.Named<Setting>>
 ) -> IO(Outcome):
   IO.bind(
     Checks,
@@ -1734,17 +2601,10 @@ def configured(
   path: String,
   +options: Options,
   many: Bool,
-  project: Config.Project
+  project: Project
 ) -> IO(Outcome):
   match options project:
-    case Options{
-      inputs,
-      flag,
-      fixing,
-      shown,
-      json,
-      worker
-    } Config.Project{entries, from, +settings}:
+    case Options{inputs, flag, fixing, shown, json, worker} Project{entries, from, +settings}:
       +on = imports(flag, from)
       do IO<Outcome>:
         Options.checked(About.problem(About.all(rules, []), settings))
@@ -1830,7 +2690,7 @@ def File.lint(
   many: Bool
 ) -> IO(Outcome):
   IO.bind(
-    Config.Project,
+    Project,
     Outcome,
     Config.find(path),
     project => configured(~rules, path, options, many, project)

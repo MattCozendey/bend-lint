@@ -73,29 +73,34 @@ def params(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Param>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Param, out)
-    case Con{Lint.Node{Lint.Parameter{b, +q}, n, s, kids, f}, rest}:
+    case Con{Lint.Node{Lint.Parameter{b, q}, n, s, kids, f}, rest}:
       params(rest, Lists.push(Param, Lists.when(Param, runtime(q), Param{n, plain(kids)}), out))
     case Con{node, rest}:
       params(rest, out)
 
-# Whether a parallel let (two binders, at least) is among `nodes` or under them.
-def forks(nodes: List<&2, Lint.Node>) -> Bool:
-  match nodes:
-    case Nil{}:
+# Whether a parallel let (two binders, at least) is among `nodes` or under them, or `found`.
+def forks(nodes: List<&2, Lint.Node>, found: Bool) -> Bool:
+  match nodes found:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
     case Con{
       Lint.Node{
         Lint.Destructure{q},
         n,
         s,
-        Con{Lint.Node{Lint.PatternVariable{a, aq}, an, as, ak, af}, Con{Lint.Node{Lint.PatternVariable{b, bq}, bn, bs, bk, bf}, more}},
+        Con{
+          Lint.Node{Lint.PatternVariable{a, aq}, an, as, ak, af},
+          Con{Lint.Node{Lint.PatternVariable{b, bq}, bn, bs, bk, bf}, more}
+        },
         f
       },
       rest
-    }:
+    } False{}:
       True{}
-    case Con{Lint.Node{syntax, n, s, kids, f}, rest}:
-      forks(kids) || forks(rest)
+    case Con{Lint.Node{syntax, n, s, kids, f}, rest} False{}:
+      forks(rest, forks(kids, False{}))
 
 # The definitions among a file's nodes, by the name the check gives them, onto `out`.
 def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
@@ -103,7 +108,10 @@ def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Ma
     case Nil{}:
       out
     case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +kids, f}, rest}:
-      defs(rest, Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, params(kids, []), forks(kids)}}))
+      defs(
+        rest,
+        Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, params(kids, []), forks(kids, False{})}})
+      )
     case Con{node, rest}:
       defs(rest, out)
 
@@ -114,7 +122,10 @@ def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&
     case Con{Lint.Source{path, ns, text, nodes}, rest}:
       program.slots(rest, slots(nodes, "", out))
 
-def program.defs(sources: List<&2, Lint.Source>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
+def program.defs(
+  sources: List<&2, Lint.Source>,
+  out: Map<&2, Maybe<&2, Def>>
+) -> Map<&2, Maybe<&2, Def>>:
   match sources:
     case Nil{}:
       out
@@ -299,9 +310,17 @@ def judged(
       unbanged(info, callee, caller, slots, span)
 
 # The finding about an application below `path`, if its function is a definition of the program.
-def visit(+program: Program, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+def visit(
+  +program: Program,
+  +path: List<&2, Lint.Above>,
+  +node: Lint.Node
+) -> List<&2, Lint.Finding>:
   match program node:
-    case Program{defs, slots, bangs} Lint.Node{
+    case Program{
+      defs,
+      slots,
+      bangs
+    } Lint.Node{
       Lint.Application{},
       n,
       span,

@@ -1,8 +1,8 @@
 import Base
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
-import ../shared/places.bend as Places
 import ../shared/strings.bend as Strings
+import ../text/main.bend as Text
 import ./lint.bend as Lint
 
 # Scanning
@@ -845,7 +845,7 @@ def Applied.add(hits: List<&2, U32>, found: Lint.Found, a: Applied) -> Applied:
 # The findings, each with where it starts (`at`, in order), sorted by the directives that cover their lines.
 def Applied.go(
   founds: List<&2, Lint.Found>,
-  at: List<&2, Places.Position>,
+  at: List<&2, Text.Position>,
   +coverings: List<&2, Covering>,
   a: Applied
 ) -> Applied:
@@ -853,7 +853,7 @@ def Applied.go(
     case Con{
       Lint.Found{+rule, Lint.Finding{+severity, span, message, fixes}},
       rest
-    } Con{Places.Position{line, column}, more}:
+    } Con{Text.Position{line, column}, more}:
       Applied.go(
         rest,
         more,
@@ -952,7 +952,10 @@ def Found.offsets(founds: List<&2, Lint.Found>, out: List<&2, U32>) -> List<&2, 
   match founds:
     case Nil{}:
       List.reverse(&2, U32, out)
-    case Con{Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message, fixes}}, rest}:
+    case Con{
+      Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message, fixes}},
+      rest
+    }:
       Found.offsets(rest, beg <> out)
 
 # A linted file: its path and text, the ids of the rules there are, and those of the rules that ran on it. A rule
@@ -1039,7 +1042,7 @@ def covered(
   done(
     Applied.go(
       founds,
-      Places.positions(Linted.text(linted), Found.offsets(founds, [])),
+      Text.positions(Linted.text(linted), Found.offsets(founds, [])),
       coverings,
       Applied{[], [], []}
     ),

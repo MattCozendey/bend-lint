@@ -43,7 +43,6 @@ import type * as BendModule from "bend2/bend.ts";
 
 import { getBendLintCacheDir, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
-import { getTextWithEachEditAppliedOnce, getTextWithLfLineEnds } from "../shared/text.ts";
 import {
   getCommandOutcome,
   getErrorMessageFromUnknown,
@@ -361,20 +360,26 @@ const drift = (text: string): Error =>
     name: "DriftError",
   });
 
-// bend.ts with EDITS made and PROBES appended, and BEND_DIR kept at `dir`, so the copy finds
-// base.bend where the original does: `true ? dir :` puts Bend's own expression in a branch that
-// never runs. Each TRACED function must be declared once. Line ends become LF first.
+// bend.ts with EDITS made in order and PROBES appended, and BEND_DIR kept at `dir`, so the copy
+// finds base.bend where the original does: `true ? dir :` puts Bend's own expression in a branch
+// that never runs. Each edit's first string, and each TRACED function, must occur once in the text
+// the edits before it left. Line ends become LF first.
 const patched = (dir: string, src: string): string =>
-  getTextWithEachEditAppliedOnce(
-    getTextWithLfLineEnds(src),
+  (
     [
       ...EDITS,
       ...TRACED.map((name): Edit => [`function ${name}(`, `function ${name}(`]),
       ["export const BEND_DIR = ", `export const BEND_DIR = true ? ${JSON.stringify(dir)} : `],
-    ],
-    (at, n) => {
-      throw drift(`bend.ts has ${n} of ${JSON.stringify(at)}, not 1`);
+    ] as Edit[]
+  ).reduce(
+    (out, [at, to]) => {
+      const n = out.split(at).length - 1;
+      if (n !== 1) {
+        throw drift(`bend.ts has ${n} of ${JSON.stringify(at)}, not 1`);
+      }
+      return out.replace(at, () => to);
     },
+    src.replace(/\r\n/g, "\n"),
   ) + PROBES;
 
 // The patched copy of the bend.ts in `dir`, written once to the cache.
@@ -677,7 +682,11 @@ const tree = (
 ): Tree => ({ id: MADE.nodes++, syntax, name, range, kids, origin, notes: [], ...more });
 
 // The last part of a global name: after its last `.` or `:`.
-const last = (name: string): string => name.slice(name.lastIndexOf(".") + 1).split(":").at(-1) ?? "";
+const last = (name: string): string =>
+  name
+    .slice(name.lastIndexOf(".") + 1)
+    .split(":")
+    .at(-1) ?? "";
 
 // A reference to `k` at `s`, written there if the span spells it (a name of `k`, or an operator)
 // and no reference of the declaration owns the span yet: a copy of one is the parser's.
@@ -724,8 +733,7 @@ const application = (b: Builder, t: Extract<LTerm, { $: "App" }>): Tree => {
     kids.every(
       (k) =>
         !spanEq(k.origin, t.s) &&
-        (k.range === undefined ||
-          (at !== undefined && at[0] <= k.range[0] && k.range[1] <= at[1])),
+        (k.range === undefined || (at !== undefined && at[0] <= k.range[0] && k.range[1] <= at[1])),
     );
   return tree("Application", "", written ? at : undefined, t.s, [h, ...kids]);
 };
@@ -773,9 +781,23 @@ const term = (b: Builder, t: LTerm): Tree => {
     case "App":
       return application(b, t);
     case "ADT":
-      return used(b, "TypeApplication", t.k, t.s, t.s, t.x.map((x) => term(b, x)));
+      return used(
+        b,
+        "TypeApplication",
+        t.k,
+        t.s,
+        t.s,
+        t.x.map((x) => term(b, x)),
+      );
     case "Ctr":
-      return used(b, "Construction", t.k, t.s, t.s, t.x.map((x) => term(b, x)));
+      return used(
+        b,
+        "Construction",
+        t.k,
+        t.s,
+        t.s,
+        t.x.map((x) => term(b, x)),
+      );
     case "Lit":
       return tree("Literal", String(t.v), at, t.s, [], { target: t.k });
     case "Mat":
@@ -942,12 +964,7 @@ const imports = (file: Parsed, at: Placer, base: string): Tree[] => {
 
 // The trees of a file: its imports, then its declarations, each constructor under its type. Each
 // declaration's references own their spans apart (see `reference`).
-const trees = (
-  file: Parsed,
-  book: Book,
-  base: string,
-  datatypes: ReadonlySet<string>,
-): Tree[] => {
+const trees = (file: Parsed, book: Book, base: string, datatypes: ReadonlySet<string>): Tree[] => {
   const at = placer(file);
   const heads = file.frames.reduce<Frame[][]>((groups, f) => {
     if (f.name === "parse_def" || isHead(f)) {
@@ -1121,7 +1138,9 @@ const sameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
     t.dep <= n || deepest(Bend.term_lower(t.ty, t.dep), t.dep) < n;
   try {
     return (
-      inside(a) && inside(b) && Bend.term_compare("EQ", held.bok, a.ty, b.ty, Math.max(a.dep, b.dep))
+      inside(a) &&
+      inside(b) &&
+      Bend.term_compare("EQ", held.bok, a.ty, b.ty, Math.max(a.dep, b.dep))
     );
   } catch {
     return false;
@@ -1330,7 +1349,11 @@ const collect = (
   };
   own.forEach((k) => {
     const tld = held.bok.tlds[k] as TLD | undefined;
-    if (tld === undefined || k.includes("~") || (wanted !== undefined && !wanted.has(writtenIn(tld)))) {
+    if (
+      tld === undefined ||
+      k.includes("~") ||
+      (wanted !== undefined && !wanted.has(writtenIn(tld)))
+    ) {
       return;
     }
     domains(tld.T);

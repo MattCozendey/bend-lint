@@ -4,7 +4,7 @@
 # - The rules program is an ordinary Bend program. seam.ts builds it once and keeps the build. The C lane is the
 #   target; the JS lane must work too.
 # - Bend's checker is TS for now: seam.ts makes each check's program of what Bend's parser and checker give, and answers
-#   the questions rules ask about its types, over local TCP (seam.bend). When the checker is Bend, glue in Bend makes
+#   the questions rules ask about its types, over local TCP (see Seam in cli.bend). When the checker is Bend, glue in Bend makes
 #   the same program, and the questions become calls.
 # - A file is a tree of syntax nodes. A rule walks it, and reads what a node is from the node and the nodes above it.
 # - Rules are pure, so they run in parallel. The runner answers every rule's questions of a round in one batch.
@@ -12,7 +12,6 @@
 # - A rule requests a fix as typed operations; the linter plans them and decides their safety. Until Bend's checker
 #   is Bend, only a fix that writes comments over comments is safe (`--fix`).
 import Base
-import ../shared/groups.bend as Groups
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
 import ../shared/strings.bend as Strings
@@ -20,7 +19,6 @@ import ../shared/tables.bend as Tables
 
 # Program
 # =======
-
 type Quantity is Data:
   Erased{}
   Once{}
@@ -99,7 +97,13 @@ type Fact is Data:
 # under it, in order, and the checker's facts on it, if a rule needs them. An application's nodes are its function,
 # then its arguments; a block's, its binders, then their values, then the rest of the block.
 type Node is Data:
-  Node{syntax: Syntax, name: String, span: Maybe<&2, Span>, kids: List<&2, Node>, facts: List<&2, Fact>}
+  Node{
+    syntax: Syntax,
+    name: String,
+    span: Maybe<&2, Span>,
+    kids: List<&2, Node>,
+    facts: List<&2, Fact>
+  }
 
 # A file the check parsed: its path, its namespace in the check ("" for the checked file), its text, and its nodes: its
 # imports, then its declarations, each constructor under its type.
@@ -310,7 +314,7 @@ def visit.go(
   match nodes:
     case Nil{}:
       out
-    case Con{Node{+syntax, +name, +span, +kids, +facts}, rest}:
+    case Con{Node{syntax, name, span, +kids, facts}, rest}:
       +node = {Node{syntax, name, span, kids, facts}: Node}
       +path = Above.of(parent, at, up)
       visit.go(
@@ -331,7 +335,7 @@ def visit(
   ~C: Data,
   ~A: Data,
   ~f: @+c: C -> @+path: List<&2, Above> -> @+node: Node -> List<&2, A>,
-  +c: C,
+  c: C,
   nodes: List<&2, Node>
 ) -> List<&2, A>:
   List.reverse(&2, A, visit.go(~C, ~A, ~f, nodes, c, [], None{}, 0, []))
@@ -348,8 +352,15 @@ def fold(
   match nodes:
     case Nil{}:
       s
-    case Con{Node{+syntax, +name, +span, +kids, +facts}, rest}:
-      fold(~C, ~S, ~f, c, rest, fold(~C, ~S, ~f, c, kids, f(c, Node{syntax, name, span, kids, facts}, s)))
+    case Con{Node{syntax, name, span, +kids, facts}, rest}:
+      fold(
+        ~C,
+        ~S,
+        ~f,
+        c,
+        rest,
+        fold(~C, ~S, ~f, c, kids, f(c, Node{syntax, name, span, kids, facts}, s))
+      )
 
 # The top-level declaration a node is in: the outermost node above it, or the node itself.
 def top(path: List<&2, Above>, node: Node) -> Node:
@@ -370,7 +381,7 @@ def calls(called: String, owner: Node) -> Bool:
 
 # Whether a node is an application of the definition it is in, below `path`: a step of a loop, as Bend repeats work by
 # recursion.
-def recursive(+path: List<&2, Above>, +node: Node) -> Bool:
+def recursive(path: List<&2, Above>, +node: Node) -> Bool:
   match node:
     case Node{Application{}, n, s, Con{Node{Reference{called}, rn, rs, rk, rf}, args}, f}:
       calls(called, top(path, node))
@@ -419,11 +430,19 @@ def definitions(nodes: List<&2, Node>, out: Map<&2, Maybe<&2, Node>>) -> Map<&2,
     case Nil{}:
       out
     case Con{Node{Definition{+t, u}, n, s, k, f}, rest}:
-      definitions(rest, Map.set(&2, Maybe<&2, Node>, out, t, Some{Node{Definition{t, u}, n, s, k, f}}))
+      definitions(
+        rest,
+        Map.set(&2, Maybe<&2, Node>, out, t, Some{Node{Definition{t, u}, n, s, k, f}})
+      )
     case Con{node, rest}:
       definitions(rest, out)
 
-def parameter.go(nodes: List<&2, Node>, found: Maybe<&2, Nat>, +binder: U32, +at: Nat) -> Maybe<&2, Nat>:
+def parameter.go(
+  nodes: List<&2, Node>,
+  found: Maybe<&2, Nat>,
+  +binder: U32,
+  +at: Nat
+) -> Maybe<&2, Nat>:
   match nodes found:
     case _ Some{n}:
       Some{n}
@@ -483,28 +502,17 @@ type Found is Data:
   Found{rule: String, finding: Finding}
 
 # A finding at `span`, if `hit` and `span` is known.
-def finding(severity: Severity, hit: Bool, span: Maybe<&2, Span>, text: String) -> List<&2, Finding>:
+def finding(
+  severity: Severity,
+  hit: Bool,
+  span: Maybe<&2, Span>,
+  text: String
+) -> List<&2, Finding>:
   match hit span:
     case True{} Some{s}:
       [Finding{severity, s, text, []}]
     case _ _:
       []
-
-def findings.go(
-  ~A: Data,
-  ~f: A -> List<&2, Finding>,
-  xs: List<&2, A>,
-  out: List<&2, Finding>
-) -> List<&2, Finding>:
-  match xs:
-    case Nil{}:
-      List.reverse(&2, Finding, out)
-    case Con{x, rest}:
-      findings.go(~A, ~f, rest, Lists.onto(&2, Finding, f(x), out))
-
-# `f(x)` for each `x`, in order.
-def findings(~A: Data, ~f: A -> List<&2, Finding>, xs: List<&2, A>) -> List<&2, Finding>:
-  findings.go(~A, ~f, xs, [])
 
 # Options
 # =======
@@ -574,7 +582,7 @@ def Uses.global.add(
 ) -> Map<&2, List<&2, Node>>:
   match used:
     case Some{t}:
-      Groups.Group.add(Node, m, t, node)
+      Names.Group.add(Node, m, t, node)
     case None{}:
       m
 
@@ -619,7 +627,7 @@ def Imported.own(nodes: List<&2, Node>, out: Set()) -> Set():
     case Con{Node{syntax, n, s, k, f}, rest}:
       Imported.own(rest, Imported.own.add(Syntax.target(syntax), out))
 
-def Imported.base(+own: Set(), used: Maybe<&2, String>) -> Bool:
+def Imported.base(own: Set(), used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
       String.is_empty(Name.namespace(name)) && Bool.not(Pair.snd(Set(), Bool, Set.has(own, name)))
@@ -635,7 +643,7 @@ def Imported.alias(
     case SNil{}:
       aliases
     case SCon{h, t}:
-      Groups.Group.add(Node, aliases, SCon{h, t}, node)
+      Names.Group.add(Node, aliases, SCon{h, t}, node)
 
 def Imported.add(+own: Set(), +node: Node, uses: Imported) -> Imported:
   match node uses:
@@ -655,13 +663,20 @@ def Imported.of(+nodes: List<&2, Node>) -> Imported:
     Imported{Map.new(&2, List<&2, Node>), []}
   )
 
-# The namespace of the file at `path`, as the check names it: "" for Base, or a file the check did not parse.
-def Declarations.namespace(sources: List<&2, Source>, +path: String) -> String:
-  match sources:
-    case Nil{}:
+# The namespace of the file at `path`, as the check names it (`found`, once found): "" for Base, or a file the check
+# did not parse.
+def Declarations.namespace(
+  sources: List<&2, Source>,
+  +path: String,
+  found: Maybe<&2, String>
+) -> String:
+  match sources found:
+    case _ Some{namespace}:
+      namespace
+    case Nil{} None{}:
       ""
-    case Con{Source{p, namespace, text, nodes}, rest}:
-      Bool.pick(String, String.eq(p, path), namespace, Declarations.namespace(rest, path))
+    case Con{Source{p, namespace, text, nodes}, rest} None{}:
+      Declarations.namespace(rest, path, Lists.when(String, String.eq(p, path), namespace))
 
 # The uses of an import, in order: of Base (`base`), or of its alias.
 def Declarations.imported(base: Bool, alias: String, imported: Imported) -> List<&2, Node>:
@@ -669,7 +684,7 @@ def Declarations.imported(base: Bool, alias: String, imported: Imported) -> List
     case True{} Imported{aliases, uses}:
       List.reverse(&2, Node, uses)
     case False{} Imported{aliases, uses}:
-      Groups.Group.get(Node, aliases, alias)
+      Names.Group.get(Node, aliases, alias)
 
 def Declarations.bound(
   binder: Maybe<&2, U32>,
@@ -685,10 +700,14 @@ def Declarations.bound(
     case None{}:
       []
 
-def Declarations.declared(declares: Maybe<&2, Bool>, +node: Node, uses: Uses) -> List<&2, Declaration>:
+def Declarations.declared(
+  declares: Maybe<&2, Bool>,
+  +node: Node,
+  uses: Uses
+) -> List<&2, Declaration>:
   match declares node uses:
     case Some{True{}} _ Uses{sources, globals, binders, imported}:
-      [Declaration{node, Groups.Group.get(Node, globals, Node.target(node))}]
+      [Declaration{node, Names.Group.get(Node, globals, Node.target(node))}]
     case Some{False{}} Node{syntax, name, s, k, f} Uses{sources, globals, binders, imported}:
       Bool.pick(
         List<&2, Declaration>,
@@ -700,12 +719,20 @@ def Declarations.declared(declares: Maybe<&2, Bool>, +node: Node, uses: Uses) ->
       []
 
 # A node's declaration, if it declares a name, with its uses, onto `out`.
-def Declarations.node(+uses: Uses, +node: Node, out: List<&2, Declaration>) -> List<&2, Declaration>:
+def Declarations.node(
+  +uses: Uses,
+  +node: Node,
+  out: List<&2, Declaration>
+) -> List<&2, Declaration>:
   match uses node:
     case Uses{sources, globals, binders, imported} Node{Import{t}, name, s, k, f}:
       Declaration{
         node,
-        Declarations.imported(String.is_empty(Declarations.namespace(sources, t)), name, imported)
+        Declarations.imported(
+          String.is_empty(Declarations.namespace(sources, t, None{})),
+          name,
+          imported
+        )
       }
         <> out
     case _ _:
@@ -739,7 +766,14 @@ def Declarations.tops(
           Uses{
             sources,
             globals,
-            fold(~Unit, ~Tables.Table<List<&2, Node>>, ~Uses.binder, Unit{}, [top], Tables.TLeaf{None{}}),
+            fold(
+              ~Unit,
+              ~Tables.Table<List<&2, Node>>,
+              ~Uses.binder,
+              Unit{},
+              [top],
+              Tables.TLeaf{None{}}
+            ),
             imported
           },
           [top],
@@ -772,7 +806,10 @@ def Declarations.globals(
     case Nil{}:
       m
     case Con{Source{path, namespace, text, nodes}, rest}:
-      Declarations.globals(rest, fold(~Unit, ~Map<&2, List<&2, Node>>, ~Uses.global, Unit{}, nodes, m))
+      Declarations.globals(
+        rest,
+        fold(~Unit, ~Map<&2, List<&2, Node>>, ~Uses.global, Unit{}, nodes, m)
+      )
 
 # The declarations of `files`, in order, with their uses in `files`; `sources` are the program's files.
 def Declarations.of(+files: List<&2, Source>, sources: List<&2, Source>) -> List<&2, Declaration>:
@@ -782,7 +819,11 @@ def Declarations.of(+files: List<&2, Source>, sources: List<&2, Source>) -> List
     Declarations.files(files, sources, Declarations.globals(files, Map.new(&2, List<&2, Node>)), [])
   )
 
-def Declarations.when(declare: Bool, files: List<&2, Source>, sources: List<&2, Source>) -> List<&2, Declaration>:
+def Declarations.when(
+  declare: Bool,
+  files: List<&2, Source>,
+  sources: List<&2, Source>
+) -> List<&2, Declaration>:
   match declare:
     case True{}:
       Declarations.of(files, sources)
@@ -801,12 +842,21 @@ def Program.own(sources: List<&2, Source>) -> List<&2, Source>:
 # What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it, if a rule
 # needs them; and the rule's options, each declared one with its value.
 type Here is Data:
-  Here{program: Program, source: Source, declarations: List<&2, Declaration>, options: List<&2, Names.Named<Value>>}
+  Here{
+    program: Program,
+    source: Source,
+    declarations: List<&2, Declaration>,
+    options: List<&2, Names.Named<Value>>
+  }
 
 # What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
 # uses in all of them, if a rule needs them; and the rule's options.
 type Whole is Data:
-  Whole{program: Program, declarations: List<&2, Declaration>, options: List<&2, Names.Named<Value>>}
+  Whole{
+    program: Program,
+    declarations: List<&2, Declaration>,
+    options: List<&2, Names.Named<Value>>
+  }
 
 # The program from one of its files, built once for every file rule that runs on that file: its declarations, if a rule
 # needs them (`declare`). The runner gives each rule its options.

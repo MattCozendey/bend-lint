@@ -94,9 +94,22 @@ def judge(file: String, +written: String, loads: String, span: Lint.Span) -> Lis
 
 # The findings on the paths of `nodes`' imports, onto `out`. A file's imports come first, so the first node of another
 # kind ends them; `import Base` writes no path.
-def paths(nodes: List<&2, Lint.Node>, +file: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def paths(
+  nodes: List<&2, Lint.Node>,
+  +file: String,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{Lint.Import{loads}, n, s, Con{Lint.Node{Lint.ImportPath{}, written, Some{span}, k, f}, ks}, fs}, rest}:
+    case Con{
+      Lint.Node{
+        Lint.Import{loads},
+        n,
+        s,
+        Con{Lint.Node{Lint.ImportPath{}, written, Some{span}, k, f}, ks},
+        fs
+      },
+      rest
+    }:
       paths(rest, file, Lists.onto(&2, Lint.Finding, judge(file, written, loads, span), out))
     case Con{Lint.Node{Lint.Import{loads}, n, s, k, f}, rest}:
       paths(rest, file, out)

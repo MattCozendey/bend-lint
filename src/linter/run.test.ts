@@ -92,7 +92,10 @@ setDefaultTimeout(120_000);
     const ran = await run(FILE, { ...ENTRIES, "b.bend": broken }, "util.bend");
     expect([ran.code, ran.out.trim().split("\n")]).toEqual([
       0,
-      [expect.stringMatching(/util\.bend:1:1: hint tests\/file: linted$/), "bend-lint: 1 finding(s)"],
+      [
+        expect.stringMatching(/util\.bend:1:1: hint tests\/file: linted$/),
+        "bend-lint: 1 finding(s)",
+      ],
     ]);
   });
 

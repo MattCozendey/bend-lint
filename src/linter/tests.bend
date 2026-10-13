@@ -24,7 +24,7 @@ def quantity(q: Lint.Quantity) -> String:
     case Lint.Template{}:
       "template"
 
-def Kept.add(+span: Lint.Span, said: String, t: Lint.TypeRef, kept: Kept) -> Kept:
+def Kept.add(span: Lint.Span, said: String, t: Lint.TypeRef, kept: Kept) -> Kept:
   match kept:
     case Kept{spans, saids, types}:
       Kept{span <> spans, said <> saids, t <> types}
@@ -46,7 +46,7 @@ def term(syntax: Lint.Syntax) -> Maybe<&2, String>:
     case _:
       None{}
 
-def shown(shows: Shows, +syntax: Lint.Syntax, +name: String, fact: Lint.Fact) -> Maybe<&2, String>:
+def shown(shows: Shows, +syntax: Lint.Syntax, name: String, fact: Lint.Fact) -> Maybe<&2, String>:
   match shows syntax fact:
     case Types{} Lint.Variable{b} Lint.Fact{Lint.OfTerm{}, q, u, t}:
       Some{"type: "}
@@ -57,7 +57,7 @@ def shown(shows: Shows, +syntax: Lint.Syntax, +name: String, fact: Lint.Fact) ->
     case _ _ _:
       None{}
 
-def Kept.of(said: Maybe<&2, String>, +span: Lint.Span, t: Lint.TypeRef, kept: Kept) -> Kept:
+def Kept.of(said: Maybe<&2, String>, span: Lint.Span, t: Lint.TypeRef, kept: Kept) -> Kept:
   match said:
     case Some{s}:
       Kept.add(span, s, t, kept)
@@ -142,7 +142,11 @@ def showing(shows: Shows, compare: Bool, here: Lint.Here) -> Lint.Ask(List<&2, L
     Lint.fold(~Shows, ~Kept, ~Kept.node, shows, Lint.Here.nodes(here), Kept{[], [], []})
   )
 
-def used.of(+name: String, span: Maybe<&2, Lint.Span>, facts: List<&2, Lint.Fact>) -> List<&2, Lint.Finding>:
+def used.of(
+  name: String,
+  span: Maybe<&2, Lint.Span>,
+  facts: List<&2, Lint.Fact>
+) -> List<&2, Lint.Finding>:
   match span facts:
     case Some{s} Con{Lint.Fact{Lint.OfBinder{}, q, Some{u}, t}, rest}:
       [Lint.Finding{Lint.Hint{}, s, name ++ ": used " ++ quantity(u), []}]
@@ -192,7 +196,13 @@ def written(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2,
       Maybe.default(
         &2,
         List<&2, Lint.Finding>,
-        Maybe.map(&2, String, List<&2, Lint.Finding>, s => [Lint.Finding{Lint.Hint{}, span, s, []}], written.said(syntax, name)),
+        Maybe.map(
+          &2,
+          String,
+          List<&2, Lint.Finding>,
+          s => [Lint.Finding{Lint.Hint{}, span, s, []}],
+          written.said(syntax, name)
+        ),
         []
       )
     case _:
@@ -201,9 +211,23 @@ def written(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2,
 def renamed(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match node:
     case Lint.Node{Lint.Definition{t, unsafe}, "foo", Some{span}, kids, facts}:
-      [Lint.Finding{Lint.Hint{}, span, "foo", [Lint.Fix{"Rename to bar", [Lint.Rename{span, "bar"}]}]}]
+      [
+        Lint.Finding{
+          Lint.Hint{},
+          span,
+          "foo",
+          [Lint.Fix{"Rename to bar", [Lint.Rename{span, "bar"}]}]
+        }
+      ]
     case Lint.Node{Lint.Parameter{b, q}, "foo", Some{span}, kids, facts}:
-      [Lint.Finding{Lint.Hint{}, span, "foo", [Lint.Fix{"Rename to bar", [Lint.Rename{span, "bar"}]}]}]
+      [
+        Lint.Finding{
+          Lint.Hint{},
+          span,
+          "foo",
+          [Lint.Fix{"Rename to bar", [Lint.Rename{span, "bar"}]}]
+        }
+      ]
     case _:
       []
 
@@ -224,17 +248,36 @@ def marks(
         Lists.onto(
           &2,
           Lint.Finding,
-          Lint.Finding{Lint.Hint{}, Lint.Span{path, 0, 1}, "at 0", fix}
+          Lint.Finding{
+            Lint.Hint{},
+            Lint.Span{path, 0, 1},
+            "at 0",
+            fix
+          }
             <> Lists.push(
               Lint.Finding,
-              Maybe.map(&2, U32, Lint.Finding, +n => Lint.Finding{Lint.Hint{}, Lint.Span{path, n, (n + 1: U32)}, "at the count", []}, count),
+              Maybe.map(
+                &2,
+                U32,
+                Lint.Finding,
+                +n => Lint.Finding{
+                  Lint.Hint{},
+                  Lint.Span{path, n, (n + 1: U32)},
+                  "at the count",
+                  []
+                },
+                count
+              ),
               []
             ),
           out
         )
       )
 
-def inserts(sources: List<&2, Lint.Source>, out: List<&2, Lint.Operation>) -> List<&2, Lint.Operation>:
+def inserts(
+  sources: List<&2, Lint.Source>,
+  out: List<&2, Lint.Operation>
+) -> List<&2, Lint.Operation>:
   match sources:
     case Nil{}:
       out
@@ -258,15 +301,30 @@ def counted(+whole: Lint.Whole) -> Lint.Ask(List<&2, Lint.Finding>):
 # tests/types: the type of each variable use that has a fact, in one round, then whether the first two are the same
 # type, in a second.
 def types() -> Lint.Rule:
-  Lint.Rule{"tests/types", Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Types{}, True{}, here)}}
+  Lint.Rule{
+    "tests/types",
+    Lint.Needs{True{}, False{}},
+    [],
+    Lint.OnFile{here => showing(Types{}, True{}, here)}
+  }
 
 # tests/binders: the type each binder declares, with its quantity: `name (quantity): type`.
 def binders() -> Lint.Rule:
-  Lint.Rule{"tests/binders", Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Binders{}, False{}, here)}}
+  Lint.Rule{
+    "tests/binders",
+    Lint.Needs{True{}, False{}},
+    [],
+    Lint.OnFile{here => showing(Binders{}, False{}, here)}
+  }
 
 # tests/terms: the type of each call, construction and literal that has a fact: `call: type`.
 def terms() -> Lint.Rule:
-  Lint.Rule{"tests/terms", Lint.Needs{True{}, False{}}, [], Lint.OnFile{here => showing(Terms{}, False{}, here)}}
+  Lint.Rule{
+    "tests/terms",
+    Lint.Needs{True{}, False{}},
+    [],
+    Lint.OnFile{here => showing(Terms{}, False{}, here)}
+  }
 
 # tests/uses: how often the body of each binder the checker closed uses it: `name: used quantity`.
 def uses() -> Lint.Rule:
@@ -274,7 +332,9 @@ def uses() -> Lint.Rule:
     "tests/uses",
     Lint.Needs{True{}, False{}},
     [],
-    Lint.OnFile{here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~used, Unit{}, Lint.Here.nodes(here)))}
+    Lint.OnFile{
+      here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~used, Unit{}, Lint.Here.nodes(here)))
+    }
   }
 
 # tests/budget: one question per round, more rounds than the runner allows.
@@ -283,7 +343,11 @@ def budget() -> Lint.Rule:
     "tests/budget",
     Lint.Needs{True{}, False{}},
     [],
-    Lint.OnFile{here => budget.first(Lint.fold(~Shows, ~Kept, ~Kept.node, Types{}, Lint.Here.nodes(here), Kept{[], [], []}))}
+    Lint.OnFile{
+      here => budget.first(
+        Lint.fold(~Shows, ~Kept, ~Kept.node, Types{}, Lint.Here.nodes(here), Kept{[], [], []})
+      )
+    }
   }
 
 # tests/file: one mark at the start of each linted file.
@@ -292,7 +356,11 @@ def file() -> Lint.Rule:
     "tests/file",
     Lint.Needs{False{}, False{}},
     [],
-    Lint.OnFile{here => Lint.done([Lint.Finding{Lint.Hint{}, Lint.Span{Lint.Here.path(here), 0, 0}, "linted", []}])}
+    Lint.OnFile{
+      here => Lint.done(
+        [Lint.Finding{Lint.Hint{}, Lint.Span{Lint.Here.path(here), 0, 0}, "linted", []}]
+      )
+    }
   }
 
 # tests/written: each reference, call and lambda that the file writes.
@@ -301,7 +369,9 @@ def written.rule() -> Lint.Rule:
     "tests/written",
     Lint.Needs{False{}, False{}},
     [],
-    Lint.OnFile{here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~written, Unit{}, Lint.Here.nodes(here)))}
+    Lint.OnFile{
+      here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~written, Unit{}, Lint.Here.nodes(here)))
+    }
   }
 
 # tests/rename: offers to rename each def and each parameter named foo to bar.
@@ -310,7 +380,9 @@ def rename() -> Lint.Rule:
     "tests/rename",
     Lint.Needs{False{}, False{}},
     [],
-    Lint.OnFile{here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~renamed, Unit{}, Lint.Here.nodes(here)))}
+    Lint.OnFile{
+      here => Lint.done(Lint.visit(~Unit, ~Lint.Finding, ~renamed, Unit{}, Lint.Here.nodes(here)))
+    }
   }
 
 # tests/every: a program rule merged as every-entry: in each file of a check, a mark at offset 0, and one at the number

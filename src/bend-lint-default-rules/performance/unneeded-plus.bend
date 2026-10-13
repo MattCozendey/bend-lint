@@ -22,7 +22,10 @@ type Owner is Data:
 # The definition a reference below `path` names, if it is used as a value: not as the function of an application.
 def value.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, String>:
   match path node:
-    case Con{Lint.Above{Lint.Node{Lint.Application{}, n, s, k, f}, at}, up} Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}:
+    case Con{
+      Lint.Above{Lint.Node{Lint.Application{}, n, s, k, f}, at},
+      up
+    } Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}:
       Bool.pick(List<&2, String>, U32.is_eq(at, 0), [], [t])
     case _ Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}:
       [t]
@@ -40,18 +43,21 @@ def constructed(nodes: List<&2, Lint.Node>) -> Bool:
 # with a constructor pattern (`Vert{x, y} = v`).
 def matched.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
   match path node:
-    case Con{Lint.Above{Lint.Node{Lint.Match{}, n, s, k, f}, at}, up} Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}:
+    case Con{
+      Lint.Above{Lint.Node{Lint.Match{}, n, s, k, f}, at},
+      up
+    } Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}:
       [b]
-    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, +at}, up} Lint.Node{
-      Lint.Variable{b},
-      vn,
-      vs,
-      vk,
-      vf
-    }:
+    case Con{
+      Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, +at},
+      up
+    } Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}:
       Bool.pick(
         List<&2, U32>,
-        Bool.not(U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))) && constructed(kids),
+        Bool.not(
+          U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))
+        )
+          && constructed(kids),
         [b],
         []
       )
@@ -102,10 +108,12 @@ def message(+name: String) -> String:
 
 # Whether a `+` binder its body uses at most once (`once`) needs no `+`: not if a match takes it apart, nor if it is a
 # parameter of a definition used as a value: the type it must have can ask for the `+`.
-def needless(once: Bool, parameter: Bool, owner: Owner, +b: U32) -> Bool:
+def needless(once: Bool, parameter: Bool, owner: Owner, b: U32) -> Bool:
   match once parameter owner:
     case True{} True{} Owner{values, target, matched}:
-      Bool.not(List.contains(~String, ~String.eq, values, target))
+      Bool.not(
+        List.contains(~String, ~String.eq, values, target)
+      )
         && Bool.not(List.contains(~U32, ~U32.is_eq, matched, b))
     case True{} False{} Owner{values, target, matched}:
       Bool.not(List.contains(~U32, ~U32.is_eq, matched, b))
@@ -134,7 +142,12 @@ def judged(
         Lists.onto(
           &2,
           Lint.Finding,
-          Lint.finding(Lint.Information{}, needless(once(used), parameter, owner, b), span, message(name)),
+          Lint.finding(
+            Lint.Information{},
+            needless(once(used), parameter, owner, b),
+            span,
+            message(name)
+          ),
           out
         )
       )
@@ -148,11 +161,15 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
     case Lint.Node{+syntax, name, span, k, fs}:
       judged(plus(syntax), is_parameter(syntax), owner, span, name, fs, [])
 
-def defs(nodes: List<&2, Lint.Node>, +values: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def defs(
+  nodes: List<&2, Lint.Node>,
+  +values: List<&2, String>,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       defs(
         rest,

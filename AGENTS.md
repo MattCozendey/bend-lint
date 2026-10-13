@@ -102,14 +102,16 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 - README.md is for users and stays short. Internals go here and in code comments.
 - `src/linter/` holds the linter, `src/bend-lint-default-rules/` its default rules, `src/files/`
-  files (their text, folders and globs; its effects in `effs/`), `src/json/` JSON, `src/meta/` this
-  repo's scripts and oxlint plugins, and `src/shared/` helpers for any program.
+  files (their text, folders and globs; its effects in `effs/`), `src/json/` JSON, `src/text/` edits
+  to texts and places in them, `src/meta/` this repo's scripts and oxlint plugins, and `src/shared/`
+  helpers for any program.
 - Code that knows Bend's own shapes (its parser, checker and their data) goes in
-  `src/linter/seam.ts` and `src/linter/seam.bend`, and nowhere else. A Bend helper that is not about
-  linting goes in `src/shared/`, even with one user, in the file of its concept (`lists.bend`,
-  `strings.bend`, ...). Name a shared Bend file after its concept, never `utils`, and import it with
-  its name capitalized as the alias. A Bend helper about linting that more than one file of the
-  linter or its rules uses goes in `src/linter/shared.bend`.
+  `src/linter/seam.ts`, and nowhere else: it gives the Bend side the linter's own model, the types
+  of `lint.bend`. A Bend helper that is not about linting goes in `src/shared/`, even with one user,
+  in the file of its concept (`lists.bend`, `strings.bend`, ...); one that is not simple gets a
+  folder of its own, as `src/json/` and `src/text/` do. Name a shared Bend file after its concept,
+  never `utils`, and import it with its name capitalized as the alias. A Bend helper about linting
+  that more than one file of the linter or its rules uses goes in `src/linter/lint.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it.
 - A default rule lives in `src/bend-lint-default-rules/<namespace>/<name>.bend`, and its id is

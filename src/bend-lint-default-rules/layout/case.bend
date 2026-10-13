@@ -309,14 +309,19 @@ def judge(
   match declarations:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Declaration{Lint.Node{+syntax, +name, Some{+span}, +kids, +facts}, uses}, rest}:
+    case Con{Lint.Declaration{Lint.Node{+syntax, +name, Some{+span}, kids, facts}, uses}, rest}:
       judge(
         namespace,
         rest,
         Lists.onto(
           &2,
           Lint.Finding,
-          judged(wanted(Lint.Node{syntax, name, Some{span}, kids, facts}, namespace), syntax, name, span),
+          judged(
+            wanted(Lint.Node{syntax, name, Some{span}, kids, facts}, namespace),
+            syntax,
+            name,
+            span
+          ),
           out
         )
       )

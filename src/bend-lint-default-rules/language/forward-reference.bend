@@ -35,7 +35,11 @@ def message(+used: String, +user: String) -> String:
     ++ ". If the two call each other, merge them into one definition with an argument that selects which to run: Bend does not allow mutual recursion. This is a false positive if the use is an argument for an erased parameter (`-x`): that is dead code."
 
 # Where each definition among `nodes`, the file's, is, from `at`, onto `out`.
-def places(nodes: List<&2, Lint.Node>, +at: U32, out: Map<&2, Maybe<&2, Place>>) -> Map<&2, Maybe<&2, Place>>:
+def places(
+  nodes: List<&2, Lint.Node>,
+  +at: U32,
+  out: Map<&2, Maybe<&2, Place>>
+) -> Map<&2, Maybe<&2, Place>>:
   match nodes:
     case Nil{}:
       out
@@ -48,9 +52,9 @@ def places(nodes: List<&2, Lint.Node>, +at: U32, out: Map<&2, Maybe<&2, Place>>)
 # `&&` computes both sides.
 def below(
   hit: Bool,
-  +path: List<&2, Lint.Above>,
-  +used: String,
-  +user: String,
+  path: List<&2, Lint.Above>,
+  used: String,
+  user: String,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match hit:
@@ -60,13 +64,13 @@ def below(
       []
 
 def judged(
-  +path: List<&2, Lint.Above>,
+  path: List<&2, Lint.Above>,
   place: Maybe<&2, Place>,
   user: User,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match place user:
-    case Some{Place{+p, used}} User{places, +at, name}:
+    case Some{Place{p, used}} User{places, at, name}:
       below(U32.is_gt(p, at), path, used, name, span)
     case _ _:
       []
@@ -93,7 +97,7 @@ def users(
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, False{}}, +name, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{t, False{}}, +name, s, k, f}, rest}:
       users(
         rest,
         places,

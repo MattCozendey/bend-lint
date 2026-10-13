@@ -57,14 +57,26 @@ def returns_io(nodes: List<&2, Lint.Node>) -> Bool:
   match nodes:
     case Nil{}:
       False{}
-    case Con{Lint.Node{Lint.Returns{}, n, s, Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, k}, f}, rest}:
+    case Con{
+      Lint.Node{Lint.Returns{}, n, s, Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, k}, f},
+      rest
+    }:
       String.eq(t, "IO")
     case Con{
       Lint.Node{
         Lint.Returns{},
         n,
         s,
-        Con{Lint.Node{Lint.Application{}, an, as, Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, ak}, af}, k},
+        Con{
+          Lint.Node{
+            Lint.Application{},
+            an,
+            as,
+            Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, ak},
+            af
+          },
+          k
+        },
         f
       },
       rest
@@ -74,36 +86,48 @@ def returns_io(nodes: List<&2, Lint.Node>) -> Bool:
       returns_io(rest)
 
 # Whether an application's nodes call `target`: its function is a reference to it.
-def calls.to(kids: List<&2, Lint.Node>, +target: String) -> Bool:
+def calls.to(kids: List<&2, Lint.Node>, target: String) -> Bool:
   match kids:
     case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, rest}:
       String.eq(t, target)
     case _:
       False{}
 
-# Where the calls of `target` among `nodes` and under them are (onto `out`, last first), in the expression they start:
-# a node that ends it starts another, and a call inside another call of `target` does not count.
-def calls(nodes: List<&2, Lint.Node>, +target: String, +out: List<&2, Lint.Span>) -> List<&2, Lint.Span>:
-  match nodes:
-    case Nil{}:
+# `out` with the span of a call of `target` (if `call`), where the call is.
+def called.at(
+  call: Bool,
+  span: Maybe<&2, Lint.Span>,
+  out: List<&2, Lint.Span>
+) -> List<&2, Lint.Span>:
+  match call:
+    case True{}:
+      Lists.push(Lint.Span, span, out)
+    case False{}:
       out
-    case Con{Lint.Node{Lint.Application{}, n, span, +kids, f}, rest}:
-      calls(
-        rest,
-        target,
-        Bool.pick(
-          List<&2, Lint.Span>,
-          calls.to(kids, target),
-          Lists.push(Lint.Span, span, out),
-          calls(kids, target, out)
-        )
-      )
-    case Con{Lint.Node{Lint.Construction{t}, n, s, kids, f}, rest}:
-      calls(rest, target, calls(kids, target, out))
-    case Con{Lint.Node{Lint.Annotation{}, n, s, kids, f}, rest}:
-      calls(rest, target, calls(kids, target, out))
-    case Con{node, rest}:
-      calls(rest, target, out)
+
+# Where the calls of `target` among `nodes` and under them are (onto `out`, last first), in the expression they start:
+# a node that ends it starts another, and a call inside another call of `target` does not count: none does if `nodes`
+# are the parts of one (`inside`).
+def calls(
+  nodes: List<&2, Lint.Node>,
+  +target: String,
+  out: List<&2, Lint.Span>,
+  inside: Bool
+) -> List<&2, Lint.Span>:
+  match nodes inside:
+    case _ True{}:
+      out
+    case Nil{} False{}:
+      out
+    case Con{Lint.Node{Lint.Application{}, n, span, +kids, f}, rest} False{}:
+      +call = calls.to(kids, target)
+      calls(rest, target, calls(kids, target, called.at(call, span, out), call), False{})
+    case Con{Lint.Node{Lint.Construction{t}, n, s, kids, f}, rest} False{}:
+      calls(rest, target, calls(kids, target, out, False{}), False{})
+    case Con{Lint.Node{Lint.Annotation{}, n, s, kids, f}, rest} False{}:
+      calls(rest, target, calls(kids, target, out, False{}), False{})
+    case Con{node, rest} False{}:
+      calls(rest, target, out, False{})
 
 def texts(spans: List<&2, Lint.Span>, +text: String, out: List<&2, String>) -> List<&2, String>:
   match spans:
@@ -168,7 +192,11 @@ def Call.finding.of(
     case _ _:
       []
 
-def Call.finding(+spans: List<&2, Lint.Span>, span: Maybe<&2, Lint.Span>, owner: Owner) -> List<&2, Lint.Finding>:
+def Call.finding(
+  +spans: List<&2, Lint.Span>,
+  span: Maybe<&2, Lint.Span>,
+  owner: Owner
+) -> List<&2, Lint.Finding>:
   Call.finding.of(Nat.is_gt(Lists.length(&2, Lint.Span, spans), 1n), spans, span, owner)
 
 # Whether the node below `path` starts an expression: the node above it ends one.
@@ -180,11 +208,17 @@ def starts(path: List<&2, Lint.Above>) -> Bool:
       boundary(syntax)
 
 # The call of a let's value, if the value is a call of `target`, typed or not.
-def called(value: Lint.Node, +target: String) -> Maybe<&2, Lint.Node>:
+def called(value: Lint.Node, target: String) -> Maybe<&2, Lint.Node>:
   match value:
     case Lint.Node{Lint.Application{}, n, s, +kids, f}:
       Lists.when(Lint.Node, calls.to(kids, target), Lint.Node{Lint.Application{}, n, s, kids, f})
-    case Lint.Node{Lint.Annotation{}, n, s, Con{Lint.Node{Lint.Application{}, cn, cs, +kids, cf}, k}, f}:
+    case Lint.Node{
+      Lint.Annotation{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Application{}, cn, cs, +kids, cf}, k},
+      f
+    }:
       Lists.when(Lint.Node, calls.to(kids, target), Lint.Node{Lint.Application{}, cn, cs, kids, cf})
     case _:
       None{}
@@ -196,7 +230,10 @@ def bound(+node: Lint.Node, +owner: Owner) -> Maybe<&2, Bound>:
       Lint.Destructure{q},
       n,
       s,
-      Con{Lint.Node{Lint.PatternVariable{b, pq}, pn, Some{Lint.Span{p, +from, end}}, pk, pf}, Con{value, Con{rest, Nil{}}}},
+      Con{
+        Lint.Node{Lint.PatternVariable{b, pq}, pn, Some{Lint.Span{p, +from, end}}, pk, pf},
+        Con{value, Con{rest, Nil{}}}
+      },
       f
     } Owner{target, name, io, text}:
       Maybe.map(
@@ -209,20 +246,17 @@ def bound(+node: Lint.Node, +owner: Owner) -> Maybe<&2, Bound>:
     case _ _:
       None{}
 
-# Whether a variable the file writes, of one of `binders`, is among `nodes` or under them.
-def uses(nodes: List<&2, Lint.Node>, +binders: List<&2, U32>) -> Bool:
-  match nodes:
-    case Nil{}:
+# Whether a variable the file writes, of one of `binders`, is among `nodes` or under them, or `found`.
+def uses(nodes: List<&2, Lint.Node>, +binders: List<&2, U32>, found: Bool) -> Bool:
+  match nodes found:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{Lint.Node{Lint.Variable{v}, n, Some{s}, k, f}, rest}:
-      List.contains(~U32, ~U32.is_eq, binders, v) || uses(rest, binders)
-    case Con{Lint.Node{syntax, n, s, kids, f}, rest}:
-      uses(kids, binders) || uses(rest, binders)
-
-def Bound.call(bound: Bound) -> Lint.Node:
-  match bound:
-    case Bound{from, written, binder, call}:
-      call
+    case Con{Lint.Node{Lint.Variable{v}, n, Some{s}, k, f}, rest} False{}:
+      uses(rest, binders, List.contains(~U32, ~U32.is_eq, binders, v))
+    case Con{Lint.Node{syntax, n, s, kids, f}, rest} False{}:
+      uses(rest, binders, uses(kids, binders, False{}))
 
 def Bound.texts(
   bounds: List<&2, Bound>,
@@ -273,12 +307,10 @@ def Bound.from(bound: Maybe<&2, Bound>) -> U32:
 # The finding about a run of lets (last first), if it has two lets or more: from the first's binder to the last's call.
 def Run.finding(+bounds: List<&2, Bound>, +owner: Owner) -> List<&2, Lint.Finding>:
   match bounds owner:
-    case Con{Bound{f, w, b, Lint.Node{s, n, Some{Lint.Span{path, beg, end}}, k, fs}}, Con{second, more}} Owner{
-      target,
-      name,
-      io,
-      text
-    }:
+    case Con{
+      Bound{f, w, b, Lint.Node{s, n, Some{Lint.Span{path, beg, end}}, k, fs}},
+      Con{second, more}
+    } Owner{target, name, io, text}:
       [
         Lint.Finding{
           Lint.Information{},
@@ -292,19 +324,23 @@ def Run.finding(+bounds: List<&2, Bound>, +owner: Owner) -> List<&2, Lint.Findin
 
 # The run after a let (`bound`, if it is one): the let joins it if its call uses no binder of the run; else the run
 # ends, and the let starts the next.
-def Run.add(bound: Maybe<&2, Bound>, +owner: Owner, run: Run) -> Run:
+def Run.add(bound: Maybe<&2, Bound>, owner: Owner, run: Run) -> Run:
   match bound run:
     case Some{Bound{+f, +w, +b, +c}} Run{+bounds, +binders, +out}:
       Bool.pick(
         Run,
-        uses([c], binders),
-        Run{[Bound{f, w, b, c}], [b], Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)},
+        uses([c], binders, False{}),
+        Run{
+          [Bound{f, w, b, c}],
+          [b],
+          Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)
+        },
         Run{Bound{f, w, b, c} <> bounds, b <> binders, out}
       )
     case None{} Run{bounds, binders, out}:
       Run{[], [], Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)}
 
-def Run.finding.end(run: Run, +owner: Owner) -> List<&2, Lint.Finding>:
+def Run.finding.end(run: Run, owner: Owner) -> List<&2, Lint.Finding>:
   match run:
     case Run{bounds, binders, out}:
       List.reverse(&2, Lint.Finding, Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out))
@@ -313,17 +349,28 @@ def Run.finding.end(run: Run, +owner: Owner) -> List<&2, Lint.Finding>:
 # of block of the one before, while its call uses no binder of the run.
 def chain(node: Lint.Node, +owner: Owner, run: Run) -> List<&2, Lint.Finding>:
   match node:
-    case Lint.Node{Lint.Destructure{q}, n, s, Con{+binder, Con{+value, Con{+rest, Nil{}}}}, f}:
-      chain(rest, owner, Run.add(bound(Lint.Node{Lint.Destructure{q}, n, s, [binder, value, rest], f}, owner), owner, run))
+    case Lint.Node{Lint.Destructure{q}, n, s, Con{binder, Con{value, Con{+rest, Nil{}}}}, f}:
+      chain(
+        rest,
+        owner,
+        Run.add(
+          bound(Lint.Node{Lint.Destructure{q}, n, s, [binder, value, rest], f}, owner),
+          owner,
+          run
+        )
+      )
     case _:
       Run.finding.end(run, owner)
 
 # Whether a let below `path` goes on a run from the let above it: it is that let's rest of block, and that let binds
 # one name to a call.
-def follows(path: List<&2, Lint.Above>, +owner: Owner) -> Bool:
+def follows(path: List<&2, Lint.Above>, owner: Owner) -> Bool:
   match path:
-    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, +at}, rest}:
-      U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))
+    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, at}, rest}:
+      U32.is_eq(
+        (at + 1: U32),
+        U32.from_nat(Lists.length(&2, Lint.Node, kids))
+      )
         && Maybe.is_some(&2, Bound, bound(Lint.Node{Lint.Destructure{q}, n, s, kids, f}, owner))
     case _:
       False{}
@@ -331,15 +378,20 @@ def follows(path: List<&2, Lint.Above>, +owner: Owner) -> Bool:
 # The findings at a node of a definition below `path`: about the calls of the expression it starts, and about the runs
 # of lets from it, if it starts one.
 # The finding about the calls of the expression a node starts, if it starts one (`root`).
-def roots(root: Bool, +node: Lint.Node, span: Maybe<&2, Lint.Span>, +owner: Owner) -> List<&2, Lint.Finding>:
+def roots(
+  root: Bool,
+  node: Lint.Node,
+  span: Maybe<&2, Lint.Span>,
+  +owner: Owner
+) -> List<&2, Lint.Finding>:
   match root owner:
     case True{} Owner{target, name, io, text}:
-      Call.finding(calls([node], target, []), span, owner)
+      Call.finding(calls([node], target, [], False{}), span, owner)
     case _ _:
       []
 
 # The findings about the runs of lets from a node, if it starts one (`head`).
-def lets(head: Bool, node: Lint.Node, +owner: Owner) -> List<&2, Lint.Finding>:
+def lets(head: Bool, node: Lint.Node, owner: Owner) -> List<&2, Lint.Finding>:
   match head:
     case True{}:
       chain(node, owner, Run{[], [], []})
@@ -353,21 +405,35 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
         &2,
         Lint.Finding,
         roots(Bool.not(io) && Bool.not(boundary(syntax)) && starts(path), node, span, owner),
-        lets(Maybe.is_some(&2, Bound, bound(node, owner)) && Bool.not(follows(path, owner)), node, owner)
+        lets(
+          Maybe.is_some(&2, Bound, bound(node, owner)) && Bool.not(follows(path, owner)),
+          node,
+          owner
+        )
       )
 
-def defs(nodes: List<&2, Lint.Node>, +text: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def defs(
+  nodes: List<&2, Lint.Node>,
+  +text: String,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, +n, s, +k, f}, rest}:
       defs(
         rest,
         text,
         Lists.onto(
           &2,
           Lint.Finding,
-          Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner{t, n, returns_io(k), text}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]),
+          Lint.visit(
+            ~Owner,
+            ~Lint.Finding,
+            ~visit,
+            Owner{t, n, returns_io(k), text},
+            [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+          ),
           out
         )
       )

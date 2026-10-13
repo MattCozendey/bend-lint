@@ -109,13 +109,29 @@ def add(
   match at:
     case Lint.Span{p, +a, e}:
       +beg = Strings.line_start(text, a)
-      add.line(text, beg, Strings.line_end(text, beg), Lint.Span{p, a, e}, base, path, alias, loads, b)
+      add.line(
+        text,
+        beg,
+        Strings.line_end(text, beg),
+        Lint.Span{p, a, e},
+        base,
+        path,
+        alias,
+        loads,
+        b
+      )
 
 # The block of the imports among `nodes`. A file's imports come first, so the first node of another kind ends them.
 def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
   match nodes:
     case Con{
-      Lint.Node{Lint.Import{loads}, alias, Some{at}, Con{Lint.Node{Lint.ImportPath{}, path, s, k, f}, ks}, fs},
+      Lint.Node{
+        Lint.Import{loads},
+        alias,
+        Some{at},
+        Con{Lint.Node{Lint.ImportPath{}, path, s, k, f}, ks},
+        fs
+      },
       rest
     }:
       block(rest, text, add(text, at, False{}, path, alias, loads, b))
