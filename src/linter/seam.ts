@@ -1710,7 +1710,9 @@ const checked = async (checker: Checker, path: string, facts: Wanted): Promise<s
   if (made.read !== undefined && made.number !== undefined && made.types !== undefined) {
     const answer = numbered(made.answer, 0);
     const sum = getSha256Hex(answer);
-    answered(file, { path, facts, digest: sum, types: made.types }, made.number, false);
+    // What a check holds is large, and only a question reads it: a question checks it again.
+    CHECKS[made.number - 1] = undefined;
+    answered(file, { path, facts, digest: sum, types: made.types }, made.number, true);
     keep(file, {
       files: made.read.map(([p, text]) => [p, getSha256Hex(text)]),
       answer,
