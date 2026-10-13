@@ -7,11 +7,11 @@ A linter and formatter for Bend 2, with rules written in Bend.
 Install bend-lint in each project, never globally:
 
 ```sh
-bun add -D github:MattCozendey/bend-lint
-bunx bend-lint init
+bun add -D --trust bend-lint
 ```
 
-`init` writes `bend-lint.json` and `bend-lint-rules/format.bend`, which turns on the formatter.
+The install writes `bend-lint.json` and `bend-lint-rules/format.bend`, which turns on the formatter,
+and downloads Bend. Without `--trust`, Bun skips that: run `bunx bend-lint init`.
 
 > **Why per project:** a Bend limitation. Bend imports a file only by a relative path of plain names
 > (or from BendHub), so bend-lint can reach your rules only inside your project. bend-lint refuses
@@ -82,9 +82,10 @@ bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
   reads the whole program ("this def is never used") then sees it, even when you lint one file.
 - `imports`: also lint every file the named file imports (not Base, nor hub packages).
 
-bend-lint ships more rules, in [bend-lint-rules/](bend-lint-rules/). Each file's header says what
-the rule reports, what its fix does, and its options. To use one, add a file to your
-`bend-lint-rules/` that imports it, as `format.bend` does.
+bend-lint's own rules are on BendHub, as the package `bend-lint-rules` at bend-lint's version, with
+`.0` added. Name it in `packages`, then turn a rule on by its id, like
+`bend-lint-rules/layout/case`. Each file's header in [bend-lint-rules/](bend-lint-rules/) says what
+the rule reports, what its fix does, and its options.
 
 ## Suppress findings
 
