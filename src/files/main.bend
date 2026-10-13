@@ -85,10 +85,14 @@ def real(path: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./effs/files.c"
   import "./effs/files.js"
 
+# The names in `text`, each ended by a NUL.
+def names(text: String) -> List<&2, String>:
+  List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, Chr{0}))
+
 def list.names(listed: Result<&1, &1, U32 & String, String>) -> List<&2, String>:
   match listed:
-    case Done{names}:
-      List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(names, Chr{0}))
+    case Done{text}:
+      names(text)
     case Fail{why}:
       []
 
@@ -621,17 +625,42 @@ def Seen.paths(seen: Seen) -> List<&2, String>:
     case Seen{set, paths}:
       List.reverse(&2, String, paths)
 
-# The real path of each of `paths`, once each, after those `seen`.
+# The paths seen, with the real path `found`, if there is one.
+def Seen.found(found: Result<&1, &1, U32 & String, String>, seen: Seen) -> Seen:
+  match found:
+    case Done{path}:
+      Seen.add(seen, path)
+    case Fail{why}:
+      seen
+
+# The paths of `paths` that name no file, onto `out`.
+def missing(paths: List<&2, String>, out: List<&2, String>) -> IO(List<&2, String>):
+  match paths:
+    case Nil{}:
+      IO.pure(List<&2, String>, out)
+    case Con{+path, rest}:
+      IO.bind(
+        U32,
+        List<&2, String>,
+        kind(path),
+        k => missing(
+          rest,
+          Lists.push(String, Lists.when(String, Bool.not(U32.is_eq(k, 1)), path), out)
+        )
+      )
+
+# The real path of each of `paths` that has one (a file deleted since it was listed has none), once each, after those
+# `seen`.
 def reals(paths: List<&2, String>, seen: Seen) -> IO(List<&2, String>):
   match paths:
     case Nil{}:
       IO.pure(List<&2, String>, Seen.paths(seen))
     case Con{path, rest}:
       IO.bind(
-        String,
+        Result<&1, &1, U32 & String, String>,
         List<&2, String>,
-        IO.try(String, real(path)),
-        r => reals(rest, Seen.add(seen, r))
+        real(path),
+        r => reals(rest, Seen.found(r, seen))
       )
 
 def named.real(
@@ -657,4 +686,68 @@ def named(inputs: List<&2, String>) -> IO(Result<&2, &2, String, List<&2, String
     Result<&2, &2, String, List<&2, String>>,
     named.go(inputs, []),
     groups => named.real(named.check(groups, []))
+  )
+
+# The paths in git's listing, if git ran and ended well.
+def git.listed(
+  ran: Result<&1, &1, U32 & String, U32 & (String & String)>
+) -> Maybe<&2, List<&2, String>>:
+  match ran:
+    case Done{Tuple{status, Tuple{out, err}}}:
+      Bool.pick(Maybe<&2, List<&2, String>>, U32.is_eq(status, 0), Some{names(out)}, None{})
+    case Fail{why}:
+      None{}
+
+# The paths, from the current folder, of the files under it that git lists and `pathspec` matches: tracked, or
+# untracked and not ignored (by .gitignore files, and git's other ignore files). None if git does not list them, at
+# most 64 MiB of them in a minute (outside a repository, for one).
+def git.files(pathspec: String) -> IO(Maybe<&2, List<&2, String>>):
+  IO.bind(
+    Result<&1, &1, U32 & String, U32 & (String & String)>,
+    Maybe<&2, List<&2, String>>,
+    Process.run(
+      "git",
+      ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec],
+      "",
+      67108864,
+      60000
+    ),
+    ran => IO.pure(Maybe<&2, List<&2, String>>, git.listed(ran))
+  )
+
+# Whether a part of a path is node_modules, or starts with ".".
+def listed.hidden(+part: String) -> Bool:
+  String.eq(part, "node_modules") || Strings.starts(part, '.')
+
+# Whether no part of `path` is node_modules, or starts with ".".
+def listed.shown(path: String) -> Bool:
+  Bool.not(Lists.any(~String, ~(part => listed.hidden(part)), String.split(path, '/')))
+
+# The files of `paths` that `listed.shown` keeps, sorted, each once, as real paths.
+def listed.kept(paths: List<&2, String>) -> IO(List<&2, String>):
+  reals(
+    Lists.sort(~String, ~String.is_le, List.filter(~String, ~listed.shown, paths)),
+    Seen{Set.new(), []}
+  )
+
+def listed.found(found: Maybe<&2, List<&2, String>>, pattern: String) -> IO(List<&2, String>):
+  match found:
+    case Some{paths}:
+      listed.kept(paths)
+    case None{}:
+      IO.bind(
+        List<&2, String>,
+        List<&2, String>,
+        glob("**/" ++ pattern),
+        paths => listed.kept(paths)
+      )
+
+# The files under the current folder whose names match the glob segment `pattern`, sorted, each once, as real paths:
+# those git lists (see git.files), or all if git does not list them; but none that `listed.shown` drops.
+def listed(+pattern: String) -> IO(List<&2, String>):
+  IO.bind(
+    Maybe<&2, List<&2, String>>,
+    List<&2, String>,
+    git.files(":(glob)**/" ++ pattern),
+    found => listed.found(found, pattern)
   )

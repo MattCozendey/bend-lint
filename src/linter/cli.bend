@@ -255,10 +255,23 @@ def Parsed.of(folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, Stri
     case _:
       Fail{"not a JSON object"}
 
+# The config at `path`, if each of its entries is a file (`missing` lists those that are not); else the run ends.
+def Config.entered(missing: List<&2, String>, path: String, config: Project) -> IO(Project):
+  match missing:
+    case Nil{}:
+      IO.pure(Project, config)
+    case Con{entry, rest}:
+      IO.die(Project, 2, "bend-lint: " ++ path ++ ": the entry " ++ entry ++ " is not a file")
+
 def Config.parsed(path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project):
   match parsed:
-    case Done{config}:
-      IO.pure(Project, config)
+    case Done{Project{+entries, imports, rules}}:
+      IO.bind(
+        List<&2, String>,
+        Project,
+        Files.missing(entries, []),
+        missing => Config.entered(missing, path, Project{entries, imports, rules})
+      )
     case Fail{why}:
       IO.die(Project, 2, "bend-lint: " ++ path ++ ": " ++ why)
 
@@ -2767,12 +2780,12 @@ def Options.arg(flag: Bool, arg: String, options: Maybe<&2, Options>) -> Maybe<&
     case False{}:
       Options.input(arg, options)
 
-# The options, once every argument is read: the files in order; none if there are none.
+# The options, once every argument is read: the inputs in order.
 def Options.done(options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{Con{first, more}, fixing, shown, json, worker, jobs}}:
-      Some{Options{List.reverse(&2, String, Con{first, more}), fixing, shown, json, worker, jobs}}
-    case _:
+    case Some{Options{inputs, fixing, shown, json, worker, jobs}}:
+      Some{Options{List.reverse(&2, String, inputs), fixing, shown, json, worker, jobs}}
+    case None{}:
       None{}
 
 # The options `args` give, after `options`; `jobs` says whether the argument before was `--jobs`, whose value this one is.
@@ -2833,14 +2846,19 @@ def files.of(found: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, Str
     case Fail{why}:
       IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
 
-# The files the inputs name. One that names none ends the run with a usage error.
+# The files the inputs name; with none, the .bend files under the current folder (see Files.listed). An input that
+# names none ends the run with a usage error.
 def files(inputs: List<&2, String>) -> IO(List<&2, String>):
-  IO.bind(
-    Result<&2, &2, String, List<&2, String>>,
-    List<&2, String>,
-    Files.named(inputs),
-    found => files.of(found)
-  )
+  match inputs:
+    case Nil{}:
+      Files.listed("*.bend")
+    case Con{first, more}:
+      IO.bind(
+        Result<&2, &2, String, List<&2, String>>,
+        List<&2, String>,
+        Files.named(Con{first, more}),
+        found => files.of(found)
+      )
 
 # Workers
 # -------
@@ -3130,7 +3148,7 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
       IO.die(
         Unit,
         2,
-        "usage: bend-lint <file or glob>... [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
+        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
       )
 
 # Runs the command line `args`: the program as invoked, then its arguments.

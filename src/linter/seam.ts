@@ -2100,7 +2100,7 @@ if (import.meta.main) {
     env: {
       ...process.env,
       BEND_LINT_PORT: String((server.address() as net.AddressInfo).port),
-      BEND_LINT_PROJECT: project,
+      BEND_LINT_PROJECT: getPathWithForwardSlashes(project),
     },
     stdio: "inherit",
   });
