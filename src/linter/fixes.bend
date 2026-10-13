@@ -8,7 +8,6 @@ import ../shared/lists.bend as Lists
 import ../shared/strings.bend as Strings
 import ./directives.bend as Directives
 import ./lint.bend as Lint
-import ./program.bend as Program
 
 # Types
 # =====
@@ -45,10 +44,14 @@ type Plan is Data:
 
 # Names
 # -----
+# Where a span is, as a key: of a declaration a rename names, or of a comment a safe fix may write over.
+def Span.key(path: String, beg: U32, end: U32) -> String:
+  path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
+
 # Whether a node of this syntax is an import, whose name is its alias.
 def Syntax.alias(syntax: Lint.Syntax) -> Bool:
   match syntax:
-    case Lint.Import{}:
+    case Lint.Import{t}:
       True{}
     case _:
       False{}
@@ -79,7 +82,7 @@ def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
 # such part.
 def Spot.of(fix: U32, node: Lint.Node, alias: Bool, old: String, to: String) -> Maybe<&2, Change>:
   match node:
-    case Lint.Node{id, p, o, s, +name, b, q, Some{Lint.Span{path, beg, end}}, t}:
+    case Lint.Node{s, +name, Some{Lint.Span{path, beg, end}}, k, f}:
       Maybe.map(
         &2,
         Part,
@@ -118,29 +121,22 @@ def Rename.spots(
 def Taken.key(path: String, alias: Bool, name: String) -> String:
   path ++ Bool.pick(String, alias, "\ta\t", "\tn\t") ++ name
 
-def Taken.node(+path: String, node: Lint.Node, out: Set()) -> Set():
+def Taken.node(+path: String, +node: Lint.Node, out: Set()) -> Set():
   match node:
-    case Lint.Node{i, p, o, Lint.Import{}, +name, b, q, sp, t}:
+    case Lint.Node{Lint.Import{t}, name, sp, k, f}:
       Set.add(
         Set.add(out, Taken.key(path, True{}, name)),
         Taken.key(path, False{}, Strings.after_last(name, '.'))
       )
-    case Lint.Node{i, p, o, s, name, b, q, sp, t}:
+    case Lint.Node{s, name, sp, k, f}:
       Set.add(out, Taken.key(path, False{}, Strings.after_last(name, '.')))
-
-def Taken.nodes(nodes: List<&2, Lint.Node>, +path: String, out: Set()) -> Set():
-  match nodes:
-    case Nil{}:
-      out
-    case Con{n, rest}:
-      Taken.nodes(rest, path, Taken.node(path, n, out))
 
 def Taken.files(sources: List<&2, Lint.Source>, out: Set()) -> Set():
   match sources:
     case Nil{}:
       out
-    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
-      Taken.files(rest, Taken.nodes(nodes, path, out))
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+      Taken.files(rest, Lint.fold(~String, ~Set(), ~Taken.node, path, nodes, out))
 
 # Whether a rename may write `to`. A Rename (`whole`) may, of a name no file but its own can use (not a `global` one),
 # if its file does not take `to` already (`taken`). RenameUses points the uses at a name the program declares, and
@@ -190,19 +186,19 @@ def Rename.plan(
   taken: Set()
 ) -> Maybe<&2, List<&2, Change>>:
   match declaration:
-    case Some{Lint.Declaration{Lint.Node{id, p, o, +s, +name, b, q, +span, t}, uses}}:
+    case Some{Lint.Declaration{Lint.Node{+s, +name, +span, k, f}, uses}}:
       +alias = Syntax.alias(s)
       Rename.checked(
         Rename.allowed(
           whole,
-          Maybe.default(&2, Bool, Program.Syntax.declares(s), False{}),
+          Maybe.default(&2, Bool, Lint.Syntax.declares(s), False{}),
           alias,
           to,
           span,
           taken
         ),
         Rename.spots(
-          Rename.nodes(whole, Lint.Node{id, p, o, s, name, b, q, span, t}, uses),
+          Rename.nodes(whole, Lint.Node{s, name, span, k, f}, uses),
           fix,
           alias,
           Bool.pick(String, alias, name, Strings.after_last(name, '.')),
@@ -213,6 +209,12 @@ def Rename.plan(
     case None{}:
       None{}
 
+# A declaration's key in a lookup: where it is written.
+def Lookup.key(span: Lint.Span) -> String:
+  match span:
+    case Lint.Span{path, beg, end}:
+      Span.key(path, beg, end)
+
 def Lookup.declarations(
   declarations: List<&2, Lint.Declaration>,
   out: Map<&2, Maybe<&2, Lint.Declaration>>
@@ -220,25 +222,27 @@ def Lookup.declarations(
   match declarations:
     case Nil{}:
       out
-    case Con{Lint.Declaration{Lint.Node{+id, p, o, s, n, b, q, sp, t}, uses}, rest}:
+    case Con{Lint.Declaration{Lint.Node{s, n, Some{+sp}, k, f}, uses}, rest}:
       Lookup.declarations(
         rest,
         Map.set(
           &2,
           Maybe<&2, Lint.Declaration>,
           out,
-          U32.show(id),
-          Some{Lint.Declaration{Lint.Node{id, p, o, s, n, b, q, sp, t}, uses}}
+          Lookup.key(sp),
+          Some{Lint.Declaration{Lint.Node{s, n, Some{sp}, k, f}, uses}}
         )
       )
+    case Con{d, rest}:
+      Lookup.declarations(rest, out)
 
-def Lookup.find(lookup: Lookup, id: U32) -> Maybe<&2, Lint.Declaration>:
+def Lookup.find(lookup: Lookup, at: Lint.Span) -> Maybe<&2, Lint.Declaration>:
   match lookup:
     case Lookup{declarations, taken}:
       Pair.snd(
         Map<&2, Maybe<&2, Lint.Declaration>>,
         Maybe<&2, Lint.Declaration>,
-        Map.get(Maybe<&2, Lint.Declaration>, None{}, declarations, U32.show(id))
+        Map.get(Maybe<&2, Lint.Declaration>, None{}, declarations, Lookup.key(at))
       )
 
 def Lookup.taken(lookup: Lookup) -> Set():
@@ -395,10 +399,10 @@ def Operation.changes(op: Lint.Operation, fix: U32, +lookup: Lookup) -> Maybe<&2
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
       Some{[Given{Edits.Edit{path, beg, end, text}}]}
-    case Lint.Rename{id, to}:
-      Rename.plan(True{}, Lookup.find(lookup, id), to, fix, Lookup.taken(lookup))
-    case Lint.RenameUses{id, to}:
-      Rename.plan(False{}, Lookup.find(lookup, id), to, fix, Lookup.taken(lookup))
+    case Lint.Rename{at, to}:
+      Rename.plan(True{}, Lookup.find(lookup, at), to, fix, Lookup.taken(lookup))
+    case Lint.RenameUses{at, to}:
+      Rename.plan(False{}, Lookup.find(lookup, at), to, fix, Lookup.taken(lookup))
 
 def Fix.changes(
   ops: List<&2, Lint.Operation>,
@@ -421,9 +425,6 @@ def Fix.changes(
 
 # Safety
 # ------
-def Comment.key(path: String, beg: U32, end: U32) -> String:
-  path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
-
 # Whether `text` is one comment: a # first, and no line end.
 def Comment.is(+text: String) -> Bool:
   String.starts_with(
@@ -436,7 +437,7 @@ def Comment.is(+text: String) -> Bool:
 def Operation.safe(op: Lint.Operation, comments: Set()) -> Bool:
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
-      Comment.is(text) && Pair.snd(Set(), Bool, Set.has(comments, Comment.key(path, beg, end)))
+      Comment.is(text) && Pair.snd(Set(), Bool, Set.has(comments, Span.key(path, beg, end)))
     case _:
       False{}
 
@@ -543,7 +544,7 @@ def Lookup.index(
 def Lookup.names(need: Bool, sources: List<&2, Lint.Source>) -> Set():
   match need:
     case True{}:
-      Taken.files(Program.Program.own(sources), Set.new())
+      Taken.files(Lint.Program.own(sources), Set.new())
     case False{}:
       Set.new()
 
@@ -740,7 +741,7 @@ def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, Strin
   match sources:
     case Nil{}:
       out
-    case Con{Lint.Source{path, namespace, text, nodes, facts}, rest}:
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
       texts(rest, Map.set(&2, String, out, path, text))
 
 # The edits of each of `fixes`, in order; None for a fix the linter cannot make: an operation it refuses, an edit in a
@@ -752,7 +753,7 @@ def edits(
   +sources: List<&2, Lint.Source>
 ) -> List<&2, Maybe<&2, List<&2, Edits.Edit>>>:
   +works = Fix.works(fixes, Lookup.of(fixes, declarations, sources), 0, [])
-  +own = texts(Program.Program.own(sources), Map.new(&2, String))
+  +own = texts(Lint.Program.own(sources), Map.new(&2, String))
   +groups = Groups.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
   Works.go(
     works,
@@ -790,7 +791,7 @@ def Safety.keys(comments: List<&2, Directives.Comment>, +path: String, out: Set(
     case Nil{}:
       out
     case Con{Directives.Comment{beg, end, line, trailing, body}, rest}:
-      Safety.keys(rest, path, Set.add(out, Comment.key(path, beg, end)))
+      Safety.keys(rest, path, Set.add(out, Span.key(path, beg, end)))
 
 def Safety.scanned(scanned: Directives.Scanned, path: String, out: Set()) -> Set():
   match scanned:
@@ -818,7 +819,7 @@ def Safety.files(paths: List<&2, String>, +texts: Map<&2, String>, out: Set()) -
 def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Set():
   Safety.files(
     Set.to_list(Safety.paths(fixes, Set.new())),
-    texts(Program.Program.own(sources), Map.new(&2, String)),
+    texts(Lint.Program.own(sources), Map.new(&2, String)),
     Set.new()
   )
 
@@ -885,7 +886,7 @@ def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Edits.Ed
   match sources:
     case Nil{}:
       IO.pure(Unit, Unit{})
-    case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+    case Con{Lint.Source{+path, namespace, text, nodes}, rest}:
       do IO<Unit>:
         write.edited(path, text, Groups.Group.get(Edits.Edit, groups, path))
         write.all(rest, groups)

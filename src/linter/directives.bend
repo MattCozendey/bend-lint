@@ -472,8 +472,8 @@ def Problem.first(problems: List<&2, Maybe<&2, String>>) -> Maybe<&2, String>:
     case Con{None{}, rest}:
       Problem.first(rest)
 
-def Rule.reserved(+namespace: String) -> Bool:
-  String.eq(namespace, "bend") || String.eq(namespace, "bend-lint")
+def Rule.reserved(namespace: String) -> Bool:
+  String.eq(namespace, "bend-lint")
 
 def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: U32) -> Said:
   match why draft:
@@ -947,6 +947,14 @@ def Wrong.found(
 # Directives
 # ==========
 
+# Where each of `founds` starts, in order, onto `out` (last first).
+def Found.offsets(founds: List<&2, Lint.Found>, out: List<&2, U32>) -> List<&2, U32>:
+  match founds:
+    case Nil{}:
+      List.reverse(&2, U32, out)
+    case Con{Lint.Found{rule, Lint.Finding{severity, Lint.Span{path, beg, end}, message, fixes}}, rest}:
+      Found.offsets(rest, beg <> out)
+
 # A linted file: its path and text, the ids of the rules there are, and those of the rules that ran on it. A rule
 # turned off did not run, so its directives are never unused.
 type Linted is Data:
@@ -1031,7 +1039,7 @@ def covered(
   done(
     Applied.go(
       founds,
-      Places.positions(Linted.text(linted), Lint.Found.offsets(founds, [])),
+      Places.positions(Linted.text(linted), Found.offsets(founds, [])),
       coverings,
       Applied{[], [], []}
     ),

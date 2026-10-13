@@ -7,7 +7,6 @@
 # their first argument.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
 
 # Types
@@ -18,9 +17,9 @@ type Append is Data:
   ListAppend{}
   StringAppend{}
 
-# A call of a loop to itself: the loop's name, as written, and where the call starts and ends.
+# What judging the calls of a loop to itself reads: the loop's parameters, and the file's text.
 type Loop is Data:
-  Loop{name: String, beg: U32, end: U32}
+  Loop{params: List<&2, Lint.Node>, text: String}
 
 # Functions
 # =========
@@ -74,240 +73,149 @@ def Append.message(
         ++ loop
         ++ ", so a loop of n steps copies O(n²) characters (the JS lane joins strings natively). Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`."
 
-def Loop.holds(loop: Loop, +at: U32) -> Bool:
-  match loop:
-    case Loop{name, beg, end}:
-      U32.is_ge(at, beg) && U32.is_lt(at, end)
-
-def Span.holds(span: Lint.Span, +at: U32) -> Bool:
-  match span:
-    case Lint.Span{path, beg, end}:
-      U32.is_ge(at, beg) && U32.is_lt(at, end)
-
-# Whether the call of the loop uses `binder` outside the append: then it keeps each value the loop
-# builds, and the copies are needed.
-def kept(us: List<&2, Shared.Use>, hit: Bool, +binder: U32, +loop: Loop, +span: Lint.Span) -> Bool:
-  match us hit:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
+# Whether a variable the file writes, of the binder `b`, is among `nodes` or under them.
+def has(nodes: List<&2, Lint.Node>, +b: U32) -> Bool:
+  match nodes:
+    case Nil{}:
       False{}
-    case Con{Shared.Use{b, +at}, rest} False{}:
-      kept(
-        rest,
-        U32.is_eq(b, binder) && Loop.holds(loop, at) && Bool.not(Span.holds(span, at)),
-        binder,
-        loop,
-        span
-      )
+    case Con{Lint.Node{Lint.Variable{v}, n, Some{s}, k, f}, rest}:
+      U32.is_eq(v, b) || has(rest, b)
+    case Con{Lint.Node{syntax, n, s, kids, f}, rest}:
+      has(kids, b) || has(rest, b)
 
-def Loop.name(loop: Loop) -> String:
-  match loop:
-    case Loop{name, beg, end}:
-      name
-
-def reported.kept(
+def judged(
   kept: Bool,
   a: Append,
-  loop: Loop,
   name: String,
+  acc: String,
   span: Lint.Span,
-  args: List<&2, Lint.Node>,
-  here: Lint.Here
+  text: String,
+  args: List<&2, Lint.Node>
 ) -> List<&2, Lint.Finding>:
   match kept:
     case True{}:
       []
     case False{}:
-      [
-        Lint.Finding{
-          Lint.Warning{},
-          span,
-          Append.message(a, Loop.name(loop), name, Lint.Here.text(here), args),
-          []
-        }
-      ]
+      [Lint.Finding{Lint.Warning{}, span, Append.message(a, name, acc, text, args), []}]
 
-# The finding about an append to `b`, a parameter of the loop if `param`, unless the loop's call also
-# keeps it.
-def reported(
-  param: Bool,
-  b: U32,
-  a: Append,
-  +loop: Loop,
-  name: String,
-  +span: Lint.Span,
-  args: List<&2, Lint.Node>,
-  here: Lint.Here,
-  us: List<&2, Shared.Use>
-) -> List<&2, Lint.Finding>:
-  match param:
-    case True{}:
-      reported.kept(kept(us, False{}, b, loop, span), a, loop, name, span, args, here)
-    case False{}:
-      []
-
-# The finding about `acc`, the argument an append copies, if it is a parameter of the loop that the
-# loop's call does not also keep.
-def found(
+# The finding about an append (`a`, at `span`, with `args`) to `acc`, if it is a parameter of the loop `name` that its
+# call does not also use (in `others`, its nodes but the append): then it keeps each value the loop builds, and the
+# copies are needed.
+def accumulated(
   acc: Maybe<&2, Lint.Node>,
   a: Append,
   loop: Loop,
-  owner: U32,
+  name: String,
   span: Lint.Span,
   args: List<&2, Lint.Node>,
-  here: Lint.Here,
-  children: Lint.Children,
-  us: List<&2, Shared.Use>
+  others: List<&2, Lint.Node>
 ) -> List<&2, Lint.Finding>:
-  match acc:
-    case Some{Lint.Node{i, p, o, Lint.Variable{}, name, Some{+b}, q, s, t}}:
-      reported(
-        Maybe.is_some(&2, Nat, Shared.parameter(Lint.Children.get(children, owner), b)),
-        b,
-        a,
-        loop,
-        name,
-        span,
-        args,
-        here,
-        us
+  match acc loop:
+    case Some{Lint.Node{Lint.Variable{+b}, var, s, k, f}} Loop{params, text}:
+      Bool.pick(
+        List<&2, Lint.Finding>,
+        Maybe.is_some(&2, Nat, Lint.parameter(params, b)),
+        judged(has(others, b), a, name, var, span, text, args),
+        []
       )
-    case _:
+    case _ _:
       []
 
 def appended(
   append: Maybe<&2, Append>,
   +args: List<&2, Lint.Node>,
   loop: Loop,
-  owner: U32,
+  name: String,
   span: Lint.Span,
-  here: Lint.Here,
-  children: Lint.Children,
-  us: List<&2, Shared.Use>
+  others: List<&2, Lint.Node>
 ) -> List<&2, Lint.Finding>:
   match append:
     case Some{+a}:
-      found(
-        List.get(&2, Lint.Node, args, Append.at(a)),
-        a,
-        loop,
-        owner,
-        span,
-        args,
-        here,
-        children,
-        us
-      )
+      accumulated(List.get(&2, Lint.Node, args, Append.at(a)), a, loop, name, span, args, others)
     case None{}:
       []
 
-# The finding about `call`'s children, if `call` is an append to a parameter of the loop.
-def call(
-  nodes: List<&2, Lint.Node>,
-  loop: Loop,
-  owner: U32,
-  span: Lint.Span,
-  here: Lint.Here,
-  children: Lint.Children,
-  us: List<&2, Shared.Use>
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, callee}, +args}:
-      appended(
-        Append.of(callee, Lists.length(&2, Lint.Node, args)),
-        args,
-        loop,
-        owner,
-        span,
-        here,
-        children,
-        us
-      )
-    case _:
-      []
-
-# The findings about the arguments of a call of the loop `loop`.
+# The findings about the arguments of a call of the loop `name`, from the one numbered `at`; `nodes` are the call's.
 def arguments(
   args: List<&2, Lint.Node>,
   +loop: Loop,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Shared.Use>,
+  +name: String,
+  +nodes: List<&2, Lint.Node>,
+  +at: Nat,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match args:
     case Nil{}:
-      out
-    case Con{Lint.Node{id, p, owner, Lint.Application{}, n, b, q, Some{span}, t}, rest}:
+      List.reverse(&2, Lint.Finding, out)
+    case Con{
+      Lint.Node{Lint.Application{}, n, Some{+span}, Con{Lint.Node{Lint.Reference{+callee}, rn, rs, rk, rf}, +parts}, f},
+      rest
+    }:
       arguments(
         rest,
         loop,
-        here,
-        children,
-        us,
+        name,
+        nodes,
+        1n+at,
         Lists.onto(
           &2,
           Lint.Finding,
-          call(Lint.Children.get(children, id), loop, owner, span, here, children, us),
+          appended(
+            Append.of(callee, Lists.length(&2, Lint.Node, parts)),
+            parts,
+            loop,
+            name,
+            span,
+            Lists.append(&2, Lint.Node, List.take(&2, Lint.Node, nodes, 1n+at), List.drop(&2, Lint.Node, nodes, 2n+at))
+          ),
           out
         )
       )
     case Con{arg, rest}:
-      arguments(rest, loop, here, children, us, out)
+      arguments(rest, loop, name, nodes, 1n+at, out)
 
-# The findings about a call of the loop, whose children are `nodes` and which spans `beg` to `end`.
-def step(
-  nodes: List<&2, Lint.Node>,
-  beg: U32,
-  end: U32,
-  here: Lint.Here,
-  children: Lint.Children,
-  us: List<&2, Shared.Use>,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, s, loop, b, q, sp, t}, args}:
-      arguments(args, Loop{loop, beg, end}, here, children, us, out)
+def call.of(+loop: Loop, kids: List<&2, Lint.Node>, +nodes: List<&2, Lint.Node>) -> List<&2, Lint.Finding>:
+  match kids:
+    case Con{Lint.Node{s, name, sp, k, f}, args}:
+      arguments(args, loop, name, nodes, 0n, [])
     case Nil{}:
-      out
+      []
 
-def visit(
-  recursive: Bool,
-  node: Lint.Node,
-  here: Lint.Here,
-  +children: Lint.Children,
-  us: List<&2, Shared.Use>,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
-  match recursive node:
-    case True{} Lint.Node{id, p, o, s, n, b, q, Some{Lint.Span{path, beg, end}}, t}:
-      step(Lint.Children.get(children, id), beg, end, here, children, us, out)
-    case _ _:
-      out
+def call(+loop: Loop, node: Lint.Node) -> List<&2, Lint.Finding>:
+  match node:
+    case Lint.Node{s, n, sp, +kids, f}:
+      call.of(loop, kids, kids)
 
-def scan(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +us: List<&2, Shared.Use>,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
+def calls(recursive: Bool, +loop: Loop, node: Lint.Node) -> List<&2, Lint.Finding>:
+  match recursive:
+    case True{}:
+      call(loop, node)
+    case False{}:
+      []
+
+def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  calls(Lint.recursive(path, node), loop, node)
+
+def defs(nodes: List<&2, Lint.Node>, +text: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{+node, rest}:
-      scan(
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      defs(
         rest,
-        here,
-        children,
-        us,
-        visit(Lint.Here.recursive(here, children, node), node, here, children, us, out)
+        text,
+        Lists.onto(
+          &2,
+          Lint.Finding,
+          Lint.visit(~Loop, ~Lint.Finding, ~visit, Loop{k, text}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]),
+          out
+        )
       )
+    case Con{node, rest}:
+      defs(rest, text, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  +nodes = Lint.Here.nodes(here)
-  Lint.done(scan(nodes, here, Lint.Children.of(nodes), Shared.Use.all(nodes, []), []))
+  Lint.done(defs(Lint.Here.nodes(here), Lint.Here.text(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"performance/append-in-loop", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

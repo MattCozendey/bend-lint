@@ -93,10 +93,9 @@ setDefaultTimeout(120_000);
 
   test("a file with a type error is formatted too, but not one that does not parse", async () => {
     expect(await found('import Base\n\ndef main() -> U32:\n    "text"\n')).toEqual([
-      "4:5 error Error:",
       "4:3 " + MESSAGE,
     ]);
-    expect(await found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual(["3:12 error Error:"]);
+    expect(await found("import Base\n\ndef main( -> U32:\n    1\n")).toEqual([]);
   });
 
   test("tabWidth sets the indentation", async () => {

@@ -30,31 +30,28 @@ type Verdict is Data:
   Unchanged{}
   Unknown{}
 
+# What judging a definition's calls of itself reads: its parameters, the binders its lets bind (an argument that is one
+# stands for its value, which the rule does not follow), and the file's text.
+type Loop is Data:
+  Loop{params: List<&2, Param>, lets: List<&2, U32>, text: String}
+
 # Functions
 # =========
-def Param.erased(bare: Bool, quantity: Maybe<&2, Lint.Quantity>) -> Bool:
+def Param.erased(bare: Bool, quantity: Lint.Quantity) -> Bool:
   match bare quantity:
-    case False{} Some{Lint.Erased{}}:
+    case False{} Lint.Erased{}:
       True{}
     case _ _:
       False{}
 
-def Param.all(
-  nodes: List<&2, Lint.Node>,
-  +children: Lint.Children,
-  out: List<&2, Param>
-) -> List<&2, Param>:
+def Param.all(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Param>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Param, out)
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, Some{b}, q, s, t}, rest}:
-      Param.all(
-        rest,
-        children,
-        Param{b, Param.erased(Lint.Children.bare(children, i), q), n} <> out
-      )
+    case Con{Lint.Node{Lint.Parameter{+b, +q}, +n, +s, +k, +f}, rest}:
+      Param.all(rest, Param{b, Param.erased(Lint.Node.bare(Lint.Node{Lint.Parameter{b, q}, n, s, k, f}), q), n} <> out)
     case Con{node, rest}:
-      Param.all(rest, children, out)
+      Param.all(rest, out)
 
 # The roots that `binder` is smaller than, with `binder` itself.
 def roots(smaller: List<&2, Smaller>, +binder: U32, out: List<&2, U32>) -> List<&2, U32>:
@@ -83,61 +80,38 @@ def pairs(rs: List<&2, U32>, +fs: List<&2, U32>, out: List<&2, Smaller>) -> List
 def taken(
   scrutinees: List<&2, Lint.Node>,
   patterns: List<&2, Lint.Node>,
-  +children: Lint.Children,
-  +fuel: Nat,
   +smaller: List<&2, Smaller>
 ) -> List<&2, Smaller>:
   match scrutinees patterns:
     case Con{
-      Lint.Node{i, p, o, Lint.Variable{}, n, Some{s}, q, sp, t},
+      Lint.Node{Lint.Variable{s}, n, sp, k, f},
       more
-    } Con{Lint.Node{j, pp, po, Lint.PatternConstructor{}, pn, pb, pq, ps, pt}, rest}:
+    } Con{Lint.Node{Lint.PatternConstructor{t}, pn, ps, kids, pf}, rest}:
       taken(
         more,
         rest,
-        children,
-        fuel,
-        Lists.onto(
-          &2,
-          Smaller,
-          pairs(
-            roots(smaller, s, []),
-            Lint.Children.bound(fuel, Lint.Children.get(children, j), children, []),
-            []
-          ),
-          smaller
-        )
+        Lists.onto(&2, Smaller, pairs(roots(smaller, s, []), Lint.Node.bound(kids, []), []), smaller)
       )
     case Con{x, more} Con{y, rest}:
-      taken(more, rest, children, fuel, smaller)
+      taken(more, rest, smaller)
     case _ _:
       smaller
 
-# What the cases above a call (`chain`, outermost first) take apart.
-def known(
-  chain: List<&2, Lint.Node>,
-  +children: Lint.Children,
-  +fuel: Nat,
-  smaller: List<&2, Smaller>
-) -> List<&2, Smaller>:
+# What a case below `parent` takes apart, if `node` is one and `parent` its match.
+def known.at(parent: Maybe<&2, Lint.Node>, node: Lint.Node, smaller: List<&2, Smaller>) -> List<&2, Smaller>:
+  match parent node:
+    case Some{Lint.Node{Lint.Match{}, mn, ms, +scrutinees, mf}} Lint.Node{Lint.Case{}, n, s, patterns, f}:
+      taken(Lint.Node.scrutinees(Lint.Node{Lint.Match{}, mn, ms, scrutinees, mf}), patterns, smaller)
+    case _ _:
+      smaller
+
+# What the cases above a call (`chain`, outermost first; `parent` is the node above the first) take apart.
+def known(chain: List<&2, Lint.Above>, parent: Maybe<&2, Lint.Node>, smaller: List<&2, Smaller>) -> List<&2, Smaller>:
   match chain:
     case Nil{}:
       smaller
-    case Con{Lint.Node{i, p, o, Lint.Case{}, n, b, q, s, t}, rest}:
-      known(
-        rest,
-        children,
-        fuel,
-        taken(
-          Lint.Children.scrutinees(children, p),
-          Lint.Children.get(children, i),
-          children,
-          fuel,
-          smaller
-        )
-      )
-    case Con{node, rest}:
-      known(rest, children, fuel, smaller)
+    case Con{Lint.Above{+node, at}, rest}:
+      known(rest, Some{node}, known.at(parent, node, smaller))
 
 def is_smaller(smaller: List<&2, Smaller>, hit: Bool, +root: U32, +field: U32) -> Bool:
   match smaller hit:
@@ -175,10 +149,7 @@ def verdict(
       v
     case Con{Param{b, True{}, n}, ps} Con{arg, rest} None{}:
       verdict(ps, rest, None{}, smaller, lets, 1n+at)
-    case Con{
-      Param{+b, False{}, +n},
-      ps
-    } Con{Lint.Node{i, p, o, Lint.Variable{}, x, Some{+a}, q, s, t}, rest} None{}:
+    case Con{Param{+b, False{}, +n}, ps} Con{Lint.Node{Lint.Variable{+a}, x, s, k, f}, rest} None{}:
       verdict(
         ps,
         rest,
@@ -193,10 +164,7 @@ def verdict(
         lets,
         1n+at
       )
-    case Con{
-      Param{b, False{}, n},
-      ps
-    } Con{Lint.Node{i, p, o, Lint.Application{}, x, y, q, s, t}, rest} None{}:
+    case Con{Param{b, False{}, n}, ps} Con{Lint.Node{Lint.Application{}, x, s, k, f}, rest} None{}:
       Fails{at, n}
     case Nil{} Nil{} None{}:
       Unchanged{}
@@ -236,149 +204,67 @@ def finding(
     case _ _:
       []
 
-def call(
-  nodes: List<&2, Lint.Node>,
-  lets: List<&2, U32>,
-  owner: U32,
-  id: U32,
-  span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  fuel: Nat
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, s, loop, b, q, sp, t}, +args}:
+# The findings about a call of its definition to itself, below `path`.
+def call(+loop: Loop, +path: List<&2, Lint.Above>, node: Lint.Node) -> List<&2, Lint.Finding>:
+  match loop node:
+    case Loop{params, lets, text} Lint.Node{syntax, name, span, Con{Lint.Node{hs, callee, hp, hk, hf}, +args}, facts}:
       finding(
-        verdict(
-          Param.all(Lint.Children.get(children, owner), children, []),
-          args,
-          None{},
-          known(List.reverse(&2, Lint.Node, Lint.Here.ancestors(here, id)), children, fuel, []),
-          lets,
-          0n
-        ),
+        verdict(params, args, None{}, known(List.reverse(&2, Lint.Above, path), None{}, []), lets, 0n),
         span,
-        loop,
-        Lint.Here.text(here),
+        callee,
+        text,
         args
-      )
-    case Nil{}:
-      []
-
-# The findings about a call of the definition to itself, if `checks`: the definition is not @unsafe, and
-# the call is live.
-def checked(
-  checks: Bool,
-  nodes: List<&2, Lint.Node>,
-  lets: List<&2, U32>,
-  owner: U32,
-  id: U32,
-  span: Maybe<&2, Lint.Span>,
-  here: Lint.Here,
-  children: Lint.Children,
-  fuel: Nat
-) -> List<&2, Lint.Finding>:
-  match checks:
-    case True{}:
-      call(nodes, lets, owner, id, span, here, children, fuel)
-    case False{}:
-      []
-
-def visit(
-  recursive: Bool,
-  node: Lint.Node,
-  lets: List<&2, U32>,
-  unsafes: List<&2, U32>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  fuel: Nat
-) -> List<&2, Lint.Finding>:
-  match recursive node:
-    case True{} Lint.Node{+id, p, +owner, s, n, b, q, span, t}:
-      checked(
-        Bool.not(List.contains(~U32, ~U32.is_eq, unsafes, owner)) && Lint.Here.live(here, id),
-        Lint.Children.get(children, id),
-        lets,
-        owner,
-        id,
-        span,
-        here,
-        children,
-        fuel
       )
     case _ _:
       []
 
-def scan(
-  nodes: List<&2, Lint.Node>,
-  +lets: List<&2, U32>,
-  +unsafes: List<&2, U32>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +fuel: Nat,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
+# The same, if `node` is a live call of its definition to itself (`recursive`).
+def calls(recursive: Bool, +loop: Loop, +path: List<&2, Lint.Above>, node: Lint.Node) -> List<&2, Lint.Finding>:
+  match recursive:
+    case True{}:
+      Bool.pick(List<&2, Lint.Finding>, Lint.live(path), call(loop, path, node), [])
+    case False{}:
+      []
+
+def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  calls(Lint.recursive(path, node), loop, path, node)
+
+# The binders the lets of a definition bind, below `path`.
+def let(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
+  match path node:
+    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, k, f}, at}, up} Lint.Node{Lint.PatternVariable{b, pq}, pn, ps, pk, pf}:
+      [b]
+    case _ _:
+      []
+
+# The findings in each definition among `nodes`, onto `out`. An @unsafe definition (`def f?`) may call itself freely.
+def defs(nodes: List<&2, Lint.Node>, +text: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{+node, rest}:
-      scan(
+    case Con{Lint.Node{Lint.Definition{+t, False{}}, +n, +s, +k, +f}, rest}:
+      +owner = {Lint.Node{Lint.Definition{t, False{}}, n, s, k, f}: Lint.Node}
+      defs(
         rest,
-        lets,
-        unsafes,
-        here,
-        children,
-        fuel,
+        text,
         Lists.onto(
           &2,
           Lint.Finding,
-          visit(
-            Lint.Here.recursive(here, children, node),
-            node,
-            lets,
-            unsafes,
-            here,
-            children,
-            fuel
+          Lint.visit(
+            ~Loop,
+            ~Lint.Finding,
+            ~visit,
+            Loop{Param.all(k, []), Lint.visit(~Unit, ~U32, ~let, Unit{}, [owner]), text},
+            [owner]
           ),
           out
         )
       )
-
-def lets.bound(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.PatternVariable{}, n, Some{b}, q, s, t}, rest}:
-      lets.bound(rest, b <> out)
     case Con{node, rest}:
-      lets.bound(rest, out)
-
-# The binders the lets of the file bind: an argument that is one stands for its value, which the rule
-# does not follow.
-def lets(nodes: List<&2, Lint.Node>, +children: Lint.Children, out: List<&2, U32>) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Destructure{}, n, b, q, s, t}, rest}:
-      lets(rest, children, lets.bound(Lint.Children.get(children, i), out))
-    case Con{node, rest}:
-      lets(rest, children, out)
+      defs(rest, text, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  +nodes = Lint.Here.nodes(here)
-  +children = Lint.Children.of(nodes)
-  Lint.done(
-    scan(
-      nodes,
-      lets(nodes, children, []),
-      Lint.Here.unsafes(here),
-      here,
-      children,
-      Lists.length(&2, Lint.Node, nodes),
-      []
-    )
-  )
+  Lint.done(defs(Lint.Here.nodes(here), Lint.Here.text(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"language/decreasing-call", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

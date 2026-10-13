@@ -9,280 +9,212 @@
 # stops at its first error; this rule reports every such binder at once.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
 
 # Types
 # =====
 
-# A binder that can be used once: its number, its definition's id, and its name.
+# A binder that can be used once: its number, and its name.
 type Once is Data:
-  Once{binder: U32, owner: U32, name: String}
+  Once{binder: U32, name: String}
 
-# A live use of a binder: the binder, its definition's id, and the use's id.
-type Use is Data:
-  Use{binder: U32, owner: U32, id: U32}
+# The live uses of one binder among some nodes: the first, and the first that an earlier one on its path precedes, if
+# any. Two uses are on one path unless a match parts them: its cases, and its scrutinees, are each a path of their own.
+type Seen is Data:
+  Seen{first: Maybe<&2, Lint.Span>, second: Maybe<&2, Lint.Span>}
 
 # Functions
 # =========
-
-# The definitions with a bare parameter (`def f(x)`, filling a law): their quantities are the law's.
-def parent_is_let(node: Maybe<&2, Lint.Node>) -> Bool:
-  match node:
-    case Some{Lint.Node{i, p, o, Lint.Destructure{}, n, b, q, s, t}}:
-      True{}
-    case _:
-      False{}
-
-# The binders that can be used once, as their syntax says for sure: a parameter written without `+`
-# (not bare), and a let's name written without `+`. A pattern's field is left out: its quantity also
-# comes from its scrutinee's type (a field of a `List<&2, A>` is reusable), which the rule cannot see.
-def Once.all(
-  nodes: List<&2, Lint.Node>,
-  +bare: List<&2, U32>,
-  +here: Lint.Here,
-  out: List<&2, Once>
-) -> List<&2, Once>:
-  match nodes:
-    case Nil{}:
-      List.reverse(&2, Once, out)
-    case Con{Lint.Node{i, p, +o, Lint.Parameter{}, n, Some{b}, Some{Lint.Once{}}, s, t}, rest}:
-      Once.all(
-        rest,
-        bare,
-        here,
-        Lists.push(
-          Once,
-          Lists.when(Once, Bool.not(List.contains(~U32, ~U32.is_eq, bare, o)), Once{b, o, n}),
-          out
-        )
-      )
-    case Con{
-      Lint.Node{i, +p, o, Lint.PatternVariable{}, n, Some{b}, Some{Lint.Once{}}, s, t},
-      rest
-    }:
-      Once.all(
-        rest,
-        bare,
-        here,
-        Lists.push(
-          Once,
-          Lists.when(Once, parent_is_let(Lint.Here.node(here, p)), Once{b, o, n}),
-          out
-        )
-      )
-    case Con{node, rest}:
-      Once.all(rest, bare, here, out)
-
-def bare(nodes: List<&2, Lint.Node>, +children: Lint.Children, out: List<&2, U32>) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, b, q, s, t}, rest}:
-      bare(
-        rest,
-        children,
-        Lists.push(U32, Lists.when(U32, Lint.Children.bare(children, i), o), out)
-      )
-    case Con{node, rest}:
-      bare(rest, children, out)
-
-# Whether the node numbered `parent` is a match: then a variable under it, and not under a case, is a
-# scrutinee.
-def is_match(node: Maybe<&2, Lint.Node>) -> Bool:
-  match node:
-    case Some{Lint.Node{i, p, o, Lint.Match{}, n, b, q, s, t}}:
-      True{}
-    case _:
-      False{}
-
-# The live uses of binders in the file, and the binders a match takes apart (scrutinees, as
-# `binder` and `owner`).
-def Use.all(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  uses: List<&2, Use>,
-  matched: List<&2, Use>
-) -> List<&2, Use>
-  & List<&2, Use>:
-  match nodes:
-    case Nil{}:
-      (List.reverse(&2, Use, uses), matched)
-    case Con{Lint.Node{+i, p, +o, Lint.Variable{}, n, Some{+b}, q, s, t}, rest}:
-      +scrutinee = is_match(Lint.Here.node(here, p))
-      Use.all(
-        rest,
-        here,
-        Lists.push(
-          Use,
-          Lists.when(Use, Bool.not(scrutinee) && Lint.Here.live(here, i), Use{b, o, i}),
-          uses
-        ),
-        Lists.push(Use, Lists.when(Use, scrutinee, Use{b, o, i}), matched)
-      )
-    case Con{node, rest}:
-      Use.all(rest, here, uses, matched)
-
-def Use.of(uses: List<&2, Use>, +binder: U32, +owner: U32, out: List<&2, U32>) -> List<&2, U32>:
-  match uses:
-    case Nil{}:
-      List.reverse(&2, U32, out)
-    case Con{Use{b, o, i}, rest}:
-      Use.of(
-        rest,
-        binder,
-        owner,
-        Lists.push(U32, Lists.when(U32, U32.is_eq(b, binder) && U32.is_eq(o, owner), i), out)
-      )
-
-def ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest}:
-      ids(rest, i <> out)
-
-# The first node of `chain` (innermost first) whose id is in `others`: the two uses' nearest common
-# ancestor.
-def common(
-  chain: List<&2, Lint.Node>,
-  found: Maybe<&2, Lint.Node>,
-  +others: List<&2, U32>
-) -> Maybe<&2, Lint.Node>:
-  match chain found:
-    case _ Some{node}:
-      Some{node}
-    case Nil{} None{}:
-      None{}
-    case Con{Lint.Node{+i, p, o, s, n, b, q, sp, t}, rest} None{}:
-      common(
-        rest,
-        Lists.when(
-          Lint.Node,
-          List.contains(~U32, ~U32.is_eq, others, i),
-          Lint.Node{i, p, o, s, n, b, q, sp, t}
-        ),
-        others
-      )
-
-# Whether two uses are on one path: their nearest common ancestor is not a match, whose cases part
-# them.
-def one_path(node: Maybe<&2, Lint.Node>) -> Bool:
-  match node:
-    case Some{Lint.Node{i, p, o, Lint.Match{}, n, b, q, s, t}}:
-      False{}
-    case _:
-      True{}
-
-def twice.with(
-  uses: List<&2, U32>,
-  found: Maybe<&2, U32>,
-  +first: U32,
-  +here: Lint.Here
-) -> Maybe<&2, U32>:
-  match uses found:
-    case _ Some{u}:
-      Some{u}
-    case Nil{} None{}:
-      None{}
-    case Con{+u, rest} None{}:
-      twice.with(
-        rest,
-        Lists.when(
-          U32,
-          one_path(
-            common(Lint.Here.ancestors(here, first), None{}, ids(Lint.Here.ancestors(here, u), []))
-          ),
-          u
-        ),
-        first,
-        here
-      )
-
-# The second of the first two uses of `uses` (in order) on one path, if there are two.
-def twice(uses: List<&2, U32>, found: Maybe<&2, U32>, +here: Lint.Here) -> Maybe<&2, U32>:
-  match uses found:
-    case _ Some{u}:
-      Some{u}
-    case Nil{} None{}:
-      None{}
-    case Con{u, +rest} None{}:
-      twice(rest, twice.with(rest, None{}, u, here), here)
-
 def message(+name: String) -> String:
   name
     ++ " is used again here, on the same path as an earlier use, but it is declared without `+`, so it can be used once on each path, and the check fails (\"consumed more than once\"). If its type is Data, write `+"
     ++ name
     ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied. This is a false positive if one of the uses is an argument for an erased parameter (`-x`, as a proof's motive often is): that is dead code."
 
-def finding(second: Maybe<&2, U32>, name: String, here: Lint.Here) -> List<&2, Lint.Finding>:
+# The binders a definition declares that can be used once, as their syntax says for sure: a parameter written without
+# `+` (unless one is `bare`: its quantity is its law's), and a let's name written without `+`. A pattern's field is left
+# out: its quantity also comes from its scrutinee's type (a field of a `List<&2, A>` is reusable), which the rule cannot
+# see.
+def Once.of(+bare: Bool, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Once>:
+  match path node:
+    case _ Lint.Node{Lint.Parameter{b, Lint.Once{}}, name, s, k, f}:
+      Bool.pick(List<&2, Once>, bare, [], [Once{b, name}])
+    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, at}, up} Lint.Node{
+      Lint.PatternVariable{b, Lint.Once{}},
+      name,
+      s,
+      k,
+      f
+    }:
+      [Once{b, name}]
+    case _ _:
+      []
+
+# The binders a match takes apart: the variables right under it, its scrutinees. In a case, they stand for the matched
+# constructor.
+def scrutinee(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
+  match path node:
+    case Con{Lint.Above{Lint.Node{Lint.Match{}, mn, ms, mk, mf}, at}, up} Lint.Node{Lint.Variable{b}, n, s, k, f}:
+      [b]
+    case _ _:
+      []
+
+# Whether a parameter among `nodes` is written bare (`def f(x)`, filling a law).
+def bare(nodes: List<&2, Lint.Node>) -> Bool:
+  match nodes:
+    case Nil{}:
+      False{}
+    case Con{+n, rest}:
+      Lint.Node.bare(n) || bare(rest)
+
+# Whether the nodes under `node`, which is live if `live`, are: a body is; a type is not (an equality, a function or
+# pair type, a type's arguments). An annotation's type is not either: see `scan`.
+def inner(+node: Lint.Node, live: Bool) -> Bool:
+  match node:
+    case Lint.Node{Lint.Body{}, n, s, k, f}:
+      True{}
+    case Lint.Node{Lint.Equality{}, n, s, k, f}:
+      False{}
+    case Lint.Node{Lint.Forall{b, q}, n, s, k, f}:
+      False{}
+    case Lint.Node{Lint.TypeApplication{t}, n, s, k, f}:
+      False{}
+    case Lint.Node{Lint.Application{}, n, s, kids, f}:
+      live && Bool.not(Lint.pair(kids))
+    case _:
+      live
+
+def is_match(syntax: Lint.Syntax) -> Bool:
+  match syntax:
+    case Lint.Match{}:
+      True{}
+    case _:
+      False{}
+
+def is_annotation(syntax: Lint.Syntax) -> Bool:
+  match syntax:
+    case Lint.Annotation{}:
+      True{}
+    case _:
+      False{}
+
+# What a node's uses of `b` are: its own, if it is a live use, else `under`'s, those under it.
+def Seen.of(+node: Lint.Node, +b: U32, live: Bool, under: Seen) -> Seen:
+  match node live:
+    case Lint.Node{Lint.Variable{v}, n, Some{span}, k, f} True{}:
+      Bool.pick(Seen, U32.is_eq(v, b), Seen{Some{span}, None{}}, under)
+    case _ _:
+      under
+
+# The uses of `seen`, then those of `next`, the nodes after them: on one path, or, if `apart`, on paths of their own.
+def Seen.then(apart: Bool, seen: Seen, next: Seen) -> Seen:
+  match apart seen next:
+    case True{} Seen{f, s} Seen{g, t}:
+      Seen{Maybe.or(&2, Lint.Span, f, g), Maybe.or(&2, Lint.Span, s, t)}
+    case False{} Seen{Some{+f}, s} Seen{g, t}:
+      Seen{Some{f}, Maybe.or(&2, Lint.Span, s, g)}
+    case False{} Seen{None{}, s} Seen{g, t}:
+      Seen{g, Maybe.or(&2, Lint.Span, s, t)}
+
+# The live uses of `b` among `nodes`, the nodes under one, after `seen`: `live` says whether they are live, `apart`
+# whether each is a path of its own (a match's), and `typed` whether only the first is live (an annotation's: the
+# second is a type); `at` counts the nodes.
+def scan(
+  nodes: List<&2, Lint.Node>,
+  +b: U32,
+  +live: Bool,
+  +apart: Bool,
+  +typed: Bool,
+  +at: U32,
+  seen: Seen
+) -> Seen:
+  match nodes:
+    case Nil{}:
+      seen
+    case Con{Lint.Node{+syntax, +name, +span, +kids, +facts}, rest}:
+      +node = {Lint.Node{syntax, name, span, kids, facts}: Lint.Node}
+      +here = live && Bool.not(typed && U32.is_gt(at, 0))
+      scan(
+        rest,
+        b,
+        live,
+        apart,
+        typed,
+        (at + 1: U32),
+        Seen.then(
+          apart,
+          seen,
+          Seen.of(
+            node,
+            b,
+            here,
+            scan(
+              kids,
+              b,
+              inner(node, here),
+              is_match(syntax),
+              is_annotation(syntax),
+              0,
+              Seen{None{}, None{}}
+            )
+          )
+        )
+      )
+
+def finding(second: Seen, +name: String) -> List<&2, Lint.Finding>:
   match second:
-    case Some{u}:
-      Shared.finding(Lint.Warning{}, True{}, Lint.Node.span(Lint.Here.node(here, u)), message(name))
-    case None{}:
-      []
+    case Seen{f, s}:
+      Lint.finding(Lint.Warning{}, True{}, s, message(name))
 
-# The finding about the binder `b` of `o`, unless a match takes it apart.
-def unmatched(
-  matched: Bool,
-  b: U32,
-  o: U32,
-  n: String,
-  uses: List<&2, Use>,
-  +here: Lint.Here
-) -> List<&2, Lint.Finding>:
-  match matched:
-    case True{}:
-      []
-    case False{}:
-      finding(twice(Use.of(uses, b, o, []), None{}, here), n, here)
-
+# The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes apart
+# (`matched`) is skipped.
 def judge(
+  +owner: Lint.Node,
   onces: List<&2, Once>,
-  +uses: List<&2, Use>,
-  +matched: List<&2, Use>,
-  +here: Lint.Here,
+  +matched: List<&2, U32>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match onces:
     case Nil{}:
-      List.reverse(&2, Lint.Finding, out)
-    case Con{Once{+b, +o, n}, rest}:
+      out
+    case Con{Once{+b, +name}, rest}:
       judge(
+        owner,
         rest,
-        uses,
         matched,
-        here,
         Lists.onto(
           &2,
           Lint.Finding,
-          unmatched(
-            Maybe.is_some(&2, U32, List.head(&2, U32, Use.of(matched, b, o, []))),
-            b,
-            o,
-            n,
-            uses,
-            here
+          Bool.pick(
+            List<&2, Lint.Finding>,
+            List.contains(~U32, ~U32.is_eq, matched, b),
+            [],
+            finding(scan([owner], b, False{}, False{}, False{}, 0, Seen{None{}, None{}}), name)
           ),
           out
         )
       )
 
-def judged(
-  found: List<&2, Use> & List<&2, Use>,
-  onces: List<&2, Once>,
-  here: Lint.Here
-) -> List<&2, Lint.Finding>:
-  match found:
-    case Tuple{uses, matched}:
-      judge(onces, uses, matched, here, [])
+def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, Lint.Finding, out)
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
+      defs(
+        rest,
+        judge(
+          owner,
+          Lint.visit(~Bool, ~Once, ~Once.of, bare(k), [owner]),
+          Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
+          out
+        )
+      )
+    case Con{node, rest}:
+      defs(rest, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  +nodes = Lint.Here.nodes(here)
-  children = Lint.Children.of(nodes)
-  Lint.done(
-    judged(Use.all(nodes, here, [], []), Once.all(nodes, bare(nodes, children, []), here, []), here)
-  )
+  Lint.done(defs(Lint.Here.nodes(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"language/reused-binder", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

@@ -116,7 +116,7 @@ setDefaultTimeout(120_000);
         "# bend-lint: disable-next no-unused/imports -- a reason -- with dashes not-expected-because:",
         "# bend-lint: expect-next no-unused/imports -- an expect pins one",
         "# bend-lint: disable-line no-unused/imports -- not after code not-expected-because: it is not always found",
-        "# bend-lint: disable-next bend/check -- reserved not-expected-because: it is not always found",
+        "# bend-lint: disable-next bend-lint/directive -- reserved not-expected-because: it is not always found",
         "# bend-lint: disable-next no-such/rule -- unknown not-expected-because: it is not always found",
         "# bend-lint: expect-next no-unused/imports@fatal -- not a severity",
         'def text() -> String:\n  "# bend-lint: disable-file no-unused/imports -- in a string, not a comment"',
@@ -144,7 +144,7 @@ setDefaultTimeout(120_000);
       ),
       finding("7:1", "error", DIRECTIVE, "An expect pins a severity: no-unused/imports@..."),
       finding("8:1", "error", DIRECTIVE, "A line directive must follow code on its line."),
-      finding("9:1", "error", DIRECTIVE, "bend/check findings cannot be suppressed."),
+      finding("9:1", "error", DIRECTIVE, "bend-lint/directive findings cannot be suppressed."),
       finding("10:1", "error", DIRECTIVE, "There is no rule no-such/rule."),
       finding("11:1", "error", DIRECTIVE, "fatal is not a severity."),
     ]);

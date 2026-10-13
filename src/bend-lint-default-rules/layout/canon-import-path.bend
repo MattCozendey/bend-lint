@@ -87,43 +87,24 @@ def verdict(fine: Bool, +want: String, +span: Lint.Span) -> List<&2, Lint.Findin
         }
       ]
 
-# A written path, against the one from `file` to `target`, the file its import loads.
-def judge(
-  file: String,
-  +written: String,
-  target: Maybe<&2, Lint.Node>,
-  span: Lint.Span
-) -> List<&2, Lint.Finding>:
-  match target:
-    case Some{Lint.Node{id, p, o, Lint.Import{}, name, b, q, sp, loads}}:
-      +want = canon(relative(segments(file ++ "/.."), segments(loads)))
-      verdict(Bool.or(hub(written), String.eq(want, written)), want, span)
-    case _:
-      []
+# A written path, against the one from `file` to `loads`, the file its import loads.
+def judge(file: String, +written: String, loads: String, span: Lint.Span) -> List<&2, Lint.Finding>:
+  +want = canon(relative(segments(file ++ "/.."), segments(loads)))
+  verdict(Bool.or(hub(written), String.eq(want, written)), want, span)
 
-# The findings on the import paths among `nodes`, onto `out`. A file's imports come first, so the first node of another
-# kind ends them.
-def paths(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +file: String,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
+# The findings on the paths of `nodes`' imports, onto `out`. A file's imports come first, so the first node of another
+# kind ends them; `import Base` writes no path.
+def paths(nodes: List<&2, Lint.Node>, +file: String, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match nodes:
-    case Con{Lint.Node{id, parent, o, Lint.ImportPath{}, written, b, q, Some{span}, t}, rest}:
-      paths(
-        rest,
-        here,
-        file,
-        Lists.onto(&2, Lint.Finding, judge(file, written, Lint.Here.node(here, parent), span), out)
-      )
-    case Con{Lint.Node{id, parent, o, Lint.Import{}, name, b, q, sp, t}, rest}:
-      paths(rest, here, file, out)
+    case Con{Lint.Node{Lint.Import{loads}, n, s, Con{Lint.Node{Lint.ImportPath{}, written, Some{span}, k, f}, ks}, fs}, rest}:
+      paths(rest, file, Lists.onto(&2, Lint.Finding, judge(file, written, loads, span), out))
+    case Con{Lint.Node{Lint.Import{loads}, n, s, k, f}, rest}:
+      paths(rest, file, out)
     case _:
       List.reverse(&2, Lint.Finding, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(paths(Lint.Here.nodes(here), here, Lint.Here.path(here), []))
+  Lint.done(paths(Lint.Here.nodes(here), Lint.Here.path(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"layout/canon-import-path", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

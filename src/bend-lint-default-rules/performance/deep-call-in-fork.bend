@@ -7,83 +7,79 @@
 # body of a definition, a case, or the rest of a block after its lets, through annotations.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
+
+# Types
+# =====
+
+# What judging the calls in one definition reads: the definitions of the file that call themselves outside a tail
+# position (as the check names them), and the definition, by the name the check gives it and as written.
+type Owner is Data:
+  Owner{deeps: List<&2, String>, target: String, name: String}
 
 # Functions
 # =========
 
-# Whether the node numbered `cur` is in a tail position, given the nodes above it, innermost first.
-def tail(above: List<&2, Lint.Node>, ok: Bool, cur: U32, +children: Lint.Children) -> Bool:
-  match above ok:
-    case _ False{}:
-      False{}
-    case Con{Lint.Node{i, p, o, Lint.Body{}, n, b, q, s, t}, rest} True{}:
+# Whether `at` is the place of the last of `nodes`.
+def last(nodes: List<&2, Lint.Node>, at: U32) -> Bool:
+  U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, nodes)))
+
+# Whether the node below `path` is in a tail position: the body of a definition or a case, or the rest of a block after
+# its lets, through annotations.
+def tail(path: List<&2, Lint.Above>) -> Bool:
+  match path:
+    case Con{Lint.Above{Lint.Node{Lint.Body{}, n, s, k, f}, at}, rest}:
       True{}
-    case Con{Lint.Node{+i, p, o, Lint.Case{}, n, b, q, s, t}, rest} True{}:
-      tail(rest, True{}, i, children)
-    case Con{Lint.Node{+i, p, o, Lint.Match{}, n, b, q, s, t}, rest} True{}:
-      tail(rest, True{}, i, children)
-    case Con{Lint.Node{+i, p, o, Lint.Annotation{}, n, b, q, s, t}, rest} True{}:
-      tail(rest, True{}, i, children)
-    case Con{Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t}, rest} True{}:
-      tail(rest, U32.is_eq(Lint.Children.last(children, i), cur), i, children)
-    case Con{Lint.Node{+i, p, o, Lint.Let{}, n, b, q, s, t}, rest} True{}:
-      tail(rest, U32.is_eq(Lint.Children.last(children, i), cur), i, children)
-    case _ True{}:
+    case Con{Lint.Above{Lint.Node{Lint.Case{}, n, s, k, f}, at}, rest}:
+      tail(rest)
+    case Con{Lint.Above{Lint.Node{Lint.Match{}, n, s, k, f}, at}, rest}:
+      tail(rest)
+    case Con{Lint.Above{Lint.Node{Lint.Annotation{}, n, s, k, f}, at}, rest}:
+      tail(rest)
+    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, kids, f}, at}, rest}:
+      last(kids, at) && tail(rest)
+    case Con{Lint.Above{Lint.Node{Lint.Let{}, n, s, kids, f}, at}, rest}:
+      last(kids, at) && tail(rest)
+    case _:
       False{}
 
-def tail.of(chain: List<&2, Lint.Node>, children: Lint.Children) -> Bool:
-  match chain:
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, above}:
-      tail(above, True{}, i, children)
-    case Nil{}:
-      True{}
+# Whether a call of its definition to itself below `path` is outside a tail position.
+def deep.of(recursive: Bool, path: List<&2, Lint.Above>) -> List<&2, Bool>:
+  match recursive:
+    case True{}:
+      [Bool.not(tail(path))]
+    case False{}:
+      []
 
-def deep.add(
-  recursive: Bool,
-  node: Lint.Node,
-  +here: Lint.Here,
-  children: Lint.Children,
-  out: List<&2, String>
-) -> List<&2, String>:
-  match recursive node:
-    case True{} Lint.Node{id, p, owner, s, n, b, q, sp, t}:
-      Lists.push(
-        String,
-        Lists.when(
-          String,
-          Bool.not(tail.of(Lint.Here.ancestors(here, id), children)),
-          Lint.Node.target(Lint.Here.node(here, owner))
-        ),
-        out
-      )
-    case _ _:
-      out
+def deep.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Bool>:
+  deep.of(Lint.recursive(path, node), path)
 
-# The definitions of the file that call themselves outside a tail position, as the check names them.
-def deep(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, String>
-) -> List<&2, String>:
+# The definitions among `nodes` that call themselves outside a tail position, as the check names them, onto `out`.
+def deep(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
   match nodes:
     case Nil{}:
       out
-    case Con{+node, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
       deep(
         rest,
-        here,
-        children,
-        deep.add(Lint.Here.recursive(here, children, node), node, here, children, out)
+        Lists.push(
+          String,
+          Lists.when(
+            String,
+            List.contains(~Bool, ~Bool.and, Lint.visit(~Unit, ~Bool, ~deep.visit, Unit{}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]), True{}),
+            t
+          ),
+          out
+        )
       )
+    case Con{node, rest}:
+      deep(rest, out)
 
 def pattern(syntax: Lint.Syntax) -> Bool:
   match syntax:
-    case Lint.PatternVariable{}:
+    case Lint.PatternVariable{b, q}:
       True{}
-    case Lint.PatternConstructor{}:
+    case Lint.PatternConstructor{t}:
       True{}
     case _:
       False{}
@@ -92,112 +88,38 @@ def binders(nodes: List<&2, Lint.Node>, n: Nat) -> Nat:
   match nodes:
     case Nil{}:
       n
-    case Con{Lint.Node{i, p, o, Lint.PatternVariable{}, nm, b, q, s, t}, rest}:
+    case Con{Lint.Node{Lint.PatternVariable{b, q}, nm, s, k, f}, rest}:
       binders(rest, 1n+n)
     case Con{node, rest}:
       binders(rest, n)
 
-# The values of a let whose children are `nodes`: neither its binders nor the rest of its block.
-def values(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
+# Whether a node is a fork (a parallel let), or a let that binds one name and whose rest of block leads to one: the
+# values of these lets are what a fork runs, or what runs just before it.
+def leads(nodes: List<&2, Lint.Node>) -> Bool:
   match nodes:
+    case Con{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, Nil{}}:
+      Nat.is_gt(binders(kids, 0n), 1n) || (Nat.is_eq(binders(kids, 0n), 1n) && leads(kids))
+    case Con{x, Nil{}}:
+      False{}
+    case Con{x, rest}:
+      leads(rest)
     case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, Nil{}}:
-      out
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest}:
-      values(rest, Lists.push(U32, Lists.when(U32, Bool.not(pattern(s)), i), out))
-
-# Whether a let, whose rest of block is the fork or the let after (`rest`), binds one name.
-def single(rest: Bool, nodes: List<&2, Lint.Node>) -> Bool:
-  match rest:
-    case True{}:
-      Nat.is_eq(binders(nodes, 0n), 1n)
-    case False{}:
       False{}
 
-def values.if(hit: Bool, nodes: List<&2, Lint.Node>) -> List<&2, U32>:
-  match hit:
-    case True{}:
-      values(nodes, [])
-    case False{}:
-      []
+# Whether `x`, the node at `at` under `parent`, is a value of a fork, or of a let just before one: not a binder, nor the
+# rest of the block.
+def value(x: Lint.Node, +parent: Lint.Node, +at: U32) -> Bool:
+  match x parent:
+    case Lint.Node{s, n, sp, k, f} Lint.Node{ps, pn, psp, +kids, pf}:
+      Bool.not(pattern(s)) && Bool.not(last(kids, at)) && leads([parent])
 
-# The values of the lets just before a fork: each let above `cur` whose rest of block it is, while
-# the let binds one name. `going` says whether the walk goes on.
-def before(
-  above: List<&2, Lint.Node>,
-  going: Bool,
-  cur: U32,
-  +children: Lint.Children,
-  out: List<&2, U32>
-) -> List<&2, U32>:
-  match above going:
-    case Con{Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t}, rest} True{}:
-      +hit = single(U32.is_eq(Lint.Children.last(children, i), cur), Lint.Children.get(children, i))
-      before(
-        rest,
-        hit,
-        i,
-        children,
-        Lists.onto(&2, U32, values.if(hit, Lint.Children.get(children, i)), out)
-      )
-    case _ _:
-      out
-
-def forks.of(
-  fork: Bool,
-  +id: U32,
-  here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, U32>
-) -> List<&2, U32>:
-  match fork:
-    case True{}:
-      before(
-        List.tail(&2, Lint.Node, Lint.Here.ancestors(here, id)),
-        True{},
-        id,
-        children,
-        values(Lint.Children.get(children, id), out)
-      )
-    case False{}:
-      out
-
-# The values of the forks of the file (parallel lets), and of the lets just before them, by id.
-def forks(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, U32>
-) -> List<&2, U32>:
-  match nodes:
+# Whether `x`, below `path`, or a node above it, is a value of a fork.
+def inside(path: List<&2, Lint.Above>, +x: Lint.Node) -> Bool:
+  match path:
     case Nil{}:
-      out
-    case Con{Lint.Node{+id, p, o, Lint.Destructure{}, n, b, q, s, t}, rest}:
-      forks(
-        rest,
-        here,
-        children,
-        forks.of(
-          Nat.is_gt(binders(Lint.Children.get(children, id), 0n), 1n),
-          id,
-          here,
-          children,
-          out
-        )
-      )
-    case Con{node, rest}:
-      forks(rest, here, children, out)
-
-# Whether a node of `chain` is a fork value of `values`.
-def inside(chain: List<&2, Lint.Node>, hit: Bool, +values: List<&2, U32>) -> Bool:
-  match chain hit:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
       False{}
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest} False{}:
-      inside(rest, List.contains(~U32, ~U32.is_eq, values, i), values)
+    case Con{Lint.Above{+p, +at}, rest}:
+      value(x, p, at) || inside(rest, p)
 
 def message(+callee: String, loop: String) -> String:
   callee
@@ -210,102 +132,64 @@ def message(+callee: String, loop: String) -> String:
     ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. In the slash boss demo of Bend, doing so for such a call changed no timing: the list it walked was short. Time it before and after."
 
 # The finding about a call of a deep definition (if `deep`), when the call is in a fork.
-def forked(
+def judge.deep(
   deep: Bool,
-  id: U32,
-  owner: U32,
-  callee: String,
-  span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  forks: List<&2, U32>
+  path: List<&2, Lint.Above>,
+  +node: Lint.Node,
+  +callee: String,
+  name: String
 ) -> List<&2, Lint.Finding>:
   match deep:
     case True{}:
-      Shared.finding(
-        Lint.Warning{},
-        inside(Lint.Here.ancestors(here, id), False{}, forks),
-        span,
-        message(callee, Lint.Node.name(Lint.Here.node(here, owner)))
-      )
+      Lint.finding(Lint.Warning{}, inside(path, node), Lint.Node.span(Some{node}), message(callee, name))
     case False{}:
       []
 
 def judge.call(
-  nodes: List<&2, Lint.Node>,
-  id: U32,
-  +owner: U32,
-  span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  deeps: List<&2, String>,
-  forks: List<&2, U32>
+  +owner: Owner,
+  +path: List<&2, Lint.Above>,
+  +node: Lint.Node,
+  callee: String,
+  +called: String
 ) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, callee, b, q, s, +called}, args}:
-      forked(
-        List.contains(
-          ~String,
-          ~String.eq,
-          deeps,
-          called
-        )
-          && Bool.not(String.eq(called, Lint.Node.target(Lint.Here.node(here, owner)))),
-        id,
-        owner,
+  match owner:
+    case Owner{deeps, target, name}:
+      judge.deep(
+        List.contains(~String, ~String.eq, deeps, called) && Bool.not(String.eq(called, target)),
+        path,
+        node,
         callee,
-        span,
-        here,
-        forks
+        name
       )
-    case _:
-      []
 
-def judge(
-  node: Lint.Node,
-  here: Lint.Here,
-  children: Lint.Children,
-  deeps: List<&2, String>,
-  forks: List<&2, U32>
-) -> List<&2, Lint.Finding>:
+def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match node:
-    case Lint.Node{+id, p, owner, Lint.Application{}, n, b, q, span, t}:
-      judge.call(Lint.Children.get(children, id), id, owner, span, here, deeps, forks)
+    case Lint.Node{Lint.Application{}, n, s, Con{Lint.Node{Lint.Reference{called}, callee, rs, rk, rf}, args}, f}:
+      judge.call(owner, path, node, callee, called)
     case _:
       []
 
-def scan(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +deeps: List<&2, String>,
-  +forks: List<&2, U32>,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
+def defs(nodes: List<&2, Lint.Node>, +deeps: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{node, rest}:
-      scan(
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      defs(
         rest,
-        here,
-        children,
         deeps,
-        forks,
-        Lists.onto(&2, Lint.Finding, judge(node, here, children, deeps, forks), out)
+        Lists.onto(
+          &2,
+          Lint.Finding,
+          Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner{deeps, t, n}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]),
+          out
+        )
       )
+    case Con{node, rest}:
+      defs(rest, deeps, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  +children = Lint.Children.of(nodes)
-  Lint.done(
-    scan(
-      nodes,
-      here,
-      children,
-      deep(nodes, here, children, []),
-      forks(nodes, here, children, []),
-      []
-    )
-  )
+  Lint.done(defs(nodes, deep(nodes, []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"performance/deep-call-in-fork", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

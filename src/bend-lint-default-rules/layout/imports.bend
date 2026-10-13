@@ -13,10 +13,10 @@ import ../../shared/strings.bend as Strings
 # Types
 # =====
 
-# One import: its node's id, whether it is Base, its written path, its alias, the file it loads, and its text (the
+# One import: where its alias is, whether it is Base, its written path, its alias, the file it loads, and its text (the
 # comment lines above it, then its line).
 type Entry is Data:
-  Entry{id: U32, base: Bool, path: String, alias: String, loads: String, text: String}
+  Entry{at: Lint.Span, base: Bool, path: String, alias: String, loads: String, text: String}
 
 # The imports read so far, each file's first only: the files they load, each with its alias; the imports kept (last
 # first); and the operations that point a dropped import's uses at the kept one's alias.
@@ -71,7 +71,7 @@ def add.line(
   +text: String,
   +beg: U32,
   +end: U32,
-  id: U32,
+  at: Lint.Span,
   base: Bool,
   path: String,
   alias: String,
@@ -80,13 +80,13 @@ def add.line(
 ) -> Block:
   match b:
     case Block{first, last, Nil{}}:
-      Block{beg, end, [Entry{id, base, path, alias, loads, ended(Strings.slice(text, beg, end))}]}
+      Block{beg, end, [Entry{at, base, path, alias, loads, ended(Strings.slice(text, beg, end))}]}
     case Block{first, last, +entries}:
       Block{
         first,
         end,
         Entry{
-          id,
+          at,
           base,
           path,
           alias,
@@ -96,33 +96,31 @@ def add.line(
           <> entries
       }
 
-# The import of the node `id`, whose name is at `at`, after the block so far.
+# The import whose alias is at `at`, after the block so far.
 def add(
   +text: String,
-  at: U32,
-  id: U32,
+  at: Lint.Span,
   base: Bool,
   path: String,
   alias: String,
   loads: String,
   b: Block
 ) -> Block:
-  +beg = Strings.line_start(text, at)
-  add.line(text, beg, Strings.line_end(text, beg), id, base, path, alias, loads, b)
+  match at:
+    case Lint.Span{p, +a, e}:
+      +beg = Strings.line_start(text, a)
+      add.line(text, beg, Strings.line_end(text, beg), Lint.Span{p, a, e}, base, path, alias, loads, b)
 
 # The block of the imports among `nodes`. A file's imports come first, so the first node of another kind ends them.
 def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
   match nodes:
     case Con{
-      Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads},
-      Con{Lint.Node{i2, p2, o2, Lint.ImportPath{}, path, n2, q2, s2, t2}, rest}
-    }:
-      block(rest, text, add(text, beg, i, False{}, path, alias, loads, b))
-    case Con{
-      Lint.Node{i, p, o, Lint.Import{}, alias, n, q, Some{Lint.Span{f, beg, end}}, loads},
+      Lint.Node{Lint.Import{loads}, alias, Some{at}, Con{Lint.Node{Lint.ImportPath{}, path, s, k, f}, ks}, fs},
       rest
     }:
-      block(rest, text, add(text, beg, i, True{}, "Base", alias, loads, b))
+      block(rest, text, add(text, at, False{}, path, alias, loads, b))
+    case Con{Lint.Node{Lint.Import{loads}, alias, Some{at}, k, f}, rest}:
+      block(rest, text, add(text, at, True{}, "Base", alias, loads, b))
     case _:
       b
 
@@ -130,22 +128,22 @@ def block(nodes: List<&2, Lint.Node>, +text: String, b: Block) -> Block:
 # ====================
 def loads_of(e: Entry) -> String:
   match e:
-    case Entry{id, base, path, alias, loads, text}:
+    case Entry{at, base, path, alias, loads, text}:
       loads
 
 # An import read, after those before it: kept, if its file has no import yet; else dropped, with its uses pointed at
 # `first`, the alias of the file's first import. A second import Base has none to point: its uses are bare names.
 def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
   match first e d:
-    case None{} Entry{id, base, path, +alias, +loads, text} Deduped{seen, kept, renames}:
+    case None{} Entry{at, base, path, +alias, +loads, text} Deduped{seen, kept, renames}:
       Deduped{
         Names.Named{loads, alias} <> seen,
-        Entry{id, base, path, alias, loads, text} <> kept,
+        Entry{at, base, path, alias, loads, text} <> kept,
         renames
       }
-    case Some{a} Entry{id, False{}, path, alias, loads, text} Deduped{seen, kept, renames}:
-      Deduped{seen, kept, Lint.RenameUses{id, a} <> renames}
-    case Some{a} Entry{id, True{}, path, alias, loads, text} _:
+    case Some{a} Entry{at, False{}, path, alias, loads, text} Deduped{seen, kept, renames}:
+      Deduped{seen, kept, Lint.RenameUses{at, a} <> renames}
+    case Some{a} Entry{at, True{}, path, alias, loads, text} _:
       d
 
 def dedupe.add(+e: Entry, d: Deduped) -> Deduped:
@@ -176,7 +174,7 @@ def texts(es: List<&2, Entry>, acc: List<&2, String>) -> String:
   match es:
     case Nil{}:
       Strings.joined(acc, "")
-    case Con{Entry{id, base, path, alias, loads, text}, rest}:
+    case Con{Entry{at, base, path, alias, loads, text}, rest}:
       texts(rest, text <> acc)
 
 # Rule

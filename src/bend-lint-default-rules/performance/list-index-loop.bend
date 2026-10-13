@@ -7,7 +7,6 @@
 # read; the loop's call must be in it too. It looks one definition deep, not further.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
 import ../../shared/names.bend as Names
 
@@ -19,10 +18,9 @@ import ../../shared/names.bend as Names
 type Walker is Data:
   Walker{at: Nat, through: String}
 
-# A call of the definition `owner` to itself passes its parameter `binder` unchanged, inside the cases
-# `cases` (innermost first).
-type Pass is Data:
-  Pass{owner: U32, binder: U32, cases: List<&2, U32>}
+# What judging the calls in one definition reads: the walkers of the file, and the definition.
+type Loop is Data:
+  Loop{walkers: List<&2, Names.Named<Walker>>, owner: Lint.Node}
 
 # Functions
 # =========
@@ -38,200 +36,84 @@ def bases() -> List<&2, Names.Named<Walker>>:
 # The binder of the variable `node` uses, if it is a variable.
 def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
   match node:
-    case Some{Lint.Node{i, p, o, Lint.Variable{}, n, b, q, s, t}}:
-      b
+    case Some{Lint.Node{Lint.Variable{b}, n, s, k, f}}:
+      Some{b}
     case _:
       None{}
-
-def case_ids(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      List.reverse(&2, U32, out)
-    case Con{Lint.Node{id, p, o, Lint.Case{}, n, b, q, s, t}, rest}:
-      case_ids(rest, id <> out)
-    case Con{node, rest}:
-      case_ids(rest, out)
-
-# The cases around the node numbered `id`, innermost first.
-def cases.of(here: Lint.Here, id: U32) -> List<&2, U32>:
-  case_ids(Lint.Here.ancestors(here, id), [])
-
-# The innermost of the cases `cs`, or 0 for none.
-def innermost(cs: List<&2, U32>) -> U32:
-  match cs:
-    case Con{c, rest}:
-      c
-    case Nil{}:
-      0
-
-# The passes of a call of the loop `owner`: one per argument that is a parameter of `owner`.
-def passes(
-  args: List<&2, Lint.Node>,
-  +owner: U32,
-  +params: List<&2, Lint.Node>,
-  +cases: List<&2, U32>,
-  out: List<&2, Pass>
-) -> List<&2, Pass>:
-  match args:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Variable{}, n, Some{+b}, q, s, t}, rest}:
-      passes(
-        rest,
-        owner,
-        params,
-        cases,
-        Lists.push(
-          Pass,
-          Lists.when(
-            Pass,
-            Maybe.is_some(&2, Nat, Shared.parameter(params, b)),
-            Pass{owner, b, cases}
-          ),
-          out
-        )
-      )
-    case Con{arg, rest}:
-      passes(rest, owner, params, cases, out)
-
-# The passes of the node `node`, if it is a call of the loop it is in.
-def Pass.of(
-  recursive: Bool,
-  node: Lint.Node,
-  here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, Pass>
-) -> List<&2, Pass>:
-  match recursive node:
-    case True{} Lint.Node{+id, p, +owner, s, n, b, q, sp, t}:
-      passes(
-        List.tail(&2, Lint.Node, Lint.Children.get(children, id)),
-        owner,
-        Lint.Children.get(children, owner),
-        cases.of(here, id),
-        out
-      )
-    case _ _:
-      out
 
 def Walker.at(
   k: Maybe<&2, Nat>,
   target: String,
-  through: String,
-  out: List<&2, Names.Named<Walker>>
+  through: String
 ) -> List<&2, Names.Named<Walker>>:
   match k:
     case Some{at}:
-      Names.Named{target, Walker{at, through}} <> out
+      [Names.Named{target, Walker{at, through}}]
     case None{}:
-      out
+      []
 
-def Walker.helped(
-  walked: Maybe<&2, U32>,
-  through: String,
-  +owner: U32,
-  here: Lint.Here,
-  children: Lint.Children,
-  out: List<&2, Names.Named<Walker>>
-) -> List<&2, Names.Named<Walker>>:
-  match walked:
-    case Some{b}:
-      Walker.at(
-        Shared.parameter(Lint.Children.get(children, owner), b),
-        Lint.Node.target(Lint.Here.node(here, owner)),
-        through,
-        out
-      )
-    case None{}:
-      out
+def Walker.helped(walked: Maybe<&2, U32>, through: String, owner: Lint.Node) -> List<&2, Names.Named<Walker>>:
+  match walked owner:
+    case Some{b} Lint.Node{Lint.Definition{t, u}, n, s, kids, f}:
+      Walker.at(Lint.parameter(kids, b), t, through)
+    case _ _:
+      []
 
-# The walker the definition `owner` is, if its call `call`, of a Base walker, walks one of its
-# parameters.
-def Walker.helper(
-  base: Maybe<&2, Walker>,
-  args: List<&2, Lint.Node>,
-  owner: U32,
-  here: Lint.Here,
-  children: Lint.Children,
-  out: List<&2, Names.Named<Walker>>
-) -> List<&2, Names.Named<Walker>>:
+# The walker `owner` is, if a call in it of a Base walker (`base`, with `args`) walks one of its parameters.
+def Walker.helper(base: Maybe<&2, Walker>, args: List<&2, Lint.Node>, owner: Lint.Node) -> List<&2, Names.Named<Walker>>:
   match base:
     case Some{Walker{at, through}}:
-      Walker.helped(binder(List.get(&2, Lint.Node, args, at)), through, owner, here, children, out)
+      Walker.helped(binder(List.get(&2, Lint.Node, args, at)), through, owner)
     case None{}:
-      out
+      []
 
-def Walker.call(
-  nodes: List<&2, Lint.Node>,
-  owner: U32,
-  here: Lint.Here,
-  children: Lint.Children,
-  out: List<&2, Names.Named<Walker>>
-) -> List<&2, Names.Named<Walker>>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, target}, args}:
-      Walker.helper(Names.lookup(Walker, target, bases()), args, owner, here, children, out)
+def Walker.visit(+owner: Lint.Node, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Names.Named<Walker>>:
+  match node:
+    case Lint.Node{Lint.Application{}, n, s, Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args}, f}:
+      Walker.helper(Names.lookup(Walker, t, bases()), args, owner)
     case _:
-      out
+      []
 
-# The definitions of the file that give a parameter to a Base walker, as walkers.
-def Walker.helpers(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, Names.Named<Walker>>
-) -> List<&2, Names.Named<Walker>>:
+# The definitions among `nodes` that give a parameter to a Base walker, as walkers, onto `out`.
+def Walker.helpers(nodes: List<&2, Lint.Node>, out: List<&2, Names.Named<Walker>>) -> List<&2, Names.Named<Walker>>:
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{id, p, owner, Lint.Application{}, n, b, q, s, t}, rest}:
-      Walker.helpers(
-        rest,
-        here,
-        children,
-        Walker.call(Lint.Children.get(children, id), owner, here, children, out)
-      )
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
+      Walker.helpers(rest, Lists.onto(&2, Names.Named<Walker>, Lint.visit(~Lint.Node, ~Names.Named<Walker>, ~Walker.visit, owner, [owner]), out))
     case Con{node, rest}:
-      Walker.helpers(rest, here, children, out)
+      Walker.helpers(rest, out)
 
-def Pass.all(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, Pass>
-) -> List<&2, Pass>:
+# Whether a variable of the binder `b` is among `args`.
+def passed(args: List<&2, Lint.Node>, +b: U32) -> Bool:
+  match args:
+    case Nil{}:
+      False{}
+    case Con{Lint.Node{Lint.Variable{v}, n, s, k, f}, rest}:
+      U32.is_eq(v, b) || passed(rest, b)
+    case Con{arg, rest}:
+      passed(rest, b)
+
+# Whether a call of `target` among `nodes`, or under them, passes the binder `b` unchanged.
+def passes(nodes: List<&2, Lint.Node>, +target: String, +b: U32) -> Bool:
   match nodes:
     case Nil{}:
-      out
-    case Con{+node, rest}:
-      Pass.all(
-        rest,
-        here,
-        children,
-        Pass.of(Lint.Here.recursive(here, children, node), node, here, children, out)
-      )
-
-# Whether a pass of `passes` passes `binder` of `owner` unchanged in a call inside the case `inner`
-# (0: anywhere).
-def Pass.covers(passes: List<&2, Pass>, hit: Bool, +owner: U32, +binder: U32, +inner: U32) -> Bool:
-  match passes hit:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
       False{}
-    case Con{Pass{o, b, cs}, rest} False{}:
-      Pass.covers(
-        rest,
-        U32.is_eq(
-          o,
-          owner
-        )
-          && U32.is_eq(b, binder)
-          && (U32.is_eq(inner, 0) || List.contains(~U32, ~U32.is_eq, cs, inner)),
-        owner,
-        binder,
-        inner
-      )
+    case Con{Lint.Node{Lint.Application{}, n, s, Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, +args}, f}, rest}:
+      (String.eq(t, target) && passed(args, b)) || passes(args, target, b) || passes(rest, target, b)
+    case Con{Lint.Node{syntax, n, s, kids, f}, rest}:
+      passes(kids, target, b) || passes(rest, target, b)
+
+# The innermost case above `path`, if any: a call of the loop must be in it to pass the list on in the same branch.
+def innermost(path: List<&2, Lint.Above>, owner: Lint.Node) -> Lint.Node:
+  match path:
+    case Nil{}:
+      owner
+    case Con{Lint.Above{Lint.Node{Lint.Case{}, n, s, k, f}, at}, rest}:
+      Lint.Node{Lint.Case{}, n, s, k, f}
+    case Con{a, rest}:
+      innermost(rest, owner)
 
 def advice(through: String, list: String) -> String:
   Bool.pick(
@@ -254,38 +136,36 @@ def message(+callee: String, +through: String, +list: String, loop: String) -> S
     ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. "
     ++ advice(through, list)
 
+# The finding about a walker's call, below `path`, of the list `arg` with the binder `b` that the loop `owner` passes
+# unchanged to a call of itself in the same branch.
 def judged.list(
   walked: Maybe<&2, U32>,
   list: String,
   callee: String,
   through: String,
-  +owner: U32,
-  id: U32,
-  span: Maybe<&2, Lint.Span>,
-  +here: Lint.Here,
-  passes: List<&2, Pass>
+  +owner: Lint.Node,
+  +path: List<&2, Lint.Above>,
+  span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
-  match walked:
-    case Some{b}:
-      Shared.finding(
+  match walked owner:
+    case Some{+b} Lint.Node{Lint.Definition{+t, u}, name, s, +kids, f}:
+      Lint.finding(
         Lint.Warning{},
-        Pass.covers(passes, False{}, owner, b, innermost(cases.of(here, id))),
+        Maybe.is_some(&2, Nat, Lint.parameter(kids, b)) && passes([innermost(path, owner)], t, b),
         span,
-        message(callee, through, list, Lint.Node.name(Lint.Here.node(here, owner)))
+        message(callee, through, list, name)
       )
-    case None{}:
+    case _ _:
       []
 
-# The finding about a call of the walker `walker`, with `args`, in the definition `owner`.
+# The finding about a call of the walker `walker`, with `args`.
 def judged(
   walker: Maybe<&2, Walker>,
   +args: List<&2, Lint.Node>,
   callee: String,
-  owner: U32,
-  id: U32,
-  span: Maybe<&2, Lint.Span>,
-  here: Lint.Here,
-  passes: List<&2, Pass>
+  owner: Lint.Node,
+  path: List<&2, Lint.Above>,
+  span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match walker:
     case Some{Walker{+at, through}}:
@@ -295,97 +175,52 @@ def judged(
         callee,
         through,
         owner,
-        id,
-        span,
-        here,
-        passes
+        path,
+        span
       )
     case None{}:
       []
 
-def judge(
-  nodes: List<&2, Lint.Node>,
-  walkers: List<&2, Names.Named<Walker>>,
-  callee: String,
-  owner: U32,
-  id: U32,
-  span: Maybe<&2, Lint.Span>,
-  here: Lint.Here,
-  passes: List<&2, Pass>
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, target}, args}:
-      judged(Names.lookup(Walker, target, walkers), args, callee, owner, id, span, here, passes)
-    case _:
+def call(recursive: Bool, +loop: Loop, +path: List<&2, Lint.Above>, node: Lint.Node) -> List<&2, Lint.Finding>:
+  match recursive loop node:
+    case False{} Loop{walkers, owner} Lint.Node{
+      Lint.Application{},
+      n,
+      span,
+      Con{Lint.Node{Lint.Reference{t}, callee, rs, rk, rf}, args},
+      f
+    }:
+      judged(Names.lookup(Walker, t, walkers), args, callee, owner, path, span)
+    case _ _ _:
       []
 
-# The callee's name, as written.
-def callee(nodes: List<&2, Lint.Node>) -> String:
-  match nodes:
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest}:
-      n
-    case Nil{}:
-      ""
+def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  call(Lint.recursive(path, node), loop, path, node)
 
-def visit(
-  recursive: Bool,
-  node: Lint.Node,
-  walkers: List<&2, Names.Named<Walker>>,
-  here: Lint.Here,
-  +children: Lint.Children,
-  passes: List<&2, Pass>
-) -> List<&2, Lint.Finding>:
-  match recursive node:
-    case False{} Lint.Node{+id, p, owner, Lint.Application{}, n, b, q, span, t}:
-      judge(
-        Lint.Children.get(children, id),
-        walkers,
-        callee(Lint.Children.get(children, id)),
-        owner,
-        id,
-        span,
-        here,
-        passes
-      )
-    case _ _:
-      []
-
-def scan(
+def defs(
   nodes: List<&2, Lint.Node>,
   +walkers: List<&2, Names.Named<Walker>>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  +passes: List<&2, Pass>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{+node, rest}:
-      scan(
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
+      defs(
         rest,
         walkers,
-        here,
-        children,
-        passes,
-        Lists.onto(
-          &2,
-          Lint.Finding,
-          visit(Lint.Here.recursive(here, children, node), node, walkers, here, children, passes),
-          out
-        )
+        Lists.onto(&2, Lint.Finding, Lint.visit(~Loop, ~Lint.Finding, ~visit, Loop{walkers, owner}, [owner]), out)
       )
+    case Con{node, rest}:
+      defs(rest, walkers, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  +children = Lint.Children.of(nodes)
   Lint.done(
-    scan(
+    defs(
       nodes,
-      Lists.append(&2, Names.Named<Walker>, bases(), Walker.helpers(nodes, here, children, [])),
-      here,
-      children,
-      Pass.all(nodes, here, children, []),
+      Lists.append(&2, Names.Named<Walker>, bases(), List.reverse(&2, Names.Named<Walker>, Walker.helpers(nodes, []))),
       []
     )
   )

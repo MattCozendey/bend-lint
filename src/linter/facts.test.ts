@@ -13,7 +13,7 @@ import type { Found } from "./testing.ts";
 const [TYPES, BUDGET, BINDERS, TERMS, USES] = BUILDS
   ? await Promise.all(
       ["types", "budget", "binders", "terms", "uses"].map((name) =>
-        build(`linter/tests/${name}.bend`),
+        build("linter/tests.bend", name),
       ),
     )
   : ["", "", "", "", ""];

@@ -9,75 +9,63 @@
 # little to ignore. A value inside a lambda is not run, and is skipped.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
 
 # Types
 # =====
 
-# A value Bend computes whether needed or not: what computes it ("pick", "&&" or "||"), and its id.
+# A value Bend computes whether needed or not: what computes it ("pick", "&&" or "||"), and the value.
 type Eager is Data:
-  Eager{kind: String, value: U32}
+  Eager{kind: String, value: Maybe<&2, Lint.Node>}
+
+# What judging the calls in one definition reads: the definitions of the file that call themselves (as the check names
+# them), and the definition, as the check names it.
+type Owner is Data:
+  Owner{loops: List<&2, String>, target: String}
 
 # Functions
 # =========
 
-# The definitions of the file that call themselves, as the check names them.
-def loops(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, String>
-) -> List<&2, String>:
+def loop.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Unit>:
+  Bool.pick(List<&2, Unit>, Lint.recursive(path, node), [Unit{}], [])
+
+# The definitions among `nodes` that call themselves, as the check names them, onto `out`.
+def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{i, p, +o, s, n, b, q, sp, t}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
       loops(
         rest,
-        here,
-        children,
         Lists.push(
           String,
           Lists.when(
             String,
-            Lint.Here.recursive(here, children, Lint.Node{i, p, o, s, n, b, q, sp, t}),
-            Lint.Node.target(Lint.Here.node(here, o))
+            Bool.not(
+              List.is_empty(
+                &2,
+                Unit,
+                Lint.visit(~Unit, ~Unit, ~loop.visit, Unit{}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}])
+              )
+            ),
+            t
           ),
           out
         )
       )
+    case Con{node, rest}:
+      loops(rest, out)
 
-# What an application whose children are `nodes` computes whether needed or not, as `value` is one of
-# its arguments: "pick" for a value of Bool.pick, "&&" or "||" for their right side, "" for none.
-def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
-  match nodes:
-    case Con{
-      Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, t},
-      Con{
-        ty,
-        Con{
-          c,
-          Con{
-            Lint.Node{x, xp, xo, xs, xn, xb, xq, xsp, xt},
-            Con{Lint.Node{y, yp, yo, ys, yn, yb, yq, ysp, yt}, rest}
-          }
-        }
-      }
-    }:
+# What an application with the nodes `kids` computes whether needed or not, as its node at `at` is one of its
+# arguments: "pick" for a value of Bool.pick, "&&" or "||" for their right side, "" for none.
+def eager(kids: List<&2, Lint.Node>, +at: U32) -> String:
+  match kids:
+    case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, Con{ty, Con{c, Con{x, Con{y, rest}}}}}:
+      Bool.pick(String, String.eq(t, "Bool.pick") && (U32.is_eq(at, 3) || U32.is_eq(at, 4)), "pick", "")
+    case Con{Lint.Node{Lint.Reference{+t}, n, s, k, f}, Con{left, Con{right, Nil{}}}}:
       Bool.pick(
         String,
-        String.eq(t, "Bool.pick") && (U32.is_eq(value, x) || U32.is_eq(value, y)),
-        "pick",
-        ""
-      )
-    case Con{
-      Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, +t},
-      Con{left, Con{Lint.Node{r, rp, ro, rs, rn, rb, rq, rsp, rt}, Nil{}}}
-    }:
-      Bool.pick(
-        String,
-        U32.is_eq(value, r),
+        U32.is_eq(at, 2),
         Bool.pick(
           String,
           String.eq(t, "Bool.and"),
@@ -89,28 +77,23 @@ def eager(nodes: List<&2, Lint.Node>, +value: U32) -> String:
     case _:
       ""
 
-def Eager.of(+kind: String, value: U32) -> Maybe<&2, Eager>:
+def Eager.of(+kind: String, value: Maybe<&2, Lint.Node>) -> Maybe<&2, Eager>:
   Lists.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
 
-# The eager value a call, the node before `chain` (numbered `prev`), is in, if one is above it and no
-# lambda comes between. `found` stops the walk once one is found.
-def eagerly(
-  chain: List<&2, Lint.Node>,
-  found: Maybe<&2, Eager>,
-  +prev: U32,
-  +children: Lint.Children
-) -> Maybe<&2, Eager>:
-  match chain found:
+# The eager value a call below `path` is in, if one is above it and no lambda comes between. `found` stops the walk
+# once one is found.
+def eagerly(path: List<&2, Lint.Above>, found: Maybe<&2, Eager>) -> Maybe<&2, Eager>:
+  match path found:
     case _ Some{e}:
       Some{e}
-    case Con{Lint.Node{+i, p, o, Lint.Application{}, n, b, q, s, t}, rest} None{}:
-      eagerly(rest, Eager.of(eager(Lint.Children.get(children, i), prev), prev), i, children)
-    case Con{Lint.Node{i, p, o, Lint.Lambda{}, n, b, q, s, t}, rest} None{}:
+    case Con{Lint.Above{Lint.Node{Lint.Application{}, n, s, +kids, f}, +at}, rest} None{}:
+      eagerly(rest, Eager.of(eager(kids, at), List.get(&2, Lint.Node, kids, U32.to_nat(at))))
+    case Con{Lint.Above{Lint.Node{Lint.Lambda{b, q}, n, s, k, f}, at}, rest} None{}:
       None{}
-    case Con{Lint.Node{i, p, o, Lint.Body{}, n, b, q, s, t}, rest} None{}:
+    case Con{Lint.Above{Lint.Node{Lint.Body{}, n, s, k, f}, at}, rest} None{}:
       None{}
-    case Con{Lint.Node{i, p, o, s, n, b, q, sp, t}, rest} None{}:
-      eagerly(rest, None{}, i, children)
+    case Con{a, rest} None{}:
+      eagerly(rest, None{})
     case Nil{} None{}:
       None{}
 
@@ -144,93 +127,59 @@ def message(kind: String, +callee: String, own: Bool) -> String:
     ++ callee
     ++ " loops only a few steps here, ignore this."
 
-def judged(
-  eager: Maybe<&2, Eager>,
-  callee: String,
-  own: Bool,
-  here: Lint.Here
-) -> List<&2, Lint.Finding>:
+def judged(eager: Maybe<&2, Eager>, callee: String, own: Bool) -> List<&2, Lint.Finding>:
   match eager:
-    case Some{Eager{kind, v}}:
-      Shared.finding(
-        Lint.Information{},
-        True{},
-        Lint.Node.span(Lint.Here.node(here, v)),
-        message(kind, callee, own)
-      )
+    case Some{Eager{kind, value}}:
+      Lint.finding(Lint.Information{}, True{}, Lint.Node.span(value), message(kind, callee, own))
     case None{}:
       []
 
 def looping(
   hit: Bool,
-  +id: U32,
+  +path: List<&2, Lint.Above>,
   callee: String,
-  own: Bool,
-  +here: Lint.Here,
-  children: Lint.Children
+  own: Bool
 ) -> List<&2, Lint.Finding>:
   match hit:
     case True{}:
-      judged(
-        eagerly(List.tail(&2, Lint.Node, Lint.Here.ancestors(here, id)), None{}, id, children),
-        callee,
-        own,
-        here
-      )
+      judged(eagerly(path, None{}), callee, own)
     case False{}:
       []
 
-def call(
-  nodes: List<&2, Lint.Node>,
-  id: U32,
-  owner: U32,
-  loops: List<&2, String>,
-  +here: Lint.Here,
-  children: Lint.Children
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, callee, b, q, s, +target}, args}:
-      looping(
-        List.contains(~String, ~String.eq, loops, target),
-        id,
-        callee,
-        String.eq(target, Lint.Node.target(Lint.Here.node(here, owner))),
-        here,
-        children
-      )
-    case _:
+def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  match owner node:
+    case Owner{loops, target} Lint.Node{
+      Lint.Application{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Reference{+called}, callee, rs, rk, rf}, args},
+      f
+    }:
+      looping(List.contains(~String, ~String.eq, loops, called), path, callee, String.eq(called, target))
+    case _ _:
       []
 
-def scan(
-  nodes: List<&2, Lint.Node>,
-  +loops: List<&2, String>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
+def defs(nodes: List<&2, Lint.Node>, +loops: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{+i, p, o, Lint.Application{}, n, b, q, s, t}, rest}:
-      scan(
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      defs(
         rest,
         loops,
-        here,
-        children,
         Lists.onto(
           &2,
           Lint.Finding,
-          call(Lint.Children.get(children, i), i, o, loops, here, children),
+          Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner{loops, t}, [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]),
           out
         )
       )
     case Con{node, rest}:
-      scan(rest, loops, here, children, out)
+      defs(rest, loops, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  +children = Lint.Children.of(nodes)
-  Lint.done(scan(nodes, loops(nodes, here, children, []), here, children, []))
+  Lint.done(defs(nodes, loops(nodes, []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"performance/eager-branch", Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

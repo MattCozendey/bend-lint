@@ -146,133 +146,83 @@ def recased(want: Case, +s: String) -> String:
 # Written types
 # =============
 
-# Whether the type a node writes ends in a sort, from whether its last child's does.
-def ends(syntax: Lint.Syntax, last: Maybe<&2, Bool>) -> Bool:
-  match syntax:
-    case Lint.Sort{}:
+# Whether the type the last of `nodes` writes ends in a sort: it is one, or a function type whose result does.
+def ends(nodes: List<&2, Lint.Node>) -> Bool:
+  match nodes:
+    case Con{Lint.Node{Lint.Sort{}, n, s, k, f}, Nil{}}:
       True{}
-    case Lint.Forall{}:
-      Maybe.default(&2, Bool, last, False{})
-    case _:
+    case Con{Lint.Node{Lint.Forall{b, q}, n, s, kids, f}, Nil{}}:
+      ends(kids)
+    case Con{x, Nil{}}:
+      False{}
+    case Con{x, rest}:
+      ends(rest)
+    case Nil{}:
       False{}
 
-def Sorts.at(sorts: Map<&2, Maybe<&2, Bool>>, key: String) -> Maybe<&2, Bool>:
-  Pair.snd(Map<&2, Maybe<&2, Bool>>, Maybe<&2, Bool>, Map.get(Maybe<&2, Bool>, None{}, sorts, key))
-
-# Where a def's return type is kept: under its id, after "r".
-def Sorts.returns_of(def_id: String) -> String:
-  "r" ++ def_id
-
-def Sorts.first(
-  sorts: Map<&2, Maybe<&2, Bool>>,
-  key: String,
-  x: Bool,
-  got: Maybe<&2, Bool>
-) -> Map<&2, Maybe<&2, Bool>>:
-  match got:
-    case None{}:
-      Map.set(&2, Maybe<&2, Bool>, sorts, key, Some{x})
-    case Some{y}:
-      sorts
-
-def Sorts.returns(
-  syntax: Lint.Syntax,
-  sorts: Map<&2, Maybe<&2, Bool>>,
-  parent: String,
-  last: Maybe<&2, Bool>
-) -> Map<&2, Maybe<&2, Bool>>:
-  match syntax:
-    case Lint.Returns{}:
-      Map.set(&2, Maybe<&2, Bool>, sorts, Sorts.returns_of(parent), last)
-    case _:
-      sorts
-
-# One node, children before parents: the first child seen of a parent is its last.
-def Sorts.step(+sorts: Map<&2, Maybe<&2, Bool>>, node: Lint.Node) -> Map<&2, Maybe<&2, Bool>>:
-  match node:
-    case Lint.Node{id, parent, owner, +syntax, name, binder, quantity, span, target}:
-      +last = Sorts.at(sorts, U32.show(id))
-      +key = U32.show(parent)
-      +more = Sorts.returns(syntax, sorts, key, last)
-      Sorts.first(more, key, ends(syntax, last), Sorts.at(more, key))
-
-# For each node, whether its last child's written type ends in a sort: for a parameter or field, its own type. `nodes`
-# go children first.
-def Sorts.of(
-  nodes: List<&2, Lint.Node>,
-  sorts: Map<&2, Maybe<&2, Bool>>
-) -> Map<&2, Maybe<&2, Bool>>:
+# The case of a name whose written type is the last of `nodes`: none written, either.
+def typed(+nodes: List<&2, Lint.Node>) -> Case:
   match nodes:
     case Nil{}:
-      sorts
-    case Con{n, rest}:
-      Sorts.of(rest, Sorts.step(sorts, n))
+      Either{}
+    case _:
+      Bool.pick(Case, ends(nodes), Pascal{}, Snake{})
+
+# The case of a def's name, by its written return type, among its nodes.
+def returns(nodes: List<&2, Lint.Node>) -> Case:
+  match nodes:
+    case Nil{}:
+      Either{}
+    case Con{Lint.Node{Lint.Returns{}, n, s, kids, f}, rest}:
+      typed(kids)
+    case Con{x, rest}:
+      returns(rest)
 
 # Rule
 # ====
-def typed(sorted: Maybe<&2, Bool>) -> Case:
-  match sorted:
-    case Some{True{}}:
-      Pascal{}
-    case Some{False{}}:
-      Snake{}
-    case None{}:
-      Either{}
 
 # The case a declaration's name takes, if the file chooses it.
-def wanted(
-  syntax: Lint.Syntax,
-  sorts: Map<&2, Maybe<&2, Bool>>,
-  id: U32,
-  namespace: String,
-  target: String,
-  name: String
-) -> Maybe<&2, Case>:
-  match syntax:
-    case Lint.Import{}:
+def wanted(+node: Lint.Node, namespace: String) -> Maybe<&2, Case>:
+  match node:
+    case Lint.Node{Lint.Import{t}, name, s, k, f}:
       Lists.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
-    case Lint.Datatype{}:
+    case Lint.Node{Lint.Datatype{t}, name, s, k, f}:
       Some{Pascal{}}
-    case Lint.Constructor{}:
+    case Lint.Node{Lint.Constructor{t}, name, s, k, f}:
       Some{Pascal{}}
-    case Lint.Law{}:
+    case Lint.Node{Lint.Law{t}, name, s, k, f}:
       Some{Snake{}}
-    case Lint.Definition{}:
-      Bool.pick(
-        Maybe<&2, Case>,
-        String.eq(Lint.Name.namespace(target), namespace),
-        Some{typed(Sorts.at(sorts, Sorts.returns_of(U32.show(id))))},
-        None{}
-      )
-    case Lint.Parameter{}:
-      Some{typed(Sorts.at(sorts, U32.show(id)))}
-    case Lint.Field{}:
-      Some{typed(Sorts.at(sorts, U32.show(id)))}
+    case Lint.Node{Lint.Definition{t, u}, name, s, kids, f}:
+      Lists.when(Case, String.eq(Lint.Name.namespace(t), namespace), returns(kids))
+    case Lint.Node{Lint.Parameter{b, q}, name, s, kids, f}:
+      Some{typed(kids)}
+    case Lint.Node{Lint.Field{b, q}, name, s, kids, f}:
+      Some{typed(kids)}
     case _:
       Some{Either{}}
 
 # A name of `syntax`, in a message. `sort`: whether it is a type.
 def noun(syntax: Lint.Syntax, sort: Bool) -> String:
   match syntax sort:
-    case Lint.Import{} _:
+    case Lint.Import{t} _:
       "an import alias"
-    case Lint.Datatype{} _:
+    case Lint.Datatype{t} _:
       "a type"
-    case Lint.Constructor{} _:
+    case Lint.Constructor{t} _:
       "a constructor"
-    case Lint.Law{} _:
+    case Lint.Law{t} _:
       "a law"
-    case Lint.Definition{} True{}:
+    case Lint.Definition{t, u} True{}:
       "a def that returns a type"
-    case Lint.Definition{} False{}:
+    case Lint.Definition{t, u} False{}:
       "a def that does not return a type"
-    case Lint.Parameter{} True{}:
+    case Lint.Parameter{b, q} True{}:
       "a parameter that is a type"
-    case Lint.Parameter{} False{}:
+    case Lint.Parameter{b, q} False{}:
       "a parameter that is not a type"
-    case Lint.Field{} True{}:
+    case Lint.Field{b, q} True{}:
       "a field that is a type"
-    case Lint.Field{} False{}:
+    case Lint.Field{b, q} False{}:
       "a field that is not a type"
     case _ _:
       "a variable"
@@ -287,26 +237,21 @@ def what(syntax: Lint.Syntax, want: Case) -> String:
       "this name is snake_case, or PascalCase if it is a type"
 
 # Whether a name is a binder's: only its own declaration names it, so a rename touches no other file.
-def local(syntax: Lint.Syntax) -> Bool:
-  match syntax:
-    case Lint.Parameter{}:
-      True{}
-    case Lint.PatternVariable{}:
-      True{}
-    case Lint.Lambda{}:
-      True{}
-    case Lint.Binding{}:
-      True{}
-    case Lint.Forall{}:
+def local.of(declares: Maybe<&2, Bool>) -> Bool:
+  match declares:
+    case Some{False{}}:
       True{}
     case _:
       False{}
 
+def local(syntax: Lint.Syntax) -> Bool:
+  local.of(Lint.Syntax.declares(syntax))
+
 # The fix that renames a local name to `to`, if recasing made one that fits.
-def renames(ok: Bool, id: U32, full: String, to: String) -> List<&2, Lint.Fix>:
+def renames(ok: Bool, at: Lint.Span, full: String, to: String) -> List<&2, Lint.Fix>:
   match ok:
     case True{}:
-      [Lint.Fix{"Rename to " ++ full, [Lint.Rename{id, to}]}]
+      [Lint.Fix{"Rename to " ++ full, [Lint.Rename{at, to}]}]
     case False{}:
       []
 
@@ -316,8 +261,7 @@ def misfit(
   +syntax: Lint.Syntax,
   +want: Case,
   +name: String,
-  span: Lint.Span,
-  id: U32
+  +span: Lint.Span
 ) -> List<&2, Lint.Finding>:
   +seg = Strings.after_last(name, '.')
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
@@ -328,7 +272,7 @@ def misfit(
       Lint.Warning{},
       span,
       rename ++ ": " ++ what(syntax, want) ++ ".",
-      renames(Bool.and(ok, local(syntax)), id, to, recased(want, seg))
+      renames(Bool.and(ok, local(syntax)), span, to, recased(want, seg))
     }
   ]
 
@@ -337,30 +281,27 @@ def verdict(
   syntax: Lint.Syntax,
   want: Case,
   name: String,
-  span: Lint.Span,
-  id: U32
+  span: Lint.Span
 ) -> List<&2, Lint.Finding>:
   match fit:
     case True{}:
       []
     case False{}:
-      misfit(syntax, want, name, span, id)
+      misfit(syntax, want, name, span)
 
 def judged(
   want: Maybe<&2, Case>,
   syntax: Lint.Syntax,
   +name: String,
-  span: Lint.Span,
-  id: U32
+  span: Lint.Span
 ) -> List<&2, Lint.Finding>:
   match want:
     case Some{+w}:
-      verdict(fits(w, Strings.after_last(name, '.')), syntax, w, name, span, id)
+      verdict(fits(w, Strings.after_last(name, '.')), syntax, w, name, span)
     case None{}:
       []
 
 def judge(
-  +sorts: Map<&2, Maybe<&2, Bool>>,
   +namespace: String,
   declarations: List<&2, Lint.Declaration>,
   out: List<&2, Lint.Finding>
@@ -368,36 +309,22 @@ def judge(
   match declarations:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{
-      Lint.Declaration{
-        Lint.Node{+id, parent, owner, +syntax, +name, binder, quantity, Some{span}, target},
-        uses
-      },
-      rest
-    }:
+    case Con{Lint.Declaration{Lint.Node{+syntax, +name, Some{+span}, +kids, +facts}, uses}, rest}:
       judge(
-        sorts,
         namespace,
         rest,
         Lists.onto(
           &2,
           Lint.Finding,
-          judged(wanted(syntax, sorts, id, namespace, target, name), syntax, name, span, id),
+          judged(wanted(Lint.Node{syntax, name, Some{span}, kids, facts}, namespace), syntax, name, span),
           out
         )
       )
     case Con{d, rest}:
-      judge(sorts, namespace, rest, out)
+      judge(namespace, rest, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(
-    judge(
-      Sorts.of(List.reverse(&2, Lint.Node, Lint.Here.nodes(here)), Map.new(&2, Maybe<&2, Bool>)),
-      Lint.Here.namespace(here),
-      Lint.Here.declarations(here),
-      []
-    )
-  )
+  Lint.done(judge(Lint.Here.namespace(here), Lint.Here.declarations(here), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"layout/case", Lint.Needs{False{}, True{}}, [], Lint.OnFile{run}}

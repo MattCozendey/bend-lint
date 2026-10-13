@@ -9,10 +9,10 @@ import { build, BUILDS, lint, run } from "./testing.ts";
 // =========
 
 // Built once, before the tests; nothing to build when bend does not run.
-const [PARENTS, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
+const [FILE, WRITTEN, SOME, EVERY, ACROSS, RENAME] = BUILDS
   ? await Promise.all(
-      ["parents", "written", "some", "every", "across", "rename"].map((name) =>
-        build(`linter/tests/${name}.bend`),
+      ["file", "written.rule", "some", "every", "across", "rename"].map((name) =>
+        build("linter/tests.bend", name),
       ),
     )
   : ["", "", "", "", "", ""];
@@ -47,12 +47,6 @@ const found = async (
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("run", () => {
-  test("a rule finds any node of its file by id", async () => {
-    expect(await found(PARENTS, { "main.bend": SUGARED }, "main.bend")).toEqual([
-      "1:1 every parent is found",
-    ]);
-  });
-
   test("a node has a range only where the file writes it", async () => {
     const written = [
       "3:12 call",
@@ -93,19 +87,18 @@ setDefaultTimeout(120_000);
     expect(await found(EVERY, ENTRIES, "util.bend")).toEqual(["1:1 at 0"]);
   });
 
-  test("an entry that reads the file and fails its check shows its error, and fails the run", async () => {
+  test("an entry that reads the file and fails its check leaves the checking to Bend", async () => {
     const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
-    const ran = await run(PARENTS, { ...ENTRIES, "b.bend": broken }, "util.bend");
-    expect([
-      ran.code,
-      ran.out.includes("b.bend:6:3: error bend/check: "),
-      ran.out.includes("util.bend:1:1: hint tests/parents: every parent is found"),
-    ]).toEqual([1, true, true]);
+    const ran = await run(FILE, { ...ENTRIES, "b.bend": broken }, "util.bend");
+    expect([ran.code, ran.out.trim().split("\n")]).toEqual([
+      0,
+      [expect.stringMatching(/util\.bend:1:1: hint tests\/file: linted$/), "bend-lint: 1 finding(s)"],
+    ]);
   });
 
   test("each file the paths and globs name is linted once, in turn, with one summary", async () => {
     const ran = await run(
-      PARENTS,
+      FILE,
       { "a.bend": ENTRIES["a.bend"], "util.bend": ENTRIES["util.bend"] },
       "util.bend",
       ["*.bend"],
@@ -119,25 +112,25 @@ setDefaultTimeout(120_000);
     ]).toEqual([
       0,
       [
-        "util.bend:1:1: hint tests/parents: every parent is found",
-        "a.bend:1:1: hint tests/parents: every parent is found",
+        "util.bend:1:1: hint tests/file: linted",
+        "a.bend:1:1: hint tests/file: linted",
         "bend-lint: 2 finding(s)",
       ],
     ]);
   });
 
-  test("a file whose check fails fails the run, and the others are still linted", async () => {
+  test("a file Bend does not load is not linted, it says so, and the others are linted", async () => {
     const ran = await run(
-      PARENTS,
+      FILE,
       { "bad.bend": "import Base\n\ndef bad(\n", "util.bend": ENTRIES["util.bend"] },
       "bad.bend",
       ["util.bend"],
     );
     expect([
       ran.code,
-      ran.out.includes("bad.bend:4:1: error bend/check: "),
-      ran.out.includes("util.bend:1:1: hint tests/parents: every parent is found"),
-    ]).toEqual([1, true, true]);
+      ran.err.includes("Bend does not load"),
+      ran.out.includes("util.bend:1:1: hint tests/file: linted"),
+    ]).toEqual([0, true, true]);
   });
 
   test("--json prints one object: the findings with their fixes' edits, and those suppressed", async () => {

@@ -51,13 +51,13 @@ export const BUILDS: boolean = await tryGetInstalledBendTagFromCliOrUndefined().
 // Functions
 // =========
 
-// The program that lints with the rule in `rule` (a path under src/); the
-// path of its executable, which the server builds and keeps.
-export const build = async (rule: string): Promise<string> => {
-  const name = rule.replace(/\.bend$/, "").replace(/\W/g, "_");
+// The program that lints with the rule the def `def` of `file` (a path under
+// src/) gives; the path of its executable, which the server builds and keeps.
+export const build = async (file: string, def = "rule"): Promise<string> => {
+  const name = (file.replace(/\.bend$/, "") + "_" + def).replace(/\W/g, "_");
   const source = path.join(BUILD, name + ".bend");
-  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(SRC, rule)));
-  const text = `import Base\nimport ../cli.bend as Cli\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Cli.run(~[Rule.rule()])\n`;
+  const relative = getPathWithForwardSlashes(path.relative(BUILD, path.join(SRC, file)));
+  const text = `import Base\nimport ../cli.bend as Cli\nimport ${relative} as Rule\n\ndef main() -> IO(Unit):\n  Cli.run(~[Rule.${def}()])\n`;
   fs.mkdirSync(BUILD, { recursive: true });
   writeFileAtomically(source, text);
   return built(source, unwrap(await tryGetBend2SourceUrl()));

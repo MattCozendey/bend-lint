@@ -24,7 +24,7 @@ const found = async (text: string): Promise<string[]> =>
     .filter(({ code }) => code === CODE)
     .map(({ at, message }) => `${at} ${message}`);
 
-// Every finding, of the rule and of Bend's check.
+// Every finding.
 const all = async (text: string): Promise<string[]> =>
   (await lint(PROGRAM, { "main.bend": text }, "main.bend")).map(({ at, code }) => `${at} ${code}`);
 

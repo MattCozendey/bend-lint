@@ -10,7 +10,6 @@
 # M-series) the GPU's costs differ.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
 import ../../shared/names.bend as Names
 
@@ -29,109 +28,98 @@ type Param is Data:
 type Def is Data:
   Def{target: String, params: List<&2, Param>, forks: Bool}
 
-# The definition being read: its node's id, and what is known of it so far.
-type Open is Data:
-  Open{id: U32, info: Def}
+# What judging a file's calls reads: the program's definitions, by the name the check gives them; the fields of its
+# datatypes; and where the file writes `!(`.
+type Program is Data:
+  Program{defs: Map<&2, Maybe<&2, Def>>, slots: List<&2, Slot>, bangs: List<&2, U32>}
 
 # Functions
 # =========
 
-# A type node as one name, or "" for another form (an application, a list).
-def plain(node: Lint.Node) -> String:
-  match node:
-    case Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, t}:
+# The type the first of `nodes` writes, as one name, or "" for another form (an application, a list).
+def plain(nodes: List<&2, Lint.Node>) -> String:
+  match nodes:
+    case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, rest}:
       t
     case _:
       ""
 
-def Slot.scan(nodes: List<&2, Lint.Node>, +current: String, out: List<&2, Slot>) -> List<&2, Slot>:
+# The fields of the datatypes among `nodes` and under them (of `current`, the datatype they are under), onto `out`.
+def slots(nodes: List<&2, Lint.Node>, +current: String, out: List<&2, Slot>) -> List<&2, Slot>:
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{i, p, o, Lint.Datatype{}, n, b, q, s, t}, rest}:
-      Slot.scan(rest, t, out)
-    case Con{Lint.Node{i, p, o, Lint.Field{}, n, b, q, s, t}, Con{ty, rest}}:
-      Slot.scan(rest, current, Slot{current, plain(ty)} <> out)
+    case Con{Lint.Node{Lint.Datatype{t}, n, s, kids, f}, rest}:
+      slots(rest, current, slots(kids, t, out))
+    case Con{Lint.Node{Lint.Constructor{t}, n, s, kids, f}, rest}:
+      slots(rest, current, slots(kids, current, out))
+    case Con{Lint.Node{Lint.Field{b, q}, n, s, kids, f}, rest}:
+      slots(rest, current, Slot{current, plain(kids)} <> out)
     case Con{node, rest}:
-      Slot.scan(rest, current, out)
+      slots(rest, current, out)
 
 # Whether a parameter of this quantity is there at run time.
-def runtime(quantity: Maybe<&2, Lint.Quantity>) -> Bool:
+def runtime(quantity: Lint.Quantity) -> Bool:
   match quantity:
-    case Some{Lint.Erased{}}:
+    case Lint.Erased{}:
       False{}
-    case Some{Lint.Template{}}:
+    case Lint.Template{}:
       False{}
     case _:
       True{}
 
-def Open.close(current: Maybe<&2, Open>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
-  match current:
-    case Some{Open{i, Def{+t, params, forks}}}:
-      Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, List.reverse(&2, Param, params), forks}})
-    case None{}:
-      out
-
-def Open.param(current: Maybe<&2, Open>, parent: U32, keep: Bool, param: Param) -> Maybe<&2, Open>:
-  match current keep:
-    case Some{Open{+i, Def{t, params, forks}}} True{}:
-      Some{
-        Open{
-          i,
-          Def{t, Lists.push(Param, Lists.when(Param, U32.is_eq(i, parent), param), params), forks}
-        }
-      }
-    case other _:
-      other
-
-def Open.fork(current: Maybe<&2, Open>, hit: Bool) -> Maybe<&2, Open>:
-  match current hit:
-    case Some{Open{i, Def{t, params, forks}}} True{}:
-      Some{Open{i, Def{t, params, True{}}}}
-    case other _:
-      other
-
-# The definitions of one file's nodes, by the name the check gives them, onto `out`. A definition's
-# nodes come right after it, until the next node at the top.
-def Def.scan(
-  nodes: List<&2, Lint.Node>,
-  current: Maybe<&2, Open>,
-  out: Map<&2, Maybe<&2, Def>>
-) -> Map<&2, Maybe<&2, Def>>:
+# The runtime parameters among a definition's nodes, in order, onto `out`.
+def params(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Param>:
   match nodes:
     case Nil{}:
-      Open.close(current, out)
-    case Con{Lint.Node{i, p, o, Lint.Definition{}, n, b, q, s, t}, rest}:
-      Def.scan(rest, Some{Open{i, Def{t, [], False{}}}}, Open.close(current, out))
-    case Con{Lint.Node{i, p, o, Lint.Parameter{}, n, b, q, s, t}, Con{ty, rest}}:
-      Def.scan(rest, Open.param(current, p, runtime(q), Param{n, plain(ty)}), out)
-    case Con{
-      Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t},
-      Con{
-        Lint.Node{i2, p2, o2, Lint.PatternVariable{}, n2, b2, q2, s2, t2},
-        Con{Lint.Node{i3, p3, o3, Lint.PatternVariable{}, n3, b3, q3, s3, t3}, rest}
-      }
-    }:
-      Def.scan(rest, Open.fork(current, U32.is_eq(p2, i) && U32.is_eq(p3, i)), out)
+      List.reverse(&2, Param, out)
+    case Con{Lint.Node{Lint.Parameter{b, +q}, n, s, kids, f}, rest}:
+      params(rest, Lists.push(Param, Lists.when(Param, runtime(q), Param{n, plain(kids)}), out))
     case Con{node, rest}:
-      Def.scan(rest, current, out)
+      params(rest, out)
+
+# Whether a parallel let (two binders, at least) is among `nodes` or under them.
+def forks(nodes: List<&2, Lint.Node>) -> Bool:
+  match nodes:
+    case Nil{}:
+      False{}
+    case Con{
+      Lint.Node{
+        Lint.Destructure{q},
+        n,
+        s,
+        Con{Lint.Node{Lint.PatternVariable{a, aq}, an, as, ak, af}, Con{Lint.Node{Lint.PatternVariable{b, bq}, bn, bs, bk, bf}, more}},
+        f
+      },
+      rest
+    }:
+      True{}
+    case Con{Lint.Node{syntax, n, s, kids, f}, rest}:
+      forks(kids) || forks(rest)
+
+# The definitions among a file's nodes, by the name the check gives them, onto `out`.
+def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +kids, f}, rest}:
+      defs(rest, Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, params(kids, []), forks(kids)}}))
+    case Con{node, rest}:
+      defs(rest, out)
 
 def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&2, Slot>:
   match sources:
     case Nil{}:
       out
-    case Con{Lint.Source{path, ns, text, nodes, facts}, rest}:
-      program.slots(rest, Slot.scan(nodes, "", out))
+    case Con{Lint.Source{path, ns, text, nodes}, rest}:
+      program.slots(rest, slots(nodes, "", out))
 
-def program.defs(
-  sources: List<&2, Lint.Source>,
-  out: Map<&2, Maybe<&2, Def>>
-) -> Map<&2, Maybe<&2, Def>>:
+def program.defs(sources: List<&2, Lint.Source>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
   match sources:
     case Nil{}:
       out
-    case Con{Lint.Source{path, ns, text, nodes, facts}, rest}:
-      program.defs(rest, Def.scan(nodes, None{}, out))
+    case Con{Lint.Source{path, ns, text, nodes}, rest}:
+      program.defs(rest, defs(nodes, out))
 
 def scalar(t: String) -> Bool:
   List.contains(
@@ -260,7 +248,7 @@ def unbanged(
 ) -> List<&2, Lint.Finding>:
   match info:
     case Some{Def{t, params, True{}}}:
-      Shared.finding(
+      Lint.finding(
         Lint.Hint{},
         Bool.not(
           Maybe.is_some(&2, Param, data(params, None{}, slots))
@@ -280,7 +268,7 @@ def banged.data(
 ) -> List<&2, Lint.Finding>:
   match param:
     case Some{p}:
-      Shared.finding(Lint.Information{}, True{}, span, slower(callee, p))
+      Lint.finding(Lint.Information{}, True{}, span, slower(callee, p))
     case None{}:
       []
 
@@ -310,67 +298,40 @@ def judged(
     case False{}:
       unbanged(info, callee, caller, slots, span)
 
-# The finding about the application `node`, whose function is `callee`.
-def call(
-  callee: Maybe<&2, Lint.Node>,
-  owner: U32,
-  span: Maybe<&2, Lint.Span>,
-  here: Lint.Here,
-  +defs: Map<&2, Maybe<&2, Def>>,
-  slots: List<&2, Slot>,
-  bangs: List<&2, U32>
-) -> List<&2, Lint.Finding>:
-  match callee:
-    case Some{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, Some{Lint.Span{path, beg, end}}, t}}:
+# The finding about an application below `path`, if its function is a definition of the program.
+def visit(+program: Program, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  match program node:
+    case Program{defs, slots, bangs} Lint.Node{
+      Lint.Application{},
+      n,
+      span,
+      Con{Lint.Node{Lint.Reference{t}, callee, Some{Lint.Span{p, beg, end}}, k, f}, args},
+      facts
+    }:
       judged(
         List.contains(~U32, ~U32.is_eq, bangs, end),
         Names.find(Def, defs, t),
-        n,
-        Names.find(Def, defs, Lint.Node.target(Lint.Here.node(here, owner))),
+        callee,
+        Names.find(Def, defs, Lint.Node.target(Lint.top(path, node))),
         slots,
         span
       )
-    case _:
+    case _ _:
       []
-
-def scan(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +defs: Map<&2, Maybe<&2, Def>>,
-  +slots: List<&2, Slot>,
-  +bangs: List<&2, U32>,
-  out: List<&2, Lint.Finding>
-) -> List<&2, Lint.Finding>:
-  match nodes:
-    case Nil{}:
-      List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{i, p, o, Lint.Application{}, n, b, q, span, t}, rest}:
-      scan(
-        rest,
-        here,
-        defs,
-        slots,
-        bangs,
-        Lists.onto(
-          &2,
-          Lint.Finding,
-          call(Lint.Here.node(here, (i + 1: U32)), o, span, here, defs, slots, bangs),
-          out
-        )
-      )
-    case Con{node, rest}:
-      scan(rest, here, defs, slots, bangs, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +sources = Lint.Here.sources(here)
   Lint.done(
-    scan(
-      Lint.Here.nodes(here),
-      here,
-      program.defs(sources, Map.new(&2, Maybe<&2, Def>)),
-      program.slots(sources, []),
-      bangs(Lint.Here.text(here), 0, []),
-      []
+    Lint.visit(
+      ~Program,
+      ~Lint.Finding,
+      ~visit,
+      Program{
+        program.defs(sources, Map.new(&2, Maybe<&2, Def>)),
+        program.slots(sources, []),
+        bangs(Lint.Here.text(here), 0, [])
+      },
+      Lint.Here.nodes(here)
     )
   )
 

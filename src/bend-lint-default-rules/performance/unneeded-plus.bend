@@ -6,114 +6,57 @@
 # guide shaders" measured a needless `+` slowing a program from 2.83 s to 3.30 s.
 import Base
 import ../../linter/lint.bend as Lint
-import ../../linter/shared.bend as Shared
 import ../../shared/lists.bend as Lists
-import ../../shared/names.bend as Names
 
 # Types
 # =====
 
-# A binder of a definition: its number, and the definition's id.
-type Bound is Data:
-  Bound{binder: U32, owner: U32}
+# What judging the binders of one definition reads: the definitions of the file used as values (named, not called), as
+# the check names them; the definition, as the check names it; and its binders that a match or a let takes apart.
+type Owner is Data:
+  Owner{values: List<&2, String>, target: String, matched: List<&2, U32>}
 
 # Functions
 # =========
 
-# Whether `node` is an application whose function is the node numbered `i`.
-def calls(node: Maybe<&2, Lint.Node>, i: U32) -> Bool:
-  match node:
-    case Some{Lint.Node{id, p, o, Lint.Application{}, n, b, q, s, t}}:
-      U32.is_eq((id + 1: U32), i)
-    case _:
-      False{}
-
-# The id of `used`, a definition, onto `out`.
-def value.of(used: Maybe<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
-  match used:
-    case Some{Lint.Node{i, p, o, s, n, b, q, sp, t}}:
-      i <> out
-    case None{}:
-      out
-
-def value.add(
-  called: Bool,
-  defs: Map<&2, Maybe<&2, Lint.Node>>,
-  target: String,
-  out: List<&2, U32>
-) -> List<&2, U32>:
-  match called:
-    case True{}:
-      out
-    case False{}:
-      value.of(Names.find(Lint.Node, defs, target), out)
-
-# The definitions of the file used as values: named, not called (`OnFile{run}`), by id.
-def values(
-  nodes: List<&2, Lint.Node>,
-  +defs: Map<&2, Maybe<&2, Lint.Node>>,
-  +here: Lint.Here,
-  out: List<&2, U32>
-) -> List<&2, U32>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Reference{}, n, b, q, s, t}, rest}:
-      values(rest, defs, here, value.add(calls(Lint.Here.node(here, p), i), defs, t, out))
-    case Con{node, rest}:
-      values(rest, defs, here, out)
+# The definition a reference below `path` names, if it is used as a value: not as the function of an application.
+def value.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, String>:
+  match path node:
+    case Con{Lint.Above{Lint.Node{Lint.Application{}, n, s, k, f}, at}, up} Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}:
+      Bool.pick(List<&2, String>, U32.is_eq(at, 0), [], [t])
+    case _ Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}:
+      [t]
+    case _ _:
+      []
 
 def constructed(nodes: List<&2, Lint.Node>) -> Bool:
   match nodes:
-    case Con{Lint.Node{i, p, o, Lint.PatternConstructor{}, n, b, q, s, t}, rest}:
+    case Con{Lint.Node{Lint.PatternConstructor{t}, n, s, k, f}, rest}:
       True{}
     case _:
       False{}
 
-# Whether the variable numbered `id`, under `node`, is taken apart there: `node` is a match, or a let
-# with a constructor pattern (`Vert{x, y} = v`) whose rest of block it is not.
-def apart(node: Maybe<&2, Lint.Node>, id: U32, +children: Lint.Children) -> Bool:
-  match node:
-    case Some{Lint.Node{i, p, o, Lint.Match{}, n, b, q, s, t}}:
-      True{}
-    case Some{Lint.Node{+i, p, o, Lint.Destructure{}, n, b, q, s, t}}:
-      U32.is_ne(Lint.Children.last(children, i), id) && constructed(Lint.Children.get(children, i))
-    case _:
-      False{}
-
-# The binders taken apart: a match's scrutinees (the variables right under it), and a let's value (a
-# variable under it that is not the rest of its block).
-def matched(
-  nodes: List<&2, Lint.Node>,
-  +here: Lint.Here,
-  +children: Lint.Children,
-  out: List<&2, Bound>
-) -> List<&2, Bound>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{i, p, o, Lint.Variable{}, n, Some{b}, q, s, t}, rest}:
-      matched(
-        rest,
-        here,
-        children,
-        Lists.push(
-          Bound,
-          Lists.when(Bound, apart(Lint.Here.node(here, p), i, children), Bound{b, o}),
-          out
-        )
+# The binder a variable below `path` uses, if it is taken apart there: it is a match's scrutinee, or the value of a let
+# with a constructor pattern (`Vert{x, y} = v`).
+def matched.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
+  match path node:
+    case Con{Lint.Above{Lint.Node{Lint.Match{}, n, s, k, f}, at}, up} Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}:
+      [b]
+    case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, +at}, up} Lint.Node{
+      Lint.Variable{b},
+      vn,
+      vs,
+      vk,
+      vf
+    }:
+      Bool.pick(
+        List<&2, U32>,
+        Bool.not(U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))) && constructed(kids),
+        [b],
+        []
       )
-    case Con{node, rest}:
-      matched(rest, here, children, out)
-
-def Bound.has(bounds: List<&2, Bound>, hit: Bool, +binder: U32, +owner: U32) -> Bool:
-  match bounds hit:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
-      False{}
-    case Con{Bound{b, o}, rest} False{}:
-      Bound.has(rest, U32.is_eq(b, binder) && U32.is_eq(o, owner), binder, owner)
+    case _ _:
+      []
 
 # Whether a binder used `used` times needs no `+`: none or one use.
 def once(used: Maybe<&2, Lint.Quantity>) -> Bool:
@@ -125,11 +68,28 @@ def once(used: Maybe<&2, Lint.Quantity>) -> Bool:
     case _:
       False{}
 
-# Whether a binder is a parameter of a definition used as a value.
-def typed(syntax: Lint.Syntax, owner: U32, values: List<&2, U32>) -> Bool:
+# The binder a node of this kind declares with `+`, if it does.
+def plus(syntax: Lint.Syntax) -> Maybe<&2, U32>:
   match syntax:
-    case Lint.Parameter{}:
-      List.contains(~U32, ~U32.is_eq, values, owner)
+    case Lint.Parameter{b, Lint.Many{}}:
+      Some{b}
+    case Lint.Field{b, Lint.Many{}}:
+      Some{b}
+    case Lint.Binding{b, Lint.Many{}}:
+      Some{b}
+    case Lint.Forall{b, Lint.Many{}}:
+      Some{b}
+    case Lint.Lambda{b, Some{Lint.Many{}}}:
+      Some{b}
+    case Lint.PatternVariable{b, Lint.Many{}}:
+      Some{b}
+    case _:
+      None{}
+
+def is_parameter(syntax: Lint.Syntax) -> Bool:
+  match syntax:
+    case Lint.Parameter{b, q}:
+      True{}
     case _:
       False{}
 
@@ -140,69 +100,82 @@ def message(+name: String) -> String:
     ++ name
     ++ " without the `+`. In the slash boss demo of Bend, removing 503 such + changed no timing: it matters most for a value that many lanes share."
 
-# The finding about a binder that needs no `+` (if `hit`), unless a match takes it apart.
-def unmatched(
-  hit: Bool,
-  b: U32,
-  o: U32,
-  matched: List<&2, Bound>,
-  span: Maybe<&2, Lint.Span>,
-  name: String
-) -> List<&2, Lint.Finding>:
-  match hit:
-    case True{}:
-      Shared.finding(
-        Lint.Information{},
-        Bool.not(Bound.has(matched, False{}, b, o)),
-        span,
-        message(name)
-      )
-    case False{}:
-      []
+# Whether a `+` binder its body uses at most once (`once`) needs no `+`: not if a match takes it apart, nor if it is a
+# parameter of a definition used as a value: the type it must have can ask for the `+`.
+def needless(once: Bool, parameter: Bool, owner: Owner, +b: U32) -> Bool:
+  match once parameter owner:
+    case True{} True{} Owner{values, target, matched}:
+      Bool.not(List.contains(~String, ~String.eq, values, target))
+        && Bool.not(List.contains(~U32, ~U32.is_eq, matched, b))
+    case True{} False{} Owner{values, target, matched}:
+      Bool.not(List.contains(~U32, ~U32.is_eq, matched, b))
+    case _ _ _:
+      False{}
 
-def scan(
+# The findings about a `+` binder (`binder`, if the node declares one) that its facts say its body uses at most once.
+def judged(
+  binder: Maybe<&2, U32>,
+  +parameter: Bool,
+  +owner: Owner,
+  +span: Maybe<&2, Lint.Span>,
+  +name: String,
   facts: List<&2, Lint.Fact>,
-  +values: List<&2, U32>,
-  +matched: List<&2, Bound>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
-  match facts:
-    case Nil{}:
-      List.reverse(&2, Lint.Finding, out)
-    case Con{
-      Lint.Fact{
-        Lint.Node{i, p, +o, syntax, name, Some{b}, Some{Lint.Many{}}, span, t},
-        Lint.OfBinder{},
-        q,
-        used,
-        c
-      },
-      rest
-    }:
-      scan(
+  match binder facts:
+    case Some{+b} Con{Lint.Fact{Lint.OfBinder{}, q, used, t}, rest}:
+      judged(
+        Some{b},
+        parameter,
+        owner,
+        span,
+        name,
         rest,
-        values,
-        matched,
         Lists.onto(
           &2,
           Lint.Finding,
-          unmatched(once(used) && Bool.not(typed(syntax, o, values)), b, o, matched, span, name),
+          Lint.finding(Lint.Information{}, needless(once(used), parameter, owner, b), span, message(name)),
           out
         )
       )
-    case Con{fact, rest}:
-      scan(rest, values, matched, out)
+    case Some{+b} Con{f, rest}:
+      judged(Some{b}, parameter, owner, span, name, rest, out)
+    case _ _:
+      List.reverse(&2, Lint.Finding, out)
+
+def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
+  match node:
+    case Lint.Node{+syntax, name, span, k, fs}:
+      judged(plus(syntax), is_parameter(syntax), owner, span, name, fs, [])
+
+def defs(nodes: List<&2, Lint.Node>, +values: List<&2, String>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, Lint.Finding, out)
+    case Con{Lint.Node{Lint.Definition{+t, +u}, +n, +s, +k, +f}, rest}:
+      +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
+      defs(
+        rest,
+        values,
+        Lists.onto(
+          &2,
+          Lint.Finding,
+          Lint.visit(
+            ~Owner,
+            ~Lint.Finding,
+            ~visit,
+            Owner{values, t, Lint.visit(~Unit, ~U32, ~matched.visit, Unit{}, [owner])},
+            [owner]
+          ),
+          out
+        )
+      )
+    case Con{node, rest}:
+      defs(rest, values, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  Lint.done(
-    scan(
-      Lint.Here.facts(here),
-      values(nodes, Shared.definitions(nodes), here, []),
-      matched(nodes, here, Lint.Children.of(nodes), []),
-      []
-    )
-  )
+  Lint.done(defs(nodes, Lint.visit(~Unit, ~String, ~value.visit, Unit{}, nodes), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{"performance/unneeded-plus", Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}

@@ -1,7 +1,7 @@
 # no-unused/imports: an import that nothing in its file uses.
 # Fix: deletes the import's line (--fix-dangerously).
 # Heuristics: a use is a name written through the import's alias, or, for Base, a name that only Base
-# declares (Imports in program.bend).
+# declares (Imported in lint.bend).
 import Base
 import ../../linter/lint.bend as Lint
 import ../../shared/lists.bend as Lists
@@ -19,20 +19,7 @@ def deleted(+text: String, path: String, at: U32) -> List<&2, Lint.Fix>:
 
 def unused(text: String, d: Lint.Declaration) -> List<&2, Lint.Finding>:
   match d:
-    case Lint.Declaration{
-      Lint.Node{
-        id,
-        parent,
-        owner,
-        Lint.Import{},
-        name,
-        binder,
-        quantity,
-        Some{Lint.Span{+path, +beg, end}},
-        target
-      },
-      Nil{}
-    }:
+    case Lint.Declaration{Lint.Node{Lint.Import{t}, name, Some{Lint.Span{+path, +beg, end}}, k, f}, Nil{}}:
       [
         Lint.Finding{
           Lint.Warning{},

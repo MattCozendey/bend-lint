@@ -10,7 +10,6 @@ import ./config.bend as Config
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
 import ./lint.bend as Lint
-import ./program.bend as Program
 import ./seam.bend as Seam
 
 # Rules
@@ -342,8 +341,8 @@ type Job is Type:
 
 def Here.with(here: Lint.Here, options: List<&2, Names.Named<Lint.Value>>) -> Lint.Here:
   match here:
-    case Lint.Here{program, source, declarations, index, none}:
-      Lint.Here{program, source, declarations, index, options}
+    case Lint.Here{program, source, declarations, none}:
+      Lint.Here{program, source, declarations, options}
 
 def Whole.with(whole: Lint.Whole, options: List<&2, Names.Named<Lint.Value>>) -> Lint.Whole:
   match whole:
@@ -453,7 +452,7 @@ def File.each(
         Lists.onto(
           &1,
           Job,
-          Rule.jobs(~rules, settings, AtFile{Program.Here.of(program, f, declare)}),
+          Rule.jobs(~rules, settings, AtFile{Lint.Here.of(program, f, declare)}),
           out
         )
       )
@@ -512,7 +511,7 @@ def Check.jobs(
         Lists.onto(
           &1,
           Job,
-          Rule.jobs(~rules, settings, AtProgram{Program.Whole.of(p, declare), path, check}),
+          Rule.jobs(~rules, settings, AtProgram{Lint.Whole.of(p, declare), path, check}),
           out
         )
       )
@@ -818,10 +817,9 @@ def Merge.program(
 # Output
 # ======
 
-# What linting the named file found: the findings that stay and those directives suppressed (both last first), and the
-# texts of files outside its program (where its check failed), by path.
+# What linting the named file found: the findings that stay and those directives suppressed (both last first).
 type Report is Data:
-  Report{kept: List<&2, Lint.Found>, suppressed: List<&2, Lint.Found>, texts: Map<&2, String>}
+  Report{kept: List<&2, Lint.Found>, suppressed: List<&2, Lint.Found>}
 
 # A finding with the edits of each of its fixes: None for a fix the linter cannot make.
 type Resolved is Data:
@@ -871,52 +869,8 @@ def Found.fixes(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&
 # A linted file's findings, after its directives, added to the report.
 def Report.add(found: Directives.Suppressed, report: Report) -> Report:
   match found report:
-    case Directives.Suppressed{kept, suppressed} Report{k, s, texts}:
-      Report{Lists.onto(&2, Lint.Found, kept, k), Lists.onto(&2, Lint.Found, suppressed, s), texts}
-
-# A failed check's message as a finding at `span`, added to the report, with the text of its file.
-def Report.failure(span: Lint.Span, message: String, text: String, report: Report) -> Report:
-  match span report:
-    case Lint.Span{+path, beg, end} Report{kept, suppressed, texts}:
-      Report{
-        Lint.Found{
-          "bend/check",
-          Lint.Finding{Lint.Error{}, Lint.Span{path, beg, end}, message, []}
-        }
-          <> kept,
-        suppressed,
-        Map.set(&2, String, texts, path, text)
-      }
-
-def Report.failures(failures: List<&2, Program.Failure>, +path: String, report: Report) -> Report:
-  match failures:
-    case Nil{}:
-      report
-    case Con{Program.Failure{message, at, text}, rest}:
-      Report.failures(
-        rest,
-        path,
-        Report.failure(
-          Maybe.default(&2, Lint.Span, at, Lint.Span{path, 0, 0}),
-          message,
-          text,
-          report
-        )
-      )
-
-def Report.unique(report: Report) -> Report:
-  match report:
-    case Report{kept, suppressed, texts}:
-      Report{
-        List.reverse(&2, Lint.Found, Merge.union([], List.reverse(&2, Lint.Found, kept))),
-        suppressed,
-        texts
-      }
-
-# The report of the named file (at `path`) so far: Bend's message of each failed check of it, once, as its first
-# findings: at the failure, or at the file's start if Bend does not say where.
-def Report.failed(path: String, failures: List<&2, Program.Failure>) -> Report:
-  Report.unique(Report.failures(failures, path, Report{[], [], Map.new(&2, String)}))
+    case Directives.Suppressed{kept, suppressed} Report{k, s}:
+      Report{Lists.onto(&2, Lint.Found, kept, k), Lists.onto(&2, Lint.Found, suppressed, s)}
 
 # Each linted file's findings, after `out`: those of the file rules, then those of the program rules, after its
 # directives.
@@ -929,7 +883,7 @@ def report(
   out: Report
 ) -> Report:
   match linted:
-    case Con{Lint.Source{+path, namespace, text, nodes, facts}, rest}:
+    case Con{Lint.Source{+path, namespace, text, nodes}, rest}:
       report(
         rest,
         files,
@@ -1199,7 +1153,7 @@ def Shown.safety(json: Bool, founds: List<&2, Lint.Found>, sources: List<&2, Lin
 def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
   match need:
     case True{}:
-      Lint.Whole.declarations(Program.Whole.of(Lint.Program{sources}, True{}))
+      Lint.Whole.declarations(Lint.Whole.of(Lint.Program{sources}, True{}))
     case False{}:
       []
 
@@ -1401,7 +1355,7 @@ def outcome(
   program: Lint.Program
 ) -> IO(Outcome):
   match report program:
-    case Report{kept, suppressed, extra} Lint.Program{+sources}:
+    case Report{kept, suppressed} Lint.Program{+sources}:
       +founds = List.reverse(&2, Lint.Found, kept)
       +all = Lists.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
       +declarations = Declarations.of(Declarations.needed(json, fixing), sources)
@@ -1413,7 +1367,7 @@ def outcome(
         Shown.of(
           json,
           resolved,
-          Places.places(Fixes.texts(sources, extra), Shown.places(json, resolved, [])),
+          Places.places(Fixes.texts(sources, Map.new(&2, String)), Shown.places(json, resolved, [])),
           Shown.safety(json, all, sources),
           []
         )
@@ -1436,8 +1390,7 @@ def outcome(
 def budget() -> Nat:
   64n
 
-# Prints what the jobs found in the linted files, after the report so far (`first`), and makes the fixes; `checks` is
-# the number of checks.
+# Prints what the jobs found in the linted files, and makes the fixes; `checks` is the number of checks.
 def finish(
   linted: List<&2, Lint.Source>,
   +tagged: List<&2, Tagged>,
@@ -1448,8 +1401,7 @@ def finish(
   ran: List<&2, String>,
   json: Bool,
   fixing: Maybe<&2, Bool>,
-  program: Lint.Program,
-  first: Report
+  program: Lint.Program
 ) -> IO(Outcome):
   outcome(
     report(
@@ -1458,7 +1410,7 @@ def finish(
       Merge.program(tagged, checks, modes, partial),
       known,
       ran,
-      first
+      Report{[], []}
     ),
     json,
     fixing,
@@ -1474,8 +1426,8 @@ def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
       IO.bind(Unit, Outcome, Seam.forget(c), done => forgotten(rest, outcome))
 
 # Lints `linted`, files of the first of `programs` (the checks of the named file, at `path`), with the rules the
-# config leaves on, after the report so far (`first`). Program rules run on each check; `partial` says whether an entry
-# that reads the named file failed its check.
+# config leaves on. Program rules run on each check; `partial` says whether an entry that reads the named file failed
+# its check.
 def lint(
   ~rules: List<&1, Lint.Rule>,
   +linted: List<&2, Lint.Source>,
@@ -1484,8 +1436,7 @@ def lint(
   partial: Bool,
   +settings: List<&2, Names.Named<Config.Setting>>,
   json: Bool,
-  fixing: Maybe<&2, Bool>,
-  first: Report
+  fixing: Maybe<&2, Bool>
 ) -> IO(Outcome):
   +abouts = About.all(rules, [])
   +on = About.on(abouts, settings, [])
@@ -1535,8 +1486,7 @@ def lint(
       About.ids(on, []),
       json,
       fixing,
-      Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]}),
-      first
+      Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]})
     )
   )
 
@@ -1550,10 +1500,10 @@ def Source.at(
       Some{source}
     case Nil{} None{}:
       None{}
-    case Con{Lint.Source{+p, namespace, text, nodes, facts}, rest} None{}:
+    case Con{Lint.Source{+p, namespace, text, nodes}, rest} None{}:
       Source.at(
         rest,
-        Lists.when(Lint.Source, String.eq(p, path), Lint.Source{p, namespace, text, nodes, facts}),
+        Lists.when(Lint.Source, String.eq(p, path), Lint.Source{p, namespace, text, nodes}),
         path
       )
 
@@ -1561,45 +1511,17 @@ def Source.at(
 def imports(flag: Maybe<&2, Bool>, project: Maybe<&2, Bool>) -> Bool:
   Maybe.default(&2, Bool, Maybe.or(&2, Bool, flag, project), False{})
 
-# The checks of the named file: the programs to lint it in (the first one's file rules run); why the entries that read
-# it failed their checks, in order; why its own check failed, if it did (then the program is what it parsed); and the
-# checks to free after it: its own.
+# The checks of the named file: the programs to lint it in (the first one's file rules run); whether an entry that reads
+# it failed its check; whether its own check failed (then the program is what it parsed, if it parsed the files); and
+# the checks to free after it: its own.
 type Checks is Data:
-  Checks{
-    programs: List<&2, Lint.Program>,
-    entries: List<&2, Program.Failure>,
-    own: Maybe<&2, Program.Failure>,
-    forget: List<&2, U32>
-  }
-
-def Checks.partial(entries: List<&2, Program.Failure>) -> Bool:
-  match entries:
-    case Nil{}:
-      False{}
-    case _:
-      True{}
-
-def Checks.failures(
-  entries: List<&2, Program.Failure>,
-  own: Maybe<&2, Program.Failure>
-) -> List<&2, Program.Failure>:
-  Lists.append(
-    &2,
-    Program.Failure,
-    entries,
-    Maybe.default(
-      &2,
-      List<&2, Program.Failure>,
-      Maybe.map(&2, Program.Failure, List<&2, Program.Failure>, f => [f], own),
-      []
-    )
-  )
+  Checks{programs: List<&2, Lint.Program>, partial: Bool, failed: Bool, forget: List<&2, U32>}
 
 # The files to lint: the named file (at `path`), or, with `imports`, every own file of its check.
 def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
   match imports:
     case True{}:
-      Program.Program.own(sources)
+      Lint.Program.own(sources)
     case False{}:
       Maybe.default(
         &2,
@@ -1614,43 +1536,56 @@ def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<
         []
       )
 
+# Says, if the named file's check failed and a rule on needs its facts, that those rules did not run.
+def unchecked(failed: Bool, needs: Bool, path: String) -> IO(Unit):
+  match failed needs:
+    case True{} True{}:
+      IO.print_err(
+        "bend-lint: Bend's check of "
+          ++ path
+          ++ " fails, so the rules that need its facts did not run; `bend <file> --check-only` says why"
+      )
+    case _ _:
+      IO.pure(Unit, Unit{})
+
 def checked(
   ~rules: List<&1, Lint.Rule>,
   +path: String,
   imports: Bool,
-  settings: List<&2, Names.Named<Config.Setting>>,
+  +settings: List<&2, Names.Named<Config.Setting>>,
   json: Bool,
   fixing: Maybe<&2, Bool>,
   checks: Checks
 ) -> IO(Outcome):
   match checks:
-    case Checks{Con{Lint.Program{+sources}, rest}, +entries, +own, forget}:
-      IO.bind(
-        Outcome,
-        Outcome,
-        lint(
+    case Checks{Con{Lint.Program{+sources}, rest}, partial, +failed, forget}:
+      do IO<Outcome>:
+        unchecked(failed, Lists.any(~About, ~About.facts, About.on(About.all(rules, []), settings, [])), path)
+        o: Outcome <- lint(
           ~rules,
           linted(imports, path, sources),
           path,
           Lint.Program{sources} <> rest,
-          Checks.partial(entries),
-          About.unchecked(Maybe.is_some(&2, Program.Failure, own), About.all(rules, []), settings),
+          partial,
+          About.unchecked(failed, About.all(rules, []), settings),
           json,
-          fixing,
-          Report.failed(path, Checks.failures(entries, own))
-        ),
-        outcome => forgotten(forget, outcome)
-      )
-    case Checks{Nil{}, entries, own, forget}:
-      outcome(Report.failed(path, Checks.failures(entries, own)), json, fixing, Lint.Program{[]})
+          fixing
+        )
+        forgotten(forget, o)
+    case Checks{Nil{}, partial, failed, forget}:
+      do IO<Outcome>:
+        IO.print_err(
+          "bend-lint: Bend does not load " ++ path ++ ", so no rule ran on it; `bend <file> --check-only` says why"
+        )
+        return Outcome{0n, [], [], False{}, 0}
 
-# The named file's own check, as the checks to lint it in, after the failures of its entries. If it fails, the rules
-# that need no facts run on what it parsed, if it parsed the files.
-def Check.own(entries: List<&2, Program.Failure>, check: Program.Check) -> Checks:
+# The named file's own check, as the checks to lint it in. If it fails, the rules that need no facts run on what it
+# parsed, if it parsed the files.
+def Check.own(partial: Bool, check: Seam.Check) -> Checks:
   match check:
-    case Program.Passed{p, c}:
-      Checks{[p], entries, None{}, [c]}
-    case Program.Failed{failure, read, parsed}:
+    case Seam.Passed{p, c}:
+      Checks{[p], partial, False{}, [c]}
+    case Seam.Failed{read, parsed}:
       Checks{
         Maybe.default(
           &2,
@@ -1658,39 +1593,34 @@ def Check.own(entries: List<&2, Program.Failure>, check: Program.Check) -> Check
           Maybe.map(&2, Lint.Program, List<&2, Lint.Program>, p => [p], parsed),
           []
         ),
-        entries,
-        Some{failure},
+        partial,
+        True{},
         []
       }
 
-def Check.reads(path: String, +check: Program.Check) -> Bool:
+def Check.reads(path: String, +check: Seam.Check) -> Bool:
   match check:
-    case Program.Passed{Lint.Program{sources}, c}:
+    case Seam.Passed{Lint.Program{sources}, c}:
       Maybe.is_some(&2, Lint.Source, Source.at(sources, None{}, path))
-    case Program.Failed{failure, read, parsed}:
+    case Seam.Failed{read, parsed}:
       List.contains(~String, ~String.eq, read, path)
 
-# One check sorted into `checks`: if it reads the named file, its program joins the programs, or its failure joins the
-# entries' failures.
-def Check.sort.step(reads: Bool, check: Program.Check, checks: Checks) -> Checks:
+# One check sorted into `checks`: if it reads the named file, its program joins the programs, or, if it failed, the
+# lint is partial.
+def Check.sort.step(reads: Bool, check: Seam.Check, checks: Checks) -> Checks:
   match reads check checks:
-    case True{} Program.Passed{p, c} Checks{programs, entries, own, forget}:
-      Checks{p <> programs, entries, own, forget}
-    case True{} Program.Failed{failure, read, parsed} Checks{programs, entries, own, forget}:
-      Checks{programs, failure <> entries, own, forget}
+    case True{} Seam.Passed{p, c} Checks{programs, partial, failed, forget}:
+      Checks{p <> programs, partial, failed, forget}
+    case True{} Seam.Failed{read, parsed} Checks{programs, partial, failed, forget}:
+      Checks{programs, True{}, failed, forget}
     case False{} _ _:
       checks
 
-# The checks that read the named file (at `path`): the programs of those that passed, and why the others failed.
-def Check.sort(checks: List<&2, Program.Check>, +path: String, sorted: Checks) -> Checks:
+# The checks that read the named file (at `path`): the programs of those that passed, and whether one failed.
+def Check.sort(checks: List<&2, Seam.Check>, +path: String, sorted: Checks) -> Checks:
   match checks sorted:
-    case Nil{} Checks{programs, entries, own, forget}:
-      Checks{
-        List.reverse(&2, Lint.Program, programs),
-        List.reverse(&2, Program.Failure, entries),
-        own,
-        forget
-      }
+    case Nil{} Checks{programs, partial, failed, forget}:
+      Checks{List.reverse(&2, Lint.Program, programs), partial, failed, forget}
     case Con{+c, rest} _:
       Check.sort(rest, path, Check.sort.step(Check.reads(path, c), c, sorted))
 
@@ -1699,15 +1629,15 @@ def Check.all(
   entries: List<&2, String>,
   +facts: Bool,
   +path: String,
-  out: List<&2, Program.Check>
-) -> IO(List<&2, Program.Check>):
+  out: List<&2, Seam.Check>
+) -> IO(List<&2, Seam.Check>):
   match entries:
     case Nil{}:
-      IO.pure(List<&2, Program.Check>, List.reverse(&2, Program.Check, out))
+      IO.pure(List<&2, Seam.Check>, List.reverse(&2, Seam.Check, out))
     case Con{e, rest}:
       IO.bind(
-        Program.Check,
-        List<&2, Program.Check>,
+        Seam.Check,
+        List<&2, Seam.Check>,
         Seam.check(e, facts, [path]),
         c => Check.all(rest, facts, path, c <> out)
       )
@@ -1715,12 +1645,12 @@ def Check.all(
 # The checks to lint the named file in: those of the entries that read it and passed; if none, its own.
 def Check.chosen(sorted: Checks, +path: String, facts: Bool) -> IO(Checks):
   match sorted:
-    case Checks{Nil{}, entries, own, forget}:
+    case Checks{Nil{}, partial, failed, forget}:
       IO.bind(
-        Program.Check,
+        Seam.Check,
         Checks,
         Seam.check(path, facts, [path]),
-        c => IO.pure(Checks, Check.own(entries, c))
+        c => IO.pure(Checks, Check.own(partial, c))
       )
     case _:
       IO.pure(Checks, sorted)
@@ -1731,24 +1661,24 @@ def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bo
   match imports entries:
     case False{} Con{e, es}:
       IO.bind(
-        List<&2, Program.Check>,
+        List<&2, Seam.Check>,
         Checks,
         Check.all(Con{e, es}, facts, path, []),
-        checks => Check.chosen(Check.sort(checks, path, Checks{[], [], None{}, []}), path, facts)
+        checks => Check.chosen(Check.sort(checks, path, Checks{[], False{}, False{}, []}), path, facts)
       )
     case True{} _:
       IO.bind(
-        Program.Check,
+        Seam.Check,
         Checks,
         Seam.check(path, facts, []),
-        c => IO.pure(Checks, Check.own([], c))
+        c => IO.pure(Checks, Check.own(False{}, c))
       )
     case False{} Nil{}:
       IO.bind(
-        Program.Check,
+        Seam.Check,
         Checks,
         Seam.check(path, facts, [path]),
-        c => IO.pure(Checks, Check.own([], c))
+        c => IO.pure(Checks, Check.own(False{}, c))
       )
 
 def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
