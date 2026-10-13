@@ -21,27 +21,27 @@ type Owner is Data:
 # =========
 
 # Whether `at` is the place of the last of `nodes`.
-def last(nodes: List<&2, Lint.Node>, at: U32) -> Bool:
+def is_last(nodes: List<&2, Lint.Node>, at: U32) -> Bool:
   U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, nodes)))
 
 # Whether the node below `path` is in a tail position, if it ends the node above it (`ends`): the body of a definition
 # or a case, or the rest of a block after its lets, through annotations.
-def tail(path: List<&2, Lint.Above>, ends: Bool) -> Bool:
+def is_tail(path: List<&2, Lint.Above>, ends: Bool) -> Bool:
   match path ends:
     case _ False{}:
       False{}
     case Con{Lint.Above{Lint.Node{Lint.Body{}, n, s, k, f}, at}, rest} True{}:
       True{}
     case Con{Lint.Above{Lint.Node{Lint.Case{}, n, s, k, f}, at}, rest} True{}:
-      tail(rest, True{})
+      is_tail(rest, True{})
     case Con{Lint.Above{Lint.Node{Lint.Match{}, n, s, k, f}, at}, rest} True{}:
-      tail(rest, True{})
+      is_tail(rest, True{})
     case Con{Lint.Above{Lint.Node{Lint.Annotation{}, n, s, k, f}, at}, rest} True{}:
-      tail(rest, True{})
+      is_tail(rest, True{})
     case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, kids, f}, at}, rest} True{}:
-      tail(rest, last(kids, at))
+      is_tail(rest, is_last(kids, at))
     case Con{Lint.Above{Lint.Node{Lint.Let{}, n, s, kids, f}, at}, rest} True{}:
-      tail(rest, last(kids, at))
+      is_tail(rest, is_last(kids, at))
     case _ _:
       False{}
 
@@ -49,12 +49,12 @@ def tail(path: List<&2, Lint.Above>, ends: Bool) -> Bool:
 def deep.of(recursive: Bool, path: List<&2, Lint.Above>) -> List<&2, Bool>:
   match recursive:
     case True{}:
-      [Bool.not(tail(path, True{}))]
+      [Bool.not(is_tail(path, True{}))]
     case False{}:
       []
 
 def deep.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Bool>:
-  deep.of(Lint.recursive(path, node), path)
+  deep.of(Lint.is_recursive(path, node), path)
 
 # The definitions among `nodes` that call themselves outside a tail position, as the check names them, onto `out`.
 def deep(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
@@ -88,7 +88,7 @@ def deep(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
     case Con{node, rest}:
       deep(rest, out)
 
-def pattern(syntax: Lint.Syntax) -> Bool:
+def is_pattern(syntax: Lint.Syntax) -> Bool:
   match syntax:
     case Lint.PatternVariable{b, q}:
       True{}
@@ -127,20 +127,20 @@ def leads(nodes: List<&2, Lint.Node>, many: Bool, one: Bool) -> Bool:
 
 # Whether `x`, the node at `at` under `parent`, is a value of a fork, or of a let just before one: not a binder, nor the
 # rest of the block.
-def value(x: Lint.Node, +parent: Lint.Node, at: U32) -> Bool:
+def is_value(x: Lint.Node, +parent: Lint.Node, at: U32) -> Bool:
   match x parent:
     case Lint.Node{s, n, sp, k, f} Lint.Node{ps, pn, psp, +kids, pf}:
-      leads([parent], False{}, Bool.not(pattern(s)) && Bool.not(last(kids, at)))
+      leads([parent], False{}, Bool.not(is_pattern(s)) && Bool.not(is_last(kids, at)))
 
 # Whether `x`, below `path`, or a node above it, is a value of a fork, or `found`.
-def inside(path: List<&2, Lint.Above>, x: Lint.Node, found: Bool) -> Bool:
+def is_inside(path: List<&2, Lint.Above>, x: Lint.Node, found: Bool) -> Bool:
   match path found:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
     case Con{Lint.Above{+p, at}, rest} False{}:
-      inside(rest, p, value(x, p, at))
+      is_inside(rest, p, is_value(x, p, at))
 
 def message(+callee: String, loop: String) -> String:
   callee
@@ -164,7 +164,7 @@ def judge.deep(
     case True{}:
       Lint.finding(
         Lint.Warning{},
-        inside(path, node, False{}),
+        is_inside(path, node, False{}),
         Lint.Node.span(Some{node}),
         message(callee, name)
       )

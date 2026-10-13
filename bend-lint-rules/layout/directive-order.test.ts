@@ -3,50 +3,48 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "../../src/linter/testing.ts";
+import { buildRule, BUILDS, getFindings, getRunOutcome } from "../../src/linter/testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("layout/directive-order") : "";
-
 const RULE = "layout/directive-order";
-
-// A directive that names `rule`, which the program need not know: the order is by what is written.
-const disable = (rule: string): string =>
-  `# bend-lint: disable-next ${rule} -- a reason not-expected-because: it varies`;
 
 // Functions
 // =========
 
+// A directive that names `rule`, which the program need not know: the order is by what is written.
+const getDisableDirective = (rule: string): string =>
+  `# bend-lint: disable-next ${rule} -- a reason not-expected-because: it varies`;
+
 // What the rule finds in a file of `lines`.
-const found = async (lines: string[]): Promise<string[]> =>
-  (await lint(PROGRAM, { "main.bend": lines.join("\n") + "\n" }, "main.bend"))
+const getReports = async (lines: string[]): Promise<string[]> =>
+  (await getFindings(RULE, { "main.bend": lines.join("\n") + "\n" }, "main.bend"))
     .filter(({ code }) => code === RULE)
     .map(({ at, severity, message }) => `${at} ${severity} ${message}`);
 
 // Side effects
 // ============
 
+await buildRule(RULE);
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)(RULE, () => {
   test("a stack out of order is reported where it starts; one in order, or no stack, is not", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
-        disable("c/d"),
-        disable("a/b"),
+        getDisableDirective("c/d"),
+        getDisableDirective("a/b"),
         "",
-        disable("a/b"),
-        disable("c/d"),
+        getDisableDirective("a/b"),
+        getDisableDirective("c/d"),
         "",
-        disable("c/d"),
+        getDisableDirective("c/d"),
         "",
-        disable("a/b"),
+        getDisableDirective("a/b"),
         "def one() -> U32:",
-        "  1 " + disable("a/b").replace("disable-next", "disable-line"),
+        "  1 " + getDisableDirective("a/b").replace("disable-next", "disable-line"),
       ]),
     ).toEqual([
       "2:1 warning Directives that stack must be in order: by rule, then severity, then keyword.",
@@ -54,14 +52,16 @@ setDefaultTimeout(120_000);
   });
 
   test("--fix writes the stack in order, over the same comments", async () => {
-    const file = (first: string, second: string): string =>
+    const getFile = (first: string, second: string): string =>
       ["import Base", first, second, "def one() -> U32:", "  1", ""].join("\n");
-    const ran = await run(
-      PROGRAM,
-      { "main.bend": file(disable("c/d"), disable("a/b")) },
+    const ran = await getRunOutcome(
+      RULE,
+      { "main.bend": getFile(getDisableDirective("c/d"), getDisableDirective("a/b")) },
       "main.bend",
       ["--fix"],
     );
-    expect(ran.files["main.bend"]).toEqual(file(disable("a/b"), disable("c/d")));
+    expect(ran.files["main.bend"]).toEqual(
+      getFile(getDisableDirective("a/b"), getDisableDirective("c/d")),
+    );
   });
 });

@@ -220,7 +220,7 @@ def calls(recursive: Bool, loop: Loop, node: Lint.Node) -> List<&2, Lint.Finding
       []
 
 def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
-  calls(Lint.recursive(path, node), loop, node)
+  calls(Lint.is_recursive(path, node), loop, node)
 
 def defs(
   nodes: List<&2, Lint.Node>,

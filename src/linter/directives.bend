@@ -288,15 +288,15 @@ def Scope.show(s: Scope) -> String:
       "line"
 
 def Action.names() -> List<&2, Names.Named<Action>>:
-  Names.named(~Action, ~Action.show, [Disable{}, Expect{}])
+  Names.table(~Action, ~Action.show, [Disable{}, Expect{}])
 
 def Scope.names() -> List<&2, Names.Named<Scope>>:
-  Names.named(~Scope, ~Scope.show, [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}])
+  Names.table(~Scope, ~Scope.show, [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}])
 
 def Severity.pinned(severity: Maybe<&2, Lint.Severity>) -> String:
   Maybe.default(&2, String, Maybe.map(&2, Lint.Severity, String, Lint.Severity.show, severity), "")
 
-def Severity.same(a: Maybe<&2, Lint.Severity>, b: Maybe<&2, Lint.Severity>) -> Bool:
+def Severity.is_eq(a: Maybe<&2, Lint.Severity>, b: Maybe<&2, Lint.Severity>) -> Bool:
   String.eq(Severity.pinned(a), Severity.pinned(b))
 
 # The words of a text, split at blanks: the word so far, last first, and the words before it, last first.
@@ -340,7 +340,7 @@ def Draft.kind(parts: List<&2, String>) -> Maybe<&2, Keyword>:
       None{}
 
 # Whether a rule id is one or more non-empty parts, split by /: its path in bend-lint-rules/.
-def Draft.rule_ok(parts: List<&2, String>) -> Bool:
+def Draft.is_rule_id(parts: List<&2, String>) -> Bool:
   match parts:
     case Con{a, rest}:
       Bool.not(List.any(~&2, ~String, ~String.is_empty, Con{a, rest}))
@@ -351,11 +351,11 @@ def Draft.rule_ok(parts: List<&2, String>) -> Bool:
 def Draft.target(parts: List<&2, String>) -> Maybe<&2, Target>:
   match parts:
     case Con{+rule, Nil{}}:
-      Lists.when(Target, Draft.rule_ok(String.split(rule, '/')), Target{rule, None{}})
+      Lists.when(Target, Draft.is_rule_id(String.split(rule, '/')), Target{rule, None{}})
     case Con{+rule, Con{p, rest}}:
       Lists.when(
         Target,
-        Draft.rule_ok(String.split(rule, '/')),
+        Draft.is_rule_id(String.split(rule, '/')),
         Target{rule, Some{String.join(p <> rest, "@")}}
       )
     case Nil{}:
@@ -472,7 +472,7 @@ def Problem.first(problems: List<&2, Maybe<&2, String>>) -> Maybe<&2, String>:
     case Con{None{}, rest}:
       Problem.first(rest)
 
-def Rule.reserved(namespace: String) -> Bool:
+def Rule.is_reserved(namespace: String) -> Bool:
   String.eq(namespace, "bend-lint")
 
 def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: U32) -> Said:
@@ -524,7 +524,7 @@ def Said.of(
             Problem.line(scope, trailing),
             Lists.when(
               String,
-              Rule.reserved(Strings.before(rule, '/')),
+              Rule.is_reserved(Strings.before(rule, '/')),
               rule ++ " findings cannot be suppressed."
             ),
             Lists.when(
@@ -649,7 +649,7 @@ def Pairing.close(begin: Maybe<&2, Directive>, end: Directive, p: Pairing) -> Pa
       Directive{a, s, r, sev, c, i}
     } Directive{ea, es, er, esev, Comment{b, e, +line, t, body}, ei} Pairing{open, closed, wrong}:
       Pairing.closing(
-        Severity.same(sev, esev),
+        Severity.is_eq(sev, esev),
         i,
         line,
         er,
@@ -782,7 +782,7 @@ def Covering.pins(
     case Disable{}:
       True{}
     case Expect{}:
-      Severity.same(pinned, Some{severity})
+      Severity.is_eq(pinned, Some{severity})
 
 # Whether a covering covers a finding of `rule` and `severity` on line `row`.
 def Covering.covers(rule: String, severity: Lint.Severity, +row: U32, covering: Covering) -> Bool:
@@ -1096,16 +1096,16 @@ def when(has: Bool, +linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed
       Suppressed{founds, []}
 
 # Whether `text` has a directive's mark, "bend-lint:". Only a 'b' starts a comparison, so it is one pass.
-def marked(text: String, found: Bool) -> Bool:
+def has_mark(text: String, found: Bool) -> Bool:
   match text found:
     case _ True{}:
       True{}
     case SNil{} False{}:
       False{}
     case SCon{'b', +rest} False{}:
-      marked(rest, String.starts_with(rest, "end-lint:"))
+      has_mark(rest, String.starts_with(rest, "end-lint:"))
     case SCon{c, rest} False{}:
-      marked(rest, False{})
+      has_mark(rest, False{})
 
 def apply(+linted: Linted, founds: List<&2, Lint.Found>) -> Suppressed:
-  when(marked(Linted.text(linted), False{}), linted, founds)
+  when(has_mark(Linted.text(linted), False{}), linted, founds)

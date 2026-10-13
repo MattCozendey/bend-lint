@@ -3,14 +3,11 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "./testing.ts";
+import { buildRule, BUILDS, getFindings, getRunOutcome } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
 // =========
-
-// Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("no-unused/imports") : "";
 
 const UTIL = "import Base\n\ndef two() -> U32:\n  2\n";
 
@@ -23,10 +20,14 @@ const DIRECTIVE = "bend-lint/directive";
 // Functions
 // =========
 
-const found = (lines: string[]): Promise<Found[]> =>
-  lint(PROGRAM, { "main.bend": lines.join("\n") + "\n" + TAIL, "util.bend": UTIL }, "main.bend");
+const getReports = (lines: string[]): Promise<Found[]> =>
+  getFindings(
+    UNUSED,
+    { "main.bend": lines.join("\n") + "\n" + TAIL, "util.bend": UTIL },
+    "main.bend",
+  );
 
-const finding = (at: string, severity: string, code: string, message: string): Found => ({
+const getFinding = (at: string, severity: string, code: string, message: string): Found => ({
   file: "main.bend",
   at,
   severity,
@@ -37,6 +38,7 @@ const finding = (at: string, severity: string, code: string, message: string): F
 // Side effects
 // ============
 
+await buildRule(UNUSED);
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("directives", () => {
@@ -47,8 +49,8 @@ setDefaultTimeout(120_000);
       "import ./util.bend as V",
       "import ./util.bend as W # bend-lint: disable-line no-unused/imports -- also kept not-expected-because: it is not always found",
     ].join("\n");
-    const ran = await run(
-      PROGRAM,
+    const ran = await getRunOutcome(
+      UNUSED,
       { "main.bend": text + "\n" + TAIL, "util.bend": UTIL },
       "main.bend",
       ["--show-suppressed"],
@@ -68,7 +70,7 @@ setDefaultTimeout(120_000);
 
   test("disable-next and disable-line cover their lines; a disable that covers nothing is reported", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
         "# bend-lint: disable-next no-unused/imports -- kept on purpose not-expected-because: it is not always found",
         "import ./util.bend as V",
@@ -76,7 +78,7 @@ setDefaultTimeout(120_000);
         "# bend-lint: disable-next no-unused/imports -- nothing to disable here not-expected-because: it is not always found",
       ]),
     ).toEqual([
-      finding(
+      getFinding(
         "5:1",
         "warning",
         "bend-lint/unused-disable",
@@ -87,7 +89,7 @@ setDefaultTimeout(120_000);
 
   test("an expect of the finding's severity is met; one of another severity is not", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
         "# bend-lint: expect-next no-unused/imports@warning -- met",
         "import ./util.bend as V",
@@ -95,8 +97,8 @@ setDefaultTimeout(120_000);
         "import ./util.bend as W",
       ]),
     ).toEqual([
-      finding("5:23", "warning", UNUSED, "Remove the import W: nothing uses it."),
-      finding(
+      getFinding("5:23", "warning", UNUSED, "Remove the import W: nothing uses it."),
+      getFinding(
         "4:1",
         "error",
         "bend-lint/unmet-expectation",
@@ -107,7 +109,7 @@ setDefaultTimeout(120_000);
 
   test("a wrong directive says what is wrong, in order of the checks", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
         "# bend-lint: nonsense",
         "# bend-lint: disable-next no-unused/imports",
@@ -122,46 +124,46 @@ setDefaultTimeout(120_000);
         'def text() -> String:\n  "# bend-lint: disable-file no-unused/imports -- in a string, not a comment"',
       ]),
     ).toEqual([
-      finding(
+      getFinding(
         "2:1",
         "error",
         DIRECTIVE,
         "Write `# bend-lint: <disable|expect>-<file|begin|end|next|line> <rule>[@severity] -- <reason>`, and, for a disable, not-expected-because: <why> after it.",
       ),
-      finding("3:1", "error", DIRECTIVE, "A reason is required, after `--`."),
-      finding("4:1", "error", DIRECTIVE, "A disable takes no severity."),
-      finding(
+      getFinding("3:1", "error", DIRECTIVE, "A reason is required, after `--`."),
+      getFinding("4:1", "error", DIRECTIVE, "A disable takes no severity."),
+      getFinding(
         "5:1",
         "error",
         DIRECTIVE,
         "A disable says why it is not an expect, after its reason: not-expected-because: <why>",
       ),
-      finding(
+      getFinding(
         "6:1",
         "error",
         DIRECTIVE,
         "Say why it is not an expect, after not-expected-because:",
       ),
-      finding("7:1", "error", DIRECTIVE, "An expect pins a severity: no-unused/imports@..."),
-      finding("8:1", "error", DIRECTIVE, "A line directive must follow code on its line."),
-      finding("9:1", "error", DIRECTIVE, "bend-lint/directive findings cannot be suppressed."),
-      finding("10:1", "error", DIRECTIVE, "There is no rule no-such/rule."),
-      finding("11:1", "error", DIRECTIVE, "fatal is not a severity."),
+      getFinding("7:1", "error", DIRECTIVE, "An expect pins a severity: no-unused/imports@..."),
+      getFinding("8:1", "error", DIRECTIVE, "A line directive must follow code on its line."),
+      getFinding("9:1", "error", DIRECTIVE, "bend-lint/directive findings cannot be suppressed."),
+      getFinding("10:1", "error", DIRECTIVE, "There is no rule no-such/rule."),
+      getFinding("11:1", "error", DIRECTIVE, "fatal is not a severity."),
     ]);
   });
 
   test("a rule id may nest namespaces", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
         "# bend-lint: disable-next a/b/c -- nested not-expected-because: it is not always found",
       ]),
-    ).toEqual([finding("2:1", "error", DIRECTIVE, "There is no rule a/b/c.")]);
+    ).toEqual([getFinding("2:1", "error", DIRECTIVE, "There is no rule a/b/c.")]);
   });
 
   test("begin and end pair; an end that closes nothing, and an open begin, are reported", async () => {
     expect(
-      await found([
+      await getReports([
         "import Base",
         "# bend-lint: disable-begin no-unused/imports -- region not-expected-because: it is not always found",
         "import ./util.bend as V",
@@ -173,22 +175,22 @@ setDefaultTimeout(120_000);
         "# bend-lint: disable-next no-unused/imports -- a not-expected-because: it is not always found",
       ]),
     ).toEqual([
-      finding("5:23", "warning", UNUSED, "Remove the import W: nothing uses it."),
-      finding("6:1", "error", DIRECTIVE, "This end closes no begin of no-unused/imports."),
-      finding("7:1", "error", DIRECTIVE, "This begin of no-unused/imports is never closed."),
-      finding(
+      getFinding("5:23", "warning", UNUSED, "Remove the import W: nothing uses it."),
+      getFinding("6:1", "error", DIRECTIVE, "This end closes no begin of no-unused/imports."),
+      getFinding("7:1", "error", DIRECTIVE, "This begin of no-unused/imports is never closed."),
+      getFinding(
         "7:1",
         "warning",
         "bend-lint/unused-disable",
         "This disables no-unused/imports, but nothing on the lines it covers needs it.",
       ),
-      finding(
+      getFinding(
         "8:1",
         "error",
         "bend-lint/unmet-expectation",
         "Expected a no-unused/imports@warning finding on the lines this covers; none.",
       ),
-      finding(
+      getFinding(
         "9:1",
         "warning",
         "bend-lint/unused-disable",

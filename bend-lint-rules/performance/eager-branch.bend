@@ -26,7 +26,7 @@ type Owner is Data:
 # Functions
 # =========
 def loop.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Unit>:
-  Bool.pick(List<&2, Unit>, Lint.recursive(path, node), [Unit{}], [])
+  Bool.pick(List<&2, Unit>, Lint.is_recursive(path, node), [Unit{}], [])
 
 # The definitions among `nodes` that call themselves, as the check names them, onto `out`.
 def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:

@@ -3,32 +3,32 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "../../src/linter/testing.ts";
+import { buildRule, BUILDS, getFindings, getRunOutcome } from "../../src/linter/testing.ts";
 import type { Found } from "../../src/linter/testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("no-unused/imports") : "";
+const RULE = "no-unused/imports";
 
 const UTIL = "import Base\n\ndef two() -> U32:\n  2\n\nlaw two_is_two:\n  {two() == 2 : U32}\n";
 
 // Functions
 // =========
 
-const found = (main: string): Promise<Found[]> =>
-  lint(PROGRAM, { "main.bend": main, "util.bend": UTIL }, "main.bend");
+const getReports = (main: string): Promise<Found[]> =>
+  getFindings(RULE, { "main.bend": main, "util.bend": UTIL }, "main.bend");
 
 // Side effects
 // ============
 
+await buildRule(RULE);
 setDefaultTimeout(120_000);
 
-(BUILDS ? describe : describe.skip)("no-unused/imports", () => {
+(BUILDS ? describe : describe.skip)(RULE, () => {
   test("an alias that names nothing is reported, at the alias", async () => {
     expect(
-      await found(
+      await getReports(
         "import Base\nimport ./util.bend as U\nimport ./util.bend as V\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
       ),
     ).toEqual([
@@ -44,7 +44,7 @@ setDefaultTimeout(120_000);
 
   test("an alias a name is written through is used", async () => {
     expect(
-      await found(
+      await getReports(
         "import Base\nimport ./util.bend as U\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",
       ),
     ).toEqual([]);
@@ -52,7 +52,7 @@ setDefaultTimeout(120_000);
 
   test("a fill of an imported law uses its alias; Base, used by no name, is reported", async () => {
     expect(
-      await found("import Base\nimport ./util.bend as U\n\ndef U.two_is_two():\n  {==}\n"),
+      await getReports("import Base\nimport ./util.bend as U\n\ndef U.two_is_two():\n  {==}\n"),
     ).toEqual([
       {
         file: "main.bend",
@@ -65,8 +65,8 @@ setDefaultTimeout(120_000);
   });
 
   test("--fix-dangerously deletes the import's line", async () => {
-    const ran = await run(
-      PROGRAM,
+    const ran = await getRunOutcome(
+      RULE,
       {
         "main.bend":
           "import Base\nimport ./util.bend as U\nimport ./util.bend as V\n\ndef three() -> U32:\n  (U.two() + 1 : U32)\n",

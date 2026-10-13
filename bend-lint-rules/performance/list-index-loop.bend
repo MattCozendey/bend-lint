@@ -111,22 +111,22 @@ def Walker.helpers(
       Walker.helpers(rest, out)
 
 # Whether a variable of the binder `b` is among `args`, or `found`.
-def passed(args: List<&2, Lint.Node>, +b: U32, found: Bool) -> Bool:
+def is_passed(args: List<&2, Lint.Node>, +b: U32, found: Bool) -> Bool:
   match args found:
     case _ True{}:
       True{}
     case Nil{} False{}:
       False{}
     case Con{Lint.Node{Lint.Variable{v}, n, s, k, f}, rest} False{}:
-      passed(rest, b, U32.is_eq(v, b))
+      is_passed(rest, b, U32.is_eq(v, b))
     case Con{arg, rest} False{}:
-      passed(rest, b, False{})
+      is_passed(rest, b, False{})
 
 # Whether `args`, the arguments of a call of `target` (if `called`), pass the binder `b` unchanged.
-def passed.if(called: Bool, args: List<&2, Lint.Node>, b: U32) -> Bool:
+def is_passed.if(called: Bool, args: List<&2, Lint.Node>, b: U32) -> Bool:
   match called:
     case True{}:
-      passed(args, b, False{})
+      is_passed(args, b, False{})
     case False{}:
       False{}
 
@@ -147,7 +147,7 @@ def passes(nodes: List<&2, Lint.Node>, +target: String, +b: U32, found: Bool) ->
       },
       rest
     } False{}:
-      passes(rest, target, b, passes(args, target, b, passed.if(String.eq(t, target), args, b)))
+      passes(rest, target, b, passes(args, target, b, is_passed.if(String.eq(t, target), args, b)))
     case Con{Lint.Node{syntax, n, s, kids, f}, rest} False{}:
       passes(rest, target, b, passes(kids, target, b, False{}))
 
@@ -264,7 +264,7 @@ def call(
       []
 
 def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
-  call(Lint.recursive(path, node), loop, path, node)
+  call(Lint.is_recursive(path, node), loop, path, node)
 
 def defs(
   nodes: List<&2, Lint.Node>,

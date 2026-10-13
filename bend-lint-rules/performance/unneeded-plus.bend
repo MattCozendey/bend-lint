@@ -32,7 +32,7 @@ def value.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List
     case _ _:
       []
 
-def constructed(nodes: List<&2, Lint.Node>) -> Bool:
+def is_constructed(nodes: List<&2, Lint.Node>) -> Bool:
   match nodes:
     case Con{Lint.Node{Lint.PatternConstructor{t}, n, s, k, f}, rest}:
       True{}
@@ -57,7 +57,7 @@ def matched.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> Li
         Bool.not(
           U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))
         )
-          && constructed(kids),
+          && is_constructed(kids),
         [b],
         []
       )
@@ -65,7 +65,7 @@ def matched.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> Li
       []
 
 # Whether a binder used `used` times needs no `+`: none or one use.
-def once(used: Maybe<&2, Lint.Quantity>) -> Bool:
+def is_once(used: Maybe<&2, Lint.Quantity>) -> Bool:
   match used:
     case Some{Lint.Erased{}}:
       True{}
@@ -108,7 +108,7 @@ def message(+name: String) -> String:
 
 # Whether a `+` binder its body uses at most once (`once`) needs no `+`: not if a match takes it apart, nor if it is a
 # parameter of a definition used as a value: the type it must have can ask for the `+`.
-def needless(once: Bool, parameter: Bool, owner: Owner, b: U32) -> Bool:
+def is_needless(once: Bool, parameter: Bool, owner: Owner, b: U32) -> Bool:
   match once parameter owner:
     case True{} True{} Owner{values, target, matched}:
       Bool.not(
@@ -144,7 +144,7 @@ def judged(
           Lint.Finding,
           Lint.finding(
             Lint.Information{},
-            needless(once(used), parameter, owner, b),
+            is_needless(is_once(used), parameter, owner, b),
             span,
             message(name)
           ),

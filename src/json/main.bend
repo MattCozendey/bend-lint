@@ -104,7 +104,7 @@ def Token.of(glyph: JGlyph) -> Token:
     case _:
       TSkip{}
 
-def Json.unescaped(+c: Char) -> Char:
+def Json.unescape(+c: Char) -> Char:
   Bool.pick(
     Char,
     Char.is_eq(c, 'n'),
@@ -129,7 +129,7 @@ def Lex.escape(c: Char, high: U32, text: String, tokens: List<&2, Token>) -> Lex
     case 'u':
       Lex{InHex{0, 4, high}, text, tokens}
     case e:
-      Lex{InText{}, SCon{Json.unescaped(e), Lex.lone(high, text)}, tokens}
+      Lex{InText{}, SCon{Json.unescape(e), Lex.lone(high, text)}, tokens}
 
 # `code` with the hex digit `c` after it.
 def Lex.digit(code: U32, +c: Char) -> U32:
@@ -144,10 +144,10 @@ def Lex.digit(code: U32, +c: Char) -> U32:
       ): U32
   )
 
-def Surrogate.high(+u: U32) -> Bool:
+def Surrogate.is_high(+u: U32) -> Bool:
   U32.is_le(55296, u) && U32.is_le(u, 56319)
 
-def Surrogate.low(+u: U32) -> Bool:
+def Surrogate.is_low(+u: U32) -> Bool:
   U32.is_le(56320, u) && U32.is_le(u, 57343)
 
 # A \u escape of `code`, alone: a high surrogate waits for its low one; a low one alone is replaced.
@@ -170,7 +170,13 @@ def Lex.paired(pair: Bool, +code: U32, high: U32, text: String, tokens: List<&2,
         tokens
       }
     case False{}:
-      Lex.single(Surrogate.high(code), Surrogate.low(code), code, Lex.lone(high, text), tokens)
+      Lex.single(
+        Surrogate.is_high(code),
+        Surrogate.is_low(code),
+        code,
+        Lex.lone(high, text),
+        tokens
+      )
 
 def Lex.hexed(
   done: Bool,
@@ -182,7 +188,7 @@ def Lex.hexed(
 ) -> Lex:
   match done:
     case True{}:
-      Lex.paired(Surrogate.low(code) && Surrogate.high(high), code, high, text, tokens)
+      Lex.paired(Surrogate.is_low(code) && Surrogate.is_high(high), code, high, text, tokens)
     case False{}:
       Lex{InHex{code, left, high}, text, tokens}
 
@@ -335,32 +341,32 @@ def hex(+n: U32) -> Char:
   Bool.pick(Char, U32.is_lt(n, 10), Char.from_u32((48 + n: U32)), Char.from_u32((87 + n: U32)))
 
 # A character of a string, escaped if it is a control character (as \u00XX), onto `out` (last first).
-def escaped.char(control: Bool, +c: Char, out: String) -> String:
+def quote.char(control: Bool, +c: Char, out: String) -> String:
   match control:
     case True{}:
       SCon{hex((Char.to_u32(c) % 16: U32)), SCon{hex((Char.to_u32(c) / 16: U32)), "00u\\" ++ out}}
     case False{}:
       SCon{c, out}
 
-def escaped.go(s: String, out: String) -> String:
+def quote.go(s: String, out: String) -> String:
   match s:
     case SNil{}:
       String.reverse(out)
     case SCon{'"', rest}:
-      escaped.go(rest, SCon{'"', SCon{'\\', out}})
+      quote.go(rest, SCon{'"', SCon{'\\', out}})
     case SCon{'\\', rest}:
-      escaped.go(rest, SCon{'\\', SCon{'\\', out}})
+      quote.go(rest, SCon{'\\', SCon{'\\', out}})
     case SCon{'\n', rest}:
-      escaped.go(rest, SCon{'n', SCon{'\\', out}})
+      quote.go(rest, SCon{'n', SCon{'\\', out}})
     case SCon{'\r', rest}:
-      escaped.go(rest, SCon{'r', SCon{'\\', out}})
+      quote.go(rest, SCon{'r', SCon{'\\', out}})
     case SCon{'\t', rest}:
-      escaped.go(rest, SCon{'t', SCon{'\\', out}})
+      quote.go(rest, SCon{'t', SCon{'\\', out}})
     case SCon{+c, rest}:
-      escaped.go(rest, escaped.char(U32.is_lt(Char.to_u32(c), 32), c, out))
+      quote.go(rest, quote.char(U32.is_lt(Char.to_u32(c), 32), c, out))
 
-def quoted(s: String) -> String:
-  "\"" ++ escaped.go(s, "") ++ "\""
+def quote(s: String) -> String:
+  "\"" ++ quote.go(s, "") ++ "\""
 
 # The pieces of `items` (last first), with a comma between each two, onto `out`.
 def items(reversed: List<&2, Json>, out: List<&2, Piece>) -> List<&2, Piece>:
@@ -378,9 +384,9 @@ def fields(reversed: List<&2, JField>, out: List<&2, Piece>) -> List<&2, Piece>:
     case Nil{}:
       out
     case Con{JField{k, v}, Nil{}}:
-      PText{quoted(k) ++ ":"} <> PValue{v} <> out
+      PText{quote(k) ++ ":"} <> PValue{v} <> out
     case Con{JField{k, v}, rest}:
-      fields(rest, PText{","} <> PText{quoted(k) ++ ":"} <> PValue{v} <> out)
+      fields(rest, PText{","} <> PText{quote(k) ++ ":"} <> PValue{v} <> out)
 
 # A value as pieces, onto `rest`: its lists and objects open one level.
 def pieces(v: Json, rest: List<&2, Piece>) -> List<&2, Piece>:
@@ -394,7 +400,7 @@ def pieces(v: Json, rest: List<&2, Piece>) -> List<&2, Piece>:
     case JNumber{text}:
       PText{text} <> rest
     case JString{text}:
-      PText{quoted(text)} <> rest
+      PText{quote(text)} <> rest
     case JArray{xs}:
       PText{"["} <> items(List.reverse(&2, Json, xs), PText{"]"} <> rest)
     case JObject{fs}:
@@ -413,4 +419,4 @@ def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, S
       write(f, pieces(v, rest), out)
 
 def show(v: Json) -> String:
-  Strings.joined(write(4294967295n, [PValue{v}], []), "")
+  Strings.onto(write(4294967295n, [PValue{v}], []), "")

@@ -13,7 +13,7 @@ import { isMachineNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { OK, unwrap } from "../shared/result.ts";
 import { getCommandOutcome, writeFileAtomically } from "../shared/utils.ts";
 import type { Outcome } from "../shared/utils.ts";
-import { BUILD, built, programOf } from "./seam.ts";
+import { BUILD, getBuiltProgram, getRulesProgram } from "./seam.ts";
 
 // Types
 // =====
@@ -47,11 +47,15 @@ export const BUILDS: boolean = OK in (await tryGetBend2SourceUrl());
 
 // The project whose bend-lint-rules/ holds the rule `id`: this repo, or
 // FIXTURES for tests/<def>.
-const projectOfRule = (id: string): string => (id.startsWith("tests/") ? FIXTURES : ROOT);
+const getRuleProject = (id: string): string => (id.startsWith("tests/") ? FIXTURES : ROOT);
 
 // Builds the program of the rule `id` alone, as the server does for a project
-// that turns on only it, before the tests that use it; gives `id`.
-export const build = async (id: string): Promise<string> => {
+// that turns on only it, if bend-lint has its Bend (BUILDS). A test file builds
+// its rules once, before its tests.
+export const buildRule = async (id: string): Promise<void> => {
+  if (!BUILDS) {
+    return;
+  }
   if (id.startsWith("tests/")) {
     writeFileAtomically(
       path.join(FIXTURES, "bend-lint-rules", ...id.split("/")) + ".bend",
@@ -59,15 +63,14 @@ export const build = async (id: string): Promise<string> => {
         `def rule() -> Lint.Rule:\n  Tests.${id.slice("tests/".length)}()\n`,
     );
   }
-  await built(
-    programOf(projectOfRule(id), { ids: [id], packages: new Map() }),
+  await getBuiltProgram(
+    getRulesProgram(getRuleProject(id), { ids: [id], packages: new Map() }),
     unwrap(await tryGetBend2SourceUrl()),
   );
-  return id;
 };
 
 // A fresh folder for a case.
-export const fresh = (): string =>
+export const getFreshFolder = (): string =>
   fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
 
 // How the rule `id` ends on `named` (none: on what bend-lint lints when it is
@@ -77,17 +80,14 @@ export const fresh = (): string =>
 // with what a bend-lint.json among `files` says, and whose bend-lint-rules
 // links the folder that holds `id`. Its stderr leaves out what bend-lint says
 // of how this machine runs it.
-export const run = async (
+export const getRunOutcome = async (
   id: string,
   files: Record<string, string>,
   named: string | undefined,
   args: string[] = [],
-  dir: string = fresh(),
+  dir: string = getFreshFolder(),
 ): Promise<Ran> => {
-  Object.entries(files).forEach(([name, text]) => {
-    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
-    fs.writeFileSync(path.join(dir, name), text);
-  });
+  Object.entries(files).forEach(([name, text]) => writeFileAtomically(path.join(dir, name), text));
   const config = path.join(dir, "bend-lint.json");
   const given = files["bend-lint.json"];
   if (given !== undefined || !fs.existsSync(config)) {
@@ -96,7 +96,7 @@ export const run = async (
   }
   const rules = path.join(dir, "bend-lint-rules");
   if (!fs.existsSync(rules)) {
-    fs.symlinkSync(path.join(projectOfRule(id), "bend-lint-rules"), rules, "junction");
+    fs.symlinkSync(path.join(getRuleProject(id), "bend-lint-rules"), rules, "junction");
   }
   const inputs = named === undefined ? [] : [path.join(dir, named)];
   const ran = await getCommandOutcome(["bun", SERVER, ...inputs, ...args], dir);
@@ -115,14 +115,21 @@ export const run = async (
 
 // What the rule `id` finds in `named`, after it writes `files` (names to
 // text) into a fresh folder.
-export const lint = async (
+export const getFindings = async (
   id: string,
   files: Record<string, string>,
   named: string,
 ): Promise<Found[]> =>
-  (await run(id, files, named)).out.split("\n").flatMap((line) => {
+  (await getRunOutcome(id, files, named)).out.split("\n").flatMap((line) => {
     const m = LINE.exec(line);
     return m === null
       ? []
       : [{ file: path.basename(m[1]), at: m[2], severity: m[3], code: m[4], message: m[5] }];
   });
+
+// What the rule `id` finds in a main.bend of `text`: each finding as where it
+// is, its rule and what it says.
+export const getFindingTexts = async (id: string, text: string): Promise<string[]> =>
+  (await getFindings(id, { "main.bend": text }, "main.bend")).map(
+    ({ at, code, message }) => `${at} ${code}: ${message}`,
+  );

@@ -361,7 +361,7 @@ def Wire.mark(c: Char) -> Mark:
       Plain{}
 
 # A field's character with its escape undone: the character after a \.
-def Wire.unescaped(c: Char) -> Char:
+def Wire.unescape(c: Char) -> Char:
   match c:
     case 'n':
       '\n'
@@ -373,7 +373,7 @@ def Wire.unescaped(c: Char) -> Char:
 def Wire.read(mark: Mark, c: Char, r: Reading) -> Reading:
   match mark r:
     case _ Reading{True{}, field, fields, records}:
-      Reading{False{}, SCon{Wire.unescaped(c), field}, fields, records}
+      Reading{False{}, SCon{Wire.unescape(c), field}, fields, records}
     case Slash{} Reading{False{}, field, fields, records}:
       Reading{True{}, field, fields, records}
     case Tab{} Reading{False{}, field, fields, records}:
@@ -504,7 +504,7 @@ def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
 # Programs
 # --------
 
-# A quantity as an answer writes it (see `quantity` in seam.ts).
+# A quantity as an answer writes it (see `getQuantityLetter` in seam.ts).
 def Quantity.of(field: String) -> Lint.Quantity:
   match field:
     case "e":
@@ -523,7 +523,7 @@ def Quantity.maybe(field: String) -> Maybe<&2, Lint.Quantity>:
     case SCon{c, rest}:
       Some{Quantity.of(SCon{c, rest})}
 
-def number(field: String) -> U32:
+def Wire.number(field: String) -> U32:
   Maybe.default(&2, U32, U32.read(field), 0)
 
 # What a node is, from its tag (see TAGS in seam.ts) and what an answer writes of its kind: its target or binder (`a`),
@@ -543,15 +543,15 @@ def Syntax.of(tag: Char, a: String, b: String) -> Maybe<&2, Lint.Syntax>:
     case 'W':
       Some{Lint.Law{a}}
     case 'p':
-      Some{Lint.Parameter{number(a), Quantity.of(b)}}
+      Some{Lint.Parameter{Wire.number(a), Quantity.of(b)}}
     case 'f':
-      Some{Lint.Field{number(a), Quantity.of(b)}}
+      Some{Lint.Field{Wire.number(a), Quantity.of(b)}}
     case 'R':
       Some{Lint.Returns{}}
     case 'B':
       Some{Lint.Body{}}
     case 'v':
-      Some{Lint.Variable{number(a)}}
+      Some{Lint.Variable{Wire.number(a)}}
     case 'r':
       Some{Lint.Reference{a}}
     case 's':
@@ -559,7 +559,7 @@ def Syntax.of(tag: Char, a: String, b: String) -> Maybe<&2, Lint.Syntax>:
     case 'l':
       Some{Lint.Let{}}
     case 'b':
-      Some{Lint.Binding{number(a), Quantity.of(b)}}
+      Some{Lint.Binding{Wire.number(a), Quantity.of(b)}}
     case 'S':
       Some{Lint.Sort{}}
     case 'q':
@@ -569,9 +569,9 @@ def Syntax.of(tag: Char, a: String, b: String) -> Maybe<&2, Lint.Syntax>:
     case 'm':
       Some{Lint.QuantityMinimum{}}
     case 'F':
-      Some{Lint.Forall{number(a), Quantity.of(b)}}
+      Some{Lint.Forall{Wire.number(a), Quantity.of(b)}}
     case 'L':
-      Some{Lint.Lambda{number(a), Quantity.maybe(b)}}
+      Some{Lint.Lambda{Wire.number(a), Quantity.maybe(b)}}
     case 'A':
       Some{Lint.Application{}}
     case 't':
@@ -601,7 +601,7 @@ def Syntax.of(tag: Char, a: String, b: String) -> Maybe<&2, Lint.Syntax>:
     case 'd':
       Some{Lint.Destructure{Quantity.of(b)}}
     case 'x':
-      Some{Lint.PatternVariable{number(a), Quantity.of(b)}}
+      Some{Lint.PatternVariable{Wire.number(a), Quantity.of(b)}}
     case 'X':
       Some{Lint.PatternConstructor{a}}
     case _:
@@ -630,7 +630,7 @@ def Span.of(path: String, beg: Maybe<&2, U32>, end: Maybe<&2, U32>) -> Maybe<&2,
       None{}
 
 # The top `n` of `stack`, in order (the last pushed last), and the rest of it.
-def pop(
+def Reader.pop(
   n: Nat,
   stack: List<&2, Lint.Node>,
   out: List<&2, Lint.Node>
@@ -638,11 +638,11 @@ def pop(
   & List<&2, Lint.Node>:
   match n stack:
     case 1n+k Con{x, rest}:
-      pop(k, rest, x <> out)
+      Reader.pop(k, rest, x <> out)
     case _ _:
       (out, stack)
 
-def Reader.made(
+def Reader.node.of(
   syntax: Lint.Syntax,
   name: String,
   span: Maybe<&2, Lint.Span>,
@@ -679,12 +679,12 @@ def Reader.node(
         read,
         sources,
         Some{Lint.Source{path, namespace, text, none}},
-        Reader.made(
+        Reader.node.of(
           s,
           name,
           Span.of(path, U32.read(beg), U32.read(end)),
           facts,
-          pop(U32.to_nat(number(kids)), nodes, [])
+          Reader.pop(U32.to_nat(Wire.number(kids)), nodes, [])
         ),
         []
       }
@@ -712,7 +712,7 @@ def Reader.fact(role: String, q: String, used: String, handle: String, r: Reader
           Role.of(role),
           Quantity.of(q),
           Quantity.maybe(used),
-          Lint.TypeRef{Maybe.default(&2, U32, check, 0), number(handle)}
+          Lint.TypeRef{Maybe.default(&2, U32, check, 0), Wire.number(handle)}
         }
           <> facts
       }
@@ -767,7 +767,7 @@ def Reader.read(path: String, r: Reader) -> Reader:
     case Garbled{}:
       Garbled{}
 
-# The reader after a record of a check's answer (see `check` in seam.ts): a fact, a node, the check's number, that it
+# The reader after a record of a check's answer (see `getCheck` in seam.ts): a fact, a node, the check's number, that it
 # failed, a file it read, or a file it parsed.
 def Reader.add(fields: List<&2, String>, r: Reader) -> Reader:
   match fields:
@@ -793,7 +793,7 @@ def Reader.go(records: List<&2, List<&2, String>>, r: Reader) -> Reader:
     case Con{fields, rest}:
       Reader.go(rest, Reader.add(fields, r))
 
-def Check.from(
+def Reader.done.of(
   failed: Bool,
   check: Maybe<&2, U32>,
   read: List<&2, String>,
@@ -813,7 +813,7 @@ def Check.from(
 def Reader.done(r: Reader) -> Maybe<&2, Check>:
   match r:
     case Reader{check, failed, read, sources, open, nodes, facts}:
-      Check.from(
+      Reader.done.of(
         failed,
         check,
         List.reverse(&2, String, read),
@@ -870,7 +870,7 @@ def Answer.got(answers: Maybe<&2, List<&2, Lint.Answer>>) -> IO(List<&2, Lint.An
     case None{}:
       IO.die(List<&2, Lint.Answer>, 1, "bend-lint: the checker's answers are malformed")
 
-def answers(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
+def Question.ask(questions: List<&2, Lint.Question>) -> IO(List<&2, Lint.Answer>):
   IO.bind(
     List<&2, List<&2, String>>,
     List<&2, Lint.Answer>,
@@ -936,30 +936,30 @@ def About.all(rules: List<&1, Rule>, out: List<&2, About>) -> List<&2, About>:
     case Con{Rule{id, Lint.Rule{needs, options, Lint.OnProgram{every, run}}}, rest}:
       About.all(rest, About{id, needs, options, Some{every}} <> out)
 
-def About.facts(about: About) -> Bool:
+def About.needs_facts(about: About) -> Bool:
   match about:
     case About{id, Lint.Needs{facts, declarations}, options, every}:
       facts
 
-def About.declarations(about: About) -> Bool:
+def About.needs_declarations(about: About) -> Bool:
   match about:
     case About{id, Lint.Needs{facts, declarations}, options, every}:
       declarations
 
-def About.whole(about: About) -> Bool:
+def About.is_whole(about: About) -> Bool:
   match about:
     case About{id, needs, options, every}:
       Maybe.is_some(&2, Bool, every)
 
 # Whether a rule's findings must be found by every check.
-def About.every(about: About) -> Bool:
+def About.needs_every(about: About) -> Bool:
   match about:
     case About{id, needs, options, Some{True{}}}:
       True{}
     case _:
       False{}
 
-def Setting.on(setting: Maybe<&2, Setting>) -> Bool:
+def Setting.is_on(setting: Maybe<&2, Setting>) -> Bool:
   match setting:
     case Some{RuleOff{}}:
       False{}
@@ -997,7 +997,7 @@ def About.on(
           About,
           Lists.when(
             About,
-            Setting.on(Names.lookup(Setting, id, settings)),
+            Setting.is_on(Names.lookup(Setting, id, settings)),
             About{id, needs, options, every}
           ),
           out
@@ -1023,7 +1023,7 @@ def Rule.on(
       Rule.on(
         rest,
         settings,
-        Rule.keep.if(Setting.on(Names.lookup(Setting, id, settings)), Rule{id, rule}, out)
+        Rule.keep.if(Setting.is_on(Names.lookup(Setting, id, settings)), Rule{id, rule}, out)
       )
 
 def About.ids(abouts: List<&2, About>, out: List<&2, String>) -> List<&2, String>:
@@ -1065,7 +1065,7 @@ def About.modes(
 
 # Options
 # =======
-def Spec.one(spec: Lint.Spec, value: Lint.Value) -> Bool:
+def Spec.accepts(spec: Lint.Spec, value: Lint.Value) -> Bool:
   match spec value:
     case Lint.NumberOption{min, max} Lint.Num{+n}:
       U32.is_le(min, n) && U32.is_le(n, max)
@@ -1090,7 +1090,7 @@ def Spec.fits(fuel: Nat, specs: List<&2, Lint.Spec>, hit: Bool, +value: Lint.Val
     case 1n+f Con{Lint.AnyOption{inner}, rest} False{}:
       Spec.fits(f, Lists.append(&2, Lint.Spec, inner, rest), False{}, value)
     case 1n+f Con{spec, rest} False{}:
-      Spec.fits(f, rest, Spec.one(spec, value), value)
+      Spec.fits(f, rest, Spec.accepts(spec, value), value)
 
 def Declared.spec(
   declared: List<&2, Lint.Declared>,
@@ -1562,7 +1562,7 @@ def Rounds.go(budget: Nat, holding: Holding) -> IO(List<&2, Tagged>):
       IO.bind(
         List<&2, Lint.Answer>,
         List<&2, Tagged>,
-        answers(Con{q, qs}),
+        Question.ask(Con{q, qs}),
         answers => Rounds.go(b, Round.hold(Round.resume(held, answers, []), [], []))
       )
 
@@ -1590,7 +1590,7 @@ def Found.keys(founds: List<&2, Lint.Found>, keys: Set()) -> Set():
     case Con{f, rest}:
       Found.keys(rest, Set.add(keys, Found.key(f)))
 
-def Found.among(keys: Set(), found: Lint.Found) -> Bool:
+def Found.is_among(keys: Set(), found: Lint.Found) -> Bool:
   Pair.snd(Set(), Bool, Set.has(keys, Found.key(found)))
 
 def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
@@ -1624,7 +1624,7 @@ def Merge.new(
       Merge.new(
         rest,
         Set.add(keys, Found.key(f)),
-        Found.keep(Bool.not(Found.among(keys, f)), f, out)
+        Found.keep(Bool.not(Found.is_among(keys, f)), f, out)
       )
 
 def Merge.union(+founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
@@ -1639,7 +1639,7 @@ def Merge.common(
     case Nil{}:
       List.reverse(&2, Lint.Found, out)
     case Con{+f, rest}:
-      Merge.common(rest, keys, Found.keep(Found.among(keys, f), f, out))
+      Merge.common(rest, keys, Found.keep(Found.is_among(keys, f), f, out))
 
 def Merge.every(founds: List<&2, Lint.Found>, more: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   Merge.common(founds, Found.keys(more, Set.new()), [])
@@ -1694,7 +1694,11 @@ def Merge.pick(
         modes,
         partial,
         Found.keep(
-          Merge.stays(Names.lookup(Bool, r, modes), partial, Found.among(every, Lint.Found{r, f})),
+          Merge.stays(
+            Names.lookup(Bool, r, modes),
+            partial,
+            Found.is_among(every, Lint.Found{r, f})
+          ),
           Lint.Found{r, f},
           out
         )
@@ -1964,7 +1968,7 @@ def Object.fixes(
         more,
         places,
         comments,
-        Object.fix(Fixes.Fix.safe(fix, comments), fix, es, places) <> out
+        Object.fix(Fixes.Fix.is_safe(fix, comments), fix, es, places) <> out
       )
     case Con{fix, rest} Con{None{}, more}:
       Object.fixes(rest, more, places, comments, out)
@@ -2061,7 +2065,7 @@ def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint
     case False{}:
       []
 
-def Declarations.needed(json: Bool, fixing: Maybe<&2, Bool>) -> Bool:
+def Declarations.is_needed(json: Bool, fixing: Maybe<&2, Bool>) -> Bool:
   match json fixing:
     case False{} None{}:
       False{}
@@ -2262,7 +2266,7 @@ def outcome(
     case Report{kept, suppressed} Lint.Program{+sources}:
       +founds = List.reverse(&2, Lint.Found, kept)
       +all = Lists.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
-      +declarations = Declarations.of(Declarations.needed(json, fixing), sources)
+      +declarations = Declarations.of(Declarations.is_needed(json, fixing), sources)
       +resolved = Resolved.of(all, Shown.edits(json, all, declarations, sources), [])
       +n = Lists.length(&2, Lint.Found, founds)
       +shown = List.reverse(
@@ -2344,7 +2348,7 @@ def lint(
 ) -> IO(Outcome):
   +abouts = About.all(rules, [])
   +on = About.on(abouts, settings, [])
-  +declare = Lists.any(~About, ~About.declarations, on)
+  +declare = Lists.any(~About, ~About.needs_declarations, on)
   IO.bind(
     List<&2, Tagged>,
     Outcome,
@@ -2369,7 +2373,7 @@ def lint(
           ),
           Check.jobs.if(
             ~rules,
-            Lists.any(~About, ~About.whole, on),
+            Lists.any(~About, ~About.is_whole, on),
             programs,
             settings,
             path,
@@ -2503,8 +2507,8 @@ def checked(
     case Checks{Con{Lint.Program{+sources}, rest}, +failing, +failed, forget}:
       +on = About.on(About.all(rules, []), settings, [])
       do IO<Outcome>:
-        unchecked(failed, About.ids(List.filter(~About, ~About.facts, on), []), path)
-        unentered(failed, failing, About.ids(List.filter(~About, ~About.every, on), []), path)
+        unchecked(failed, About.ids(List.filter(~About, ~About.needs_facts, on), []), path)
+        unentered(failed, failing, About.ids(List.filter(~About, ~About.needs_every, on), []), path)
         o: Outcome <- lint(
           ~rules,
           linted(imports, path, sources),
@@ -2685,7 +2689,7 @@ def settled(
       imports,
       entries,
       path,
-      Lists.any(~About, ~About.facts, About.on(About.all(rules, []), settings, []))
+      Lists.any(~About, ~About.needs_facts, About.on(About.all(rules, []), settings, []))
     ),
     checks => checked(~rules, path, imports, settings, json, fixing, checks)
   )
@@ -3082,7 +3086,7 @@ def Workers.lint(program: String, paths: List<&2, String>, options: Options) -> 
     Workers.run(program, paths, options, threads)
 
 # Whether `program`, as invoked, is a native build: one whose workers run at once.
-def Workers.native(+program: String) -> Bool:
+def Workers.is_native(+program: String) -> Bool:
   Bool.not(
     String.ends_with(
       program,
@@ -3094,15 +3098,15 @@ def Workers.native(+program: String) -> Bool:
   )
 
 # Whether a run lints its files in workers: a run of several files, that fixes none, by a native build.
-def Workers.wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
+def Workers.is_wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
   match options:
     case Options{inputs, None{}, shown, json, False{}, jobs}:
-      Workers.native(program) && Nat.is_gt(Lists.length(&2, String, paths), 1n)
+      Workers.is_native(program) && Nat.is_gt(Lists.length(&2, String, paths), 1n)
     case _:
       False{}
 
 # Whether the run lints more than one file: a worker's does, for the run it lints for.
-def Options.many(options: Options, paths: List<&2, String>) -> Bool:
+def Options.is_many(options: Options, paths: List<&2, String>) -> Bool:
   match options:
     case Options{inputs, fixing, shown, json, worker, jobs}:
       worker || Nat.is_gt(Lists.length(&2, String, paths), 1n)
@@ -3122,7 +3126,7 @@ def Paths.go(
         ~rules,
         paths,
         options,
-        Options.many(options, paths),
+        Options.is_many(options, paths),
         Outcome{0n, [], [], False{}, 0}
       )
 
@@ -3133,7 +3137,7 @@ def Paths.run(
   +paths: List<&2, String>,
   +options: Options
 ) -> IO(Unit):
-  Paths.go(~rules, Workers.wanted(program, paths, options), program, paths, options)
+  Paths.go(~rules, Workers.is_wanted(program, paths, options), program, paths, options)
 
 def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
   match options:

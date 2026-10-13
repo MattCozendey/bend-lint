@@ -254,7 +254,7 @@ def Name.namespace(name: String) -> String:
 
 # Whether a parameter is written bare (`def f(x)`, filling a law): its quantity is the law's, which its node does not
 # give.
-def Node.bare(node: Node) -> Bool:
+def Node.is_bare(node: Node) -> Bool:
   match node:
     case Node{Parameter{b, q}, n, s, Con{Node{QuantityType{}, kn, ks, kk, kf}, rest}, f}:
       True{}
@@ -381,7 +381,7 @@ def calls(called: String, owner: Node) -> Bool:
 
 # Whether a node is an application of the definition it is in, below `path`: a step of a loop, as Bend repeats work by
 # recursion.
-def recursive(path: List<&2, Above>, +node: Node) -> Bool:
+def is_recursive(path: List<&2, Above>, +node: Node) -> Bool:
   match node:
     case Node{Application{}, n, s, Con{Node{Reference{called}, rn, rs, rk, rf}, args}, f}:
       calls(called, top(path, node))
@@ -389,14 +389,14 @@ def recursive(path: List<&2, Above>, +node: Node) -> Bool:
       False{}
 
 # Whether an application's function is Pair: it builds a pair type (`A & B`), whose parts are types.
-def pair(kids: List<&2, Node>) -> Bool:
+def is_pair(kids: List<&2, Node>) -> Bool:
   match kids:
     case Con{Node{Reference{t}, n, s, k, f}, rest}:
       String.eq(t, "Pair")
     case _:
       False{}
 
-def live.go(path: List<&2, Above>, ok: Bool) -> Bool:
+def is_live.go(path: List<&2, Above>, ok: Bool) -> Bool:
   match path ok:
     case _ False{}:
       False{}
@@ -405,9 +405,9 @@ def live.go(path: List<&2, Above>, ok: Bool) -> Bool:
     case Con{Above{Node{Body{}, n, s, k, f}, at}, rest} True{}:
       True{}
     case Con{Above{Node{Annotation{}, n, s, k, f}, at}, rest} True{}:
-      live.go(rest, U32.is_eq(at, 0))
+      is_live.go(rest, U32.is_eq(at, 0))
     case Con{Above{Node{Application{}, n, s, k, f}, at}, rest} True{}:
-      live.go(rest, Bool.not(pair(k)))
+      is_live.go(rest, Bool.not(is_pair(k)))
     case Con{Above{Node{Equality{}, n, s, k, f}, at}, rest} True{}:
       False{}
     case Con{Above{Node{Forall{b, q}, n, s, k, f}, at}, rest} True{}:
@@ -415,13 +415,13 @@ def live.go(path: List<&2, Above>, ok: Bool) -> Bool:
     case Con{Above{Node{TypeApplication{t}, n, s, k, f}, at}, rest} True{}:
       False{}
     case Con{a, rest} True{}:
-      live.go(rest, True{})
+      is_live.go(rest, True{})
 
 # Whether a node below `path` is in live code: a definition's body, outside types: an annotation's type, an equality, a
 # function or pair type, a type's arguments. Types and equations are dead: the checker sees them, the program does not
 # run them.
-def live(path: List<&2, Above>) -> Bool:
-  live.go(path, True{})
+def is_live(path: List<&2, Above>) -> Bool:
+  is_live.go(path, True{})
 
 # The definitions of `nodes`, by the name the check gives them: read one with `Names.find`. Of two with one name, the
 # later is kept.
@@ -477,7 +477,7 @@ def Severity.show(s: Severity) -> String:
       "hint"
 
 def Severity.names() -> List<&2, Names.Named<Severity>>:
-  Names.named(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
+  Names.table(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
 
 # An edit a fix asks for: replace a span's text; rename what the declaration written at `at` declares, with each of its
 # uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
@@ -598,7 +598,7 @@ def Uses.binder.add(
     List<&2, Node>,
     t,
     b,
-    node <> Maybe.default(&2, List<&2, Node>, Tables.Table.read(List<&2, Node>, t, b), [])
+    node <> Maybe.default(&2, List<&2, Node>, Tables.Table.get(List<&2, Node>, t, b), [])
   )
 
 def Uses.binder(
@@ -627,7 +627,7 @@ def Imported.own(nodes: List<&2, Node>, out: Set()) -> Set():
     case Con{Node{syntax, n, s, k, f}, rest}:
       Imported.own(rest, Imported.own.add(Syntax.target(syntax), out))
 
-def Imported.base(own: Set(), used: Maybe<&2, String>) -> Bool:
+def Imported.is_base(own: Set(), used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
       String.is_empty(Name.namespace(name)) && Bool.not(Pair.snd(Set(), Bool, Set.has(own, name)))
@@ -650,7 +650,7 @@ def Imported.add(+own: Set(), +node: Node, uses: Imported) -> Imported:
     case Node{syntax, name, s, k, f} Imported{aliases, base}:
       Imported{
         Imported.alias(Strings.before(name, '.'), node, aliases),
-        Lists.push(Node, Lists.when(Node, Imported.base(own, Syntax.used(syntax)), node), base)
+        Lists.push(Node, Lists.when(Node, Imported.is_base(own, Syntax.used(syntax)), node), base)
       }
 
 def Imported.of(+nodes: List<&2, Node>) -> Imported:
@@ -695,7 +695,7 @@ def Declarations.bound(
       List.reverse(
         &2,
         Node,
-        Maybe.default(&2, List<&2, Node>, Tables.Table.read(List<&2, Node>, binders, b), [])
+        Maybe.default(&2, List<&2, Node>, Tables.Table.get(List<&2, Node>, binders, b), [])
       )
     case None{}:
       []
@@ -830,14 +830,14 @@ def Declarations.when(
     case False{}:
       []
 
-def Source.own(source: Source) -> Bool:
+def Source.is_own(source: Source) -> Bool:
   match source:
     case Source{path, namespace, text, nodes}:
       Bool.not(String.starts_with(namespace, "0x"))
 
 # The program's own files: not hub packages.
 def Program.own(sources: List<&2, Source>) -> List<&2, Source>:
-  List.filter(~Source, ~Source.own, sources)
+  List.filter(~Source, ~Source.is_own, sources)
 
 # What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it, if a rule
 # needs them; and the rule's options, each declared one with its value.

@@ -61,7 +61,7 @@ def scrutinee(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&
 
 # Whether the nodes under `node`, which is live if `live`, are: a body is; a type is not (an equality, a function or
 # pair type, a type's arguments). An annotation's type is not either: see `scan`.
-def inner(+node: Lint.Node, live: Bool) -> Bool:
+def is_live_inside(+node: Lint.Node, live: Bool) -> Bool:
   match node:
     case Lint.Node{Lint.Body{}, n, s, k, f}:
       True{}
@@ -72,7 +72,7 @@ def inner(+node: Lint.Node, live: Bool) -> Bool:
     case Lint.Node{Lint.TypeApplication{t}, n, s, k, f}:
       False{}
     case Lint.Node{Lint.Application{}, n, s, kids, f}:
-      live && Bool.not(Lint.pair(kids))
+      live && Bool.not(Lint.is_pair(kids))
     case _:
       live
 
@@ -143,7 +143,7 @@ def scan(
             scan(
               kids,
               b,
-              inner(node, here),
+              is_live_inside(node, here),
               is_match(syntax),
               is_annotation(syntax),
               0,
@@ -200,7 +200,7 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Li
         rest,
         judge(
           owner,
-          Lint.visit(~Bool, ~Once, ~Once.of, Lists.any(~Lint.Node, ~Lint.Node.bare, k), [owner]),
+          Lint.visit(~Bool, ~Once, ~Once.of, Lists.any(~Lint.Node, ~Lint.Node.is_bare, k), [owner]),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
           out
         )

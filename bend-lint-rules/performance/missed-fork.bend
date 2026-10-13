@@ -41,7 +41,7 @@ def trimmed(s: String) -> String:
   String.from_list(List.reverse(&2, Char, trim.go(List.reverse(&2, Char, String.to_list(s)))))
 
 # Whether a node of this syntax ends the expression a call is in.
-def boundary(syntax: Lint.Syntax) -> Bool:
+def is_boundary(syntax: Lint.Syntax) -> Bool:
   match syntax:
     case Lint.Application{}:
       False{}
@@ -205,7 +205,7 @@ def starts(path: List<&2, Lint.Above>) -> Bool:
     case Nil{}:
       True{}
     case Con{Lint.Above{Lint.Node{syntax, n, s, k, f}, at}, rest}:
-      boundary(syntax)
+      is_boundary(syntax)
 
 # The call of a let's value, if the value is a call of `target`, typed or not.
 def called(value: Lint.Node, target: String) -> Maybe<&2, Lint.Node>:
@@ -404,7 +404,7 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
       Lists.append(
         &2,
         Lint.Finding,
-        roots(Bool.not(io) && Bool.not(boundary(syntax)) && starts(path), node, span, owner),
+        roots(Bool.not(io) && Bool.not(is_boundary(syntax)) && starts(path), node, span, owner),
         lets(
           Maybe.is_some(&2, Bound, bound(node, owner)) && Bool.not(follows(path, owner)),
           node,

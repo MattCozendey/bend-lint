@@ -48,7 +48,7 @@ def Span.key(path: String, beg: U32, end: U32) -> String:
   path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
 
 # Whether a node of this syntax is an import, whose name is its alias.
-def Syntax.alias(syntax: Lint.Syntax) -> Bool:
+def Syntax.is_alias(syntax: Lint.Syntax) -> Bool:
   match syntax:
     case Lint.Import{t}:
       True{}
@@ -140,7 +140,7 @@ def Taken.files(sources: List<&2, Lint.Source>, out: Set()) -> Set():
 # Whether a rename may write `to`. A Rename (`whole`) may, of a name no file but its own can use (not a `global` one),
 # if its file does not take `to` already (`taken`). RenameUses points the uses at a name the program declares, and
 # leaves the declaration as it is.
-def Rename.allowed(
+def Rename.is_allowed(
   whole: Bool,
   global: Bool,
   alias: Bool,
@@ -186,9 +186,9 @@ def Rename.plan(
 ) -> Maybe<&2, List<&2, Change>>:
   match declaration:
     case Some{Lint.Declaration{Lint.Node{+s, +name, +span, k, f}, uses}}:
-      +alias = Syntax.alias(s)
+      +alias = Syntax.is_alias(s)
       Rename.checked(
-        Rename.allowed(
+        Rename.is_allowed(
           whole,
           Maybe.default(&2, Bool, Lint.Syntax.declares(s), False{}),
           alias,
@@ -261,10 +261,10 @@ def Spot.beg(spot: Spot) -> U32:
     case Spot{fix, path, beg, name, part, text}:
       beg
 
-def Spot.le(a: Spot, b: Spot) -> Bool:
+def Spot.is_le(a: Spot, b: Spot) -> Bool:
   U32.is_le(Spot.beg(a), Spot.beg(b))
 
-def Spotted.le(a: Spotted, b: Spotted) -> Bool:
+def Spotted.is_le(a: Spotted, b: Spotted) -> Bool:
   match a b:
     case Spotted{f, e} Spotted{g, d}:
       U32.is_le(f, g)
@@ -358,7 +358,7 @@ def Spot.file(
 ) -> List<&2, Spotted>:
   match text:
     case Some{t}:
-      Spot.walk(Lists.sort(~Spot, ~Spot.le, spots), t, 0, out)
+      Spot.walk(Lists.sort(~Spot, ~Spot.is_le, spots), t, 0, out)
     case None{}:
       Spot.missed(spots, out)
 
@@ -425,7 +425,7 @@ def Fix.changes(
 # Safety
 # ------
 # Whether `text` is one comment: a # first, and no line end.
-def Comment.is(+text: String) -> Bool:
+def Comment.is_one(+text: String) -> Bool:
   String.starts_with(
     text,
     "#"
@@ -433,36 +433,36 @@ def Comment.is(+text: String) -> Bool:
     && Bool.not(String.contains(text, "\n") || String.contains(text, "\r"))
 
 # Whether an operation writes a comment over a comment: one of `comments`.
-def Operation.safe(op: Lint.Operation, comments: Set()) -> Bool:
+def Operation.is_safe(op: Lint.Operation, comments: Set()) -> Bool:
   match op:
     case Lint.Replace{Lint.Span{path, beg, end}, text}:
-      Comment.is(text) && Pair.snd(Set(), Bool, Set.has(comments, Span.key(path, beg, end)))
+      Comment.is_one(text) && Pair.snd(Set(), Bool, Set.has(comments, Span.key(path, beg, end)))
     case _:
       False{}
 
-def Fix.safe.go(ops: List<&2, Lint.Operation>, +comments: Set(), safe: Bool) -> Bool:
+def Fix.is_safe.go(ops: List<&2, Lint.Operation>, +comments: Set(), safe: Bool) -> Bool:
   match ops safe:
     case _ False{}:
       False{}
     case Nil{} True{}:
       True{}
     case Con{op, rest} True{}:
-      Fix.safe.go(rest, comments, Operation.safe(op, comments))
+      Fix.is_safe.go(rest, comments, Operation.is_safe(op, comments))
 
-# Each edit writes a comment over a comment (`comments`, from `safety`).
-def Fix.safe(fix: Lint.Fix, comments: Set()) -> Bool:
+# Whether each edit writes a comment over a comment (`comments`, from `safety`).
+def Fix.is_safe(fix: Lint.Fix, comments: Set()) -> Bool:
   match fix:
     case Lint.Fix{title, Nil{}}:
       False{}
     case Lint.Fix{title, ops}:
-      Fix.safe.go(ops, comments, True{})
+      Fix.is_safe.go(ops, comments, True{})
 
-def Plan.allowed(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Set()) -> Bool:
+def Plan.allows(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Set()) -> Bool:
   match fixing:
     case None{}:
       False{}
     case Some{False{}}:
-      Fix.safe(fix, comments)
+      Fix.is_safe(fix, comments)
     case Some{True{}}:
       True{}
 
@@ -490,7 +490,7 @@ def Plan.picked(
         rest,
         fixing,
         comments,
-        Lists.push(Lint.Fix, Lists.when(Lint.Fix, Plan.allowed(fixing, fix, comments), fix), out)
+        Lists.push(Lint.Fix, Lists.when(Lint.Fix, Plan.allows(fixing, fix, comments), fix), out)
       )
 
 # What each of `fixes` asks for, in order, numbered from `fix`; None for a fix with an operation the linter cannot
@@ -611,7 +611,7 @@ def Change.edits(
     case Con{Sought{spot}, rest}:
       Change.edits(rest, texts, out)
 
-def Spotted.mine(spotted: List<&2, Spotted>, fix: U32) -> Bool:
+def Spotted.is_mine(spotted: List<&2, Spotted>, fix: U32) -> Bool:
   match spotted:
     case Con{Spotted{f, edit}, rest}:
       U32.is_eq(f, fix)
@@ -638,7 +638,7 @@ def Spotted.take(
   & List<&2, Spotted>:
   match spotted mine:
     case Con{Spotted{f, edit}, +rest} True{}:
-      Spotted.take(rest, fix, Spotted.mine(rest, fix), Spotted.add(edit, out))
+      Spotted.take(rest, fix, Spotted.is_mine(rest, fix), Spotted.add(edit, out))
     case _ _:
       (out, spotted)
 
@@ -647,10 +647,10 @@ def Spotted.take(
 def Spans.of(spans: Map<&2, Text.Spans>, path: String) -> Text.Spans:
   Pair.snd(Map<&2, Text.Spans>, Text.Spans, Map.get(Text.Spans, Text.SLeaf{}, spans, path))
 
-def Spans.clash(edits: List<&2, Text.Edit>, spans: Map<&2, Text.Spans>) -> Bool:
+def Spans.clashes(edits: List<&2, Text.Edit>, spans: Map<&2, Text.Spans>) -> Bool:
   match edits:
     case Con{Text.Edit{path, beg, end, text}, rest}:
-      Text.Spans.touch(Spans.of(spans, path), beg, end)
+      Text.Spans.touches(Spans.of(spans, path), beg, end)
     case Nil{}:
       False{}
 
@@ -679,7 +679,7 @@ def Spans.with(
           Text.Spans.cmp(Spans.of(spans, path), beg, end)
         )
       )
-      Spans.with(rest, next, Spans.clash(rest, next))
+      Spans.with(rest, next, Spans.clashes(rest, next))
 
 def Plan.add(spans: Maybe<&2, Map<&2, Text.Spans>>, edits: List<&2, Text.Edit>, plan: Plan) -> Plan:
   match spans plan:
@@ -692,7 +692,7 @@ def Plan.add(spans: Maybe<&2, Map<&2, Text.Spans>>, edits: List<&2, Text.Edit>, 
 def Plan.fix(edits: Maybe<&2, List<&2, Text.Edit>>, +plan: Plan) -> Plan:
   match edits plan:
     case Some{+es} Plan{kept, n, +spans}:
-      Plan.add(Spans.with(es, spans, Spans.clash(es, spans)), es, plan)
+      Plan.add(Spans.with(es, spans, Spans.clashes(es, spans)), es, plan)
     case None{} _:
       plan
 
@@ -725,7 +725,12 @@ def Works.go(
         rest,
         (fix + 1: U32),
         texts,
-        Works.step(w, texts, Spotted.take(spotted, fix, Spotted.mine(spotted, fix), Some{[]}), out)
+        Works.step(
+          w,
+          texts,
+          Spotted.take(spotted, fix, Spotted.is_mine(spotted, fix), Some{[]}),
+          out
+        )
       )
 
 def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
@@ -753,7 +758,7 @@ def edits(
     (
       Lists.sort(
         ~Spotted,
-        ~Spotted.le,
+        ~Spotted.is_le,
         Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, own, [])
       ),
       []
@@ -765,7 +770,7 @@ def Safety.ops(ops: List<&2, Lint.Operation>, out: Set()) -> Set():
     case Nil{}:
       out
     case Con{Lint.Replace{Lint.Span{path, beg, end}, text}, rest}:
-      Safety.ops(rest, Set.add(out, Bool.pick(String, Comment.is(text), path, "")))
+      Safety.ops(rest, Set.add(out, Bool.pick(String, Comment.is_one(text), path, "")))
     case Con{op, rest}:
       Safety.ops(rest, out)
 
@@ -805,8 +810,8 @@ def Safety.files(paths: List<&2, String>, +texts: Map<&2, String>, out: Set()) -
         )
       )
 
-# Where the comments are that `fixes` may write over, as keys, for `Fix.safe`: the comments of each of the program's own
-# files where one of them writes a comment. Only those files are read.
+# Where the comments are that `fixes` may write over, as keys, for `Fix.is_safe`: the comments of each of the program's
+# own files where one of them writes a comment. Only those files are read.
 def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Set():
   Safety.files(
     Set.to_list(Safety.paths(fixes, Set.new())),

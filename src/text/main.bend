@@ -17,7 +17,7 @@ def Edit.path(edit: Edit) -> String:
     case Edit{path, beg, end, text}:
       path
 
-def Edit.le(a: Edit, b: Edit) -> Bool:
+def Edit.is_le(a: Edit, b: Edit) -> Bool:
   match a b:
     case Edit{p, x, e, t} Edit{q, y, f, u}:
       U32.is_le(x, y)
@@ -27,7 +27,7 @@ def Edit.le(a: Edit, b: Edit) -> Bool:
 def apply.go(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, String>) -> String:
   match edits:
     case Nil{}:
-      Strings.joined(rest <> out, "")
+      Strings.onto(rest <> out, "")
     case Con{Edit{p, beg, +end, text}, more}:
       apply.go(
         more,
@@ -38,12 +38,12 @@ def apply.go(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, Strin
 
 # `text` with `edits` made. Edits must not overlap.
 def apply(edits: List<&2, Edit>, text: String) -> String:
-  apply.go(Lists.sort(~Edit, ~Edit.le, edits), text, 0, [])
+  apply.go(Lists.sort(~Edit, ~Edit.is_le, edits), text, 0, [])
 
 # Spans
 # =====
 
-# Spans that never touch (`Spans.touch`), by place: a balanced (AVL) tree, by start, then end; `height` counts its
+# Spans that never touch (`Spans.touches`), by place: a balanced (AVL) tree, by start, then end; `height` counts its
 # levels. As spans never touch, their ends rise with their starts.
 type Spans is Data:
   SLeaf{}
@@ -62,7 +62,7 @@ def Spans.node(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
   +hr = Spans.height(r)
   SNode{(Bool.pick(U32, U32.is_ge(hl, hr), hl, hr) + 1: U32), l, b, e, r}
 
-def Spans.lean_left.by(
+def Spans.lean_left.if(
   outer: Bool,
   ll: Spans,
   lb: U32,
@@ -83,11 +83,11 @@ def Spans.lean_left.by(
 def Spans.lean_left(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match l:
     case SNode{h, +ll, lb, le, +lr}:
-      Spans.lean_left.by(U32.is_ge(Spans.height(ll), Spans.height(lr)), ll, lb, le, lr, b, e, r)
+      Spans.lean_left.if(U32.is_ge(Spans.height(ll), Spans.height(lr)), ll, lb, le, lr, b, e, r)
     case SLeaf{}:
       Spans.node(SLeaf{}, b, e, r)
 
-def Spans.lean_right.by(
+def Spans.lean_right.if(
   outer: Bool,
   l: Spans,
   b: U32,
@@ -107,11 +107,11 @@ def Spans.lean_right.by(
 def Spans.lean_right(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match r:
     case SNode{h, +rl, rb, re, +rr}:
-      Spans.lean_right.by(U32.is_ge(Spans.height(rr), Spans.height(rl)), l, b, e, rl, rb, re, rr)
+      Spans.lean_right.if(U32.is_ge(Spans.height(rr), Spans.height(rl)), l, b, e, rl, rb, re, rr)
     case SLeaf{}:
       Spans.node(l, b, e, SLeaf{})
 
-def Spans.balance.by(left: Bool, right: Bool, l: Spans, b: U32, e: U32, r: Spans) -> Spans:
+def Spans.balance.if(left: Bool, right: Bool, l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match left right:
     case True{} _:
       Spans.lean_left(l, b, e, r)
@@ -124,7 +124,7 @@ def Spans.balance.by(left: Bool, right: Bool, l: Spans, b: U32, e: U32, r: Spans
 def Spans.balance(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
   +hl = Spans.height(l)
   +hr = Spans.height(r)
-  Spans.balance.by(U32.is_gt(hl, (hr + 1: U32)), U32.is_gt(hr, (hl + 1: U32)), l, b, e, r)
+  Spans.balance.if(U32.is_gt(hl, (hr + 1: U32)), U32.is_gt(hr, (hl + 1: U32)), l, b, e, r)
 
 def Spans.cmp.of(starts: Cmp, e: U32, y: U32) -> Cmp:
   match starts:
@@ -191,22 +191,27 @@ def Spans.ends_after(last: Maybe<&2, U32>, b: U32) -> Bool:
       False{}
 
 # Whether the span from `b` to `e` touches one of `t`: they share a character, or two insertions are at one place.
-def Spans.touch.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
+def Spans.touches.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
   match insertion:
     case True{}:
       Spans.has(t, b, e, Spans.cmp(t, b, e))
     case False{}:
       False{}
 
-def Spans.touch.of(shares: Bool, t: Spans, +b: U32, +e: U32) -> Bool:
+def Spans.touches.of(shares: Bool, t: Spans, +b: U32, +e: U32) -> Bool:
   match shares:
     case True{}:
       True{}
     case False{}:
-      Spans.touch.insertion(U32.is_eq(b, e), t, b, e)
+      Spans.touches.insertion(U32.is_eq(b, e), t, b, e)
 
-def Spans.touch(+t: Spans, +b: U32, +e: U32) -> Bool:
-  Spans.touch.of(Spans.ends_after(Spans.last(t, e, None{}, Spans.starts_before(t, e)), b), t, b, e)
+def Spans.touches(+t: Spans, +b: U32, +e: U32) -> Bool:
+  Spans.touches.of(
+    Spans.ends_after(Spans.last(t, e, None{}, Spans.starts_before(t, e)), b),
+    t,
+    b,
+    e
+  )
 
 # Places
 # ======
@@ -230,12 +235,12 @@ type Located is Data:
 type Walk is Data:
   Walk{pending: List<&2, Placed>, out: List<&2, Located>}
 
-def Placed.le(a: Placed, b: Placed) -> Bool:
+def Placed.is_le(a: Placed, b: Placed) -> Bool:
   match a b:
     case Placed{i, x} Placed{j, y}:
       U32.is_le(x, y)
 
-def Located.le(a: Located, b: Located) -> Bool:
+def Located.is_le(a: Located, b: Located) -> Bool:
   match a b:
     case Located{i, x} Located{j, y}:
       U32.is_le(i, j)
@@ -247,7 +252,7 @@ def Placed.of(offsets: List<&2, U32>, +index: U32, out: List<&2, Placed>) -> Lis
     case Con{o, rest}:
       Placed.of(rest, (index + 1: U32), Placed{index, o} <> out)
 
-def Walk.due(pending: List<&2, Placed>, at: U32) -> Bool:
+def Walk.is_due(pending: List<&2, Placed>, at: U32) -> Bool:
   match pending:
     case Con{Placed{i, offset}, rest}:
       U32.is_le(offset, at)
@@ -267,7 +272,7 @@ def Walk.emit(
     case Con{Placed{i, offset}, +rest} True{}:
       Walk.emit(
         rest,
-        Walk.due(rest, at),
+        Walk.is_due(rest, at),
         at,
         line,
         column,
@@ -302,7 +307,7 @@ def Walk.go(text: String, +at: U32, +line: U32, column: U32, w: Walk) -> List<&2
         (at + 1: U32),
         l,
         col,
-        Walk.emit(pending, Walk.due(pending, (at + 1: U32)), (at + 1: U32), l, col, out)
+        Walk.emit(pending, Walk.is_due(pending, (at + 1: U32)), (at + 1: U32), l, col, out)
       )
 
 def Walk.positions(located: List<&2, Located>, out: List<&2, Position>) -> List<&2, Position>:
@@ -313,16 +318,16 @@ def Walk.positions(located: List<&2, Located>, out: List<&2, Position>) -> List<
       Walk.positions(rest, at <> out)
 
 # The offsets of `sorted` (in offset order) placed in `text`, in no order.
-def Walk.located(+sorted: List<&2, Placed>, text: String) -> List<&2, Located>:
-  Walk.go(text, 0, 1, 1, Walk.emit(sorted, Walk.due(sorted, 0), 0, 1, 1, []))
+def Walk.locate(+sorted: List<&2, Placed>, text: String) -> List<&2, Located>:
+  Walk.go(text, 0, 1, 1, Walk.emit(sorted, Walk.is_due(sorted, 0), 0, 1, 1, []))
 
 # Where each offset of `offsets` is in `text`, in order: one pass over the text, whatever the number of offsets.
 def positions(text: String, offsets: List<&2, U32>) -> List<&2, Position>:
   Walk.positions(
     Lists.sort(
       ~Located,
-      ~Located.le,
-      Walk.located(Lists.sort(~Placed, ~Placed.le, Placed.of(offsets, 0, [])), text)
+      ~Located.is_le,
+      Walk.locate(Lists.sort(~Placed, ~Placed.is_le, Placed.of(offsets, 0, [])), text)
     ),
     []
   )
@@ -377,8 +382,8 @@ def places.walk(
         groups,
         texts,
         places.keep(
-          Walk.located(
-            Lists.sort(~Placed, ~Placed.le, Names.Group.get(Placed, groups, path)),
+          Walk.locate(
+            Lists.sort(~Placed, ~Placed.is_le, Names.Group.get(Placed, groups, path)),
             Pair.snd(Map<&2, String>, String, Map.get(String, "", texts, path))
           ),
           path,

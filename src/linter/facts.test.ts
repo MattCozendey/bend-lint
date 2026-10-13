@@ -3,18 +3,15 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "./testing.ts";
+import { buildRule, BUILDS, getFindings, getRunOutcome } from "./testing.ts";
 import type { Found } from "./testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const [TYPES, BUDGET, BINDERS, TERMS, USES] = BUILDS
-  ? await Promise.all(
-      ["types", "budget", "binders", "terms", "uses"].map((name) => build("tests/" + name)),
-    )
-  : ["", "", "", "", ""];
+// The test rules this file runs: tests/<def> runs the def <def> of tests.bend.
+const RULES = ["types", "budget", "binders", "terms", "uses"].map((name) => "tests/" + name);
+const [TYPES, BUDGET, BINDERS, TERMS, USES] = RULES;
 
 const UTIL = "import Base\n\ntype T is Data:\n  A{}\n  B{}\n";
 
@@ -25,26 +22,37 @@ const SHAPE = "import Base\n\ntype Shape is Data:\n  Circle{r: U32}\n  Rect{w: U
 // Functions
 // =========
 
-const found = async (
+const getReports = async (
   program: string,
   main: string,
 ): Promise<Array<Pick<Found, "at" | "message">>> =>
-  (await lint(program, { "main.bend": main, "util.bend": UTIL, "law.bend": LAW }, "main.bend")).map(
-    ({ at, message }) => ({ at, message }),
-  );
+  (
+    await getFindings(
+      program,
+      { "main.bend": main, "util.bend": UTIL, "law.bend": LAW },
+      "main.bend",
+    )
+  ).map(({ at, message }) => ({ at, message }));
 
 // Side effects
 // ============
 
+await Promise.all(RULES.map(buildRule));
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)("facts", () => {
   test("a later run sees each file as it is now, the checker's types included", async () => {
-    const add = (t: string): string =>
+    const getAddFile = (t: string): string =>
       `import Base\n\ndef add(a: ${t}, b: ${t}) -> ${t}:\n  (a + b : ${t})\n`;
-    const first = await run(TYPES, { "main.bend": add("U32") }, "main.bend");
-    const again = await run(TYPES, {}, "main.bend", [], first.dir);
-    const changed = await run(TYPES, { "main.bend": add("F32") }, "main.bend", [], first.dir);
+    const first = await getRunOutcome(TYPES, { "main.bend": getAddFile("U32") }, "main.bend");
+    const again = await getRunOutcome(TYPES, {}, "main.bend", [], first.dir);
+    const changed = await getRunOutcome(
+      TYPES,
+      { "main.bend": getAddFile("F32") },
+      "main.bend",
+      [],
+      first.dir,
+    );
     expect([first.out.includes("type: U32"), again.out, changed.out.includes("type: F32")]).toEqual(
       [true, first.out, true],
     );
@@ -52,7 +60,7 @@ setDefaultTimeout(120_000);
 
   test("a variable use has the type it was checked as; same types are the same", async () => {
     expect(
-      await found(TYPES, "import Base\n\ndef add(a: U32, b: U32) -> U32:\n  (a + b : U32)\n"),
+      await getReports(TYPES, "import Base\n\ndef add(a: U32, b: U32) -> U32:\n  (a + b : U32)\n"),
     ).toEqual([
       { at: "4:4", message: "type: U32" },
       { at: "4:8", message: "type: U32" },
@@ -62,7 +70,7 @@ setDefaultTimeout(120_000);
 
   test("different types are different", async () => {
     expect(
-      await found(
+      await getReports(
         TYPES,
         "import Base\n\ndef size(s: String, n: U32) -> U32:\n  (U32.from_nat(String.length(s)) + n : U32)\n",
       ),
@@ -75,7 +83,7 @@ setDefaultTimeout(120_000);
 
   test("a type is shown as the file spells it", async () => {
     expect(
-      await found(
+      await getReports(
         TYPES,
         "import Base\nimport ./util.bend as U\n\ndef push(t: U.T, xs: List<&2, U.T>) -> List<&2, U.T>:\n  t <> xs\n",
       ),
@@ -88,7 +96,7 @@ setDefaultTimeout(120_000);
 
   test("a binder has the type it declares, with its quantity, also when nothing uses it", async () => {
     expect(
-      await found(
+      await getReports(
         BINDERS,
         SHAPE +
           "def area(x: Shape, k: U32) -> U32:\n  match x:\n    case Circle{r}:\n      (r * k : U32)\n    case Rect{w, h}:\n      w\n",
@@ -107,7 +115,7 @@ setDefaultTimeout(120_000);
 
   test("a binder is used as often as its body uses it, the most over its branches", async () => {
     expect(
-      await found(
+      await getReports(
         USES,
         SHAPE +
           "def area(x: Shape, k: U32) -> U32:\n  match x:\n    case Circle{r}:\n      (r * k : U32)\n    case Rect{w, h}:\n      w\n\n" +
@@ -126,7 +134,7 @@ setDefaultTimeout(120_000);
 
   test("a let's and a lambda's binders have the types they bind", async () => {
     expect(
-      await found(
+      await getReports(
         BINDERS,
         "import Base\n\ndef inc(+n: U32) -> U32:\n  f : U32 -> U32 = z => (z + n : U32)\n  f(n)\n",
       ),
@@ -139,7 +147,10 @@ setDefaultTimeout(120_000);
 
   test("a law's fill takes the law's types for its parameters", async () => {
     expect(
-      await found(BINDERS, "import Base\nimport ./law.bend as L\n\ndef L.same_id(e):\n  {==}\n"),
+      await getReports(
+        BINDERS,
+        "import Base\nimport ./law.bend as L\n\ndef L.same_id(e):\n  {==}\n",
+      ),
     ).toEqual([{ at: "4:15", message: "e (once): U32" }]);
   });
 
@@ -148,24 +159,24 @@ setDefaultTimeout(120_000);
       SHAPE +
       "def again(x: Shape) -> Shape:\n  match x:\n    case Circle{r}:\n      x\n    case Rect{w, h}:\n      x\n";
     expect(
-      (await found(TYPES, main)).filter(
+      (await getReports(TYPES, main)).filter(
         ({ at, message }) => (at === "10:7" || at === "12:7") && message !== "type: Shape",
       ),
     ).toEqual([]);
-    expect((await found(BINDERS, main)).filter(({ at }) => at === "7:11")).toEqual([
+    expect((await getReports(BINDERS, main)).filter(({ at }) => at === "7:11")).toEqual([
       { at: "7:11", message: "x (once): Shape" },
     ]);
   });
 
   test("a term has the type it has, not each type it is checked against", async () => {
-    expect(await found(TYPES, "import Base\n\ndef up(A: Data) -> Type:\n  A\n")).toEqual([
+    expect(await getReports(TYPES, "import Base\n\ndef up(A: Data) -> Type:\n  A\n")).toEqual([
       { at: "4:3", message: "type: Data" },
     ]);
   });
 
   test("in a do-block, each variable has its own type", async () => {
     expect(
-      await found(
+      await getReports(
         TYPES,
         "import Base\n\ndef say(m: IO(Unit)) -> IO(U32):\n  do IO<U32>:\n    m\n    n : U32 <- IO.pure(U32, 3)\n    return n\n",
       ),
@@ -178,7 +189,7 @@ setDefaultTimeout(120_000);
 
   test("types that name different binders are different, though written alike", async () => {
     expect(
-      await found(
+      await getReports(
         TYPES,
         "import Base\n\ndef f(-A: Type, x: A) -> A:\n  x\n\ndef g(-B: Type, y: B) -> B:\n  y\n",
       ),
@@ -192,27 +203,27 @@ setDefaultTimeout(120_000);
   test("a template's parameter is shown as written, and a call to a template has its type", async () => {
     const main =
       "import Base\n\ndef tid(~A: Data, x: A) -> A:\n  x\n\ndef use(y: U32) -> U32:\n  tid(~U32, y)\n";
-    expect(await found(TYPES, main)).toEqual([
+    expect(await getReports(TYPES, main)).toEqual([
       { at: "4:3", message: "type: A" },
       { at: "7:13", message: "type: U32" },
       { at: "4:3", message: "the first two are different types" },
     ]);
-    expect(await found(TERMS, main)).toEqual([{ at: "7:3", message: "call: U32" }]);
+    expect(await getReports(TERMS, main)).toEqual([{ at: "7:3", message: "call: U32" }]);
   });
 
   test("a char literal is a Char, and no literal in it is", async () => {
-    const terms = await found(TERMS, "import Base\n\ndef c() -> Char:\n  'a'\n");
+    const terms = await getReports(TERMS, "import Base\n\ndef c() -> Char:\n  'a'\n");
     expect(terms).toContainEqual({ at: "4:3", message: "construction: Char" });
     expect(terms).not.toContainEqual({ at: "4:3", message: "literal: Char" });
   });
 
   test("a file with no variable uses asks nothing", async () => {
-    expect(await found(TYPES, "import Base\n\ndef one() -> U32:\n  1\n")).toEqual([]);
+    expect(await getReports(TYPES, "import Base\n\ndef one() -> U32:\n  1\n")).toEqual([]);
   });
 
   test("a file whose check fails gets no facts, and a note names the rules that need them", async () => {
     const broken = 'import Base\n\ndef main() -> U32:\n  "not a number"\n';
-    const ran = await run(TYPES, { "main.bend": broken }, "main.bend");
+    const ran = await getRunOutcome(TYPES, { "main.bend": broken }, "main.bend");
     expect([ran.code, ran.out.trim(), ran.err.trim().split("\n")]).toEqual([
       0,
       "bend-lint: 0 finding(s)",
@@ -225,7 +236,7 @@ setDefaultTimeout(120_000);
   });
 
   test("a rule that asks past the round budget fails, and says so", async () => {
-    expect(await found(BUDGET, "import Base\n\ndef id(x: U32) -> U32:\n  x\n")).toEqual([
+    expect(await getReports(BUDGET, "import Base\n\ndef id(x: U32) -> U32:\n  x\n")).toEqual([
       {
         at: "1:1",
         message: "The rule tests/budget asked the checker more rounds than its budget.",

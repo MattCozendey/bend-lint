@@ -47,7 +47,7 @@ def line_end.go(s: String, i: U32) -> U32:
 def line_end(text: String, +beg: U32) -> U32:
   line_end.go(String.drop(text, U32.to_nat(beg)), beg)
 
-def starts(s: String, c: Char) -> Bool:
+def starts_with(s: String, c: Char) -> Bool:
   match s:
     case SCon{h, t}:
       Char.is_eq(h, c)
@@ -61,11 +61,11 @@ def before.go(s: String, +sep: Char, acc: String, at: Bool) -> String:
     case _ True{}:
       String.reverse(acc)
     case SCon{c, +rest} False{}:
-      before.go(rest, sep, SCon{c, acc}, starts(rest, sep))
+      before.go(rest, sep, SCon{c, acc}, starts_with(rest, sep))
 
 # What comes before the first `sep` of `s`, or "" if there is none.
 def before(+s: String, +sep: Char) -> String:
-  before.go(s, sep, "", starts(s, sep))
+  before.go(s, sep, "", starts_with(s, sep))
 
 def after_last.go(s: String, +sep: Char, seg: String) -> String:
   match s:
@@ -79,9 +79,9 @@ def after_last(s: String, sep: Char) -> String:
   after_last.go(s, sep, "")
 
 # The chunks of `chunks` (last first) as one text, before `out`. Each chunk is copied once, so it is linear.
-def joined(chunks: List<&2, String>, out: String) -> String:
+def onto(chunks: List<&2, String>, out: String) -> String:
   match chunks:
     case Nil{}:
       out
     case Con{c, rest}:
-      joined(rest, c ++ out)
+      onto(rest, c ++ out)

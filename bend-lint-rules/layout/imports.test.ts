@@ -3,13 +3,12 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { build, BUILDS, lint, run } from "../../src/linter/testing.ts";
+import { buildRule, BUILDS, getFindings, getRunOutcome } from "../../src/linter/testing.ts";
 
 // Constants
 // =========
 
-// Built once, before the tests; nothing to build when bend does not run.
-const PROGRAM = BUILDS ? await build("layout/imports") : "";
+const RULE = "layout/imports";
 
 const LEAF = "import Base\n\ndef one() -> U32:\n  1\n";
 
@@ -21,10 +20,10 @@ const MESSAGE = "Order the imports: import Base first, then by path and alias, e
 // =========
 
 // What the rule finds in `named`, beside a.bend, b.bend and sub/c.bend.
-const found = async (text: string, named = "main.bend"): Promise<string[]> =>
+const getReports = async (text: string, named = "main.bend"): Promise<string[]> =>
   (
-    await lint(
-      PROGRAM,
+    await getFindings(
+      RULE,
       { [named]: text, "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF },
       named,
     )
@@ -33,12 +32,13 @@ const found = async (text: string, named = "main.bend"): Promise<string[]> =>
 // Side effects
 // ============
 
+await buildRule(RULE);
 setDefaultTimeout(120_000);
 
-(BUILDS ? describe : describe.skip)("layout/imports", () => {
+(BUILDS ? describe : describe.skip)(RULE, () => {
   test("Base first, then sorted by path, passes", async () => {
     expect(
-      await found(
+      await getReports(
         "import Base\nimport ../a.bend as A\nimport ./c.bend as C\n" + MAIN,
         "sub/main.bend",
       ),
@@ -47,7 +47,7 @@ setDefaultTimeout(120_000);
 
   test("Base after another import, or paths out of order, are reported at the block", async () => {
     expect(
-      await found(
+      await getReports(
         "import ./c.bend as C\nimport ../b.bend as B\nimport Base\nimport ../a.bend as A\n" + MAIN,
         "sub/main.bend",
       ),
@@ -56,7 +56,7 @@ setDefaultTimeout(120_000);
 
   test("a comment line stays with the import below it; a header is not in the block", async () => {
     expect(
-      await found(
+      await getReports(
         "# header\nimport Base\n# about a\nimport ./a.bend as A\nimport ./b.bend as B  # bee\n" +
           MAIN,
       ),
@@ -64,29 +64,31 @@ setDefaultTimeout(120_000);
   });
 
   test("a blank line in the block is reported", async () => {
-    expect(await found("import Base\n\nimport ./a.bend as A\n" + MAIN)).toEqual(["1:1 " + MESSAGE]);
+    expect(await getReports("import Base\n\nimport ./a.bend as A\n" + MAIN)).toEqual([
+      "1:1 " + MESSAGE,
+    ]);
   });
 
   test("a second import of a file is reported, also through another path", async () => {
     expect(
-      await found("import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN),
+      await getReports("import Base\nimport ./a.bend as A\nimport ./a.bend as Again\n" + MAIN),
     ).toEqual(["1:1 " + MESSAGE]);
     expect(
-      await found("import Base\nimport ./a.bend as A\nimport a.bend as Again\n" + MAIN),
+      await getReports("import Base\nimport ./a.bend as A\nimport a.bend as Again\n" + MAIN),
     ).toEqual(["1:1 " + MESSAGE]);
-    expect(await found("import Base\nimport ./a.bend as A\nimport Base\n" + MAIN)).toEqual([
+    expect(await getReports("import Base\nimport ./a.bend as A\nimport Base\n" + MAIN)).toEqual([
       "1:1 " + MESSAGE,
     ]);
   });
 
   test("a file without imports passes", async () => {
-    expect(await found("type N is Data:\n  Z{}\n")).toEqual([]);
+    expect(await getReports("type N is Data:\n  Z{}\n")).toEqual([]);
   });
 
   test("--fix-dangerously writes the block in order, each file once", async () => {
     const files = { "a.bend": LEAF, "b.bend": LEAF, "sub/c.bend": LEAF };
-    const ordered = await run(
-      PROGRAM,
+    const ordered = await getRunOutcome(
+      RULE,
       {
         ...files,
         "sub/main.bend":
@@ -104,8 +106,8 @@ setDefaultTimeout(120_000);
   test("--fix-dangerously points the uses of a dropped import at the kept one", async () => {
     const uses =
       "\ndef Again.same(x):\n  {==}\n\ndef main() -> U32:\n  (Again.one() + A.one() : U32)\n";
-    const ran = await run(
-      PROGRAM,
+    const ran = await getRunOutcome(
+      RULE,
       {
         "a.bend": LEAF + "\nlaw same:\n  for x: Nat\n  {x == x : Nat}\n",
         "main.bend":

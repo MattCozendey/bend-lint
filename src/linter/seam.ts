@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
-// The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs the
-// program of the rules bend-lint.json names (see programOf), and answers its requests about Bend
-// files over local TCP until the program exits (Seam in cli.bend sends them, and reads the
-// answers). A check's answer is the linter's program, as Bend's parser and checker give it: each
-// file's syntax tree, and, for facts, what the checker found on its nodes (Lint.Source, in
+// The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs
+// the program of the rules bend-lint.json names (see getRulesProgram), and answers its requests
+// about Bend files over local TCP until the program exits (Seam in cli.bend sends them, and reads
+// the answers). A check's answer is the linter's program, as Bend's parser and checker give it:
+// each file's syntax tree, and, for facts, what the checker found on its nodes (Lint.Source, in
 // lint.bend). When Bend's checker is Bend, glue in Bend makes the same program, and the code here
 // that knows bend.ts goes, so mutation and any optimization are fair here. Node 24.2 or later runs
 // a built program too, but a large program needs --max-old-space-size=8192.
 //
-// It loads a copy of bend.ts in which each TRACED function reports its calls: the parser's give each
-// file's syntax before lowering; the checker's judgments, on each def's elaborated body, give the
-// facts. What a rule sees is lint.bend's contract, not Bend's: when the checker is Bend, its glue
-// makes each part from what that checker gives, or bend-lint computes it.
+// It loads a copy of bend.ts in which each TRACED function reports its calls: the parser's give
+// each file's syntax before lowering; the checker's judgments, on each def's elaborated body, give
+// the facts. What a rule sees is lint.bend's contract, not Bend's: when the checker is Bend, its
+// glue makes each part from what that checker gives, or bend-lint computes it.
 //
 // | What a rule sees               | Now, from                         | Risk   |
 // | ------------------------------ | --------------------------------- | ------ |
@@ -20,7 +20,7 @@
 // | declarations and their uses    | lint.bend, our own code           | none   |
 // | syntax before lowering         | the parser's calls (KEPT)         | medium |
 // | quantity, used                 | the judgments (JUDGED)            | high   |
-// | which node a fact is on        | span values (`fits`)              | medium |
+// | which node a fact is on        | span values (`isNodeOf`)          | medium |
 //
 // - Syntax before lowering: else bend-lint calls Bend's parse functions itself, as KEPT follows
 //   them now.
@@ -45,10 +45,10 @@ import type * as BendModule from "bend2/bend.ts";
 
 import pkg from "../../package.json" with { type: "json" };
 import {
-  findClangOrUndefined,
   getBendCli,
   getBendLintCacheDir,
-  getBendVersionNoteOrUndefined,
+  getBendVersionNote,
+  getClang,
   JAVASCRIPT_NOTE,
   PINNED_BEND_NOTE,
   tryGetBend2SourceUrl,
@@ -59,8 +59,8 @@ import {
   getErrorMessageFromUnknown,
   getPathWithForwardSlashes,
   getSha256Hex,
-  tryGetJsonOrUndefined,
-  tryGetOrUndefined,
+  tryGet,
+  tryGetJson,
   tryWriteJsonAtomically,
   writeFileAtomically,
 } from "../shared/utils.ts";
@@ -75,7 +75,7 @@ type Loaded = { Bend: Bend; base: Book };
 // What a check's answer depends on besides its files (this server, the patched bend.ts and Base,
 // as one digest), and Bend, loaded when a check or a question first needs it: an answer from the
 // cache needs none.
-type Checker = { version: string; loaded: () => Promise<Loaded> };
+type Checker = { version: string; getLoaded: () => Promise<Loaded> };
 
 // A check's answer as the cache keeps it, with 0 for its number: the files it read, each with the
 // digest of the text it read, the answer's digest, and how many types it names.
@@ -103,7 +103,8 @@ type Answered = {
 };
 
 // The answers to questions about a check's types, by question with its checks numbered 0, kept
-// beside its cache entry (`digest` is the entry's): a later run that asks them checks nothing again.
+// beside its cache entry (`digest` is the entry's): a later run that asks them checks nothing
+// again.
 type Memo = { digest: string; answers: Record<string, string> };
 
 // An exact edit of bend.ts: the text it must find once, and its replacement.
@@ -116,7 +117,7 @@ type Hook = (f: Traced, args: unknown[]) => unknown;
 
 // What the server shares with its copy of bend.ts on globalThis: the fs and path the copy uses,
 // and, once the copy loads, its setter of hooks.
-type Shared = { fs: object; path: object; hook?: (name: string, hook?: Hook) => void };
+type Shared = { fs: object; path: object; setHook?: (name: string, hook?: Hook) => void };
 
 // A traced call that a Frame KEPT: its name, arguments and result, where the parser is after it
 // (-1 if it failed, or has no parser), and the calls it made that it KEPT.
@@ -187,12 +188,12 @@ type Parsed = {
 type Placer = {
   parser: unknown;
   text: string;
-  unit: (off: number) => number;
-  point: (unit: number) => number;
+  getUnit: (off: number) => number;
+  getPoint: (unit: number) => number;
 };
 
 // What building one declaration's trees reads: its file's placer, the check's declarations and
-// constructors, and the spans that references own so far (see `reference`).
+// constructors, and the spans that references own so far (see `getReference`).
 type Builder = { at: Placer; book: Book; owned: Set<string> };
 
 // A binder of a telescope, as the parser reads it: its quantity, name, level, type and span.
@@ -334,8 +335,8 @@ const TAGS = {
   PatternConstructor: "X",
 } as const;
 
-// The kind of node each kind of term makes; but a variable can name a global (see `term`), and the
-// applications at one span make one call (see `application`).
+// The kind of node each kind of term makes; but a variable can name a global (see `getTermTree`),
+// and the applications at one span make one call (see `getApplication`).
 const KINDS: Record<LTerm["$"], Syntax> = {
   Var: "Variable",
   Ref: "Reference",
@@ -382,7 +383,7 @@ const HOOKED = new Map<string, Hook | undefined>();
 // each call in bend.ts goes through the hook, and a function without one runs as it is.
 const PROBES = `
 const BEND_LINT_ORIGINALS = { ${TRACED.join(", ")} };
-globalThis.BEND_LINT.hook = (name, hook) => {
+globalThis.BEND_LINT.setHook = (name, hook) => {
   switch (name) {
 ${TRACED.map(
   (name) => `    case "${name}":
@@ -419,16 +420,16 @@ const PRUNE_EVERY = 24 * 60 * 60 * 1000;
 // Functions
 // =========
 
-const field = (text: string): string => text.replace(/[\\\t\n]/g, (c) => ESCAPES[c]);
+const getEscapedField = (text: string): string => text.replace(/[\\\t\n]/g, (c) => ESCAPES[c]);
 
-const unfield = (text: string): string =>
+const getUnescapedField = (text: string): string =>
   text.replace(/\\(.)/g, (_, c: string) => (c === "t" ? "\t" : c === "n" ? "\n" : c));
 
-const record = (fields: string[]): string => fields.map(field).join("\t") + "\n";
+const getRecord = (fields: string[]): string => fields.map(getEscapedField).join("\t") + "\n";
 
 // A fresh book that holds Base, as main.ts's book_seed makes it: in book_nil's tables, which have
 // no prototype, so a name such as `toString` is free.
-const seeded = (Bend: Bend, base: Book): Book => {
+const getSeededBook = (Bend: Bend, base: Book): Book => {
   const book = Bend.book_nil();
   for (const [k, tld] of Object.entries(base.tlds)) {
     book.tlds[k] = { ...tld };
@@ -445,7 +446,7 @@ const seeded = (Bend: Bend, base: Book): Book => {
 // finds base.bend where the original does: `true ? dir :` puts Bend's own expression in a branch
 // that never runs. Each edit's first string, and each TRACED function, must occur once in the text
 // the edits before it left. Line ends become LF first.
-const patched = (dir: string, src: string): string =>
+const getPatchedText = (dir: string, src: string): string =>
   (
     [
       ...EDITS,
@@ -466,8 +467,8 @@ const patched = (dir: string, src: string): string =>
   ) + PROBES;
 
 // The patched copy of the bend.ts in `dir`, written once to the cache.
-const copied = (dir: URL): URL => {
-  const text = patched(
+const getPatchedCopy = (dir: URL): URL => {
+  const text = getPatchedText(
     getPathWithForwardSlashes(url.fileURLToPath(dir)),
     nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
@@ -478,10 +479,11 @@ const copied = (dir: URL): URL => {
   return file;
 };
 
-const realpath = (p: nodeFs.PathLike): string => getPathWithForwardSlashes(nodeFs.realpathSync(p));
+const getRealPath = (p: nodeFs.PathLike): string =>
+  getPathWithForwardSlashes(nodeFs.realpathSync(p));
 
 // path.posix.resolve, where a drive letter is a root.
-const resolvePosix = (...ps: string[]): string => {
+const getResolvedPosixPath = (...ps: string[]): string => {
   const all = [process.cwd(), ...ps].map(getPathWithForwardSlashes);
   const drive =
     all
@@ -491,14 +493,14 @@ const resolvePosix = (...ps: string[]): string => {
   return drive + nodePath.posix.resolve(...all.map((p) => p.replace(DRIVE, "")));
 };
 
-const relativePosix = (from: string, to: string): string =>
+const getRelativePosixPath = (from: string, to: string): string =>
   nodePath.posix.relative(
     getPathWithForwardSlashes(from).replace(DRIVE, ""),
     getPathWithForwardSlashes(to).replace(DRIVE, ""),
   );
 
 // Node's readFileSync, which keeps in READS each text it reads.
-const readFileSync = ((p: nodeFs.PathOrFileDescriptor, options?: unknown) => {
+const getKeptRead = ((p: nodeFs.PathOrFileDescriptor, options?: unknown) => {
   const read = nodeFs.readFileSync(p, options as BufferEncoding);
   if (typeof read === "string") {
     READS.set(String(p), read);
@@ -509,20 +511,20 @@ const readFileSync = ((p: nodeFs.PathOrFileDescriptor, options?: unknown) => {
 // What the server Shares with its copy of bend.ts: Node's fs and path, with each path they give
 // real and with `/`, as Bend resolves imports with path.posix, where a drive letter is a root; and
 // each text Bend reads kept.
-const shared = (): Shared => ({
-  fs: { ...nodeFs, realpathSync: realpath, readFileSync },
+const getShared = (): Shared => ({
+  fs: { ...nodeFs, realpathSync: getRealPath, readFileSync: getKeptRead },
   path: {
     ...nodePath,
     join: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.join(...ps)),
     resolve: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.resolve(...ps)),
-    posix: { ...nodePath.posix, resolve: resolvePosix, relative: relativePosix },
+    posix: { ...nodePath.posix, resolve: getResolvedPosixPath, relative: getRelativePosixPath },
   },
 });
 
 // The checker of the bend2 sources in `dir`. The patched bend.ts is written now, so a drift stops
 // the run at once; Bend loads, and checks Base, once, when first needed.
-const load = (dir: URL): Checker => {
-  const bend = copied(dir);
+const getChecker = (dir: URL): Checker => {
+  const bend = getPatchedCopy(dir);
   let loading: Promise<Loaded> | undefined;
   return {
     version: getSha256Hex(
@@ -532,9 +534,9 @@ const load = (dir: URL): Checker => {
         nodeFs.readFileSync(new URL("base.bend", dir), "utf8"),
       ].join("\n"),
     ),
-    loaded: () =>
+    getLoaded: () =>
       (loading ??= (async () => {
-        (globalThis as { BEND_LINT?: Shared }).BEND_LINT = shared();
+        (globalThis as { BEND_LINT?: Shared }).BEND_LINT = getShared();
         const Bend = (await import(bend.href)) as Bend;
         const base = Bend.book_nil();
         await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
@@ -549,7 +551,7 @@ const load = (dir: URL): Checker => {
 const setHook = (name: string, hook?: Hook): void => {
   if (HOOKED.get(name) !== hook) {
     HOOKED.set(name, hook);
-    (globalThis as { BEND_LINT?: Shared }).BEND_LINT?.hook?.(name, hook);
+    (globalThis as { BEND_LINT?: Shared }).BEND_LINT?.setHook?.(name, hook);
   }
 };
 
@@ -567,15 +569,15 @@ const traceParsing = (root: Frame): void => {
     const keeps = KEPT[stack[stack.length - 1].name] ?? NONE;
     PARSED.forEach((name) => {
       if (hooked.has(name) !== keeps.has(name)) {
-        setHook(name, keeps.has(name) ? (f, args) => kept(name, f, args) : undefined);
+        setHook(name, keeps.has(name) ? (f, args) => getKeptCall(name, f, args) : undefined);
       }
     });
     hooked = keeps;
   };
-  const kept = (name: string, f: Traced, args: unknown[]): unknown => {
+  const getKeptCall = (name: string, f: Traced, args: unknown[]): unknown => {
     const p = args[0] as { pos?: number };
     const frame: Frame = { name, args, out: undefined, end: -1, kids: [] };
-    const done = (out: unknown): unknown => {
+    const getKeptOut = (out: unknown): unknown => {
       frame.out = out;
       frame.end = p.pos ?? -1;
       stack.pop();
@@ -592,7 +594,7 @@ const traceParsing = (root: Frame): void => {
     focus();
     try {
       const out = f(...args);
-      return out instanceof Promise ? out.then(done, fail) : done(out);
+      return out instanceof Promise ? out.then(getKeptOut, fail) : getKeptOut(out);
     } catch (e) {
       return fail(e);
     }
@@ -605,7 +607,7 @@ const traceParsing = (root: Frame): void => {
 // back the term of one inside it (an annotation's, say): the inner one made it, so it keeps it.
 const traceJudgments = (Bend: Bend, judgments: Map<LTerm, Judgment>): void => {
   const closed: Array<[number, Quant]> = [];
-  const judge = (f: Traced, args: unknown[], qt: Quant, ctx: Ctx, dep: number): unknown => {
+  const getJudged = (f: Traced, args: unknown[], qt: Quant, ctx: Ctx, dep: number): unknown => {
     const mark = closed.length;
     try {
       const judged = f(...args) as { tm: LTerm };
@@ -621,11 +623,11 @@ const traceJudgments = (Bend: Bend, judgments: Map<LTerm, Judgment>): void => {
   const hooks: Record<(typeof JUDGED)[number], Hook> = {
     term_infer: (f, args) => {
       const [, , , qt, ctx, dep] = args as Parameters<Bend["term_infer"]>;
-      return judge(f, args, qt, ctx, dep);
+      return getJudged(f, args, qt, ctx, dep);
     },
     term_check: (f, args) => {
       const [, , , qt, , ctx, dep] = args as Parameters<Bend["term_check"]>;
-      return judge(f, args, qt, ctx, dep);
+      return getJudged(f, args, qt, ctx, dep);
     },
     uses_close: (f, args) => {
       const [, , us, i] = args as Parameters<Bend["uses_close"]>;
@@ -642,18 +644,18 @@ const isFile = (o: unknown): o is File =>
 const isSpan = (o: object): o is Span => "file" in o && "beg" in o && "end" in o;
 
 // A key of a span's value: its file, start and end.
-const spanKey = (s: Span): string =>
+const getSpanKey = (s: Span): string =>
   (FILES.get(s.file) ?? FILES.set(s.file, FILES.size).size - 1) + ":" + s.beg + ":" + s.end;
 
-const spanEq = (a: Span | undefined, b: Span | undefined): boolean =>
+const isSameSpan = (a: Span | undefined, b: Span | undefined): boolean =>
   a === b ||
   (a !== undefined && b !== undefined && a.file === b.file && a.beg === b.beg && a.end === b.end);
 
 // The quantity an answer writes (Quantity.of in cli.bend reads it): erased, once or many.
-const quantity = (q: Quant): string => (q.$ === "None" ? "e" : q.$ === "Lone" ? "o" : "m");
+const getQuantityLetter = (q: Quant): string => (q.$ === "None" ? "e" : q.$ === "Lone" ? "o" : "m");
 
 // The most of two quantities, as the checker joins uses.
-const join = (a: Quant, b: Quant): Quant =>
+const getJoinedQuantity = (a: Quant, b: Quant): Quant =>
   b.$ === "Many" ? b : a.$ === "Many" ? a : a.$ === "None" ? b : a;
 
 // Files
@@ -662,11 +664,11 @@ const join = (a: Quant, b: Quant): Quant =>
 // The files that the loads among `frames` parsed, onto `out`, in the order Bend parsed them: a
 // file's imports first. A load of a file loaded before parses nothing. A file's text on disk is the
 // text its imports' spans are in: a file with no imports is read as it is.
-const parsedFiles = (frames: Frame[], out: Parsed[]): Parsed[] => {
+const getParsedFiles = (frames: Frame[], out: Parsed[]): Parsed[] => {
   frames
     .filter((load) => load.name === "book_load")
     .forEach((load) => {
-      parsedFiles(load.kids, out);
+      getParsedFiles(load.kids, out);
       const book = load.kids.find((f) => f.name === "parse_book");
       if (book !== undefined) {
         const loads = load.kids.filter((f) => f.name === "book_load");
@@ -687,13 +689,13 @@ const parsedFiles = (frames: Frame[], out: Parsed[]): Parsed[] => {
 };
 
 // The starts of the lines of `text`, in UTF-16 units.
-const lineStarts = (text: string): number[] => [
+const getLineStarts = (text: string): number[] => [
   0,
   ...Array.from(text.matchAll(/\n/g), (m) => m.index + 1),
 ];
 
 // How many of `xs`, ascending, are below `x`.
-const below = (xs: number[], x: number): number => {
+const getCountBelow = (xs: number[], x: number): number => {
   let [lo, hi] = [0, xs.length];
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
@@ -704,44 +706,44 @@ const below = (xs: number[], x: number): number => {
 
 // The placer of a parsed file: its parser reads it with its import lines blank, so an offset it
 // read is on disk at the same place of the same line.
-const placer = (file: Parsed): Placer => {
-  const read = lineStarts(file.read);
-  const disk = lineStarts(file.text);
+const getPlacer = (file: Parsed): Placer => {
+  const read = getLineStarts(file.read);
+  const disk = getLineStarts(file.text);
   const astral = Array.from(file.text.matchAll(/[\u{10000}-\u{10FFFF}]/gu), (m) => m.index);
   return {
     parser: file.parser,
     text: file.text,
-    unit: (off) => {
-      const line = below(read, off + 1) - 1;
+    getUnit: (off) => {
+      const line = getCountBelow(read, off + 1) - 1;
       return disk[line] + off - read[line];
     },
-    point: (unit) => unit - below(astral, unit),
+    getPoint: (unit) => unit - getCountBelow(astral, unit),
   };
 };
 
 // Where a span is written on disk, in code points, if the file's parser made it.
-const range = (at: Placer, s: Span | undefined): [number, number] | undefined =>
+const getRange = (at: Placer, s: Span | undefined): [number, number] | undefined =>
   s === undefined || s.file !== at.parser
     ? undefined
-    : [at.point(at.unit(s.beg)), at.point(at.unit(s.end))];
+    : [at.getPoint(at.getUnit(s.beg)), at.getPoint(at.getUnit(s.end))];
 
 // The text on disk from where the file's parser made `s` start to the end of its line.
-const line = (at: Placer, s: Span): string => {
-  const from = at.unit(s.beg);
+const getRestOfLine = (at: Placer, s: Span): string => {
+  const from = at.getUnit(s.beg);
   const end = at.text.indexOf("\n", from);
   return at.text.slice(from, end < 0 ? undefined : end);
 };
 
 // The name a span starts with, as the file writes it there; "" for none.
-const spelled = (at: Placer, s: Span | undefined): string =>
-  s === undefined || s.file !== at.parser ? "" : (NAME.exec(line(at, s))?.[0] ?? "");
+const getWrittenName = (at: Placer, s: Span | undefined): string =>
+  s === undefined || s.file !== at.parser ? "" : (NAME.exec(getRestOfLine(at, s))?.[0] ?? "");
 
 // The text of a span on disk, up to the end of its first line.
-const slice = (at: Placer, s: Span): string => {
-  const r = range(at, s);
+const getSpanText = (at: Placer, s: Span): string => {
+  const r = getRange(at, s);
   return r === undefined
     ? ""
-    : Array.from(line(at, s))
+    : Array.from(getRestOfLine(at, s))
         .slice(0, r[1] - r[0])
         .join("");
 };
@@ -749,7 +751,7 @@ const slice = (at: Placer, s: Span): string => {
 // Trees
 // -----
 
-const tree = (
+const getTree = (
   syntax: Syntax,
   name: string,
   range: [number, number] | undefined,
@@ -759,55 +761,59 @@ const tree = (
 ): Tree => ({ id: MADE.nodes++, syntax, name, range, kids, origin, notes: [], ...more });
 
 // The last part of a global name: after its last `.` or `:`.
-const last = (name: string): string => name.split(/[.:]/).at(-1) ?? "";
+const getLastPart = (name: string): string => name.split(/[.:]/).at(-1) ?? "";
 
 // A reference to `k` at `s`, written there if the span spells it (a name of `k`, or an operator)
 // and no reference of the declaration owns the span yet: a copy of one is the parser's.
-const reference = (b: Builder, k: string, s: Span | undefined): Tree => {
-  const name = spelled(b.at, s);
-  if (s === undefined || b.owned.has(spanKey(s)) || (name !== "" && last(name) !== last(k))) {
-    return tree("Reference", "", undefined, s, [], { target: k });
+const getReference = (b: Builder, k: string, s: Span | undefined): Tree => {
+  const name = getWrittenName(b.at, s);
+  if (
+    s === undefined ||
+    b.owned.has(getSpanKey(s)) ||
+    (name !== "" && getLastPart(name) !== getLastPart(k))
+  ) {
+    return getTree("Reference", "", undefined, s, [], { target: k });
   }
-  b.owned.add(spanKey(s));
-  return tree("Reference", name === "" ? slice(b.at, s) : name, range(b.at, s), s, [], {
+  b.owned.add(getSpanKey(s));
+  return getTree("Reference", name === "" ? getSpanText(b.at, s) : name, getRange(b.at, s), s, [], {
     target: k,
   });
 };
 
 // A use of the global name `k` at `s`, with its name as written.
-const used = (b: Builder, syntax: Syntax, k: string, s: Span | undefined, kids: Tree[]): Tree =>
-  tree(syntax, spelled(b.at, s), range(b.at, s), s, kids, { target: k });
+const getUse = (b: Builder, syntax: Syntax, k: string, s: Span | undefined, kids: Tree[]): Tree =>
+  getTree(syntax, getWrittenName(b.at, s), getRange(b.at, s), s, kids, { target: k });
 
-const quantified = (q: Quant | undefined): Partial<Tree> =>
-  q === undefined ? {} : { quantity: quantity(q) };
+const getQuantityFields = (q: Quant | undefined): Partial<Tree> =>
+  q === undefined ? {} : { quantity: getQuantityLetter(q) };
 
 // A call at `s`: the applications at one span are one call (`f(a, b)`, `a + b`), built as its
 // arguments, then its head. A call whose head shares its span is sugar: written (`A & B`,
 // `return x`) if it spans its written parts and no other part shares its span; else the parser's
 // (a do-block's bind).
-const application = (b: Builder, t: Extract<LTerm, { $: "App" }>): Tree => {
+const getApplication = (b: Builder, t: Extract<LTerm, { $: "App" }>): Tree => {
   const args = [t.x];
   let head = t.f;
-  while (t.s !== undefined && head.$ === "App" && spanEq(head.s, t.s)) {
+  while (t.s !== undefined && head.$ === "App" && isSameSpan(head.s, t.s)) {
     args.unshift(head.x);
     head = head.f;
   }
-  const kids = args.map((x) => term(b, x));
-  const h = term(b, head);
-  const at = range(b.at, t.s);
+  const kids = args.map((x) => getTermTree(b, x));
+  const h = getTermTree(b, head);
+  const at = getRange(b.at, t.s);
   const written =
-    !spanEq(h.origin, t.s) ||
+    !isSameSpan(h.origin, t.s) ||
     kids.every(
       (k) =>
-        !spanEq(k.origin, t.s) &&
+        !isSameSpan(k.origin, t.s) &&
         (k.range === undefined || (at !== undefined && at[0] <= k.range[0] && k.range[1] <= at[1])),
     );
-  return tree("Application", "", written ? at : undefined, t.s, [h, ...kids]);
+  return getTree("Application", "", written ? at : undefined, t.s, [h, ...kids]);
 };
 
 // The terms right under a term, in order, as the checker walks them: none under a variable (a value
 // it has is a substitution's), and only the term an annotation annotates.
-const subterms = (t: LTerm): LTerm[] => {
+const getSubterms = (t: LTerm): LTerm[] => {
   switch (t.$) {
     case "Sub":
       return [t.f];
@@ -840,106 +846,121 @@ const subterms = (t: LTerm): LTerm[] => {
 };
 
 // The trees of the terms right under `t`.
-const terms = (b: Builder, t: LTerm): Tree[] => subterms(t).map((x) => term(b, x));
+const getKids = (b: Builder, t: LTerm): Tree[] => getSubterms(t).map((x) => getTermTree(b, x));
 
 // The tree of a term, as the parser read it.
-const term = (b: Builder, t: LTerm): Tree => {
-  const at = range(b.at, t.s);
+const getTermTree = (b: Builder, t: LTerm): Tree => {
+  const at = getRange(b.at, t.s);
   switch (t.$) {
     case "Var":
       return t.v === undefined
-        ? tree("Variable", t.k, at, t.s, [], { binder: t.i })
-        : reference(b, t.v.$ === "Ref" ? t.v.k : "", t.s);
+        ? getTree("Variable", t.k, at, t.s, [], { binder: t.i })
+        : getReference(b, t.v.$ === "Ref" ? t.v.k : "", t.s);
     case "Ref":
-      return reference(b, t.k, t.s);
+      return getReference(b, t.k, t.s);
     case "Sub":
-      return tree("Substitution", "", at, t.s, [pattern(b, t.v), term(b, t.f)]);
+      return getTree("Substitution", "", at, t.s, [getPatternTree(b, t.v), getTermTree(b, t.f)]);
     case "Let":
-      return tree("Let", "", at, t.s, [
+      return getTree("Let", "", at, t.s, [
         ...t.k.map((k, n) =>
-          tree("Binding", k, undefined, t.s, [term(b, t.v[n])], {
+          getTree("Binding", k, undefined, t.s, [getTermTree(b, t.v[n])], {
             binder: t.i[n],
-            quantity: quantity(t.q[n]),
+            quantity: getQuantityLetter(t.q[n]),
           }),
         ),
-        term(b, t.f),
+        getTermTree(b, t.f),
       ]);
     case "Qua":
-      return tree("QuantityLiteral", "", at, t.s, [], quantified(t.q));
+      return getTree("QuantityLiteral", "", at, t.s, [], getQuantityFields(t.q));
     case "All":
-      return tree("Forall", t.k, at, t.s, terms(b, t), { binder: t.i, ...quantified(t.q) });
-    case "Lam":
-      return tree("Lambda", t.k, spelled(b.at, t.s) === t.k ? at : undefined, t.s, terms(b, t), {
+      return getTree("Forall", t.k, at, t.s, getKids(b, t), {
         binder: t.i,
-        ...quantified(t.q),
+        ...getQuantityFields(t.q),
       });
+    case "Lam":
+      return getTree(
+        "Lambda",
+        t.k,
+        getWrittenName(b.at, t.s) === t.k ? at : undefined,
+        t.s,
+        getKids(b, t),
+        { binder: t.i, ...getQuantityFields(t.q) },
+      );
     case "App":
-      return application(b, t);
+      return getApplication(b, t);
     case "ADT":
     case "Ctr":
-      return used(b, KINDS[t.$], t.k, t.s, terms(b, t));
+      return getUse(b, KINDS[t.$], t.k, t.s, getKids(b, t));
     case "Lit":
-      return tree("Literal", String(t.v), at, t.s, [], { target: t.k });
+      return getTree("Literal", String(t.v), at, t.s, [], { target: t.k });
     case "Mat":
-      return tree("Elimination", "", at, t.s, terms(b, t), { target: t.k });
+      return getTree("Elimination", "", at, t.s, getKids(b, t), { target: t.k });
     case "Hol":
-      return tree("Hole", t.k, at, t.s, []);
+      return getTree("Hole", t.k, at, t.s, []);
     case "Ann":
-      return tree("Annotation", "", at, t.s, [term(b, t.x), term(b, t.T)]);
+      return getTree("Annotation", "", at, t.s, [getTermTree(b, t.x), getTermTree(b, t.T)]);
     default:
-      return tree(KINDS[t.$], "", at, t.s, terms(b, t));
+      return getTree(KINDS[t.$], "", at, t.s, getKids(b, t));
   }
 };
 
-const pattern = (b: Builder, p: Patt): Tree =>
+const getPatternTree = (b: Builder, p: Patt): Tree =>
   p.$ === "PVar"
-    ? tree("PatternVariable", p.k, range(b.at, p.s), p.s, [], {
+    ? getTree("PatternVariable", p.k, getRange(b.at, p.s), p.s, [], {
         binder: p.i,
-        quantity: quantity(p.q),
+        quantity: getQuantityLetter(p.q),
       })
-    : used(
+    : getUse(
         b,
         "PatternConstructor",
         p.k,
         p.s,
-        p.x.map((x) => pattern(b, x)),
+        p.x.map((x) => getPatternTree(b, x)),
       );
 
 // The tree of a def's body, before it is lowered: a match, a destructuring let, or a term.
-const body = (b: Builder, x: Body): Tree => {
+const getBodyTree = (b: Builder, x: Body): Tree => {
   if (x.$ === "Match") {
-    return tree("Match", "", range(b.at, x.s), undefined, [
-      ...x.e.map((e) => term(b, e)),
+    return getTree("Match", "", getRange(b.at, x.s), undefined, [
+      ...x.e.map((e) => getTermTree(b, e)),
       ...x.r.map((c) =>
-        tree("Case", "", undefined, undefined, [...c.p.map((p) => pattern(b, p)), body(b, c.f)]),
+        getTree("Case", "", undefined, undefined, [
+          ...c.p.map((p) => getPatternTree(b, p)),
+          getBodyTree(b, c.f),
+        ]),
       ),
     ]);
   }
   if (x.$ === "Local") {
-    return tree(
+    return getTree(
       "Destructure",
       "",
       undefined,
       undefined,
-      [...x.k.map((p) => pattern(b, p)), ...x.v.map((v) => term(b, v)), body(b, x.f)],
-      quantified(x.q),
+      [
+        ...x.k.map((p) => getPatternTree(b, p)),
+        ...x.v.map((v) => getTermTree(b, v)),
+        getBodyTree(b, x.f),
+      ],
+      getQuantityFields(x.q),
     );
   }
-  return term(b, x);
+  return getTermTree(b, x);
 };
 
 // The binders of a telescope, closed by `close` (a type's fields are in braces), each over the
 // tree of its type; `templates` take `~`.
-const cells = (b: Builder, close: string, templates: string[], tele: Cell[]): Tree[] =>
+const getTelescopeTrees = (b: Builder, close: string, templates: string[], tele: Cell[]): Tree[] =>
   tele.map(([q, k, i, T, s]) => {
-    const kid = term(b, T);
-    return tree(close === "}" ? "Field" : "Parameter", k, range(b.at, s), s, [kid], {
+    const kid = getTermTree(b, T);
+    return getTree(close === "}" ? "Field" : "Parameter", k, getRange(b.at, s), s, [kid], {
       binder: i,
-      quantity: templates.includes(k) ? "t" : quantity(q),
+      quantity: templates.includes(k) ? "t" : getQuantityLetter(q),
     });
   });
 
-const under = (syntax: Syntax, kid: Tree): Tree => tree(syntax, "", undefined, undefined, [kid]);
+const getTreeOver = (syntax: Syntax, kid: Tree): Tree =>
+  getTree(syntax, "", undefined, undefined, [kid]);
 
 // Whether a kept call of the parser's is a declared name read, which ends where the parser is
 // after it.
@@ -947,28 +968,33 @@ const isHead = (f: Frame): boolean =>
   (f.name === "parse_fresh" || f.name === "parse_reso") && f.end >= 0 && typeof f.out === "string";
 
 // What a declaration's calls build: a telescope's binders, its return type, or its body.
-const unders = (b: Builder, frames: Frame[]): Tree[] =>
+const getDeclarationParts = (b: Builder, frames: Frame[]): Tree[] =>
   frames.flatMap((f) =>
     f.end < 0
       ? []
       : f.name === "parse_tele"
-        ? cells(b, f.args[1] as string, (f.args[2] as string[] | undefined) ?? [], f.out as Cell[])
+        ? getTelescopeTrees(
+            b,
+            f.args[1] as string,
+            (f.args[2] as string[] | undefined) ?? [],
+            f.out as Cell[],
+          )
         : f.name === "parse_term"
-          ? [under("Returns", term(b, f.out as LTerm))]
+          ? [getTreeOver("Returns", getTermTree(b, f.out as LTerm))]
           : f.name === "parse_body"
-            ? [under("Body", body(b, f.out as Body))]
+            ? [getTreeOver("Body", getBodyTree(b, f.out as Body))]
             : [],
   );
 
 // The declaration of what `syntax` is that a name read at `head` starts, over `kids`.
-const declared = (b: Builder, syntax: Syntax, head: Frame, kids: Tree[]): Tree => {
+const getDeclarationAt = (b: Builder, syntax: Syntax, head: Frame, kids: Tree[]): Tree => {
   const written = head.args[1] as string;
   const target = head.out as string;
   const tld = b.book.tlds[target] as TLD | undefined;
-  return tree(
+  return getTree(
     syntax,
     written,
-    range(b.at, { file: head.args[0] as File, beg: head.end - written.length, end: head.end }),
+    getRange(b.at, { file: head.args[0] as File, beg: head.end - written.length, end: head.end }),
     undefined,
     kids,
     { target, unsafe: syntax === "Definition" && tld?.$ === "Def" && tld.u === true },
@@ -977,10 +1003,12 @@ const declared = (b: Builder, syntax: Syntax, head: Frame, kids: Tree[]): Tree =
 
 // The declaration a file's calls from `head` on make: a def at the last name it reads; a
 // constructor; a type; or a law, whose signature is the type Bend builds from its clauses.
-const declaration = (b: Builder, [head, ...frames]: Frame[]): Tree[] => {
+const getDeclarationTrees = (b: Builder, [head, ...frames]: Frame[]): Tree[] => {
   if (head.name === "parse_def") {
     const name = head.kids.filter(isHead).at(-1);
-    return name === undefined ? [] : [declared(b, "Definition", name, unders(b, head.kids))];
+    return name === undefined
+      ? []
+      : [getDeclarationAt(b, "Definition", name, getDeclarationParts(b, head.kids))];
   }
   const syntax: Syntax =
     head.name === "parse_fresh" && head.args[2] === b.book.ctrs
@@ -990,50 +1018,50 @@ const declaration = (b: Builder, [head, ...frames]: Frame[]): Tree[] => {
         : "Law";
   const higher = frames.filter((f) => f.name === "term_higher").at(-1);
   return [
-    declared(
+    getDeclarationAt(
       b,
       syntax,
       head,
       syntax !== "Law"
-        ? unders(b, frames)
+        ? getDeclarationParts(b, frames)
         : higher === undefined
           ? []
-          : [under("Returns", term(b, higher.args[0] as LTerm))],
+          : [getTreeOver("Returns", getTermTree(b, higher.args[0] as LTerm))],
     ),
   ];
 };
 
 // The imports of a file, each with its alias (Bend gives one to each import but `import Base`, in
 // order) and the file it loads, with the path it writes; Base's writes none.
-const imports = (file: Parsed, at: Placer): Tree[] => {
+const getImportTrees = (file: Parsed, at: Placer): Tree[] => {
   const aliases = [...file.aliases];
   return file.loads.map((load) => {
     const target = load.args[1] as string;
     const unit = (load.args[4] as Span | undefined)?.beg ?? 0;
     const rest = file.text.slice(unit);
     const written = rest.split(/\s/, 1)[0];
-    const from = at.point(unit);
+    const from = at.getPoint(unit);
     const to = from + Array.from(written).length;
     if (written === "Base") {
-      return tree("Import", "Base", [from, to], undefined, [], { target });
+      return getTree("Import", "Base", [from, to], undefined, [], { target });
     }
     const alias = aliases.shift() ?? "";
     const name = to + (/^\s+as\s+/.exec(rest.slice(written.length))?.[0].length ?? 0);
-    return tree(
+    return getTree(
       "Import",
       alias,
       [name, name + alias.length],
       undefined,
-      [tree("ImportPath", written, [from, to], undefined, [])],
+      [getTree("ImportPath", written, [from, to], undefined, [])],
       { target },
     );
   });
 };
 
 // The trees of a file: its imports, then its declarations, each constructor under its type. Each
-// declaration's references own their spans apart (see `reference`).
-const trees = (file: Parsed, book: Book): Tree[] => {
-  const at = placer(file);
+// declaration's references own their spans apart (see `getReference`).
+const getFileTrees = (file: Parsed, book: Book): Tree[] => {
+  const at = getPlacer(file);
   const heads = file.frames.reduce<Frame[][]>((groups, f) => {
     if (f.name === "parse_def" || isHead(f)) {
       groups.push([f]);
@@ -1043,7 +1071,7 @@ const trees = (file: Parsed, book: Book): Tree[] => {
     return groups;
   }, []);
   const tops = heads
-    .flatMap((group) => declaration({ at, book, owned: new Set() }, group))
+    .flatMap((group) => getDeclarationTrees({ at, book, owned: new Set() }, group))
     .reduce<Tree[]>((out, t) => {
       if (t.syntax === "Constructor") {
         out.at(-1)?.kids.push(t);
@@ -1052,14 +1080,14 @@ const trees = (file: Parsed, book: Book): Tree[] => {
       }
       return out;
     }, []);
-  return [...imports(file, at), ...tops];
+  return [...getImportTrees(file, at), ...tops];
 };
 
 // The nodes of `trees` and under them, parents first, onto `out`.
-const preorder = (trees: Tree[], out: Tree[]): Tree[] => {
+const getPreorder = (trees: Tree[], out: Tree[]): Tree[] => {
   trees.forEach((t) => {
     out.push(t);
-    preorder(t.kids, out);
+    getPreorder(t.kids, out);
   });
   return out;
 };
@@ -1068,7 +1096,7 @@ const preorder = (trees: Tree[], out: Tree[]): Tree[] => {
 // -----
 
 // The first span the parser read of `x`, a term, as it walks it.
-const firstSpan = (x: unknown): Span | undefined => {
+const getFirstSpan = (x: unknown): Span | undefined => {
   const stack: unknown[] = [x];
   while (stack.length > 0) {
     const y = stack.pop();
@@ -1087,9 +1115,9 @@ const firstSpan = (x: unknown): Span | undefined => {
 
 // The namespace of the file that writes a declaration: of the file its checked body is read from
 // (a law's fill is the filler's), else its type's, or its first constructor's.
-const writtenIn = (tld: TLD): string | undefined =>
+const getWriterNamespace = (tld: TLD): string | undefined =>
   (tld.$ === "Def" && tld.e !== undefined
-    ? firstSpan(tld.e)
+    ? getFirstSpan(tld.e)
     : [tld.T, ...(tld.$ === "ADT" ? tld.c.map((c) => c.T) : [])]
         .map((t) => (t.$ === "All" ? t.s : undefined))
         .find((t) => t !== undefined)
@@ -1101,22 +1129,22 @@ const isTyping = (t: LTerm): t is Extract<LTerm, { $: "Ann" }> & { T: { v: HTerm
   t.$ === "Ann" && t.s === undefined && t.T.$ === "Var" && t.T.i < 0 && t.T.v !== undefined;
 
 // A term without the checker's annotations.
-const bare = (t: LTerm): LTerm => (isTyping(t) ? bare(t.x) : t);
+const getBareTerm = (t: LTerm): LTerm => (isTyping(t) ? getBareTerm(t.x) : t);
 
 // Whether each of `terms` was read at its place in `spans`.
-const sameSpans = (terms: LTerm[], spans: Array<Span | undefined>): boolean =>
-  terms.length === spans.length && terms.every((t, n) => spanEq(bare(t).s, spans[n]));
+const hasSameSpans = (terms: LTerm[], spans: Array<Span | undefined>): boolean =>
+  terms.length === spans.length && terms.every((t, n) => isSameSpan(getBareTerm(t).s, spans[n]));
 
 // The binder node of each entry of `scope`'s context, by level, as `same` tells them apart: the
 // node the facts' walk found it is, else the entry itself.
-const bindersOf = (Bend: Bend, binders: Map<Ann, number>, { ctx, dep }: Scope): unknown[] =>
+const getBinders = (Bend: Bend, binders: Map<Ann, number>, { ctx, dep }: Scope): unknown[] =>
   Array.from({ length: dep }, (_, level) => {
     const entry = Bend.pmap_get(ctx, level) ?? undefined;
     return entry === undefined ? Symbol() : (binders.get(entry) ?? entry);
   });
 
 // The deepest level a lowered type uses free (below `dep`), or -1.
-const deepest = (t: LTerm, dep: number): number => {
+const getDeepestLevel = (t: LTerm, dep: number): number => {
   let max = -1;
   const stack: unknown[] = [t];
   while (stack.length > 0) {
@@ -1141,16 +1169,16 @@ const deepest = (t: LTerm, dep: number): number => {
 // Whether two types of one check are the same: equal by the checker, and each inside the levels
 // their scopes share (the same binder at each, from the first): a type that uses a level past them
 // names another variable there.
-const sameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
-  const [x, y] = [bindersOf(Bend, held.binders, a), bindersOf(Bend, held.binders, b)];
+const isSameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
+  const [x, y] = [getBinders(Bend, held.binders, a), getBinders(Bend, held.binders, b)];
   const shared = x.findIndex((v, n) => n >= y.length || v !== y[n]);
   const n = shared < 0 ? Math.min(x.length, y.length) : shared;
-  const inside = (t: Typed): boolean =>
-    t.dep <= n || deepest(Bend.term_lower(t.ty, t.dep), t.dep) < n;
+  const isInside = (t: Typed): boolean =>
+    t.dep <= n || getDeepestLevel(Bend.term_lower(t.ty, t.dep), t.dep) < n;
   try {
     return (
-      inside(a) &&
-      inside(b) &&
+      isInside(a) &&
+      isInside(b) &&
       Bend.term_compare("EQ", held.bok, a.ty, b.ty, Math.max(a.dep, b.dep))
     );
   } catch {
@@ -1169,7 +1197,7 @@ const sameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
 // takes the law's); it is used as often as its judgment closed it. Of a node's facts that the
 // checker counts the same (same role, quantity and type), the first stays: pattern compilation
 // checks one term in several branches.
-const collect = (
+const putFacts = (
   Bend: Bend,
   held: Held,
   own: string[],
@@ -1180,7 +1208,7 @@ const collect = (
   const { binders } = held;
   const origins = new Map<string, Tree[]>();
   for (const top of tops) {
-    const mine = preorder([top], []);
+    const mine = getPreorder([top], []);
     const declarers = new Map<number, Tree>();
     for (const o of mine) {
       if (o.binder !== undefined && BINDS.has(o.syntax)) {
@@ -1192,7 +1220,7 @@ const collect = (
         o.declarer = declarers.get(o.binder);
       }
       if (o.origin !== undefined) {
-        const key = spanKey(o.origin);
+        const key = getSpanKey(o.origin);
         const known = origins.get(key);
         if (known === undefined) {
           origins.set(key, [o]);
@@ -1202,23 +1230,23 @@ const collect = (
       }
     }
   }
-  const at = (s: Span | undefined): Tree[] =>
-    s === undefined ? [] : (origins.get(spanKey(s)) ?? []);
-  const binder = (s: Span | undefined, k: string): Tree | undefined =>
-    at(s).find((o) => BINDS.has(o.syntax) && o.name === k);
-  const entry = (scope: Scope | undefined, level: number): Ann | undefined =>
+  const getNodesAt = (s: Span | undefined): Tree[] =>
+    s === undefined ? [] : (origins.get(getSpanKey(s)) ?? []);
+  const getBinderNode = (s: Span | undefined, k: string): Tree | undefined =>
+    getNodesAt(s).find((o) => BINDS.has(o.syntax) && o.name === k);
+  const getEntry = (scope: Scope | undefined, level: number): Ann | undefined =>
     scope !== undefined && level < scope.dep
       ? (Bend.pmap_get(scope.ctx, level) ?? undefined)
       : undefined;
   const note = (o: Tree, role: Note["role"], ty: HTerm, scope: Scope, q: Quant, file: File) => {
     o.notes.push({ role, quantity: q, type: { ty, ctx: scope.ctx, dep: scope.dep, file } });
   };
-  const judgment = (t: LTerm): Judgment | undefined =>
-    judgments.get(t) ?? (isTyping(t) ? judgment(t.x) : undefined);
-  const fits = (t: LTerm, scope: Scope, o: Tree): boolean => {
+  const getJudgment = (t: LTerm): Judgment | undefined =>
+    judgments.get(t) ?? (isTyping(t) ? getJudgment(t.x) : undefined);
+  const isNodeOf = (t: LTerm, scope: Scope, o: Tree): boolean => {
     switch (t.$) {
       case "Var": {
-        const e = entry(scope, t.i);
+        const e = getEntry(scope, t.i);
         return (
           o.syntax === "Variable" &&
           o.name === t.k &&
@@ -1239,7 +1267,7 @@ const collect = (
         return (
           o.syntax === KINDS[t.$] &&
           o.target === t.k &&
-          sameSpans(
+          hasSameSpans(
             t.x,
             o.kids.map((k) => k.origin),
           )
@@ -1250,18 +1278,18 @@ const collect = (
   };
   // Whether a call's head and arguments are the node's children, but the leading ones a
   // template's instance took as `~` arguments.
-  const calls = (head: LTerm, args: LTerm[], o: Tree): boolean => {
+  const isNodeOfCall = (head: LTerm, args: LTerm[], o: Tree): boolean => {
     const rest = o.kids.slice(1).map((k) => k.origin);
     return (
       o.syntax === "Application" &&
       o.kids.length > 0 &&
-      spanEq(head.s, o.kids[0].origin) &&
+      isSameSpan(head.s, o.kids[0].origin) &&
       (rest.length === args.length
-        ? sameSpans(args, rest)
+        ? hasSameSpans(args, rest)
         : rest.length > args.length &&
           head.$ === "Ref" &&
           head.k.includes("~") &&
-          sameSpans(args, rest.slice(rest.length - args.length)))
+          hasSameSpans(args, rest.slice(rest.length - args.length)))
     );
   };
   // The binders a lambda or let at `s` declares at `levels`, judged `j`, each the node of its
@@ -1275,8 +1303,8 @@ const collect = (
     declares: boolean,
   ): void => {
     names.forEach((k, n) => {
-      const o = binder(s, k);
-      const e = entry(inner, levels[n]);
+      const o = getBinderNode(s, k);
+      const e = getEntry(inner, levels[n]);
       if (o === undefined || e === undefined) {
         return;
       }
@@ -1289,13 +1317,13 @@ const collect = (
       }
       const q = j.used.find(([l]) => l === levels[n])?.[1];
       if (q !== undefined) {
-        o.used = o.used === undefined ? q : join(o.used, q);
+        o.used = o.used === undefined ? q : getJoinedQuantity(o.used, q);
       }
     });
   };
   // Puts on the nodes that `u` is the type the checker gave it, in the annotation it put over it,
   // judged as `u` was (else as the term above, judged `up`), and walks on: from a call (its
-  // applications at one span, as `application` reads them), to its head as the checker typed it,
+  // applications at one span, as `getApplication` reads them), to its head as the checker typed it,
   // then to its arguments; from another term, to the terms under it.
   const walk = (u: LTerm, up: Judgment | undefined): void => {
     let t = u;
@@ -1313,35 +1341,35 @@ const collect = (
     while (head.$ === "App") {
       args.unshift(head.x);
       typed = head.f;
-      head = bare(typed);
-      if (!spanEq(head.s, t.s)) {
+      head = getBareTerm(typed);
+      if (!isSameSpan(head.s, t.s)) {
         break;
       }
     }
     if (t.s !== undefined && ty !== undefined && j !== undefined) {
-      for (const o of at(t.s)) {
-        if (t.$ === "App" ? calls(head, args, o) : fits(t, j, o)) {
+      for (const o of getNodesAt(t.s)) {
+        if (t.$ === "App" ? isNodeOfCall(head, args, o) : isNodeOf(t, j, o)) {
           note(o, "t", ty, j, j.qt, t.s.file);
         }
       }
     }
     if (t.$ === "Lam" || t.$ === "Let") {
       const [names, levels] = t.$ === "Lam" ? [[t.k], [t.i]] : [t.k, t.i];
-      declare(t.s, names, levels, j, judgment(t.f), true);
+      declare(t.s, names, levels, j, getJudgment(t.f), true);
     } else if (t.$ === "All") {
-      declare(t.s, [t.k], [t.i], j, judgment(t.B), false);
+      declare(t.s, [t.k], [t.i], j, getJudgment(t.B), false);
     }
-    (t.$ === "App" ? [typed, ...args] : subterms(t)).forEach((x) => walk(x, j));
+    (t.$ === "App" ? [typed, ...args] : getSubterms(t)).forEach((x) => walk(x, j));
   };
   // Each binder of a declaration's type, as the checker opens it: the type it declares, with its
   // quantity, in the scope before it; and the node its entry is.
-  const domains = (T: HTerm): void => {
+  const noteDomains = (T: HTerm): void => {
     let ctx = Bend.ctx_nil();
     let t = T;
     for (let i = 0; t.$ === "All"; i++) {
       const scope = { ctx, dep: i };
       ctx = Bend.ctx_bind(ctx, i, t.q, t.k, t.A);
-      const o = binder(t.s, t.k);
+      const o = getBinderNode(t.s, t.k);
       if (o !== undefined && t.s !== undefined) {
         note(o, "b", t.A, scope, t.q, t.s.file);
         const e = Bend.pmap_get(ctx, i);
@@ -1357,13 +1385,13 @@ const collect = (
     if (
       tld === undefined ||
       k.includes("~") ||
-      (wanted !== undefined && !wanted.has(writtenIn(tld)))
+      (wanted !== undefined && !wanted.has(getWriterNamespace(tld)))
     ) {
       return;
     }
-    domains(tld.T);
+    noteDomains(tld.T);
     if (tld.$ === "ADT") {
-      tld.c.forEach((c) => domains(c.T));
+      tld.c.forEach((c) => noteDomains(c.T));
     } else if (tld.e !== undefined) {
       walk(tld.e, undefined);
     }
@@ -1378,7 +1406,7 @@ const collect = (
               (b) =>
                 b.role === a.role &&
                 b.quantity.$ === a.quantity.$ &&
-                sameType(Bend, held, b.type, a.type),
+                isSameType(Bend, held, b.type, a.type),
             ),
       );
     }),
@@ -1390,21 +1418,21 @@ const collect = (
 
 // The records of a tree, its children's first (cli.bend builds each node once its children are
 // read): each fact on it, then the node. A fact names its type by a handle of `held`'s.
-const written = (t: Tree, held: Held, out: string[]): string[] => {
-  t.kids.forEach((k) => written(k, held, out));
+const getTreeRecords = (t: Tree, held: Held, out: string[]): string[] => {
+  t.kids.forEach((k) => getTreeRecords(k, held, out));
   t.notes.forEach(({ role, quantity: q, type }) =>
     out.push(
-      record([
+      getRecord([
         "+",
         role,
-        quantity(q),
-        role === "b" && t.used !== undefined ? quantity(t.used) : "",
+        getQuantityLetter(q),
+        role === "b" && t.used !== undefined ? getQuantityLetter(t.used) : "",
         String(held.types.push(type) - 1),
       ]),
     ),
   );
   out.push(
-    record([
+    getRecord([
       TAGS[t.syntax],
       t.name,
       t.range === undefined ? "" : String(t.range[0]),
@@ -1417,39 +1445,36 @@ const written = (t: Tree, held: Held, out: string[]): string[] => {
   return out;
 };
 
-// The checker checks a template's body with `k~A`, in no book, for its parameter `A`
-// (def_check); this writes `A` back.
-const unTemplated = (t: LTerm, bok: Book): LTerm => {
-  const go = (x: unknown): unknown => {
-    if (Array.isArray(x)) {
-      return x.map(go);
-    }
-    if (typeof x !== "object" || x === null || !("$" in x)) {
-      return x;
-    }
-    const u = x as Record<string, unknown>;
-    if (u.$ === "Ref" && typeof u.k === "string" && u.k.includes("~") && !(u.k in bok.tlds)) {
-      return { ...u, k: u.k.slice(u.k.lastIndexOf("~") + 1) };
-    }
-    return Object.fromEntries(
-      Object.entries(u).map(([k, v]) => [k, k === "s" || k === "v" ? v : go(v)]),
-    );
-  };
-  return go(t) as LTerm;
+// A term, or a part of one, with `A` written back for each `k~A`: the checker checks a template's
+// body with `k~A`, in no book, for its parameter `A` (def_check).
+const getUntemplated = (x: unknown, bok: Book): unknown => {
+  if (Array.isArray(x)) {
+    return x.map((y) => getUntemplated(y, bok));
+  }
+  if (typeof x !== "object" || x === null || !("$" in x)) {
+    return x;
+  }
+  const u = x as Record<string, unknown>;
+  if (u.$ === "Ref" && typeof u.k === "string" && u.k.includes("~") && !(u.k in bok.tlds)) {
+    return { ...u, k: u.k.slice(u.k.lastIndexOf("~") + 1) };
+  }
+  return Object.fromEntries(
+    Object.entries(u).map(([k, v]) => [k, k === "s" || k === "v" ? v : getUntemplated(v, bok)]),
+  );
 };
 
 // The path Bend loads a file at, as `seen` keeps it: real, with `/`.
-const rooted = (path: string): string =>
-  tryGetOrUndefined(() => realpath(path)) ?? getPathWithForwardSlashes(nodePath.resolve(path));
+const getLoadPath = (path: string): string =>
+  tryGet(() => getRealPath(path)) ?? getPathWithForwardSlashes(nodePath.resolve(path));
 
 // Checks the file at `path`, as `check <path> <facts|syntax> <paths...>` asks. Its answer: `check`
-// and the check's number, here 0 (see `numbered`), or `failed` and each file it read; then each
-// file it parsed, if it loaded them: its path, namespace and text, then its nodes (see `written`).
-// A passed check gives the facts of the files at `facts.paths` (all, if none). The hooks are
-// global, so checks must not overlap.
-const check = async (checker: Checker, path: string, facts: Wanted): Promise<Made> => {
-  const { Bend, base } = await checker.loaded();
-  const book = seeded(Bend, base);
+// and the check's number, here 0 (see `getNumberedAnswer`), or `failed` and each file it read;
+// then each file it parsed, if it loaded them: its path, namespace and text, then its nodes (see
+// `getTreeRecords`). A passed check gives the facts of the files at `facts.paths` (all, if none).
+// The hooks are global, so checks must not overlap.
+const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<Made> => {
+  const { Bend, base } = await checker.getLoaded();
+  const book = getSeededBook(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
   const judgments = new Map<LTerm, Judgment>();
@@ -1459,7 +1484,7 @@ const check = async (checker: Checker, path: string, facts: Wanted): Promise<Mad
   FILES.clear();
   traceParsing(root);
   try {
-    await Bend.book_load(book, rooted(path), "", seen);
+    await Bend.book_load(book, getLoadPath(path), "", seen);
     loaded = true;
     if (facts !== undefined) {
       traceJudgments(Bend, judgments);
@@ -1476,56 +1501,59 @@ const check = async (checker: Checker, path: string, facts: Wanted): Promise<Mad
   } finally {
     untrace();
   }
-  const files = loaded ? parsedFiles(root.kids, []) : [];
-  const forest = files.map((file) => trees(file, book));
+  const files = loaded ? getParsedFiles(root.kids, []) : [];
+  const forest = files.map((file) => getFileTrees(file, book));
   const held: Held = { bok: book, types: [], binders: new Map() };
   if (passed && facts !== undefined) {
-    collect(
+    putFacts(
       Bend,
       held,
       [...new Set(book.order.slice(base.order.length))],
       judgments,
       facts.paths.length === 0
         ? undefined
-        : new Set(facts.paths.map((p) => seen.get(rooted(p)) ?? undefined)),
+        : new Set(facts.paths.map((p) => seen.get(getLoadPath(p)) ?? undefined)),
       forest.flat(),
     );
   }
   const program = files.flatMap((file, n) =>
     forest[n].reduce(
-      (out, t) => written(t, held, out),
-      [record(["file", file.path, file.ns, file.text])],
+      (out, t) => getTreeRecords(t, held, out),
+      [getRecord(["file", file.path, file.ns, file.text])],
     ),
   );
   const read = [...READS];
   return passed
-    ? { answer: [record(["check", "0"]), ...program].join(""), read, held }
+    ? { answer: [getRecord(["check", "0"]), ...program].join(""), read, held }
     : {
         answer: [
-          record(["failed"]),
-          ...[...seen.keys()].filter((p) => p !== Bend.BASE_BEND).map((p) => record(["read", p])),
+          getRecord(["failed"]),
+          ...[...seen.keys()]
+            .filter((p) => p !== Bend.BASE_BEND)
+            .map((p) => getRecord(["read", p])),
           ...program,
         ].join(""),
         read,
       };
 };
 
-// The answer to one question about types: `show:<check>:<type>`, `same:<check>:<type>:<check>:<type>`
-// or `normal:<check>:<type>`, each type a handle its check's answer, or a `normal` of it, gave.
-// Types of two checks are never the same. A check that holds nothing is checked again first.
-const question = async (checker: Checker, q: string): Promise<string> => {
+// The answer to one question about types: `show:<check>:<type>`,
+// `same:<check>:<type>:<check>:<type>` or `normal:<check>:<type>`, each type a handle its check's
+// answer, or a `normal` of it, gave. Types of two checks are never the same. A check that holds
+// nothing is checked again first.
+const getQuestionAnswer = async (checker: Checker, q: string): Promise<string> => {
   const [op, ...ns] = q.split(":");
   const [c, t, d, u] = ns.map(Number);
   if (op === "same" && c !== d) {
-    return record(["same", "false"]);
+    return getRecord(["same", "false"]);
   }
   const answered = ANSWERED[c - 1];
   if (answered === undefined) {
     throw new Error("no check " + c);
   }
-  const held = (answered.held ??= await revive(checker, answered));
-  const { Bend } = await checker.loaded();
-  const typed = (h: number): Typed => {
+  const held = (answered.held ??= await getHeldAgain(checker, answered));
+  const { Bend } = await checker.getLoaded();
+  const getTyped = (h: number): Typed => {
     const ty = held.types[h] as Typed | undefined;
     if (ty === undefined) {
       throw new Error("no type " + c + ":" + h);
@@ -1533,12 +1561,12 @@ const question = async (checker: Checker, q: string): Promise<string> => {
     return ty;
   };
   if (op === "show") {
-    const ty = typed(t);
+    const ty = getTyped(t);
     const names = Array.from({ length: ty.dep }, (_, level) => Bend.pmap_get(ty.ctx, level)?.k);
-    return record([
+    return getRecord([
       "shown",
       Bend.term_show(
-        unTemplated(Bend.term_lower(ty.ty, ty.dep), held.bok),
+        getUntemplated(Bend.term_lower(ty.ty, ty.dep), held.bok) as LTerm,
         -1,
         names as string[],
         ty.file,
@@ -1546,11 +1574,11 @@ const question = async (checker: Checker, q: string): Promise<string> => {
     ]);
   }
   if (op === "same") {
-    return record(["same", String(sameType(Bend, held, typed(t), typed(u)))]);
+    return getRecord(["same", String(isSameType(Bend, held, getTyped(t), getTyped(u)))]);
   }
   if (op === "normal") {
-    const ty = typed(t);
-    return record([
+    const ty = getTyped(t);
+    return getRecord([
       "normal",
       String(c),
       String(held.types.push({ ...ty, ty: Bend.term_snf(held.bok, ty.ty) }) - 1),
@@ -1560,10 +1588,10 @@ const question = async (checker: Checker, q: string): Promise<string> => {
 };
 
 // An answer with `number` as its check's number.
-const numbered = (answer: string, number: number): string =>
+const getNumberedAnswer = (answer: string, number: number): string =>
   answer.replace(/^(check\t)\d+$/m, "$1" + number);
 
-const cachePathOf = ({ version }: Checker, path: string, facts: Wanted): string =>
+const getCachePath = ({ version }: Checker, path: string, facts: Wanted): string =>
   nodePath.join(
     CHECKS_DIR,
     getSha256Hex(
@@ -1575,8 +1603,8 @@ const cachePathOf = ({ version }: Checker, path: string, facts: Wanted): string 
 
 // The cached answer at `file`, if each file it read still has the text it read. A hit marks the
 // entry used now.
-const cached = (file: string): Entry | undefined =>
-  tryGetOrUndefined(() => {
+const getCachedEntry = (file: string): Entry | undefined =>
+  tryGet(() => {
     const entry = JSON.parse(nodeFs.readFileSync(file, "utf8")) as Entry;
     if (!entry.files.every(([p, d]) => getSha256Hex(nodeFs.readFileSync(p, "utf8")) === d)) {
       return undefined;
@@ -1594,8 +1622,8 @@ const prune = (dir: string): void => {
   if (Date.now() - last < PRUNE_EVERY) {
     return;
   }
-  tryGetOrUndefined(() => nodeFs.writeFileSync(marker, ""));
-  tryGetOrUndefined(() =>
+  tryGet(() => nodeFs.writeFileSync(marker, ""));
+  tryGet(() =>
     nodeFs
       .readdirSync(dir)
       .map((name) => nodePath.join(dir, name))
@@ -1610,7 +1638,7 @@ const prune = (dir: string): void => {
 
 // The .bend file at `file` and every file it imports by a relative path (.bend files at any
 // depth, and effects' files), each once.
-export const closure = (file: string, seen: Set<string> = new Set()): string[] => {
+export const getClosure = (file: string, seen: Set<string> = new Set()): string[] => {
   if (seen.has(file)) {
     return [];
   }
@@ -1619,7 +1647,7 @@ export const closure = (file: string, seen: Set<string> = new Set()): string[] =
     file,
     ...(file.endsWith(".bend")
       ? [...nodeFs.readFileSync(file, "utf8").matchAll(IMPORT)].flatMap((m) =>
-          closure(nodePath.resolve(nodePath.dirname(file), m[1]), seen),
+          getClosure(nodePath.resolve(nodePath.dirname(file), m[1]), seen),
         )
       : []),
   ];
@@ -1627,7 +1655,7 @@ export const closure = (file: string, seen: Set<string> = new Set()): string[] =
 
 // What a build depends on besides the program's files: the paths and texts of the bend2 sources in
 // `dir`, which hold Base and the compiler.
-const builder = (dir: URL): string => {
+const getBuildSources = (dir: URL): string => {
   const sources = url.fileURLToPath(dir);
   return nodeFs
     .readdirSync(sources, { recursive: true, encoding: "utf8" })
@@ -1639,13 +1667,16 @@ const builder = (dir: URL): string => {
 
 // Where the native build of the rules program `source`, by the Bend in the bend2 folder `dir`, is
 // kept: named by what it is built of.
-export const nativeOf = (source: string, dir: URL): string => {
+export const getNativePath = (source: string, dir: URL): string => {
   const file = nodePath.resolve(source);
   const from = nodePath.dirname(file);
   const key = getSha256Hex(
     [
-      builder(dir),
-      ...closure(file).flatMap((f) => [nodePath.relative(from, f), nodeFs.readFileSync(f, "utf8")]),
+      getBuildSources(dir),
+      ...getClosure(file).flatMap((f) => [
+        nodePath.relative(from, f),
+        nodeFs.readFileSync(f, "utf8"),
+      ]),
     ].join("\0"),
   ).slice(0, 16);
   const name = `${nodePath.basename(source, ".bend")}.${key}`;
@@ -1657,12 +1688,12 @@ export const nativeOf = (source: string, dir: URL): string => {
 // again until a file the program imports, or the Bend that builds it, changes; its use keeps it
 // from prune (see USED). It goes to a folder of its own first, so a kept build is never partial,
 // and runs that build one program at once share one build.
-export const built = async (source: string, dir: URL): Promise<string> => {
+export const getBuiltProgram = async (source: string, dir: URL): Promise<string> => {
   const file = nodePath.resolve(source);
   const from = nodePath.dirname(file);
-  const native = nativeOf(source, dir);
+  const native = getNativePath(source, dir);
   const exe =
-    nodeFs.existsSync(native) || findClangOrUndefined() !== undefined
+    nodeFs.existsSync(native) || getClang() !== undefined
       ? native
       : native.replace(/(\.exe)?$/, ".js");
   const kept = nodeFs.statSync(exe, { throwIfNoEntry: false });
@@ -1698,11 +1729,11 @@ export const built = async (source: string, dir: URL): Promise<string> => {
 // read is unchanged, else from Bend, and a passed check goes to the cache (whole or not at all; a
 // cache that cannot be written is skipped). A passed check is numbered as before in this server,
 // or anew. What it holds is large, and only a question reads it, so it holds nothing.
-const checked = async (checker: Checker, path: string, facts: Wanted): Promise<string> => {
-  const file = cachePathOf(checker, path, facts);
-  let entry = cached(file);
+const getCheckAnswer = async (checker: Checker, path: string, facts: Wanted): Promise<string> => {
+  const file = getCachePath(checker, path, facts);
+  let entry = getCachedEntry(file);
   if (entry === undefined) {
-    const made = await check(checker, path, facts);
+    const made = await getCheck(checker, path, facts);
     if (made.held === undefined) {
       return made.answer;
     }
@@ -1720,12 +1751,12 @@ const checked = async (checker: Checker, path: string, facts: Wanted): Promise<s
       ? known
       : ANSWERED.push({ file, path, facts, digest: entry.digest, types: entry.types });
   NUMBERS.set(file, number);
-  return numbered(entry.answer, number);
+  return getNumberedAnswer(entry.answer, number);
 };
 
 // What the check `answered` holds, checked again: its answer must be the one rules have.
-const revive = async (checker: Checker, answered: Answered): Promise<Held> => {
-  const made = await check(checker, answered.path, answered.facts);
+const getHeldAgain = async (checker: Checker, answered: Answered): Promise<Held> => {
+  const made = await getCheck(checker, answered.path, answered.facts);
   if (made.held === undefined || getSha256Hex(made.answer) !== answered.digest) {
     nodeFs.rmSync(answered.file, { force: true });
     throw new Error("a check changed since its answer; run again");
@@ -1733,13 +1764,13 @@ const revive = async (checker: Checker, answered: Answered): Promise<Held> => {
   return made.held;
 };
 
-const memoPathOf = (answered: Answered): string => answered.file + ".answers";
+const getMemoPath = (answered: Answered): string => answered.file + ".answers";
 
 // Where the answer to `q` is kept, if it is the same in any run: in its check's memo (kept, if its
 // digest is the one this server answered with, else new), under the question with its checks
 // numbered 0. Not `normal`, whose handle is the next of this run, nor a question about a type a
 // `normal` of this run made, nor a `same` of two checks.
-const memoOf = (
+const getMemoSlot = (
   q: string,
 ): { answered: Answered; answers: Record<string, string>; key: string } | undefined => {
   const [op, c, t, d, u] = q.split(":");
@@ -1752,7 +1783,7 @@ const memoOf = (
   ) {
     return undefined;
   }
-  const kept = answered.memo ?? (tryGetJsonOrUndefined(memoPathOf(answered)) as Memo | undefined);
+  const kept = answered.memo ?? (tryGetJson(getMemoPath(answered)) as Memo | undefined);
   answered.memo =
     kept?.digest === answered.digest ? kept : { digest: answered.digest, answers: {} };
   return {
@@ -1764,14 +1795,14 @@ const memoOf = (
 
 // The answer to `ask <question>...`: one record per question, in order, from the memos where they
 // have it; the others' answers go to the memos.
-const ask = async (checker: Checker, questions: string[]): Promise<string> => {
+const getAskAnswer = async (checker: Checker, questions: string[]): Promise<string> => {
   const asked = new Set<Answered>();
   const answers: string[] = [];
   for (const q of questions) {
-    const memo = memoOf(q);
+    const memo = getMemoSlot(q);
     let got = memo?.answers[memo.key];
     if (got === undefined) {
-      got = await question(checker, q);
+      got = await getQuestionAnswer(checker, q);
       if (memo !== undefined) {
         memo.answers[memo.key] = got;
         asked.add(memo.answered);
@@ -1779,34 +1810,34 @@ const ask = async (checker: Checker, questions: string[]): Promise<string> => {
     }
     answers.push(got);
   }
-  asked.forEach((answered) => tryWriteJsonAtomically(memoPathOf(answered), answered.memo));
+  asked.forEach((answered) => tryWriteJsonAtomically(getMemoPath(answered), answered.memo));
   return answers.join("");
 };
 
 // The answer to `forget <check>`: what the server holds of the check is freed. A question about it
 // checks it again.
-const forget = (check: number): string => {
+const getForgetAnswer = (check: number): string => {
   const answered = ANSWERED[check - 1];
   if (answered !== undefined) {
     answered.held = undefined;
   }
-  return record(["forgot"]);
+  return getRecord(["forgot"]);
 };
 
-const answer = async (checker: Checker, line: string): Promise<string> => {
-  const [op, ...args] = line.split("\t").map(unfield);
+const getAnswer = async (checker: Checker, line: string): Promise<string> => {
+  const [op, ...args] = line.split("\t").map(getUnescapedField);
   return op === "check" && args.length >= 2
-    ? checked(checker, args[0], args[1] === "facts" ? { paths: args.slice(2) } : undefined)
+    ? getCheckAnswer(checker, args[0], args[1] === "facts" ? { paths: args.slice(2) } : undefined)
     : op === "forget" && args.length === 1
-      ? forget(Number(args[0]))
+      ? getForgetAnswer(Number(args[0]))
       : op === "ask"
-        ? ask(checker, args)
-        : record(["fail", "unknown request: " + line]);
+        ? getAskAnswer(checker, args)
+        : getRecord(["fail", "unknown request: " + line]);
 };
 
 // Runs each request it is given after the one before ends: a program's workers ask at once, and
-// checks must not overlap (see `check`).
-const serially = (): ((run: () => Promise<string>) => Promise<string>) => {
+// checks must not overlap (see `getCheck`).
+const getSerialRunner = (): ((run: () => Promise<string>) => Promise<string>) => {
   let last: Promise<unknown> = Promise.resolve();
   return (run) => {
     const next = last.then(run);
@@ -1826,50 +1857,50 @@ const serve = async (
   const [line] = (await once(lines, "line")) as [string];
   lines.close();
   socket.end(
-    await inTurn(() => answer(checker, line)).catch((e: unknown) =>
-      record(["fail", getErrorMessageFromUnknown(e)]),
+    await inTurn(() => getAnswer(checker, line)).catch((e: unknown) =>
+      getRecord(["fail", getErrorMessageFromUnknown(e)]),
     ),
   );
 };
 
 // The checker, the rules program `named`, built first, and what to say first of the Bend bend-lint
 // uses (see bend2.ts). The checker comes first, so a drift stops the run before a build.
-const started = async (named: string): Promise<[Checker, string, string[]]> => {
+const getRunSetup = async (named: string): Promise<[Checker, string, string[]]> => {
   const dir = unwrap(await tryGetBend2SourceUrl());
-  const checker = load(dir);
+  const checker = getChecker(dir);
   const [program, version] = await Promise.all([
-    built(named, dir),
-    getBendVersionNoteOrUndefined(dir),
+    getBuiltProgram(named, dir),
+    getBendVersionNote(dir),
   ]);
   const javascript = program.endsWith(".js") ? JAVASCRIPT_NOTE : undefined;
   return [checker, program, [PINNED_BEND_NOTE, version, javascript].filter((n) => n !== undefined)];
 };
 
 // The folder of the nearest bend-lint.json up from `dir`, if there is one.
-export const projectOf = (dir: string): string | undefined => {
+export const getProject = (dir: string): string | undefined => {
   const up = nodePath.dirname(dir);
   return nodeFs.existsSync(nodePath.join(dir, CONFIG))
     ? dir
     : up === dir
       ? undefined
-      : projectOf(up);
+      : getProject(up);
 };
 
 // The entries of `value`, if it is a JSON object.
-const entriesOf = (value: unknown): Array<[string, unknown]> | undefined =>
+const getObjectEntries = (value: unknown): Array<[string, unknown]> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? Object.entries(value)
     : undefined;
 
 // What the bend-lint.json in `project` says of its rules: those of "rules" but those "off", and
 // "packages". Bend checks the packages' names and versions; the runner, the rest of the config.
-export const rulesOf = (project: string): Rules => {
+export const getRules = (project: string): Rules => {
   const config = JSON.parse(nodeFs.readFileSync(nodePath.join(project, CONFIG), "utf8")) as {
     rules?: unknown;
     packages?: unknown;
   };
-  const rules = entriesOf(config.rules ?? {});
-  const packages = entriesOf(config.packages ?? {});
+  const rules = getObjectEntries(config.rules ?? {});
+  const packages = getObjectEntries(config.packages ?? {});
   if (rules === undefined) {
     throw new Error(CONFIG + ": rules must map rule ids to settings");
   }
@@ -1886,7 +1917,7 @@ export const rulesOf = (project: string): Rules => {
 };
 
 // `to` as Bend imports it from a file in the folder `from`, if it can: see PLAIN.
-const importOf = (from: string, to: string): string | undefined => {
+const getImportPath = (from: string, to: string): string | undefined => {
   const relative = getPathWithForwardSlashes(nodePath.relative(from, to));
   return PLAIN.test(relative) ? relative : undefined;
 };
@@ -1895,7 +1926,7 @@ const importOf = (from: string, to: string): string | undefined => {
 // text. A rule whose id starts with a package's name, then "/", is that package's file at the rest
 // of the id, from BendHub; another is bend-lint-rules/<id>.bend in `project`, imported at its real
 // path, so a link is followed. An error says which rule is missing, or why Bend cannot import it.
-export const programOf = (project: string, { ids, packages }: Rules): string => {
+export const getRulesProgram = (project: string, { ids, packages }: Rules): string => {
   const imports = ids.map((id, n) => {
     if (!/^[A-Za-z_][\w-]*(\/[A-Za-z_][\w-]*)*$/.test(id)) {
       throw new Error(`${id} is not a rule id: a path of plain names, without .bend`);
@@ -1905,13 +1936,13 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
     if (version !== undefined && rest.length > 0) {
       return `import ${name}@${version}/${rest.join("/")}.bend as Rule${n}`;
     }
-    const real = tryGetOrUndefined(() =>
+    const real = tryGet(() =>
       nodeFs.realpathSync(nodePath.join(project, RULES, ...id.split("/")) + ".bend"),
     );
     if (real === undefined) {
       throw new Error(`there is no rule ${id}: ${RULES}/${id}.bend does not exist`);
     }
-    const rule = importOf(BUILD, real);
+    const rule = getImportPath(BUILD, real);
     if (rule === undefined) {
       throw new Error(PER_PROJECT);
     }
@@ -1936,7 +1967,7 @@ export const programOf = (project: string, { ids, packages }: Rules): string => 
 
 // Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there; gives
 // those it wrote, and those it kept.
-const init = (dir: string): { wrote: string[]; kept: string[] } => {
+const getInitFiles = (dir: string): { wrote: string[]; kept: string[] } => {
   const files: Array<[string, string]> = [
     [nodePath.join(dir, CONFIG), INIT_CONFIG],
     [nodePath.join(dir, RULES, "format.bend"), INIT_FORMAT],
@@ -1957,11 +1988,11 @@ const init = (dir: string): { wrote: string[]; kept: string[] } => {
 if (import.meta.main) {
   // A run, and every process it starts (they inherit it), runs at low priority: a long run slows
   // down, not the machine.
-  tryGetOrUndefined(() => os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL));
+  tryGet(() => os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL));
   const args = process.argv.slice(2);
   if (args[0] === "init") {
     try {
-      const { wrote, kept } = init(process.cwd());
+      const { wrote, kept } = getInitFiles(process.cwd());
       wrote.forEach((file) => console.log("bend-lint: wrote " + file));
       kept.forEach((file) =>
         console.log("bend-lint: " + file + " is there already; it stays as it is"),
@@ -1977,15 +2008,13 @@ if (import.meta.main) {
   if (args[0] === "postinstall") {
     try {
       const project = process.env.INIT_CWD ?? "";
-      const modules = tryGetOrUndefined(() =>
-        nodeFs.realpathSync(nodePath.join(project, "node_modules")),
-      );
+      const modules = tryGet(() => nodeFs.realpathSync(nodePath.join(project, "node_modules")));
       const relative =
         modules === undefined
           ? ".."
           : nodePath.relative(modules, url.fileURLToPath(new URL("../../", import.meta.url)));
       if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
-        init(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
+        getInitFiles(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
       }
       unwrap(await tryGetBend2SourceUrl());
     } catch (e) {
@@ -1993,7 +2022,7 @@ if (import.meta.main) {
     }
     process.exit(0);
   }
-  const project = projectOf(process.cwd());
+  const project = getProject(process.cwd());
   if (project === undefined) {
     console.error(
       "bend-lint: no " + CONFIG + " in this folder or above it; `bunx bend-lint init` makes one",
@@ -2002,14 +2031,14 @@ if (import.meta.main) {
   }
 
   const [checker, program, notes] = await Promise.resolve()
-    .then(() => started(programOf(project, rulesOf(project))))
+    .then(() => getRunSetup(getRulesProgram(project, getRules(project))))
     .catch((e: unknown) => {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e));
       return process.exit(2);
     });
   notes.forEach((note) => console.error(note));
 
-  const inTurn = serially();
+  const inTurn = getSerialRunner();
   const server = net.createServer((socket) => void serve(checker, inTurn, socket));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");

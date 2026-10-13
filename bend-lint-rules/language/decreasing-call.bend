@@ -37,7 +37,7 @@ type Loop is Data:
 
 # Functions
 # =========
-def Param.erased(bare: Bool, quantity: Lint.Quantity) -> Bool:
+def Param.is_erased(bare: Bool, quantity: Lint.Quantity) -> Bool:
   match bare quantity:
     case False{} Lint.Erased{}:
       True{}
@@ -53,7 +53,7 @@ def Param.all(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Para
         rest,
         Param{
           b,
-          Param.erased(Lint.Node.bare(Lint.Node{Lint.Parameter{b, q}, n, s, k, f}), q),
+          Param.is_erased(Lint.Node.is_bare(Lint.Node{Lint.Parameter{b, q}, n, s, k, f}), q),
           n
         }
           <> out
@@ -265,12 +265,12 @@ def calls(
 ) -> List<&2, Lint.Finding>:
   match recursive:
     case True{}:
-      Bool.pick(List<&2, Lint.Finding>, Lint.live(path), call(loop, path, node), [])
+      Bool.pick(List<&2, Lint.Finding>, Lint.is_live(path), call(loop, path, node), [])
     case False{}:
       []
 
 def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
-  calls(Lint.recursive(path, node), loop, path, node)
+  calls(Lint.is_recursive(path, node), loop, path, node)
 
 # The binders the lets of a definition bind, below `path`.
 def let(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:

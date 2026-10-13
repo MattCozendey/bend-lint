@@ -21,7 +21,7 @@ const PACKAGE = path.join(ROOT, "package.json");
 // =========
 
 // Runs `cmd`, shown on this terminal; whether it passed.
-const passes = (cmd: string[]): boolean =>
+const isPassing = (cmd: string[]): boolean =>
   spawnSync(cmd[0], cmd.slice(1), { cwd: ROOT, stdio: "inherit" }).status === 0;
 
 // Side effects
@@ -55,7 +55,7 @@ if (newest === tag) {
     ["bun", "test", "--parallel"],
     ["bun", "run", "typecheck"],
     ["bun", "run", "lint"],
-  ].every(passes);
+  ].every(isPassing);
   if (!passed) {
     fs.writeFileSync(PACKAGE, text);
     throw new Error(`the checks fail with ${moved}; bendRelease stays ${pkg.bendRelease}`);

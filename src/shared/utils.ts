@@ -44,7 +44,7 @@ export const getErrorMessageFromUnknown = (e: unknown): string =>
 export const getPathWithForwardSlashes = (p: string): string => p.split(nodePath.sep).join("/");
 
 // f's value, or undefined if it throws.
-export const tryGetOrUndefined = <T>(f: () => T): T | undefined => {
+export const tryGet = <T>(f: () => T): T | undefined => {
   try {
     return f();
   } catch {
@@ -65,12 +65,12 @@ export const writeFileAtomically = (file: string, text: string): void => {
 };
 
 // The JSON value in `file`, or undefined if it cannot be read.
-export const tryGetJsonOrUndefined = (file: string): unknown =>
-  tryGetOrUndefined(() => JSON.parse(nodeFs.readFileSync(file, "utf8")) as unknown);
+export const tryGetJson = (file: string): unknown =>
+  tryGet(() => JSON.parse(nodeFs.readFileSync(file, "utf8")) as unknown);
 
 // Writes `value` to `file` as JSON, whole or not at all; a write that fails is skipped.
 export const tryWriteJsonAtomically = (file: string, value: unknown): void => {
-  tryGetOrUndefined(() => writeFileAtomically(file, JSON.stringify(value)));
+  tryGet(() => writeFileAtomically(file, JSON.stringify(value)));
 };
 
 // The folder at its real path, as a file: URL that ends in `/`, so
