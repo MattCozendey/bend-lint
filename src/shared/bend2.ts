@@ -21,6 +21,7 @@ import {
   tryGetOrUndefined,
   tryGetUrlFromFolderPathOrUrl,
   tryWriteJsonAtomically,
+  writeFileAtomically,
 } from "./utils.ts";
 
 // Constants
@@ -143,19 +144,17 @@ export const getBendCli = (dir: URL): { cmd: string[]; env: Record<string, strin
 });
 
 // bend2 at `pin` (`<owner>/<repo>/<ref>` on GitHub), kept in <cache>/<pin>/bend2.
-// A download goes to a temporary folder first, so the cache never holds a
-// partial one.
+// Each file goes in whole (see writeFileAtomically), base.bend last, and none is
+// ever replaced: runs at once may each download, while others read the files.
 const fetchBend = async (pin: string): Promise<URL> => {
   if (!/^[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(pin)) {
     throw new Error("not a GitHub <owner>/<repo>/<ref>: " + pin);
   }
-  const at = new URL(pin + "/", getBendLintCacheDir());
-  const dir = new URL("bend2/", at);
+  const dir = new URL(pin + "/bend2/", getBendLintCacheDir());
   // What a download holds besides base.bend and the effs/ files Base imports.
   const FILES = ["bend.ts", "comp.ts", "main.ts", "safe.ts"];
-  const whole = (): boolean =>
-    [...FILES, "base.bend"].every((f) => nodeFs.existsSync(new URL(f, dir)));
-  if (whole()) {
+  const missing = (file: string): boolean => !nodeFs.existsSync(new URL(file, dir));
+  if (![...FILES, "base.bend"].some(missing)) {
     return dir;
   }
   const fetched = async (file: string): Promise<[string, string]> => {
@@ -173,25 +172,11 @@ const fetchBend = async (pin: string): Promise<URL> => {
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
-  const files = [base, ...(await Promise.all([...FILES, ...effs].map(fetched)))];
-  nodeFs.mkdirSync(at, { recursive: true });
-  const part = url.pathToFileURL(
-    nodeFs.mkdtempSync(url.fileURLToPath(new URL(".part-", at))) + nodePath.sep,
-  );
-  files.forEach(([file, body]) => {
-    const to = new URL(file, part);
-    nodeFs.mkdirSync(new URL(".", to), { recursive: true });
-    nodeFs.writeFileSync(to, body);
-  });
-  try {
-    nodeFs.rmSync(dir, { recursive: true, force: true });
-    nodeFs.renameSync(part, dir);
-  } catch (e) {
-    nodeFs.rmSync(part, { recursive: true, force: true });
-    if (!whole()) {
-      throw e;
+  [...(await Promise.all([...effs, ...FILES].map(fetched))), base].forEach(([file, body]) => {
+    if (missing(file)) {
+      writeFileAtomically(url.fileURLToPath(new URL(file, dir)), body);
     }
-  }
+  });
   console.error("bend-lint: downloaded bend " + pin + " to " + url.fileURLToPath(dir));
   return dir;
 };
