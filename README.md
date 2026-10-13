@@ -14,8 +14,8 @@ bunx bend-lint init
 `init` writes `bend-lint.json` and `bend-lint-rules/format.bend`, which turns on the formatter.
 
 > **Why per project:** a Bend limitation. Bend imports a file only by a relative path of plain names
-> (or from BendHub), so your rules can reach bend-lint's files only inside your project. bend-lint
-> refuses to run from anywhere else.
+> (or from BendHub), so bend-lint can reach your rules only inside your project. bend-lint refuses
+> to run from anywhere else.
 
 Needs Bun 1.4.3. bend-lint downloads the Bend it is tested with, once. With clang 14 or newer, it
 builds your rules natively; without clang, it builds them to JavaScript, about 3 to 8 times slower,
@@ -62,10 +62,12 @@ bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
 {
   "entries": ["src/main.bend"],
   "imports": true,
+  "packages": { "jane-rules": "1.0.0.0" },
   "rules": {
     "format": { "tabWidth": 4, "severity": "hint" },
     "style/no-foo": "error",
-    "style/no-bar": "off"
+    "style/no-bar": "off",
+    "jane-rules/no-baz": "warning"
   }
 }
 ```
@@ -73,6 +75,9 @@ bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
 - `rules`: each rule to run, by its id: its path in `bend-lint-rules/`, without `.bend`
   (`bend-lint-rules/style/no-foo.bend` is `style/no-foo`). Give it `"off"`, a severity (`error`,
   `warning`, `information`, `hint`), or an object of its options and a `"severity"`.
+- `packages`: BendHub packages of rules, names to versions. A rule whose id starts with a package's
+  name, then `/`, is that package's file at the rest of the id: `jane-rules/no-baz` is `no-baz.bend`
+  in `jane-rules@1.0.0.0`.
 - `entries`: your program's entry files, as paths from the folder of `bend-lint.json`. A rule that
   reads the whole program ("this def is never used") then sees it, even when you lint one file.
 - `imports`: also lint every file the named file imports (not Base, nor hub packages).
@@ -104,15 +109,18 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
 
 ## Write a rule
 
-A rule is a file in `bend-lint-rules/`. It imports bend-lint's toolkit,
+A rule is a file in `bend-lint-rules/`. It imports bend-lint's rule API from BendHub,
 [lint.bend](src/linter/lint.bend), whose comments are the API, and defines `rule()`:
 
 ```
 import Base
-import ../node_modules/bend-lint/src/linter/lint.bend as Lint
+import bend-lint@0.1.0.0/linter/lint.bend as Lint
 
 def rule() -> Lint.Rule:
   ...
 ```
 
-Then name it in `bend-lint.json`. A rule in a subfolder starts its import with one more `../`.
+Then name it in `bend-lint.json`. The version is your bend-lint's, with `.0` added. After you update
+bend-lint, change it if Bend's check of your rule fails.
+
+To share rules, publish them to BendHub. A project then names your package in `packages`.
