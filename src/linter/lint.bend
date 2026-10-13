@@ -9,8 +9,8 @@
 # - A file is a tree of syntax nodes. A rule walks it, and reads what a node is from the node and the nodes above it.
 # - Rules are pure, so they run in parallel. The runner answers every rule's questions of a round in one batch.
 # - A check is read once and shared by every rule. Facts and declarations are collected only if a rule needs them.
-# - A rule requests a fix as typed operations; the linter plans them and decides their safety. Until Bend's checker
-#   is Bend, only a fix that writes comments over comments is safe (`--fix`).
+# - A rule requests a fix as typed operations, and the linter plans them. Until Bend's checker is Bend, no fix is
+#   proven to keep the program: `--fix-dangerously` makes them all, and `--fix` makes none.
 import Base
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
@@ -491,7 +491,7 @@ type Operation is Data:
   RenameUses{at: Span, to: String}
 
 # A way to fix a finding: what it does, and its operations, in any of the program's own files (not Base, nor a hub
-# package). The linter decides whether a fix is safe (`--fix`): see the design notes above.
+# package).
 type Fix is Data:
   Fix{title: String, operations: List<&2, Operation>}
 

@@ -1,5 +1,5 @@
 # layout/case: a name whose case does not follow the kind of what it names.
-# Fix: renames the declaration, with its uses (--fix-dangerously).
+# Fix: renames the declaration, with its uses.
 # Heuristics: the kind comes from the syntax and the written types, not from the checker:
 #
 # | Kind                                              | Case              | Examples                     |

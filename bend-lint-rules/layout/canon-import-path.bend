@@ -1,6 +1,6 @@
 # layout/canon-import-path: an import path that is not the shortest path from the importer to the
 # file it names, or that does not start with ./ or ../.
-# Fix: writes the shortest path (--fix-dangerously).
+# Fix: writes the shortest path.
 # Heuristics: it compares real paths, links resolved, so a link to a file is that file. Base and hub
 # imports are not paths: it skips them.
 import Base

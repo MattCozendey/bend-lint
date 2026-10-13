@@ -34,7 +34,7 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
 
 | Flag                | Does                                                                               |
 | ------------------- | ---------------------------------------------------------------------------------- |
-| `--fix`             | applies the fixes proven safe. For now: those that only rewrite comments           |
+| `--fix`             | makes no fix until Bend's checker in Bend can prove that a fix keeps the program   |
 | `--fix-dangerously` | applies every fix. These can change what the program does, or break it             |
 | `--show-suppressed` | also prints the findings that a directive covers                                   |
 | `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr       |

@@ -51,14 +51,14 @@ setDefaultTimeout(120_000);
     ]);
   });
 
-  test("--fix writes the stack in order, over the same comments", async () => {
+  test("--fix-dangerously writes the stack in order, over the same comments", async () => {
     const getFile = (first: string, second: string): string =>
       ["import Base", first, second, "def one() -> U32:", "  1", ""].join("\n");
     const ran = await getRunOutcome(
       RULE,
       { "main.bend": getFile(getDisableDirective("c/d"), getDisableDirective("a/b")) },
       "main.bend",
-      ["--fix"],
+      ["--fix-dangerously"],
     );
     expect(ran.files["main.bend"]).toEqual(
       getFile(getDisableDirective("a/b"), getDisableDirective("c/d")),

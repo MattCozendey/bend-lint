@@ -1,6 +1,8 @@
 # layout/directive-order: directives that stack on consecutive comment-only lines, out of order: by
 # rule, then severity, then keyword.
-# Fix: writes them in that order, over the same comments (--fix: it writes only comments).
+# Fix: writes them in that order, over the same comments.
+# Heuristics: it reads the directives as written, and its fix writes the same comments over them, so a
+# fix keeps the program.
 import Base
 import ../../src/linter/directives.bend as Directives
 import ../../src/linter/lint.bend as Lint

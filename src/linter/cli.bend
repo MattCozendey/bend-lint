@@ -1938,7 +1938,6 @@ def Object.edits(
       )
 
 def Object.fix(
-  safe: Bool,
   fix: Lint.Fix,
   edits: List<&2, Text.Edit>,
   places: Map<&2, Text.Position>
@@ -1948,7 +1947,7 @@ def Object.fix(
       Json.JObject{
         [
           Json.JField{"title", Json.JString{title}},
-          Json.JField{"applicability", Json.JString{Bool.pick(String, safe, "safe", "dangerous")}},
+          Json.JField{"applicability", Json.JString{"dangerous"}},
           Json.JField{"edits", Json.JArray{Object.edits(edits, places, [])}}
         ]
       }
@@ -1958,29 +1957,17 @@ def Object.fixes(
   fixes: List<&2, Lint.Fix>,
   edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
   +places: Map<&2, Text.Position>,
-  +comments: Set(),
   out: List<&2, Json.Json>
 ) -> List<&2, Json.Json>:
   match fixes edits:
-    case Con{+fix, rest} Con{Some{es}, more}:
-      Object.fixes(
-        rest,
-        more,
-        places,
-        comments,
-        Object.fix(Fixes.Fix.is_safe(fix, comments), fix, es, places) <> out
-      )
+    case Con{fix, rest} Con{Some{es}, more}:
+      Object.fixes(rest, more, places, Object.fix(fix, es, places) <> out)
     case Con{fix, rest} Con{None{}, more}:
-      Object.fixes(rest, more, places, comments, out)
+      Object.fixes(rest, more, places, out)
     case _ _:
       List.reverse(&2, Json.Json, out)
 
-# `comments` says where a safe fix may write.
-def Object.finding(
-  resolved: Resolved,
-  +places: Map<&2, Text.Position>,
-  comments: Set()
-) -> Json.Json:
+def Object.finding(resolved: Resolved, +places: Map<&2, Text.Position>) -> Json.Json:
   match resolved:
     case Resolved{
       Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}},
@@ -1993,36 +1980,29 @@ def Object.finding(
           Json.JField{"message", Json.JString{message}},
           Json.JField{"path", Json.JString{path}},
           Json.JField{"range", Object.range(places, path, beg, end)},
-          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, comments, [])}}
+          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, [])}}
         ]
       }
 
-def Shown.one(
-  json: Bool,
-  resolved: Resolved,
-  places: Map<&2, Text.Position>,
-  comments: Set()
-) -> Shown:
+def Shown.one(json: Bool, resolved: Resolved, places: Map<&2, Text.Position>) -> Shown:
   match json resolved:
     case False{} Resolved{found, edits}:
       Line{Found.line(found, places)}
     case True{} _:
-      Object{Object.finding(resolved, places, comments)}
+      Object{Object.finding(resolved, places)}
 
-# The findings as the run shows them (in JSON if `json`), onto `out` (last first): `places` holds where they are, and
-# `comments` where a safe fix may write.
+# The findings as the run shows them (in JSON if `json`), onto `out` (last first): `places` holds where they are.
 def Shown.of(
   +json: Bool,
   resolved: List<&2, Resolved>,
   +places: Map<&2, Text.Position>,
-  +comments: Set(),
   out: List<&2, Shown>
 ) -> List<&2, Shown>:
   match resolved:
     case Nil{}:
       out
     case Con{r, rest}:
-      Shown.of(json, rest, places, comments, Shown.one(json, r, places, comments) <> out)
+      Shown.of(json, rest, places, Shown.one(json, r, places) <> out)
 
 def Shown.text(shown: Shown) -> String:
   match shown:
@@ -2050,13 +2030,6 @@ def Shown.edits(
     case True{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
 
-def Shown.safety(json: Bool, founds: List<&2, Lint.Found>, sources: List<&2, Lint.Source>) -> Set():
-  match json:
-    case False{}:
-      Set.new()
-    case True{}:
-      Fixes.safety(Found.fixes(founds, []), sources)
-
 # The declarations of the program's files (`sources`), if the run needs them: to show fixes, or to make them.
 def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
   match need:
@@ -2064,13 +2037,6 @@ def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint
       Lint.Whole.declarations(Lint.Whole.of(Lint.Program{sources}, True{}))
     case False{}:
       []
-
-def Declarations.is_needed(json: Bool, fixing: Maybe<&2, Bool>) -> Bool:
-  match json fixing:
-    case False{} None{}:
-      False{}
-    case _ _:
-      True{}
 
 # Ending
 # ------
@@ -2097,11 +2063,11 @@ def Outcome.add(a: Outcome, b: Outcome) -> Outcome:
         (x + y: U32)
       }
 
-def summary.fixed(fixing: Maybe<&2, Bool>, fixed: U32) -> String:
+def summary.fixed(fixing: Bool, fixed: U32) -> String:
   match fixing:
-    case None{}:
+    case False{}:
       ""
-    case _:
+    case True{}:
       ", " ++ U32.show(fixed) ++ " fixed"
 
 def summary(n: Nat, suppressed: Nat, fixed: String) -> String:
@@ -2152,7 +2118,7 @@ def end.json(failed: Bool, summary: String) -> IO(Unit):
     case False{}:
       IO.print_err(summary)
 
-def end(json: Bool, total: Outcome, show: Bool, fixing: Maybe<&2, Bool>) -> IO(Unit):
+def end(json: Bool, total: Outcome, show: Bool, fixing: Bool) -> IO(Unit):
   match json total:
     case False{} Outcome{n, f, s, True{}, x}:
       do IO<Unit>:
@@ -2254,19 +2220,14 @@ def Shown.printed(json: Bool, shown: List<&2, Shown>) -> List<&2, String>:
     case True{}:
       []
 
-# Prints the report in text, then makes the fixes `fixing` allows in `program`'s files: what linting the named file
-# gave. It fails if a finding that stays is an error.
-def outcome(
-  report: Report,
-  +json: Bool,
-  +fixing: Maybe<&2, Bool>,
-  program: Lint.Program
-) -> IO(Outcome):
+# Prints the report in text, then makes the fixes in `program`'s files, if `fixing`: what linting the named file gave.
+# It fails if a finding that stays is an error.
+def outcome(report: Report, +json: Bool, +fixing: Bool, program: Lint.Program) -> IO(Outcome):
   match report program:
     case Report{kept, suppressed} Lint.Program{+sources}:
       +founds = List.reverse(&2, Lint.Found, kept)
       +all = Lists.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
-      +declarations = Declarations.of(Declarations.is_needed(json, fixing), sources)
+      +declarations = Declarations.of(json || fixing, sources)
       +resolved = Resolved.of(all, Shown.edits(json, all, declarations, sources), [])
       +n = Lists.length(&2, Lint.Found, founds)
       +shown = List.reverse(
@@ -2276,7 +2237,6 @@ def outcome(
           json,
           resolved,
           Text.places(Fixes.texts(sources, Map.new(&2, String)), Shown.places(json, resolved, [])),
-          Shown.safety(json, all, sources),
           []
         )
       )
@@ -2308,7 +2268,7 @@ def finish(
   known: List<&2, String>,
   ran: List<&2, String>,
   json: Bool,
-  fixing: Maybe<&2, Bool>,
+  fixing: Bool,
   program: Lint.Program
 ) -> IO(Outcome):
   outcome(
@@ -2344,7 +2304,7 @@ def lint(
   partial: Bool,
   +settings: List<&2, Names.Named<Setting>>,
   json: Bool,
-  fixing: Maybe<&2, Bool>
+  fixing: Bool
 ) -> IO(Outcome):
   +abouts = About.all(rules, [])
   +on = About.on(abouts, settings, [])
@@ -2500,7 +2460,7 @@ def checked(
   imports: Bool,
   +settings: List<&2, Names.Named<Setting>>,
   json: Bool,
-  fixing: Maybe<&2, Bool>,
+  fixing: Bool,
   checks: Checks
 ) -> IO(Outcome):
   match checks:
@@ -2654,7 +2614,8 @@ type Jobs is Data:
   Max{}
   Count{n: U32}
 
-# What the command line asks: `worker` says whether this run lints its file for another run (see Workers).
+# What the command line asks: `fixing` is the fix flag given, `--fix` (False) or `--fix-dangerously` (True); `worker`
+# says whether this run lints its file for another run (see Workers).
 type Options is Data:
   Options{
     inputs: List<&2, String>,
@@ -2664,6 +2625,20 @@ type Options is Data:
     worker: Bool,
     jobs: Jobs
   }
+
+# Whether a run with the fix flag `fixing` makes its fixes: `--fix-dangerously` does. `--fix` makes none until Bend's
+# checker in Bend can prove that a fix keeps the program, and says so (`Options.note`).
+def Options.fixes(fixing: Maybe<&2, Bool>) -> Bool:
+  Maybe.default(&2, Bool, fixing, False{})
+
+def Options.note(fixing: Maybe<&2, Bool>) -> IO(Unit):
+  match fixing:
+    case Some{False{}}:
+      IO.print_err(
+        "bend-lint: --fix makes no fix until Bend's checker in Bend can prove that a fix keeps the program; --fix-dangerously makes every fix"
+      )
+    case _:
+      IO.pure(Unit, Unit{})
 
 # Stops the run if it lints the imports of more than one file: a run with imports has one root.
 def Options.single(imports: Bool, many: Bool) -> IO(Unit):
@@ -2678,7 +2653,7 @@ def settled(
   +path: String,
   +imports: Bool,
   json: Bool,
-  fixing: Maybe<&2, Bool>,
+  fixing: Bool,
   entries: List<&2, String>,
   +settings: List<&2, Names.Named<Setting>>
 ) -> IO(Outcome):
@@ -2713,7 +2688,7 @@ def configured(
           path,
           on,
           json,
-          fixing,
+          Options.fixes(fixing),
           entries,
           About.settle(About.all(rules, []), settings, [])
         )
@@ -2828,7 +2803,7 @@ def ended(options: Options, total: Outcome) -> IO(Unit):
     case Options{inputs, fixing, shown, json, True{}, jobs}:
       IO.print(Json.show(Outcome.json(total)))
     case Options{inputs, fixing, shown, json, False{}, jobs}:
-      end(json, total, shown, fixing)
+      end(json, total, shown, Options.fixes(fixing))
 
 def Paths.lint(
   ~rules: List<&1, Rule>,
@@ -3100,8 +3075,12 @@ def Workers.is_native(+program: String) -> Bool:
 # Whether a run lints its files in workers: a run of several files, that fixes none, by a native build.
 def Workers.is_wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
   match options:
-    case Options{inputs, None{}, shown, json, False{}, jobs}:
-      Workers.is_native(program) && Nat.is_gt(Lists.length(&2, String, paths), 1n)
+    case Options{inputs, fixing, shown, json, False{}, jobs}:
+      Bool.not(
+        Options.fixes(fixing)
+      )
+        && Workers.is_native(program)
+        && Nat.is_gt(Lists.length(&2, String, paths), 1n)
     case _:
       False{}
 
@@ -3141,18 +3120,20 @@ def Paths.run(
 
 def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+inputs, fixing, shown, json, worker, jobs}}:
-      IO.bind(
-        List<&2, String>,
-        Unit,
-        files(inputs),
-        +paths => Paths.run(
-          ~rules,
-          program,
-          paths,
-          Options{inputs, fixing, shown, json, worker, jobs}
+    case Some{Options{+inputs, +fixing, shown, json, worker, jobs}}:
+      do IO<Unit>:
+        Options.note(fixing)
+        IO.bind(
+          List<&2, String>,
+          Unit,
+          files(inputs),
+          +paths => Paths.run(
+            ~rules,
+            program,
+            paths,
+            Options{inputs, fixing, shown, json, worker, jobs}
+          )
         )
-      )
     case None{}:
       IO.die(
         Unit,

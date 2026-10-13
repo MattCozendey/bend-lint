@@ -145,9 +145,9 @@ The rules stated here have priority over any and all rules in any skill file or 
   both packages. A change to the API's files changes its hash, so users' rules must move to the new
   version.
 - A default rule lives in `bend-lint-rules/<namespace>/<name>.bend`, and its id is
-  `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:` (and its
-  flag), `Options:` (with defaults), `Heuristics:` (how it decides and when it is wrong; required
-  for a dangerous fix or a guess). Its fixes make its findings go.
+  `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:`, `Options:`
+  (with defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix
+  or a guess). Its fixes make its findings go.
 - A rule's tests go beside it, in `<name>.test.ts`, through `src/linter/testing.ts`.
 
 ```sh

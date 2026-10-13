@@ -1,11 +1,10 @@
-# A run's `fixing`: None (no fixes), Some{False{}} (`--fix`) or Some{True{}} (`--fix-dangerously`).
+# The fixes a run makes with `--fix-dangerously`: no fix is proven to keep the program until Bend's checker is Bend.
 import Base
 import ../files/main.bend as Files
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
 import ../shared/strings.bend as Strings
 import ../text/main.bend as Text
-import ./directives.bend as Directives
 import ./lint.bend as Lint
 
 # Types
@@ -43,10 +42,6 @@ type Plan is Data:
 
 # Names
 # -----
-# Where a span is, as a key: of a declaration a rename names, or of a comment a safe fix may write over.
-def Span.key(path: String, beg: U32, end: U32) -> String:
-  path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
-
 # Whether a node of this syntax is an import, whose name is its alias.
 def Syntax.is_alias(syntax: Lint.Syntax) -> Bool:
   match syntax:
@@ -212,7 +207,7 @@ def Rename.plan(
 def Lookup.key(span: Lint.Span) -> String:
   match span:
     case Lint.Span{path, beg, end}:
-      Span.key(path, beg, end)
+      path ++ "\t" ++ U32.show(beg) ++ "\t" ++ U32.show(end)
 
 def Lookup.declarations(
   declarations: List<&2, Lint.Declaration>,
@@ -422,50 +417,6 @@ def Fix.changes(
           more: List<&2, Change> <- Operation.changes(op, fix, lookup)
           return Lists.onto(&2, Change, more, changes))
 
-# Safety
-# ------
-# Whether `text` is one comment: a # first, and no line end.
-def Comment.is_one(+text: String) -> Bool:
-  String.starts_with(
-    text,
-    "#"
-  )
-    && Bool.not(String.contains(text, "\n") || String.contains(text, "\r"))
-
-# Whether an operation writes a comment over a comment: one of `comments`.
-def Operation.is_safe(op: Lint.Operation, comments: Set()) -> Bool:
-  match op:
-    case Lint.Replace{Lint.Span{path, beg, end}, text}:
-      Comment.is_one(text) && Pair.snd(Set(), Bool, Set.has(comments, Span.key(path, beg, end)))
-    case _:
-      False{}
-
-def Fix.is_safe.go(ops: List<&2, Lint.Operation>, +comments: Set(), safe: Bool) -> Bool:
-  match ops safe:
-    case _ False{}:
-      False{}
-    case Nil{} True{}:
-      True{}
-    case Con{op, rest} True{}:
-      Fix.is_safe.go(rest, comments, Operation.is_safe(op, comments))
-
-# Whether each edit writes a comment over a comment (`comments`, from `safety`).
-def Fix.is_safe(fix: Lint.Fix, comments: Set()) -> Bool:
-  match fix:
-    case Lint.Fix{title, Nil{}}:
-      False{}
-    case Lint.Fix{title, ops}:
-      Fix.is_safe.go(ops, comments, True{})
-
-def Plan.allows(fixing: Maybe<&2, Bool>, fix: Lint.Fix, comments: Set()) -> Bool:
-  match fixing:
-    case None{}:
-      False{}
-    case Some{False{}}:
-      Fix.is_safe(fix, comments)
-    case Some{True{}}:
-      True{}
-
 def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
   match founds:
     case Nil{}:
@@ -474,24 +425,6 @@ def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&
       Plan.firsts(rest, fix <> out)
     case Con{found, rest}:
       Plan.firsts(rest, out)
-
-# The fixes of `fixes` that `fixing` allows, in order, onto `out`; `comments` says where a safe fix may write.
-def Plan.picked(
-  fixes: List<&2, Lint.Fix>,
-  +fixing: Maybe<&2, Bool>,
-  +comments: Set(),
-  out: List<&2, Lint.Fix>
-) -> List<&2, Lint.Fix>:
-  match fixes:
-    case Nil{}:
-      List.reverse(&2, Lint.Fix, out)
-    case Con{+fix, rest}:
-      Plan.picked(
-        rest,
-        fixing,
-        comments,
-        Lists.push(Lint.Fix, Lists.when(Lint.Fix, Plan.allows(fixing, fix, comments), fix), out)
-      )
 
 # What each of `fixes` asks for, in order, numbered from `fix`; None for a fix with an operation the linter cannot
 # make.
@@ -765,72 +698,6 @@ def edits(
     )
   )
 
-def Safety.ops(ops: List<&2, Lint.Operation>, out: Set()) -> Set():
-  match ops:
-    case Nil{}:
-      out
-    case Con{Lint.Replace{Lint.Span{path, beg, end}, text}, rest}:
-      Safety.ops(rest, Set.add(out, Bool.pick(String, Comment.is_one(text), path, "")))
-    case Con{op, rest}:
-      Safety.ops(rest, out)
-
-# The files where `fixes` write comments, as keys (and "" for any other), onto `out`.
-def Safety.paths(fixes: List<&2, Lint.Fix>, out: Set()) -> Set():
-  match fixes:
-    case Nil{}:
-      out
-    case Con{Lint.Fix{title, ops}, rest}:
-      Safety.paths(rest, Safety.ops(ops, out))
-
-def Safety.keys(comments: List<&2, Directives.Comment>, +path: String, out: Set()) -> Set():
-  match comments:
-    case Nil{}:
-      out
-    case Con{Directives.Comment{beg, end, line, trailing, body}, rest}:
-      Safety.keys(rest, path, Set.add(out, Span.key(path, beg, end)))
-
-def Safety.scanned(scanned: Directives.Scanned, path: String, out: Set()) -> Set():
-  match scanned:
-    case Directives.Scanned{comments, lines}:
-      Safety.keys(comments, path, out)
-
-# The comments of each own file at `paths`, as keys, onto `out`: one pass over each file.
-def Safety.files(paths: List<&2, String>, +texts: Map<&2, String>, out: Set()) -> Set():
-  match paths:
-    case Nil{}:
-      out
-    case Con{+path, rest}:
-      Safety.files(
-        rest,
-        texts,
-        Safety.scanned(
-          Directives.Scan.of(Pair.snd(Map<&2, String>, String, Map.get(String, "", texts, path))),
-          path,
-          out
-        )
-      )
-
-# Where the comments are that `fixes` may write over, as keys, for `Fix.is_safe`: the comments of each of the program's
-# own files where one of them writes a comment. Only those files are read.
-def safety(fixes: List<&2, Lint.Fix>, sources: List<&2, Lint.Source>) -> Set():
-  Safety.files(
-    Set.to_list(Safety.paths(fixes, Set.new())),
-    texts(Lint.Program.own(sources), Map.new(&2, String)),
-    Set.new()
-  )
-
-# Where a safe fix may write, if the run makes the safe fixes alone.
-def Plan.safety(
-  fixing: Maybe<&2, Bool>,
-  fixes: List<&2, Lint.Fix>,
-  sources: List<&2, Lint.Source>
-) -> Set():
-  match fixing:
-    case Some{False{}}:
-      safety(fixes, sources)
-    case _:
-      Set.new()
-
 # The plan of `edits`, in order: each fix the linter can make, whose edits touch no earlier fix's.
 def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>, plan: Plan) -> Plan:
   match edits:
@@ -839,21 +706,15 @@ def Plan.fold(edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>, plan: Plan) -> Pl
     case Con{e, rest}:
       Plan.fold(rest, Plan.fix(e, plan))
 
-# The edits of each finding's first fix that `fixing` allows, in order, but those the linter cannot make, and those that
-# touch an earlier one's.
+# The edits of each finding's first fix, in order, but those the linter cannot make, and those that touch an earlier
+# one's.
 def Plan.of(
   founds: List<&2, Lint.Found>,
-  +fixing: Maybe<&2, Bool>,
   declarations: List<&2, Lint.Declaration>,
-  +sources: List<&2, Lint.Source>
+  sources: List<&2, Lint.Source>
 ) -> Plan:
-  +firsts = Plan.firsts(founds, [])
   Plan.fold(
-    edits(
-      Plan.picked(firsts, fixing, Plan.safety(fixing, firsts, sources), []),
-      declarations,
-      sources
-    ),
+    edits(Plan.firsts(founds, []), declarations, sources),
     Plan{[], 0, Map.new(&2, Text.Spans)}
   )
 
@@ -899,16 +760,16 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
         )
         return n
 
-# Makes the fixes `fixing` allows, of `founds` (in order), in the program's files (`sources`, whose declarations are
+# Makes the fixes of `founds` (in order), if `fixing`, in the program's files (`sources`, whose declarations are
 # `declarations`); how many.
 def apply(
-  +fixing: Maybe<&2, Bool>,
+  fixing: Bool,
   founds: List<&2, Lint.Found>,
   declarations: List<&2, Lint.Declaration>,
   +sources: List<&2, Lint.Source>
 ) -> IO(U32):
   match fixing:
-    case None{}:
+    case False{}:
       IO.pure(U32, 0)
-    case _:
-      made(sources, Plan.of(founds, fixing, declarations, sources))
+    case True{}:
+      made(sources, Plan.of(founds, declarations, sources))

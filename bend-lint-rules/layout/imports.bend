@@ -2,7 +2,7 @@
 # order: import Base, then the other imports by written path, then by alias, by code point; a comment
 # line stays with the import below it.
 # Fix: writes the block in order, drops a second import of a file, and points its uses at the first
-# one's alias (--fix-dangerously).
+# one's alias.
 # Heuristics: two imports name one file if the check loads one file for both.
 import Base
 import ../../src/linter/lint.bend as Lint

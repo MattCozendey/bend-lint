@@ -150,13 +150,18 @@ setDefaultTimeout(120_000);
     expect(await getReports("# comment\n")).toEqual([]);
   });
 
-  test("--fix-dangerously writes the formatted file; --fix makes no fix it cannot prove safe", async () => {
+  test("--fix-dangerously writes the formatted file; --fix makes no fix, and says why", async () => {
     const text =
       "import   Base\r\n\r\n\r\ntype N is Data:\r\n    Z{}  \r\n    S{p:N}\r\ndef id(x:N)->N:\r\n\tx  \r\ndef main()->N: id(S{Z{}})";
-    const safe = await getRunOutcome(RULE, { "main.bend": text }, "main.bend", ["--fix"]);
-    expect([safe.files["main.bend"], safe.out.trim().split("\n").at(-1)]).toEqual([
+    const awaiting = await getRunOutcome(RULE, { "main.bend": text }, "main.bend", ["--fix"]);
+    expect([
+      awaiting.files["main.bend"],
+      awaiting.out.trim().split("\n").at(-1),
+      awaiting.err.trim(),
+    ]).toEqual([
       text,
-      "bend-lint: 1 finding(s), 0 fixed",
+      "bend-lint: 1 finding(s)",
+      "bend-lint: --fix makes no fix until Bend's checker in Bend can prove that a fix keeps the program; --fix-dangerously makes every fix",
     ]);
     const dangerous = await getRunOutcome(RULE, { "main.bend": text }, "main.bend", [
       "--fix-dangerously",

@@ -1,6 +1,6 @@
 # layout/format: a file that differs from its formatted text, where it first differs. One formatter
 # owns indentation, spacing, declaration gaps and wrapping.
-# Fix: writes the formatted text (--fix-dangerously).
+# Fix: writes the formatted text.
 # Options: tabWidth (2); wrapAtWidth (100, or "never": no optional wrapping); endOfLine ("lf",
 # "crlf", or "preserve": the file's first, or LF if it has none).
 # Heuristics: it reads tokens, not Bend's syntax, and changes only blanks, line breaks and the space
