@@ -166,8 +166,8 @@ def judged(matched: Bool, owner: Lint.Node, b: U32, name: String) -> List<&2, Li
     case False{}:
       finding(scan([owner], b, False{}, False{}, False{}, 0, Seen{None{}, None{}}), name)
 
-# The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes apart
-# (`matched`) is skipped.
+# The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes
+# apart (`matched`) is skipped.
 def judge(
   +owner: Lint.Node,
   onces: List<&2, Once>,

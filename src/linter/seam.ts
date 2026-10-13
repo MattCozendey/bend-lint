@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // The checker server, and the glue to Bend's checker: the one place that knows bend.ts. It runs a
 // rules program, and answers its requests about Bend files over local TCP until the program exits
-// (seam.bend sends them, and reads the answers). A check's answer is the linter's program, as Bend's
+// (Seam in cli.bend sends them, and reads the answers). A check's answer is the linter's program, as Bend's
 // parser and checker give it: each file's syntax tree, and, for facts, what the checker found on its
 // nodes (Lint.Source, in lint.bend). When Bend's checker is Bend, glue in Bend makes the same program
 // and this file goes, so mutation and any optimization are fair here. Node 24.2 or later runs a
@@ -232,7 +232,7 @@ const KEPT: Record<string, ReadonlySet<string> | undefined> = {
   parse_def: new Set(["parse_fresh", "parse_reso", "parse_tele", "parse_term", "parse_body"]),
 };
 
-// The tag an answer writes for each kind of node (seam.bend reads them).
+// The tag an answer writes for each kind of node (Syntax.of in cli.bend reads them).
 const TAGS = {
   Import: "I",
   ImportPath: "i",
@@ -572,7 +572,7 @@ const spanEq = (a: Span | undefined, b: Span | undefined): boolean =>
   a === b ||
   (a !== undefined && b !== undefined && a.file === b.file && a.beg === b.beg && a.end === b.end);
 
-// The quantity an answer writes (seam.bend reads it): erased, once or many.
+// The quantity an answer writes (Quantity.of in cli.bend reads it): erased, once or many.
 const quantity = (q: Quant): string => (q.$ === "None" ? "e" : q.$ === "Lone" ? "o" : "m");
 
 // The most of two quantities, as the checker joins uses.
@@ -1381,7 +1381,7 @@ const collect = (
 // Answers
 // -------
 
-// The records of a tree, its children's first (seam.bend builds each node once its children are
+// The records of a tree, its children's first (cli.bend builds each node once its children are
 // read): each fact on it, then the node. A fact names its type by a handle of `held`'s.
 const written = (t: Tree, held: Held, out: string[]): string[] => {
   t.kids.forEach((k) => written(k, held, out));

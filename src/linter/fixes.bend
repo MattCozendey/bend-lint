@@ -29,8 +29,8 @@ type Change is Data:
 type Spotted is Data:
   Spotted{fix: U32, edit: Maybe<&2, Text.Edit>}
 
-# What resolving renames reads, built once per run: each declaration, by its node's id; and the names each own file
-# takes, as keys (`Taken.key`).
+# What resolving renames reads, built once per run: each declaration, by where its node is written (`Lookup.key`); and
+# the names each own file takes, as keys (`Taken.key`).
 type Lookup is Data:
   Lookup{declarations: Map<&2, Maybe<&2, Lint.Declaration>>, taken: Set()}
 
@@ -547,8 +547,8 @@ def Lookup.names(need: Bool, sources: List<&2, Lint.Source>) -> Set():
     case False{}:
       Set.new()
 
-# What resolving the renames of `fixes` reads, built once: the declarations by id, if one renames anything; the names
-# each own file takes, if one renames a declaration.
+# What resolving the renames of `fixes` reads, built once: the declarations by where they are written, if one renames
+# anything; the names each own file takes, if one renames a declaration.
 def Lookup.of(
   +fixes: List<&2, Lint.Fix>,
   declarations: List<&2, Lint.Declaration>,

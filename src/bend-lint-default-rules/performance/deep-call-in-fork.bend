@@ -106,8 +106,8 @@ def binders(nodes: List<&2, Lint.Node>, n: Nat) -> Nat:
     case Con{node, rest}:
       binders(rest, n)
 
-# Whether a let leads to a fork: it is one (it binds `many` names), or it binds one (`one`), and the last of `nodes`, the
-# rest of its block, is a let that leads to one. The values of these lets are what a fork runs, or what runs just
+# Whether a let leads to a fork: it is one (it binds `many` names), or it binds one (`one`), and the last of `nodes`,
+# the rest of its block, is a let that leads to one. The values of these lets are what a fork runs, or what runs just
 # before it.
 def leads(nodes: List<&2, Lint.Node>, many: Bool, one: Bool) -> Bool:
   match nodes many one:

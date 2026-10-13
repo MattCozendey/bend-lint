@@ -4,8 +4,8 @@
 # - The rules program is an ordinary Bend program. seam.ts builds it once and keeps the build. The C lane is the
 #   target; the JS lane must work too.
 # - Bend's checker is TS for now: seam.ts makes each check's program of what Bend's parser and checker give, and answers
-#   the questions rules ask about its types, over local TCP (see Seam in cli.bend). When the checker is Bend, glue in Bend makes
-#   the same program, and the questions become calls.
+#   the questions rules ask about its types, over local TCP (see Seam in cli.bend). When the checker is Bend, glue in
+#   Bend makes the same program, and the questions become calls.
 # - A file is a tree of syntax nodes. A rule walks it, and reads what a node is from the node and the nodes above it.
 # - Rules are pure, so they run in parallel. The runner answers every rule's questions of a round in one batch.
 # - A check is read once and shared by every rule. Facts and declarations are collected only if a rule needs them.
@@ -895,7 +895,7 @@ def Here.nodes(here: Here) -> List<&2, Node>:
     case Here{program, Source{path, namespace, text, nodes}, declarations, options}:
       nodes
 
-# Every file of the check, hub packages aside.
+# Every file of the check, hub packages too.
 def Here.sources(here: Here) -> List<&2, Source>:
   match here:
     case Here{Program{sources}, source, declarations, options}:
