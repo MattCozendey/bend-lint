@@ -32,5 +32,5 @@
   },
   "packageManager": "bun@1.4.3",
   "bendRelease": "bendlang/bend/v2.0.37",
-  "bendWindows": "MattCozendey/bend/c12af5d25c14dec9c2a93e5d7dac74cb31db5f46"
+  "bendWindows": "MattCozendey/bend/eeb956ea85f51d9ae95284c45afec8b57c22d761"
 }
