@@ -20,22 +20,24 @@ bun add -g github:MattCozendey/bend-lint
 
 ```sh
 bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports]
-          [--fix | --fix-dangerously] [--show-suppressed] [--json]
+          [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]
 ```
 
-| Flag                | Does                                                                          |
-| ------------------- | ----------------------------------------------------------------------------- |
-| `--program`         | runs your rules program (default: [main.bend](src/linter/main.bend))          |
-| `--imports`         | also lints every file the one named file imports (not Base, nor hub packages) |
-| `--fix`             | applies the fixes proven safe. For now: those that only rewrite comments      |
-| `--fix-dangerously` | applies every fix. These can change what the program does, or break it        |
-| `--show-suppressed` | also prints the findings that a directive covers                              |
-| `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr  |
+| Flag                | Does                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `--program`         | runs your rules program (default: [main.bend](src/linter/main.bend))               |
+| `--imports`         | also lints every file the one named file imports (not Base, nor hub packages)      |
+| `--fix`             | applies the fixes proven safe. For now: those that only rewrite comments           |
+| `--fix-dangerously` | applies every fix. These can change what the program does, or break it             |
+| `--show-suppressed` | also prints the findings that a directive covers                                   |
+| `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr       |
+| `--jobs`            | how many files to lint at once: a number, or `max` (default: half the CPU threads) |
 
 - Quote globs, and use `/` in paths.
 - A `.bend` rules program builds on its first run (about 40 s), and stays built until it or Bend
   changes.
 - A fix that touches an earlier fix's edits waits for the next run.
+- bend-lint runs at low priority: a long run slows down, not your computer.
 - bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a
   file fails, the rules that need its types do not run on it, and bend-lint names them on stderr.
 - Exit code: 0 no errors (warnings do not count), 1 an error, 2 a usage or config error.

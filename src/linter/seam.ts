@@ -34,6 +34,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import * as nodeFs from "node:fs";
 import * as net from "node:net";
+import * as os from "node:os";
 import * as nodePath from "node:path";
 import * as readline from "node:readline";
 import * as url from "node:url";
@@ -1926,6 +1927,9 @@ const started = async (named: string): Promise<[Checker, string, string[]]> => {
 // ============
 
 if (import.meta.main) {
+  // A run, and every process it starts (they inherit it), runs at low priority: a long run slows
+  // down, not the machine.
+  tryGetOrUndefined(() => os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL));
   const argv = process.argv.slice(2);
   const at = argv.indexOf("--program");
   const named = at === -1 ? MAIN : argv[at + 1];

@@ -2617,6 +2617,12 @@ def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
     case None{}:
       IO.pure(Unit, Unit{})
 
+# How many files a run lints at once (see Workers): half as many as the threads, as many, or a number, at most as many.
+type Jobs is Data:
+  Half{}
+  Max{}
+  Count{n: U32}
+
 # What the command line asks: `worker` says whether this run lints its file for another run (see Workers).
 type Options is Data:
   Options{
@@ -2625,7 +2631,8 @@ type Options is Data:
     fixing: Maybe<&2, Bool>,
     shown: Bool,
     json: Bool,
-    worker: Bool
+    worker: Bool,
+    jobs: Jobs
   }
 
 # Stops the run if it lints the imports of more than one file: a run with imports has one root.
@@ -2666,7 +2673,7 @@ def configured(
   project: Project
 ) -> IO(Outcome):
   match options project:
-    case Options{inputs, flag, fixing, shown, json, worker} Project{entries, from, +settings}:
+    case Options{inputs, flag, fixing, shown, json, worker, jobs} Project{entries, from, +settings}:
       +on = imports(flag, from)
       do IO<Outcome>:
         Options.checked(About.problem(About.all(rules, []), settings))
@@ -2687,6 +2694,7 @@ type Flag is Data:
   ShownFlag{}
   JsonFlag{}
   WorkerFlag{}
+  JobsFlag{}
 
 def flags() -> List<&2, Names.Named<Flag>>:
   [
@@ -2696,28 +2704,56 @@ def flags() -> List<&2, Names.Named<Flag>>:
     Names.Named{"--fix-dangerously", FixFlag{Some{True{}}}},
     Names.Named{"--show-suppressed", ShownFlag{}},
     Names.Named{"--json", JsonFlag{}},
-    Names.Named{"--worker", WorkerFlag{}}
+    Names.Named{"--worker", WorkerFlag{}},
+    Names.Named{"--jobs", JobsFlag{}}
   ]
 
 def Options.set(flag: Maybe<&2, Flag>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match flag options:
-    case Some{ImportsFlag{on}} Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{inputs, Some{on}, fixing, shown, json, worker}}
-    case Some{FixFlag{set}} Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{inputs, imports, set, shown, json, worker}}
-    case Some{ShownFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{inputs, imports, fixing, True{}, json, worker}}
-    case Some{JsonFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{inputs, imports, fixing, shown, True{}, worker}}
-    case Some{WorkerFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{inputs, imports, fixing, shown, json, True{}}}
+    case Some{ImportsFlag{on}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, Some{on}, fixing, shown, json, worker, jobs}}
+    case Some{FixFlag{set}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, imports, set, shown, json, worker, jobs}}
+    case Some{ShownFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, imports, fixing, True{}, json, worker, jobs}}
+    case Some{JsonFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, imports, fixing, shown, True{}, worker, jobs}}
+    case Some{WorkerFlag{}} Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{inputs, imports, fixing, shown, json, True{}, jobs}}
+    case Some{JobsFlag{}} Some{o}:
+      Some{o}
+    case _ _:
+      None{}
+
+def Jobs.number(number: Maybe<&2, U32>) -> Maybe<&2, Jobs>:
+  match number:
+    case Some{+n}:
+      Lists.when(Jobs, U32.is_gt(n, 0), Count{n})
+    case None{}:
+      None{}
+
+def Jobs.of.max(max: Bool, text: String) -> Maybe<&2, Jobs>:
+  match max:
+    case True{}:
+      Some{Max{}}
+    case False{}:
+      Jobs.number(U32.read(text))
+
+# The jobs `--jobs` gives: `max`, or a number above 0.
+def Jobs.of(+text: String) -> Maybe<&2, Jobs>:
+  Jobs.of.max(String.eq(text, "max"), text)
+
+def Options.jobs(jobs: Maybe<&2, Jobs>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
+  match jobs options:
+    case Some{j} Some{Options{inputs, imports, fixing, shown, json, worker, old}}:
+      Some{Options{inputs, imports, fixing, shown, json, worker, j}}
     case _ _:
       None{}
 
 def Options.input(input: String, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{inputs, imports, fixing, shown, json, worker}}:
-      Some{Options{input <> inputs, imports, fixing, shown, json, worker}}
+    case Some{Options{inputs, imports, fixing, shown, json, worker, jobs}}:
+      Some{Options{input <> inputs, imports, fixing, shown, json, worker, jobs}}
     case None{}:
       None{}
 
@@ -2731,19 +2767,36 @@ def Options.arg(flag: Bool, arg: String, options: Maybe<&2, Options>) -> Maybe<&
 # The options, once every argument is read: the files in order; none if there are none.
 def Options.done(options: Maybe<&2, Options>) -> Maybe<&2, Options>:
   match options:
-    case Some{Options{Con{first, more}, imports, fixing, shown, json, worker}}:
+    case Some{Options{Con{first, more}, imports, fixing, shown, json, worker, jobs}}:
       Some{
-        Options{List.reverse(&2, String, Con{first, more}), imports, fixing, shown, json, worker}
+        Options{
+          List.reverse(&2, String, Con{first, more}),
+          imports,
+          fixing,
+          shown,
+          json,
+          worker,
+          jobs
+        }
       }
     case _:
       None{}
 
-def Options.read(args: List<String>, options: Maybe<&2, Options>) -> Maybe<&2, Options>:
-  match args:
-    case Nil{}:
+# The options `args` give, after `options`; `jobs` says whether the argument before was `--jobs`, whose value this one is.
+def Options.read(args: List<String>, options: Maybe<&2, Options>, jobs: Bool) -> Maybe<&2, Options>:
+  match args jobs:
+    case Nil{} False{}:
       Options.done(options)
-    case Con{+a, rest}:
-      Options.read(rest, Options.arg(String.starts_with(a, "--"), a, options))
+    case Nil{} True{}:
+      None{}
+    case Con{+a, rest} True{}:
+      Options.read(rest, Options.jobs(Jobs.of(a), options), False{})
+    case Con{+a, rest} False{}:
+      Options.read(
+        rest,
+        Options.arg(String.starts_with(a, "--"), a, options),
+        String.eq(a, "--jobs")
+      )
 
 def File.lint(
   ~rules: List<&1, Lint.Rule>,
@@ -2762,9 +2815,9 @@ def File.lint(
 # Workers); another run shows it.
 def ended(options: Options, total: Outcome) -> IO(Unit):
   match options:
-    case Options{inputs, imports, fixing, shown, json, True{}}:
+    case Options{inputs, imports, fixing, shown, json, True{}, jobs}:
       IO.print(Json.show(Outcome.json(total)))
-    case Options{inputs, imports, fixing, shown, json, False{}}:
+    case Options{inputs, imports, fixing, shown, json, False{}, jobs}:
       end(json, total, shown, fixing)
 
 def Paths.lint(
@@ -2805,8 +2858,8 @@ def files(inputs: List<&2, String>) -> IO(List<&2, String>):
 # -------
 
 # A run of several files that fixes none lints each in a worker: this program again, on that file alone
-# (`--worker`), with a heap of its own. As many workers run at once as half the threads, two threads each, and the run
-# shows what each found in the order of the files. A run that fixes lints its files here, one after another, as a fix
+# (`--worker`), with a heap of its own. As many workers run at once as `--jobs` says (see Jobs), two threads each, or one
+# if more than half the threads run, and the run shows what each found in the order of the files. A run that fixes lints its files here, one after another, as a fix
 # changes what the files after it read; so does a build to JavaScript, which runs one process at a time.
 #
 # A heap of its own matters as much as the threads. Bend's runtime gives back freed cells last freed first, so after a
@@ -2909,12 +2962,12 @@ def Worker.flag(on: Bool, flag: String) -> List<String>:
     case False{}:
       []
 
-# The command line of the worker of the file at `path`: two threads, then the flags of this run that it reads.
-def Worker.args(options: Options, path: String) -> List<String>:
+# The command line of the worker of the file at `path`: its threads, then the flags of this run that it reads.
+def Worker.args(options: Options, path: String, threads: String) -> List<String>:
   match options:
-    case Options{inputs, imports, fixing, shown, json, worker}:
+    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
       "--threads"
-        <> "2"
+        <> threads
         <> "--worker"
         <> List.append(
           &1,
@@ -2936,11 +2989,12 @@ def Worker.run(+slots: Chan(Unit), program: String, args: List<String>) -> IO(Ra
     freed: Result<&1, &1, Unit, Unit> <- Chan.send(Unit, slots, Unit{})
     return ran
 
-# Starts the workers of `paths`, after those of `out` (last first).
+# Starts the workers of `paths`, each with `threads` threads, after those of `out` (last first).
 def Workers.start(
   +slots: Chan(Unit),
   +program: String,
   +options: Options,
+  +threads: String,
   paths: List<&2, String>,
   out: List<&2, Chan(Ran())>
 ) -> IO(List<&2, Chan(Ran())>):
@@ -2951,8 +3005,8 @@ def Workers.start(
       IO.bind(
         Chan(Ran()),
         List<&2, Chan(Ran())>,
-        IO.fork(Ran(), Worker.run(slots, program, Worker.args(options, path))),
-        c => Workers.start(slots, program, options, rest, c <> out)
+        IO.fork(Ran(), Worker.run(slots, program, Worker.args(options, path, threads))),
+        c => Workers.start(slots, program, options, threads, rest, c <> out)
       )
 
 # What the workers found, in order, after `total`.
@@ -2987,14 +3041,48 @@ def Slots.of(+count: U32) -> IO(Chan(Unit)):
     slots => Slots.filled(slots, U32.to_nat(count))
   )
 
-# Lints `paths` in workers of `program`, as `options` say: half as many at once as the threads.
-def Workers.lint(program: String, paths: List<&2, String>, +options: Options) -> IO(Unit):
+# How many workers run at once on `threads` threads, one at least.
+def Jobs.count(jobs: Jobs, threads: U32) -> U32:
+  match jobs:
+    case Half{}:
+      U32.max(1, U32.shr(threads))
+    case Max{}:
+      U32.max(1, threads)
+    case Count{n}:
+      U32.max(1, U32.min(n, threads))
+
+# Lints `paths` in workers of `program`, as `options` say, on `threads` threads.
+def Workers.run(
+  program: String,
+  paths: List<&2, String>,
+  +options: Options,
+  +threads: U32
+) -> IO(Unit):
+  match options:
+    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
+      +count = Jobs.count(jobs, threads)
+      do IO<Unit>:
+        slots: Chan(Unit) <- Slots.of(count)
+        workers: List<
+          &2,
+          Chan(
+            Ran()
+          )> <- Workers.start(
+          slots,
+          program,
+          options,
+          Bool.pick(String, U32.is_gt(count, U32.shr(threads)), "1", "2"),
+          paths,
+          []
+        )
+        total: Outcome <- Workers.collect(workers, Outcome{0n, [], [], False{}, 0})
+        ended(options, total)
+
+# Lints `paths` in workers of `program`, as `options` say.
+def Workers.lint(program: String, paths: List<&2, String>, options: Options) -> IO(Unit):
   do IO<Unit>:
     threads: U32 <- IO.thread_count()
-    slots: Chan(Unit) <- Slots.of(U32.max(1, U32.shr(threads)))
-    workers: List<&2, Chan(Ran())> <- Workers.start(slots, program, options, paths, [])
-    total: Outcome <- Workers.collect(workers, Outcome{0n, [], [], False{}, 0})
-    ended(options, total)
+    Workers.run(program, paths, options, threads)
 
 # Whether `program`, as invoked, is a native build: one whose workers run at once.
 def Workers.native(+program: String) -> Bool:
@@ -3011,7 +3099,7 @@ def Workers.native(+program: String) -> Bool:
 # Whether a run lints its files in workers: a run of several files, that fixes none, by a native build.
 def Workers.wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
   match options:
-    case Options{inputs, imports, None{}, shown, json, False{}}:
+    case Options{inputs, imports, None{}, shown, json, False{}, jobs}:
       Workers.native(program) && Nat.is_gt(Lists.length(&2, String, paths), 1n)
     case _:
       False{}
@@ -3019,7 +3107,7 @@ def Workers.wanted(program: String, paths: List<&2, String>, options: Options) -
 # Whether the run lints more than one file: a worker's does, for the run it lints for.
 def Options.many(options: Options, paths: List<&2, String>) -> Bool:
   match options:
-    case Options{inputs, imports, fixing, shown, json, worker}:
+    case Options{inputs, imports, fixing, shown, json, worker, jobs}:
       worker || Nat.is_gt(Lists.length(&2, String, paths), 1n)
 
 def Paths.go(
@@ -3052,7 +3140,7 @@ def Paths.run(
 
 def checking(~rules: List<&1, Lint.Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+inputs, flag, fixing, shown, json, worker}}:
+    case Some{Options{+inputs, flag, fixing, shown, json, worker, jobs}}:
       IO.bind(
         List<&2, String>,
         Unit,
@@ -3061,14 +3149,14 @@ def checking(~rules: List<&1, Lint.Rule>, program: String, options: Maybe<&2, Op
           ~rules,
           program,
           paths,
-          Options{inputs, flag, fixing, shown, json, worker}
+          Options{inputs, flag, fixing, shown, json, worker, jobs}
         )
       )
     case None{}:
       IO.die(
         Unit,
         2,
-        "usage: bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json]"
+        "usage: bend-lint [--program <rules program>] <file or glob>... [--imports | --no-imports] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
       )
 
 # Runs the command line `args`: the program as invoked, then its arguments.
@@ -3078,7 +3166,11 @@ def started(~rules: List<&1, Lint.Rule>, args: List<String>) -> IO(Unit):
       checking(
         ~rules,
         program,
-        Options.read(rest, Some{Options{[], None{}, None{}, False{}, False{}, False{}}})
+        Options.read(
+          rest,
+          Some{Options{[], None{}, None{}, False{}, False{}, False{}, Half{}}},
+          False{}
+        )
       )
     case Nil{}:
       checking(~rules, "", None{})
