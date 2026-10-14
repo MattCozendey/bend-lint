@@ -5,3 +5,6 @@ src/linter/build/
 CPU.*
 Heap.*
 C-CPU.*
+
+# Other projects, checked out to measure the rules on (see demos/PINS.txt)
+demos/
