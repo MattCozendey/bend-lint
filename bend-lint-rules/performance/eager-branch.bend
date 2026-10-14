@@ -174,7 +174,7 @@ def defs(
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  Lint.done(defs(nodes, Deep.deep(nodes, []), []))
+  Lint.done(defs(nodes, Deep.deep(nodes, True{}, []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

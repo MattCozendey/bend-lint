@@ -2,7 +2,8 @@
 # the CPU pool, not on the GPU: in its definition, a let before it forks (a parallel let, or a value that
 # calls a definition under which a parallel let runs), or one of its arguments does.
 # Heuristics: a bang that follows the host's forks in one evaluation runs on the CPU pool ("bend guide
-# shaders"). Measured on an RTX 4050 laptop, a numeric bang that took 0.55 s on the GPU after an IO step
+# shaders"); a `!` call is not one of those forks: Bend's radix sort benchmark, three `!` calls in a row,
+# took the same time with IO steps between them. Measured on an RTX 4050 laptop, a numeric bang that took 0.55 s on the GPU after an IO step
 # took 3.9 s, its time on 20 CPU threads, after a parallel let, after a let whose value forked in a call,
 # and with an argument that forked; after a let whose value looped without forking, it stayed on the
 # GPU. An IO step (`<-` in a `do` block) starts a new evaluation, so a fork before one does not count;
@@ -30,16 +31,37 @@ def message(callee: String) -> String:
   callee
     ++ "! runs after a fork of the same evaluation, so Bend runs it on the CPU pool, not on the GPU. GPU: measured 7x slower than with an IO step between them (3.9 s against 0.55 s, RTX 4050 laptop). CPU (`--gpu off`): no change. Confidence: high. Put an IO step, such as `t : Nat <- IO.now()`, between the forks and this call, as Bend's slash boss demo does."
 
-# Whether `nodes` fork when they run: a call among them or under them is of a definition under which a parallel let
-# runs. Past the steps the walk takes, it answers no.
-def forks(nodes: List<&2, Lint.Node>, defs: Map<&2, Maybe<&2, GpuFit.Def>>) -> Bool:
-  GpuFit.reaches(
-    4096n,
-    Some{Lint.visit(~Unit, ~String, ~GpuFit.called.visit, Unit{}, nodes)},
-    [],
-    defs,
-    False{}
-  )
+# The definition an application below `path` calls by name on the host: not with `!`, as a `!` call runs on the GPU,
+# and a `!` call after it stays there.
+def host.visit(
+  +bangs: List<&2, U32>,
+  +path: List<&2, Lint.Above>,
+  +node: Lint.Node
+) -> List<&2, String>:
+  match node:
+    case Lint.Node{
+      Lint.Application{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Reference{t}, rn, Some{Lint.Span{p, beg, end}}, rk, rf}, args},
+      f
+    }:
+      Bool.pick(List<&2, String>, List.contains(~U32, ~U32.is_eq, bangs, end), [], [t])
+    case _:
+      []
+
+# Whether `nodes` fork on the host when they run: a call among them or under them, made without `!`, is of a
+# definition under which a parallel let runs. Past the steps the walk takes, it answers no.
+def forks(nodes: List<&2, Lint.Node>, program: Program) -> Bool:
+  match program:
+    case Program{defs, bangs}:
+      GpuFit.reaches(
+        4096n,
+        Some{Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes)},
+        [],
+        defs,
+        False{}
+      )
 
 # The nodes of a let (`kids`) that run before the rest of its block, its last node: its binders and values.
 def let.values(+kids: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
@@ -47,7 +69,7 @@ def let.values(+kids: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
 
 # Whether a fork runs before the node below `path`, in the same evaluation, or `found`: a let above it, whose rest of
 # block it is in, forks (a parallel let, or a value that forks), and no lambda (the rest of an IO step) comes between.
-def after(path: List<&2, Lint.Above>, +defs: Map<&2, Maybe<&2, GpuFit.Def>>, found: Bool) -> Bool:
+def after(path: List<&2, Lint.Above>, +program: Program, found: Bool) -> Bool:
   match path found:
     case _ True{}:
       True{}
@@ -60,17 +82,17 @@ def after(path: List<&2, Lint.Above>, +defs: Map<&2, Maybe<&2, GpuFit.Def>>, fou
     case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, at}, rest} False{}:
       after(
         rest,
-        defs,
+        program,
         Deep.is_last(
           kids,
           at
         )
-          && (Nat.is_gt(Deep.binders(kids, 0n), 1n) || forks(let.values(kids), defs))
+          && (Nat.is_gt(Deep.binders(kids, 0n), 1n) || forks(let.values(kids), program))
       )
     case Con{Lint.Above{Lint.Node{Lint.Let{}, n, s, +kids, f}, at}, rest} False{}:
-      after(rest, defs, Deep.is_last(kids, at) && forks(let.values(kids), defs))
+      after(rest, program, Deep.is_last(kids, at) && forks(let.values(kids), program))
     case Con{a, rest} False{}:
-      after(rest, defs, False{})
+      after(rest, program, False{})
 
 # The finding about an application below `path`, if it is a `!` call of a definition that forks, made after a fork.
 def visit(
@@ -81,7 +103,7 @@ def visit(
   match program node:
     case Program{
       +defs,
-      bangs
+      +bangs
     } Lint.Node{
       Lint.Application{},
       n,
@@ -99,7 +121,7 @@ def visit(
         )
           && GpuFit.reaches(4096n, Some{[t]}, [], defs, True{})
           && Bool.not(GpuFit.is_drop(Names.find(GpuFit.Def, defs, t), t))
-          && (forks(args, defs) || after(path, defs, False{})),
+          && (forks(args, Program{defs, bangs}) || after(path, Program{defs, bangs}, False{})),
         span,
         message(callee)
       )

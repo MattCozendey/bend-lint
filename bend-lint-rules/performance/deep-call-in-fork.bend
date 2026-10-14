@@ -5,11 +5,15 @@
 # shaders"). In bend-lint's benchmark (Bend 2.0.36, 16 threads), such a call at each fork cut the
 # speedup from 10x to 1.9x; the same definition with a tail call kept the 10x. In a raytracer that
 # splits its rows that way at each of 9 fork levels, tail-recursive splits made it 4% to 8% faster, on
-# 20 CPU threads; in Bend's slash boss demo, the same change changed no timing, as its list was short. A tail position is the
-# body of a definition, a case, or the rest of a block after its lets, through annotations.
+# 20 CPU threads; in Bend's slash boss demo, the same change changed no timing, as its list was
+# short. A tail position is the body of a definition, a case, or the rest of a block after its lets,
+# through annotations. A definition with a parallel let is a fork tree: its calls of itself are the
+# values of its forks, not frames, and it is not reported (Bend's matrix and Merkle benchmarks call
+# such trees in their forks).
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
+import ./gpu-fit.bend as GpuFit
 
 # Types
 # =====
@@ -58,14 +62,16 @@ def deep.of(recursive: Bool, path: List<&2, Lint.Above>) -> List<&2, Bool>:
 def deep.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Bool>:
   deep.of(Lint.is_recursive(path, node), path)
 
-# The definitions among `nodes` that call themselves outside a tail position, as the check names them, onto `out`.
-def deep(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
+# The definitions among `nodes` that call themselves outside a tail position, as the check names them, onto `out`;
+# with `forking` false, not those with a parallel let, whose such calls are the values of their forks.
+def deep(nodes: List<&2, Lint.Node>, +forking: Bool, out: List<&2, String>) -> List<&2, String>:
   match nodes:
     case Nil{}:
       out
-    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +k, f}, rest}:
       deep(
         rest,
+        forking,
         Lists.push(
           String,
           Lists.when(
@@ -81,14 +87,15 @@ def deep(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
                 [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
               ),
               True{}
-            ),
+            )
+              && (forking || Bool.not(GpuFit.forks(k, False{}))),
             t
           ),
           out
         )
       )
     case Con{node, rest}:
-      deep(rest, out)
+      deep(rest, forking, out)
 
 def is_pattern(syntax: Lint.Syntax) -> Bool:
   match syntax:
@@ -231,7 +238,7 @@ def defs(
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
-  Lint.done(defs(nodes, deep(nodes, []), []))
+  Lint.done(defs(nodes, deep(nodes, False{}, []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

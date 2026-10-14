@@ -52,6 +52,14 @@ setDefaultTimeout(120_000);
     ]);
   });
 
+  test("a ! call after another ! call, or with one as its argument, passes", async () => {
+    expect(
+      await getPlaces(
+        "def f() -> U32:\n  +s = host!(4n, 1)\n  host!(4n, s)\n\ndef g() -> U32:\n  host!(4n, host!(4n, 1))\n",
+      ),
+    ).toEqual([]);
+  });
+
   test("an IO step between, a let that does not fork, and a ! call that gpu-fit reports, pass", async () => {
     expect(
       await getPlaces(

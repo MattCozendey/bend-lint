@@ -86,6 +86,17 @@ setDefaultTimeout(120_000);
     ).toEqual([]);
   });
 
+  test("a fork tree called in a fork passes: its calls of itself are forks, not frames", async () => {
+    expect(
+      await getReports(
+        getFile(
+          "def tree(+d: Nat) -> U32:\n  match d:\n    case 0n:\n      1\n    case 1n+p:\n      a b = tree(p) tree(p)\n      U32.add(a, b)\n",
+          "      a b = f(p, lo) f(p, U32.add(lo, tree(p)))\n      U32.add(a, b)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
   test("a fork's calls of its own definition pass", async () => {
     expect(
       await getReports(
