@@ -516,23 +516,29 @@ def rows(ys: List<&2, U32>, +w: U32, +ns: U32, +cam: Cam, +scene: Scene) ->
       RCon{line(w, y, ns, cam, scene), rows(t, w, ns, cam, scene)}
 
 # the items at even positions (0, 2, ..) and at odd positions (1, 3, ..)
-def evens(xs: List<&2, U32>) -> List<&2, U32>:
+def evens.go(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
   match xs:
     case []:
-      []
+      List.reverse(&2, U32, acc)
     case x <> []:
-      [x]
+      List.reverse(&2, U32, x <> acc)
     case x <> y <> t:
-      x <> evens(t)
+      evens.go(t, x <> acc)
+
+def evens(xs: List<&2, U32>) -> List<&2, U32>:
+  evens.go(xs, [])
+
+def odds.go(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case []:
+      List.reverse(&2, U32, acc)
+    case x <> []:
+      List.reverse(&2, U32, acc)
+    case x <> y <> t:
+      odds.go(t, y <> acc)
 
 def odds(xs: List<&2, U32>) -> List<&2, U32>:
-  match xs:
-    case []:
-      []
-    case x <> []:
-      []
-    case x <> y <> t:
-      y <> odds(t)
+  odds.go(xs, [])
 
 # merges the rows at even positions with the rows at odd positions
 def interleave(xs: Rows, ys: Rows) -> Rows:
