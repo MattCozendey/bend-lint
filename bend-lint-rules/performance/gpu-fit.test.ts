@@ -31,18 +31,46 @@ await buildRule(RULE);
 setDefaultTimeout(120_000);
 
 (BUILDS ? describe : describe.skip)(RULE, () => {
-  test("a ! call that receives data is reported as maybe slower on the GPU", async () => {
+  test("a ! call of a definition that forks and receives data is maybe slower on a discrete GPU", async () => {
     expect(await getReports("def main(t: T) -> U32:\n  walk!(t)\n")).toEqual([
-      "27:3 information performance/gpu-fit: walk! runs on the GPU, if there is one, and receives data (t: T), not only numbers. A GPU is fast on uniform numeric work but slow at walking data, and a discrete GPU (CUDA) also pays for each page of that data it reads from the CPU's memory. Measured against `--gpu off` on an RTX 4050 laptop GPU: the draw of Bend's slash boss demo took 30% longer on the GPU, its parallel sort 4.6x longer, a tree walk 2.7x longer. Time the program with and without `--gpu off` (or this call without its `!`), and keep the faster. On unified memory (Apple M-series), the GPU can still win.",
+      "27:3 information performance/gpu-fit: walk! receives data (t: T), which a discrete GPU reads across PCIe, page by page. Discrete GPU (CUDA): slower than `--gpu off` for Bend's slash boss draw on an RTX 4050 laptop (1.4x), and for portal-bend on an RTX 4060 desktop. Unified memory (Apple M-series): the GPU wins that draw. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`; where the GPU wins, expect this finding.",
     ]);
   });
 
-  test("a fork over numbers called without ! is a hint that it may be faster on the GPU", async () => {
+  test("a ! call of a definition under which no parallel let runs is a warning", async () => {
+    expect(
+      await getReports(
+        "def sum(xs: List<&2, U32>, acc: U32) -> U32:\n  match xs:\n    case Nil{}:\n      acc\n    case Con{x, rest}:\n      sum(rest, (acc + x : U32))\n\ndef main() -> U32:\n  sum!([1, 2, 3], 0)\n",
+      ),
+    ).toEqual([
+      "34:3 warning performance/gpu-fit: sum! runs on one GPU lane, alone: no parallel let runs under sum. GPU: measured 80x slower than without the `!` (a list walk of BendSR, RTX 4050 laptop). CPU (`--gpu off`): 1.6x slower. Confidence: high. Remove the `!`, or fork inside sum with a parallel let.",
+    ]);
+  });
+
+  test("a ! call of a definition that forks through a call is not alone", async () => {
+    expect(
+      (
+        await getReports(
+          "def wrap(t: T) -> U32:\n  walk(t)\n\ndef main(t: T) -> U32:\n  wrap!(t)\n",
+        )
+      ).map((f) => f.split(" receives")[0]),
+    ).toEqual(["30:3 information performance/gpu-fit: wrap!"]);
+  });
+
+  test("a fork over numbers called without ! is a hint that a long call may be faster on the GPU", async () => {
     expect(
       (await getReports("def main() -> U32:\n  grow(10n, 1, P{0.0, 0.0})\n")).map(
         (f) => f.split(", so")[0],
       ),
     ).toEqual(["27:3 hint performance/gpu-fit: grow forks over numbers only"]);
+  });
+
+  test("a ! call of a definition that returns Unit is left to performance/drop-in-bang", async () => {
+    expect(
+      await getReports(
+        "def free(t: T) -> Unit:\n  match t:\n    case Leaf{v}:\n      Unit{}\n    case Node{l, r}:\n      free(r)\n\ndef main(t: T) -> Unit:\n  free!(t)\n",
+      ),
+    ).toEqual([]);
   });
 
   test("a ! call over numbers, and a call of a fork from a fork, pass", async () => {

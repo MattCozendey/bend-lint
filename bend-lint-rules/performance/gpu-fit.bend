@@ -1,13 +1,19 @@
 # performance/gpu-fit: a call that may run faster on the other side of the GPU: a `!` call (it runs on the
-# GPU, if there is one) whose definition receives data, not only numbers; or a call of a definition that
-# forks over numbers only, made without `!`, from a definition that does not fork.
-# Heuristics: measured on an RTX 4050 laptop GPU against its CPU (`--gpu off`, Bend 2.0.36): a GPU is
-# fast on uniform numeric work (a 16,384-leaf numeric fork tree: 0.54 s against 0.95 s) and slow at
-# walking data (a tree walk: 2.7x slower; Bend's slash boss draw: 30% slower; its parallel sort: 4.6x
-# slower), and it costs about 0.5 s to start, so short work is slower there. Numbers are U32, I32, F32,
-# Nat, Bool, Char (and their 64-bit forms), and a record of numbers only, defined in the program's
-# files; anything else is data. Erased and template parameters do not count. On unified memory (Apple
-# M-series) the GPU's costs differ.
+# GPU, if there is one) of a definition under which no parallel let runs, so one GPU lane runs it alone;
+# a `!` call of a definition that forks but receives data, not only numbers; or a call of a definition
+# that forks over numbers only, made without `!`, from a definition that does not fork.
+# Heuristics: measured on an RTX 4050 laptop GPU against 20 threads of its CPU (`--gpu off`): a `!` on
+# BendSR's compute_mae, a list walk that never forks, took 6.5 s against 0.08 s without the `!` (0.11 s
+# against 0.07 s on the CPU); Bend's slash boss draw, which forks over data, took 10.5 ms against 7.4 ms;
+# the GPU also costs a fixed 0.3 to 0.8 s to start there, after which numeric work is nearly free: a
+# numeric fork tree of 16,384 leaves took 0.95 s against 3.6 s on the CPU, but one that took 0.06 s on
+# the CPU took 0.49 s. The same draw takes 8 ms on an M4 (unified memory), and an RTX 4090 desktop drew
+# it at 17 to 19 FPS ("bend guide shaders"): a discrete GPU pays for each page it reads across PCIe,
+# whatever its speed. It follows calls through the program's files; a definition outside them is
+# Base's, where only Image.free (and Image.drop, through it) forks. Numbers are U32, I32, F32, Nat,
+# Bool, Char (and their 64-bit forms), and a record of numbers only, defined in the program's files;
+# anything else is data. Erased and template parameters do not count. A `!` call of a definition that
+# returns Unit is left to performance/drop-in-bang.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -24,9 +30,16 @@ type Slot is Data:
 type Param is Data:
   Param{name: String, ty: String}
 
-# A definition of the program: its name as the check names it, its runtime parameters, whether it forks.
+# A definition of the program: its name as the check names it, its runtime parameters, whether it forks, the
+# definitions it calls by name, and the type it returns, as one name ("" if it is not one name).
 type Def is Data:
-  Def{target: String, params: List<&2, Param>, forks: Bool}
+  Def{
+    target: String,
+    params: List<&2, Param>,
+    forks: Bool,
+    calls: List<&2, String>,
+    returns: String
+  }
 
 # What judging a file's calls reads: the program's definitions, by the name the check gives them; the fields of its
 # datatypes; and where the file writes `!(`.
@@ -102,6 +115,30 @@ def forks(nodes: List<&2, Lint.Node>, found: Bool) -> Bool:
     case Con{Lint.Node{syntax, n, s, kids, f}, rest} False{}:
       forks(rest, forks(kids, False{}))
 
+# The definition an application below `path` calls by name.
+def called.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, String>:
+  match node:
+    case Lint.Node{
+      Lint.Application{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args},
+      f
+    }:
+      [t]
+    case _:
+      []
+
+# The type a definition's nodes say it returns, as one name, or "".
+def returned(nodes: List<&2, Lint.Node>) -> String:
+  match nodes:
+    case Nil{}:
+      ""
+    case Con{Lint.Node{Lint.Returns{}, n, s, kids, f}, rest}:
+      plain(kids)
+    case Con{node, rest}:
+      returned(rest)
+
 # The definitions among a file's nodes, by the name the check gives them, onto `out`.
 def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
   match nodes:
@@ -110,10 +147,83 @@ def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Ma
     case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +kids, f}, rest}:
       defs(
         rest,
-        Map.set(&2, Maybe<&2, Def>, out, t, Some{Def{t, params(kids, []), forks(kids, False{})}})
+        Map.set(
+          &2,
+          Maybe<&2, Def>,
+          out,
+          t,
+          Some{
+            Def{
+              t,
+              params(kids, []),
+              forks(kids, False{}),
+              Lint.visit(~Unit, ~String, ~called.visit, Unit{}, kids),
+              returned(kids)
+            }
+          }
+        )
       )
     case Con{node, rest}:
       defs(rest, out)
+
+# Whether a call of `t` (`info`, if the program defines it) only frees its inputs: it returns Unit, as Base's
+# Image.drop, Image.free and Image.sink do.
+def is_drop(info: Maybe<&2, Def>, t: String) -> Bool:
+  match info:
+    case Some{Def{d, ps, fs, cs, r}}:
+      String.eq(r, "Unit")
+    case None{}:
+      List.contains(~String, ~String.eq, ["Image.drop", "Image.free", "Image.sink"], t)
+
+# Whether Base's definition `t` forks: Image.free does, and Image.drop, through it.
+def is_base_fork(t: String) -> Bool:
+  List.contains(~String, ~String.eq, ["Image.free", "Image.drop"], t)
+
+# What is left to visit after `t`: none if a parallel let runs in it (the answer is found); `rest` if it was seen;
+# else `rest` and what `t` calls. A definition outside the program is Base's.
+def reaches.next(
+  info: Maybe<&2, Def>,
+  seen: Bool,
+  t: String,
+  rest: List<&2, String>
+) -> Maybe<&2, List<&2, String>>:
+  match info seen:
+    case _ True{}:
+      Some{rest}
+    case None{} False{}:
+      Bool.pick(Maybe<&2, List<&2, String>>, is_base_fork(t), None{}, Some{rest})
+    case Some{Def{d, ps, True{}, cs, r}} False{}:
+      None{}
+    case Some{Def{d, ps, False{}, cs, r}} False{}:
+      Some{Lists.onto(&2, String, cs, rest)}
+
+# Whether a parallel let runs under the definitions of `todo` (none: one was found): in them, or in what they call.
+# `fuel` bounds the steps; when it runs out, the answer is yes, as a fork may lie past it.
+def reaches(
+  fuel: Nat,
+  todo: Maybe<&2, List<&2, String>>,
+  +seen: List<&2, String>,
+  +defs: Map<&2, Maybe<&2, Def>>
+) -> Bool:
+  match fuel todo:
+    case _ None{}:
+      True{}
+    case _ Some{Nil{}}:
+      False{}
+    case 0n _:
+      True{}
+    case 1n+f Some{Con{+t, rest}}:
+      reaches(
+        f,
+        reaches.next(
+          Names.find(Def, defs, t),
+          List.contains(~String, ~String.eq, seen, t),
+          t,
+          rest
+        ),
+        t <> seen,
+        defs
+      )
 
 def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&2, Slot>:
   match sources:
@@ -211,7 +321,7 @@ def data(
 
 def Def.forks(info: Maybe<&2, Def>) -> Bool:
   match info:
-    case Some{Def{t, params, forks}}:
+    case Some{Def{t, params, forks, calls, r}}:
       forks
     case None{}:
       False{}
@@ -226,24 +336,32 @@ def bangs(s: String, +at: U32, out: List<&2, U32>) -> List<&2, U32>:
     case SCon{c, rest}:
       bangs(rest, (at + 1: U32), out)
 
+def alone(+callee: String) -> String:
+  callee
+    ++ "! runs on one GPU lane, alone: no parallel let runs under "
+    ++ callee
+    ++ ". GPU: measured 80x slower than without the `!` (a list walk of BendSR, RTX 4050 laptop). CPU (`--gpu off`): 1.6x slower. Confidence: high. Remove the `!`, or fork inside "
+    ++ callee
+    ++ " with a parallel let."
+
 def slower(callee: String, param: Param) -> String:
   match param:
     case Param{name, +ty}:
       callee
-        ++ "! runs on the GPU, if there is one, and receives data ("
+        ++ "! receives data ("
         ++ name
         ++ Bool.pick(String, String.is_empty(ty), "", ": " ++ ty)
-        ++ "), not only numbers. A GPU is fast on uniform numeric work but slow at walking data, and a discrete GPU (CUDA) also pays for each page of that data it reads from the CPU's memory. Measured against `--gpu off` on an RTX 4050 laptop GPU: the draw of Bend's slash boss demo took 30% longer on the GPU, its parallel sort 4.6x longer, a tree walk 2.7x longer. Time the program with and without `--gpu off` (or this call without its `!`), and keep the faster. On unified memory (Apple M-series), the GPU can still win."
+        ++ "), which a discrete GPU reads across PCIe, page by page. Discrete GPU (CUDA): slower than `--gpu off` for Bend's slash boss draw on an RTX 4050 laptop (1.4x), and for portal-bend on an RTX 4060 desktop. Unified memory (Apple M-series): the GPU wins that draw. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`; where the GPU wins, expect this finding."
 
 def faster(+callee: String) -> String:
   callee
     ++ " forks over numbers only, so `"
     ++ callee
-    ++ "!(..)` would run it on the GPU, if there is one, where uniform numeric work can be faster: measured on an RTX 4050 laptop GPU, a numeric fork tree of 16,384 leaves took 0.54 s against 0.95 s on its CPU. A GPU also costs time to start (about 0.5 s there), so short work gets slower: the parallel sum of Bend's demos took 0.83 s against 0.13 s. Time both, and keep the faster."
+    ++ "!(..)` can run faster on the GPU, if the call is long: a discrete GPU costs a fixed 0.3 to 0.8 s to start, then numeric work is nearly free. Measured on an RTX 4050 laptop: 3.8x faster for a fork tree that took 3.6 s on 20 CPU threads, 8x slower for one that took 0.06 s. Confidence: low, as it depends on how long this call runs and on the machine. Add the `!` if this call takes over a second on the CPU, and time both; if it is short, expect this finding."
 
 def Def.target(info: Maybe<&2, Def>) -> String:
   match info:
-    case Some{Def{t, params, forks}}:
+    case Some{Def{t, params, forks, calls, r}}:
       t
     case None{}:
       ""
@@ -258,7 +376,7 @@ def unbanged(
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match info:
-    case Some{Def{t, params, True{}}}:
+    case Some{Def{t, params, True{}, calls, r}}:
       Lint.finding(
         Lint.Hint{},
         Bool.not(
@@ -272,40 +390,51 @@ def unbanged(
     case _:
       []
 
-def banged.data(
+# The finding about a `!` call: of a definition under which no parallel let runs (`forks` is false), or of one that
+# forks and receives data (`param`).
+def banged.of(
+  forks: Bool,
   param: Maybe<&2, Param>,
   callee: String,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
-  match param:
-    case Some{p}:
+  match forks param:
+    case False{} _:
+      Lint.finding(Lint.Warning{}, True{}, span, alone(callee))
+    case True{} Some{p}:
       Lint.finding(Lint.Information{}, True{}, span, slower(callee, p))
-    case None{}:
+    case True{} None{}:
       []
 
+# The finding about a `!` call of a definition of the program (`info`), unless the call only frees (`drop`):
+# performance/drop-in-bang reports that.
 def banged(
   info: Maybe<&2, Def>,
+  drop: Bool,
   callee: String,
+  defs: Map<&2, Maybe<&2, Def>>,
   slots: List<&2, Slot>,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
-  match info:
-    case Some{Def{t, params, forks}}:
-      banged.data(data(params, None{}, slots), callee, span)
-    case None{}:
+  match info drop:
+    case Some{Def{t, params, forks, calls, r}} False{}:
+      banged.of(reaches(256n, Some{[t]}, [], defs), data(params, None{}, slots), callee, span)
+    case _ _:
       []
 
 def judged(
   bang: Bool,
   info: Maybe<&2, Def>,
+  drop: Bool,
   callee: String,
   caller: Maybe<&2, Def>,
+  defs: Map<&2, Maybe<&2, Def>>,
   slots: List<&2, Slot>,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match bang:
     case True{}:
-      banged(info, callee, slots, span)
+      banged(info, drop, callee, defs, slots, span)
     case False{}:
       unbanged(info, callee, caller, slots, span)
 
@@ -317,7 +446,7 @@ def visit(
 ) -> List<&2, Lint.Finding>:
   match program node:
     case Program{
-      defs,
+      +defs,
       slots,
       bangs
     } Lint.Node{
@@ -330,8 +459,10 @@ def visit(
       judged(
         List.contains(~U32, ~U32.is_eq, bangs, end),
         Names.find(Def, defs, t),
+        is_drop(Names.find(Def, defs, t), t),
         callee,
         Names.find(Def, defs, Lint.Node.target(Lint.top(path, node))),
+        defs,
         slots,
         span
       )

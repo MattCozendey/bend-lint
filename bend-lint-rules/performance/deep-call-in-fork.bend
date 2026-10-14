@@ -3,7 +3,9 @@
 # definition of the file whose call of itself is not the last thing it does.
 # Heuristics: Bend gives a call of itself that is not a tail call a frame per call ("bend guide
 # shaders"). In bend-lint's benchmark (Bend 2.0.36, 16 threads), such a call at each fork cut the
-# speedup from 10x to 1.9x; the same definition with a tail call kept the 10x. A tail position is the
+# speedup from 10x to 1.9x; the same definition with a tail call kept the 10x. In a raytracer that
+# splits its rows that way at each of 9 fork levels, tail-recursive splits made it 4% to 8% faster, on
+# 20 CPU threads; in Bend's slash boss demo, the same change changed no timing, as its list was short. A tail position is the
 # body of a definition, a case, or the rest of a block after its lets, through annotations.
 import Base
 import ../../src/linter/lint.bend as Lint
@@ -144,13 +146,11 @@ def is_inside(path: List<&2, Lint.Above>, x: Lint.Node, found: Bool) -> Bool:
 
 def message(+callee: String, loop: String) -> String:
   callee
-    ++ " calls itself outside a tail position: Bend runs such a call with a frame per call (\"bend guide shaders\"). "
+    ++ " calls itself outside a tail position, so Bend gives each of its calls a frame, and "
     ++ loop
-    ++ " calls "
+    ++ " calls it in a fork (a value of its parallel let, or of a let just before it). CPU: measured 4% to 8% faster for a raytracer once such a call was tail-recursive, and a 10x speedup cut to 1.9x with such a call at each fork. GPU: a non-tail recursion in a `!` made a draw 2.3x slower (\"bend guide shaders\"). Confidence: medium. Make "
     ++ callee
-    ++ " in a fork: a value of its parallel let, or of a let just before it. In bend-lint's benchmark (Bend 2.0.36, 16 threads), one such call per fork cut the speedup from 10x to 1.9x, and a tail-recursive version kept the 10x. Make "
-    ++ callee
-    ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. In the slash boss demo of Bend, doing so for such a call changed no timing: the list it walked was short. Time it before and after."
+    ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. If its input is short, expect this finding."
 
 # The finding about a call of a deep definition (if `deep`), when the call is in a fork.
 def judge.deep(

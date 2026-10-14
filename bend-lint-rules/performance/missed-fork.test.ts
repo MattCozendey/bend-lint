@@ -12,7 +12,7 @@ const RULE = "performance/missed-fork";
 
 // What each finding says after what it found, about the cost of a fork.
 const CAVEAT =
-  ' Do it only if each call does much work: each fork costs about 100 operations of task machinery ("bend guide shaders"), so forking small calls makes the program slower. The JS lane runs on one thread, so it does not gain. Measured in the hand-tuned slash boss demo of Bend, forks of this kind made it slower: in a merge of quadtree cells, a frame took 16% longer; in a cloth step, that step took 30% longer. Time the program before and after a fork, and keep it only if it is faster.';
+  " C lane (CPU, and GPU under a `!`): measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS lane: one thread, no gain. Confidence: low, as it depends on how much work each call does. If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding.";
 
 // Functions
 // =========
@@ -114,6 +114,23 @@ setDefaultTimeout(120_000);
 
   test("one call per expression passes", async () => {
     expect(await getReports(getFile(getDef("f", "      U32.add(f(p), 1)")))).toEqual([]);
+  });
+
+  test("calls in different values of Bool.pick, or on two sides of &&, are alternatives and pass", async () => {
+    expect(
+      await getReports(
+        getFile(
+          getDef("f", "      Bool.pick(U32, True{}, f(p), U32.add(f(p), 1))"),
+          getDef("g", "      g(p) && g(p)", "Bool", "True{}"),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  test("two calls in one value of Bool.pick are reported", async () => {
+    expect(
+      await getPlaces(getFile(getDef("f", "      Bool.pick(U32, True{}, U32.add(f(p), f(p)), 1)"))),
+    ).toEqual(["12:30"]);
   });
 
   test("calls to other definitions pass", async () => {

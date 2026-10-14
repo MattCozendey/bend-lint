@@ -65,13 +65,13 @@ def Append.message(
         ++ Lint.Span.text(source, Lint.Node.span(List.get(&2, Lint.Node, args, 1n)))
         ++ ", "
         ++ acc
-        ++ ")`."
+        ++ ")`. Every lane. Confidence: high. If the loop runs only a few steps, expect this finding."
     case StringAppend{}:
-      "On the C lane, ++ copies "
+      "++ copies "
         ++ acc
         ++ " on each call of "
         ++ loop
-        ++ ", so a loop of n steps copies O(n²) characters (the JS lane joins strings natively). Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`."
+        ++ ", so a loop of n steps copies O(n²) characters. C lane (CPU and GPU): measured 12.6 s against 0.07 s for 20,000 lines. JS lane: strings join natively, no cost. Confidence: high. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding."
 
 # Whether a variable the file writes, of the binder `b`, is among `nodes` or under them, or `found`.
 def has(nodes: List<&2, Lint.Node>, +b: U32, found: Bool) -> Bool:

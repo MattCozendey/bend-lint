@@ -4,7 +4,8 @@
 # parameter to one of those.
 # Heuristics: each of those walks the list from its head, so a loop of n steps over a list of n items
 # takes O(n²) time, where walking the list takes O(n). A branch is the innermost `case` around the
-# read; the loop's call must be in it too. It looks one definition deep, not further.
+# read; the loop's call must be in it too. It looks one definition deep, not further. A read in a type
+# does not run, and is skipped.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -179,8 +180,9 @@ def message(+callee: String, +through: String, +list: String, loop: String) -> S
     ++ loop
     ++ " passes "
     ++ list
-    ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. "
+    ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. Every lane. Confidence: high, for a long list. "
     ++ advice(through, list)
+    ++ " If the list stays short, expect this finding."
 
 # Whether the loop `owner`, if a parameter of it declares the binder `b` (`param`), passes it unchanged to a call of
 # itself (`target`), in the innermost case above `path`.
@@ -205,14 +207,14 @@ def judged.list(
   callee: String,
   through: String,
   +owner: Lint.Node,
-  path: List<&2, Lint.Above>,
+  +path: List<&2, Lint.Above>,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match walked owner:
     case Some{+b} Lint.Node{Lint.Definition{+t, u}, name, s, +kids, f}:
       Lint.finding(
         Lint.Warning{},
-        loops(Lint.parameter(kids, b), path, owner, t, b),
+        loops(Lint.parameter(kids, b), path, owner, t, b) && Lint.is_live(path),
         span,
         message(callee, through, list, name)
       )

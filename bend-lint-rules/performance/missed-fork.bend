@@ -2,10 +2,14 @@
 # after the other: two or more in one expression (`f(x) + f(y)`, `Node{f(x), f(y)}`), or in lets that
 # follow each other (`l = f(x)`, then `r = f(y)`), where no call uses the result of another.
 # Heuristics: Bend forks only the values of a parallel let (`a b = f(x) f(y)`), and its calls are
-# independent, as Bend is pure. A fork pays when each call does much work: it costs about 100
-# operations of task machinery ("bend guide shaders"), so forking small calls is slower, and the JS
-# lane runs on one thread. It skips a definition that returns IO: its calls build effects, they do
-# not run them. A call inside another call of itself, or inside a lambda, does not count.
+# independent, as Bend is pure. Whether a fork pays depends on how much work each call does, which the
+# rule cannot see: measured on 20 CPU threads, forking a walk of a 1M-leaf tree, called 10 times, made
+# it 2.5x faster; forking the same walk of 1k-leaf trees, called 100,000 times in a loop, made it 3.9x
+# slower; forking a small expression tree that BendSR evaluates once per data point made it 230x slower.
+# The JS lane runs on one thread, so it does not gain. Calls in different values of Bool.pick, or on
+# the two sides of `&&` or `||`, are alternatives, not both needed (see performance/eager-branch): they
+# do not count together. It skips a definition that returns IO: its calls build effects, they do not
+# run them. A call inside another call of itself, inside a lambda, or in a type, does not count.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -39,6 +43,15 @@ def trim.go(cs: List<&2, Char>) -> List<&2, Char>:
 
 def trimmed(s: String) -> String:
   String.from_list(List.reverse(&2, Char, trim.go(List.reverse(&2, Char, String.to_list(s)))))
+
+# Whether an application's nodes call Bool.pick, Bool.and or Bool.or: its arguments are alternatives, each an
+# expression of its own.
+def is_choice(kids: List<&2, Lint.Node>) -> Bool:
+  match kids:
+    case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, rest}:
+      List.contains(~String, ~String.eq, ["Bool.pick", "Bool.and", "Bool.or"], t)
+    case _:
+      False{}
 
 # Whether a node of this syntax ends the expression a call is in.
 def is_boundary(syntax: Lint.Syntax) -> Bool:
@@ -106,8 +119,8 @@ def called.at(
       out
 
 # Where the calls of `target` among `nodes` and under them are (onto `out`, last first), in the expression they start:
-# a node that ends it starts another, and a call inside another call of `target` does not count: none does if `nodes`
-# are the parts of one (`inside`).
+# a node that ends it starts another, and so does each argument of a choice (Bool.pick, Bool.and, Bool.or); a call
+# inside another call of `target` does not count: none does if `nodes` are the parts of one, or of a choice (`inside`).
 def calls(
   nodes: List<&2, Lint.Node>,
   +target: String,
@@ -121,7 +134,12 @@ def calls(
       out
     case Con{Lint.Node{Lint.Application{}, n, span, +kids, f}, rest} False{}:
       +call = calls.to(kids, target)
-      calls(rest, target, calls(kids, target, called.at(call, span, out), call), False{})
+      calls(
+        rest,
+        target,
+        calls(kids, target, called.at(call, span, out), call || is_choice(kids)),
+        False{}
+      )
     case Con{Lint.Node{Lint.Construction{t}, n, s, kids, f}, rest} False{}:
       calls(rest, target, calls(kids, target, out, False{}), False{})
     case Con{Lint.Node{Lint.Annotation{}, n, s, kids, f}, rest} False{}:
@@ -161,7 +179,7 @@ def quoted(texts: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
       quoted(rest, ("`" ++ t ++ "`") <> out)
 
 def caveat() -> String:
-  " Do it only if each call does much work: each fork costs about 100 operations of task machinery (\"bend guide shaders\"), so forking small calls makes the program slower. The JS lane runs on one thread, so it does not gain. Measured in the hand-tuned slash boss demo of Bend, forks of this kind made it slower: in a merge of quadtree cells, a frame took 16% longer; in a cloth step, that step took 30% longer. Time the program before and after a fork, and keep it only if it is faster."
+  " C lane (CPU, and GPU under a `!`): measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS lane: one thread, no gain. Confidence: low, as it depends on how much work each call does. If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding."
 
 def count(texts: List<&2, String>) -> String:
   U32.show(U32.from_nat(Lists.length(&2, String, texts)))
@@ -199,11 +217,13 @@ def Call.finding(
 ) -> List<&2, Lint.Finding>:
   Call.finding.of(Nat.is_gt(Lists.length(&2, Lint.Span, spans), 1n), spans, span, owner)
 
-# Whether the node below `path` starts an expression: the node above it ends one.
+# Whether the node below `path` starts an expression: the node above it ends one, or is a choice.
 def starts(path: List<&2, Lint.Above>) -> Bool:
   match path:
     case Nil{}:
       True{}
+    case Con{Lint.Above{Lint.Node{Lint.Application{}, n, s, kids, f}, at}, rest}:
+      is_choice(kids)
     case Con{Lint.Above{Lint.Node{syntax, n, s, k, f}, at}, rest}:
       is_boundary(syntax)
 
@@ -375,8 +395,6 @@ def follows(path: List<&2, Lint.Above>, owner: Owner) -> Bool:
     case _:
       False{}
 
-# The findings at a node of a definition below `path`: about the calls of the expression it starts, and about the runs
-# of lets from it, if it starts one.
 # The finding about the calls of the expression a node starts, if it starts one (`root`).
 def roots(
   root: Bool,
@@ -398,15 +416,28 @@ def lets(head: Bool, node: Lint.Node, owner: Owner) -> List<&2, Lint.Finding>:
     case False{}:
       []
 
+# The findings at a node of a definition below `path`: about the calls of the expression it starts, and about the runs
+# of lets from it, if it starts one.
 def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match owner node:
     case Owner{target, name, io, text} Lint.Node{syntax, n, span, k, f}:
       Lists.append(
         &2,
         Lint.Finding,
-        roots(Bool.not(io) && Bool.not(is_boundary(syntax)) && starts(path), node, span, owner),
+        roots(
+          Bool.not(io) && Bool.not(is_boundary(syntax)) && starts(path) && Lint.is_live(path),
+          node,
+          span,
+          owner
+        ),
         lets(
-          Maybe.is_some(&2, Bound, bound(node, owner)) && Bool.not(follows(path, owner)),
+          Maybe.is_some(
+            &2,
+            Bound,
+            bound(node, owner)
+          )
+            && Bool.not(follows(path, owner))
+            && Lint.is_live(path),
           node,
           owner
         )

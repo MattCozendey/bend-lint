@@ -31,13 +31,13 @@ setDefaultTimeout(120_000);
     expect(
       await getReports(getLoop("List<&2, U32>", "      f(p, List.append(&2, U32, acc, [1]))")),
     ).toEqual([
-      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`.",
+      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`. Every lane. Confidence: high. If the loop runs only a few steps, expect this finding.",
     ]);
   });
 
   test("++ to the accumulator of a loop is reported, with how to join the pieces", async () => {
     expect(await getReports(getLoop("String", '      f(p, acc ++ "x")'))).toEqual([
-      "8:12 performance/append-in-loop: On the C lane, ++ copies acc on each call of f, so a loop of n steps copies O(n²) characters (the JS lane joins strings natively). Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`.",
+      "8:12 performance/append-in-loop: ++ copies acc on each call of f, so a loop of n steps copies O(n²) characters. C lane (CPU and GPU): measured 12.6 s against 0.07 s for 20,000 lines. JS lane: strings join natively, no cost. Confidence: high. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding.",
     ]);
   });
 
