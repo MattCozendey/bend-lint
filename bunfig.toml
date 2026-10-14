@@ -1,2 +1,4 @@
 [test]
 concurrentTestGlob = "**/*.test.ts"
+# demos/ holds other projects, with their own tests.
+pathIgnorePatterns = ["demos/**"]
