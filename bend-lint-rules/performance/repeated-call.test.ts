@@ -36,7 +36,7 @@ setDefaultTimeout(120_000);
         START + "def f(+xs: List<&2, U32>) -> Nat:\n  Nat.add(count(xs, 0n), count(xs, 0n))\n",
       ),
     ).toEqual([
-      "18:26 performance/repeated-call: count is called again here, with the same arguments, on this path of f: Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. In eldergrove-faire (list lengths, twice per tick) and in llama.bend's tokenizer it changed nothing measurable: those calls walk short lists. Confidence: high that it repeats; the gain is what the call costs, so expect this finding for a call over a short list. Bind its value once, with `+` if it is used twice, and use that name.",
+      "18:26 performance/repeated-call: count is called again here, with the same arguments, on this path of f, so Bend computes it twice: clang does not merge calls of a definition that loops. All lanes. Measured on the CPU: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s, against 0.1 s after the fix; in eldergrove-faire and in llama.bend's tokenizer, the fix changed nothing measurable, as those calls walk short lists. Confidence: medium, as the gain is what the call costs. Bind its value once, with `+` if it is used twice, and use that name. If the call is cheap, such as a walk of a short list, expect this finding.",
     ]);
   });
 
@@ -56,6 +56,14 @@ setDefaultTimeout(120_000);
           "def h(+xs: List<&2, U32>) -> Nat:\n  a b = count(xs, 0n) count(xs, 0n)\n  Nat.add(a, b)\n\n" +
           "def k(+xs: List<&2, U32>) -> List<&2, U32>:\n  List.append(&2, U32, copy(xs), copy(xs))\n\n" +
           "def m(+xs: List<&2, U32>, b: Bool) -> Nat:\n  Bool.pick(Nat, b, count(xs, 0n), count(xs, 0n))\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a call that performance/loop-invariant-call reports is left to it", async () => {
+    expect(
+      await getPlaces(
+        "def f(+xs: List<&2, U32>, d: Nat) -> Nat:\n  match d:\n    case 0n:\n      0n\n    case 1n+p:\n      Nat.add(Nat.add(count(xs, 0n), count(xs, 0n)), f(xs, p))\n",
       ),
     ).toEqual([]);
   });

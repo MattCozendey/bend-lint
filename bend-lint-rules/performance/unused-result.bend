@@ -31,9 +31,9 @@ def message(+name: String, loop: String) -> String:
     ++ name
     ++ " is built, then walked to be freed, on every step of "
     ++ loop
-    ++ ". Every lane: in llama.bend, not building the activations its generation loop never used made each token 19% to 25% faster (CPU). Confidence: medium, as the cost grows with the value. Have the code that makes "
+    ++ ". All lanes. Measured on the CPU, in llama.bend: not building the activations that its generation loop never used made each token 19% to 25% faster. Confidence: medium, as the cost grows with the value. Have the code that makes "
     ++ name
-    ++ " skip it, such as a variant that does not build it; if it is small, expect this finding."
+    ++ " skip it, such as a variant that does not build it. If it is small, expect this finding."
 
 def loop.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Unit>:
   Bool.pick(List<&2, Unit>, Lint.is_recursive(path, node), [Unit{}], [])

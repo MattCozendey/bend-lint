@@ -40,7 +40,7 @@ setDefaultTimeout(120_000);
         START + getLoop("f", "      then(U32, build(3n, []), xs => k => f(m, (acc + k : U32)))"),
       ),
     ).toEqual([
-      "18:32 performance/unused-result: xs is never used, but Bend computes every value it binds: xs is built, then walked to be freed, on every step of f. Every lane: in llama.bend, not building the activations its generation loop never used made each token 19% to 25% faster (CPU). Confidence: medium, as the cost grows with the value. Have the code that makes xs skip it, such as a variant that does not build it; if it is small, expect this finding.",
+      "18:32 performance/unused-result: xs is never used, but Bend computes every value it binds: xs is built, then walked to be freed, on every step of f. All lanes. Measured on the CPU, in llama.bend: not building the activations that its generation loop never used made each token 19% to 25% faster. Confidence: medium, as the cost grows with the value. Have the code that makes xs skip it, such as a variant that does not build it. If it is small, expect this finding.",
     ]);
   });
 

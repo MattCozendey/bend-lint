@@ -57,7 +57,7 @@ def Append.message(
         ++ acc
         ++ " on each call of "
         ++ loop
-        ++ ", so a loop of n steps copies O(n²) items. Every lane. Confidence: high. Add each item at the head instead, with `item <> "
+        ++ ", so a loop of n steps copies O(n²) items. All lanes. Confidence: high, as the copies grow with the square of the steps. Add each item at the head instead, with `item <> "
         ++ acc
         ++ "`, and reverse "
         ++ acc
@@ -83,7 +83,7 @@ def Append.message(
         ++ acc
         ++ " on each call of "
         ++ loop
-        ++ ", so a loop of n steps copies O(n²) characters. C lane (CPU and GPU): measured 12.6 s against 0.07 s for 20,000 lines. JS lane: strings join natively, no cost. Confidence: high. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding."
+        ++ ", so a loop of n steps copies O(n²) characters. CPU and GPU: measured 12.6 s for 20,000 lines, against 0.07 s after the fix. JS: strings join natively, at no cost. Confidence: high, as the copies grow with the square of the steps. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding."
 
 # Whether a variable the file writes, of the binder `b`, is among `nodes` or under them, or `found`.
 def has(nodes: List<&2, Lint.Node>, +b: U32, found: Bool) -> Bool:

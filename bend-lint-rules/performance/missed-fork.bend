@@ -1,14 +1,14 @@
-# performance/missed-fork: calls of a definition to itself that could run in parallel, but run one
-# after the other: two or more in one expression (`f(x) + f(y)`, `Node{f(x), f(y)}`), or in lets that
-# follow each other (`l = f(x)`, then `r = f(y)`), where no call uses the result of another.
+# performance/missed-fork: calls of a definition to itself that could run in parallel, but run one after
+# the other: two or more in one expression (`f(x) + f(y)`, `Node{f(x), f(y)}`), or in lets that follow
+# each other (`l = f(x)`, then `r = f(y)`), where no call uses the result of another.
 # Heuristics: Bend forks only the values of a parallel let (`a b = f(x) f(y)`), and its calls are
 # independent, as Bend is pure. Whether a fork pays depends on how much work each call does, which the
-# rule cannot see: measured on 20 CPU threads, forking a walk of a 1M-leaf tree, called 10 times, made
-# it 2.5x faster; forking the same walk of 1k-leaf trees, called 100,000 times in a loop, made it 3.9x
-# slower; forking a small expression tree that BendSR evaluates once per data point made it 230x slower.
-# The JS lane runs on one thread, so it does not gain. Calls in different values of Bool.pick, or on
-# the two sides of `&&` or `||`, are alternatives, not both needed (see performance/eager-branch): they
-# do not count together. Calls written the same way compute the same value, so they are left to
+# rule cannot see: measured on the CPU, forking a walk of a 1M-leaf tree, called 10 times, made it 2.5x
+# faster; forking the same walk of 1k-leaf trees, called 100,000 times in a loop, made it 3.9x slower;
+# forking a small expression tree that BendSR evaluates once per data point made it 230x slower. The JS
+# lane runs on one thread, so it does not gain. Calls in different values of Bool.pick, or on the two
+# sides of `&&` or `||`, are alternatives, not both needed (see performance/eager-branch): they do not
+# count together. Calls written the same way compute the same value, so they are left to
 # performance/repeated-call, which asks to compute it once (pow2(30): 0.1 s, against 0.6 s forked). It
 # skips a definition that returns IO: its calls build effects, they do not run them. A call inside
 # another call of itself, inside a lambda, or in a type, does not count.
@@ -180,8 +180,11 @@ def quoted(texts: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
     case Con{t, rest}:
       quoted(rest, ("`" ++ t ++ "`") <> out)
 
-def caveat() -> String:
-  " C lane (CPU, and GPU under a `!`): measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS lane: one thread, no gain. Confidence: low, as it depends on how much work each call does. If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding."
+def costs() -> String:
+  "Bend runs calls in parallel only as the values of a parallel let. CPU, and GPU under a `!`: measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS: one thread, so no gain. Confidence: low, as it depends on how much work each call does."
+
+def expected() -> String:
+  " If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding."
 
 def count(texts: List<&2, String>) -> String:
   U32.show(U32.from_nat(Lists.length(&2, String, texts)))
@@ -192,12 +195,14 @@ def Call.message(loop: String, +texts: List<&2, String>) -> String:
     ++ count(texts)
     ++ " times in this expression ("
     ++ String.join(quoted(texts, []), ", ")
-    ++ "), and these calls run one after the other. Bend runs calls in parallel only as the values of a parallel let. To run them in parallel, bind them first with one parallel let of fresh names, such as `"
+    ++ "), and these calls run one after the other. "
+    ++ costs()
+    ++ " To run them in parallel, bind them first with one parallel let of fresh names, such as `"
     ++ String.join(binders(texts, names(), []), " ")
     ++ " = "
     ++ String.join(texts, " ")
     ++ "`, and use those names here."
-    ++ caveat()
+    ++ expected()
 
 # The finding about an expression at `span` that holds the calls at `spans` (last first), if they are two or more.
 def alike.go(texts: List<&2, String>, +first: String, ok: Bool) -> Bool:
@@ -226,7 +231,7 @@ def Call.finding.of(
   match many owner:
     case True{} Owner{target, name, io, +text}:
       Lint.finding(
-        Lint.Information{},
+        Lint.Hint{},
         Bool.not(is_alike(texts(spans, text, []))),
         span,
         Call.message(name, texts(spans, text, []))
@@ -334,12 +339,14 @@ def Run.message(loop: String, texts: List<&2, String> & List<&2, String>) -> Str
         ++ count(called)
         ++ " lets that follow each other ("
         ++ String.join(Run.lets(written, called, []), ", ")
-        ++ "), and these calls run one after the other. Bend runs calls in parallel only as the values of a parallel let. To run them in parallel, merge the lets into one: `"
+        ++ "), and these calls run one after the other. "
+        ++ costs()
+        ++ " To run them in parallel, merge the lets into one: `"
         ++ String.join(written, " ")
         ++ " = "
         ++ String.join(called, " ")
         ++ "`."
-        ++ caveat()
+        ++ expected()
 
 # Whether the calls of a run of lets are all written the same way.
 def Run.alike(texts: List<&2, String> & List<&2, String>) -> Bool:
@@ -362,7 +369,7 @@ def Run.finding(+bounds: List<&2, Bound>, +owner: Owner) -> List<&2, Lint.Findin
       Con{second, more}
     } Owner{target, name, io, +text}:
       Lint.finding(
-        Lint.Information{},
+        Lint.Hint{},
         Bool.not(Run.alike(Bound.texts(bounds, text, [], []))),
         Some{Lint.Span{path, Bound.from(List.last(&2, Bound, bounds)), end}},
         Run.message(name, Bound.texts(bounds, text, [], []))

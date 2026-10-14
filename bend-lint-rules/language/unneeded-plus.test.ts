@@ -27,7 +27,7 @@ setDefaultTimeout(120_000);
     expect(
       await getReports("import Base\n\ndef f(+x: Nat, y: Nat) -> Nat:\n  Nat.add(x, y)\n"),
     ).toEqual([
-      "3:8 language/unneeded-plus: +x is used at most once on each path, so it needs no `+`. Write x without it.",
+      "3:8 language/unneeded-plus: +x is used at most once on each path, so it needs no `+`. Write x without it. Speed does not change: Bend counts references from the uses, not from the `+`.",
     ]);
   });
 

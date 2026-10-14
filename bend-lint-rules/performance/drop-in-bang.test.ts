@@ -31,7 +31,7 @@ setDefaultTimeout(120_000);
     expect(
       await getReports("import Base\n\ndef main(img: Image) -> Unit:\n  Image.drop!(img)\n"),
     ).toEqual([
-      '4:3 performance/drop-in-bang: Image.drop! only frees what it receives, as it returns Unit, and a GPU frees slower than its CPU. Discrete GPU (CUDA): measured 15x slower than without the `!` (dropping a 1M-leaf image, RTX 4050 laptop). Unified memory (Apple M-series): freeing a scene in a bang made a frame 12.9 ms against 8.0 ms ("bend guide shaders"). CPU (`--gpu off`): 10% slower. Confidence: high. Remove the `!`; to drop the last frame, let the next frame\'s fork tree drop it, a quadrant per tile ("bend guide shaders").',
+      '4:3 performance/drop-in-bang: Image.drop! only frees what it receives, as it returns Unit, and a GPU frees slower than its CPU. GPU: measured 15x slower than without the `!` on a discrete GPU (CUDA), dropping a 1M-leaf image; with unified memory (Apple M-series), freeing a scene in a bang made a frame 12.9 ms, against 8.0 ms ("bend guide shaders"). CPU (`--gpu off`): 10% slower. JS: no GPU, so no change. Confidence: high, as a GPU does not speed up freeing. Remove the `!`; to drop the last frame, let the next frame\'s fork tree drop it, a quadrant per tile ("bend guide shaders"). If a timing shows the `!` faster here, expect this finding.',
     ]);
   });
 

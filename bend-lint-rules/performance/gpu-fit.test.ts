@@ -33,7 +33,7 @@ setDefaultTimeout(120_000);
 (BUILDS ? describe : describe.skip)(RULE, () => {
   test("a ! call of a definition that forks and receives data is maybe slower on a discrete GPU", async () => {
     expect(await getReports("def main(t: T) -> U32:\n  walk!(t)\n")).toEqual([
-      "27:3 information performance/gpu-fit: walk! receives data (t: T), which a discrete GPU reads across PCIe, page by page. Discrete GPU (CUDA): slower than `--gpu off` for Bend's slash boss draw on an RTX 4050 laptop (1.4x), and for portal-bend on an RTX 4060 desktop. Unified memory (Apple M-series): the GPU wins that draw. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`; where the GPU wins, expect this finding.",
+      "27:3 information performance/gpu-fit: walk! receives data (t: T), which a discrete GPU reads across PCIe, page by page. GPU: on discrete GPUs (CUDA), measured slower than `--gpu off` for Bend's slash boss draw (1.4x) and for portal-bend; with unified memory (Apple M-series), the GPU wins that draw. CPU (`--gpu off`): not measured. JS: no GPU, so no change. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`. If the GPU wins, expect this finding.",
     ]);
   });
 
@@ -43,7 +43,7 @@ setDefaultTimeout(120_000);
         "def sum(xs: List<&2, U32>, acc: U32) -> U32:\n  match xs:\n    case Nil{}:\n      acc\n    case Con{x, rest}:\n      sum(rest, (acc + x : U32))\n\ndef main() -> U32:\n  sum!([1, 2, 3], 0)\n",
       ),
     ).toEqual([
-      "34:3 warning performance/gpu-fit: sum! runs on one GPU lane, alone: no parallel let runs under sum. GPU: measured 80x slower than without the `!` (a list walk of BendSR, RTX 4050 laptop). CPU (`--gpu off`): 1.6x slower. Confidence: high. Remove the `!`, or fork inside sum with a parallel let.",
+      "34:3 warning performance/gpu-fit: sum! runs on one GPU thread, alone: no parallel let runs under sum. GPU: measured 6.5 s for a list walk of BendSR, against 0.08 s without the `!`. CPU (`--gpu off`): 1.6x slower with the `!`. JS: no GPU, so no change. Confidence: high, as one GPU thread is much slower than a CPU core. Remove the `!`, or fork inside sum with a parallel let. If a timing shows the `!` faster here, expect this finding.",
     ]);
   });
 

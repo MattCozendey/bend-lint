@@ -36,7 +36,7 @@ setDefaultTimeout(120_000);
         START + "def f() -> U32:\n  a b = spin(3n, 1) spin(3n, 2)\n  host!(4n, (a + b : U32))\n",
       ),
     ).toEqual([
-      "23:3 performance/bang-after-fork: host! runs after a fork of the same evaluation, so Bend runs it on the CPU pool, not on the GPU. GPU: measured 7x slower than with an IO step between them (3.9 s against 0.55 s, RTX 4050 laptop). CPU (`--gpu off`): no change. Confidence: high. Put an IO step, such as `t : Nat <- IO.now()`, between the forks and this call, as Bend's slash boss demo does.",
+      "23:3 performance/bang-after-fork: host! runs after a fork in the same evaluation (no IO step between them), so Bend runs it on the CPU pool, not on the GPU. GPU: measured 3.9 s for a numeric fork tree, against 0.55 s after the fix. CPU (`--gpu off`): no change. JS: no GPU, so no change. Confidence: high, as Bend's scheduler decides it. Put an IO step, such as `t : Nat <- IO.now()`, between the forks and this call, as Bend's slash boss demo does. If this call is short, so that the CPU pool runs it as fast, expect this finding.",
     ]);
   });
 

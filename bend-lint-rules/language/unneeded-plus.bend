@@ -105,7 +105,7 @@ def message(+name: String) -> String:
     ++ name
     ++ " is used at most once on each path, so it needs no `+`. Write "
     ++ name
-    ++ " without it."
+    ++ " without it. Speed does not change: Bend counts references from the uses, not from the `+`."
 
 # Whether a `+` binder its body uses at most once (`once`) needs no `+`: not if a match takes it apart, nor if it is a
 # parameter of a definition used as a value: the type it must have can ask for the `+`.

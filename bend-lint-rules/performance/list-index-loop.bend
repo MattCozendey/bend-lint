@@ -182,7 +182,7 @@ def message(+callee: String, +through: String, +list: String, loop: String) -> S
     ++ loop
     ++ " passes "
     ++ list
-    ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. Every lane. Confidence: high, for a long list. "
+    ++ " unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. All lanes. Confidence: high, as each step walks the list again. "
     ++ advice(through, list)
     ++ " If the list stays short, expect this finding."
 
@@ -201,8 +201,6 @@ def loops(
     case None{}:
       False{}
 
-# The finding about a walker's call, below `path`, of the list `arg` with the binder `b` that the loop `owner` passes
-# unchanged to a call of itself in the same branch.
 # Whether the call below `path` is an argument of a call of `target`, the loop itself.
 def feeds(path: List<&2, Lint.Above>, target: String) -> Bool:
   match path:
@@ -223,6 +221,8 @@ def feeds(path: List<&2, Lint.Above>, target: String) -> Bool:
     case _:
       False{}
 
+# The finding about a walker's call, below `path`, of the list `list` with the binder `walked` that the loop `owner`
+# passes unchanged to a call of itself in the same branch.
 def judged.list(
   walked: Maybe<&2, U32>,
   list: String,

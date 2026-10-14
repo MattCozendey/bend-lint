@@ -31,7 +31,7 @@ setDefaultTimeout(120_000);
 (BUILDS ? describe : describe.skip)(RULE, () => {
   test("a parameter that only grows and is never read is reported, with what to do", async () => {
     expect(await getFindingTexts(RULE, getLoop("f", "done", "0n", "f(t, h <> done)"))).toEqual([
-      "3:28 performance/dead-accumulator: done only grows: f passes it to itself with something added, and nothing reads it, so Bend builds it on every step and frees it at the end. Every lane: in bend-ml's BPE encode, such a list built per word was half of the time to tokenize 19 KB of text (26.1 s, against 11.5 s after). Confidence: high that it is never read; the gain is what building it costs. Erase it, with `-done`: the checker keeps it for proofs, and the compiler deletes it; or remove it.",
+      "3:28 performance/dead-accumulator: done only grows: f passes it to itself with something added, and nothing reads it, so Bend builds it on every step and frees it at the end. All lanes. Measured on the CPU, in bend-ml's BPE encode, where such a list, built per word, was half of the time: 26.1 s to tokenize 19 KB of text, against 11.5 s after the fix. Confidence: medium, as the gain is what building it costs. Erase it, with `-done`: the checker keeps it for proofs, and the compiler deletes it; or remove it. If it gets only a few small items, expect this finding.",
     ]);
   });
 

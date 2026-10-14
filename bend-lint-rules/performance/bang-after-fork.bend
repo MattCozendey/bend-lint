@@ -1,15 +1,16 @@
-# performance/bang-after-fork: a `!` call that runs after a fork of the same evaluation, so Bend runs it on
-# the CPU pool, not on the GPU: in its definition, a let before it forks (a parallel let, or a value that
-# calls a definition under which a parallel let runs), or one of its arguments does.
+# performance/bang-after-fork: a `!` call that runs after a fork of the same evaluation, so Bend runs it
+# on the CPU pool, not on the GPU: in its definition, a let before it forks (a parallel let, or a value
+# that calls a definition under which a parallel let runs), or one of its arguments does.
 # Heuristics: a bang that follows the host's forks in one evaluation runs on the CPU pool ("bend guide
 # shaders"); a `!` call is not one of those forks: Bend's radix sort benchmark, three `!` calls in a row,
-# took the same time with IO steps between them. Measured on an RTX 4050 laptop, a numeric bang that took 0.55 s on the GPU after an IO step
-# took 3.9 s, its time on 20 CPU threads, after a parallel let, after a let whose value forked in a call,
-# and with an argument that forked; after a let whose value looped without forking, it stayed on the
-# GPU. An IO step (`<-` in a `do` block) starts a new evaluation, so a fork before one does not count;
-# nor does a fork in a definition that calls this one, which the rule does not follow. A `!` call of a
-# definition under which no parallel let runs, or of one that returns Unit, is left to
-# performance/gpu-fit and performance/drop-in-bang: they ask to remove the `!`.
+# took the same time with IO steps between them. Measured on a discrete GPU, a numeric bang that took
+# 0.55 s on the GPU after an IO step took 3.9 s, its time on the CPU pool, after a parallel let, after a
+# let whose value forked in a call, and with an argument that forked; after a let whose value looped
+# without forking, it stayed on the GPU. A short call loses little on the CPU pool. An IO step (`<-` in a
+# `do` block) starts a new evaluation, so a fork before one does not count; nor does a fork in a
+# definition that calls this one, which the rule does not follow. A `!` call of a definition under which
+# no parallel let runs, or of one that returns Unit, is left to performance/gpu-fit and
+# performance/drop-in-bang: they ask to remove the `!`.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -29,7 +30,7 @@ type Program is Data:
 # =========
 def message(callee: String) -> String:
   callee
-    ++ "! runs after a fork of the same evaluation, so Bend runs it on the CPU pool, not on the GPU. GPU: measured 7x slower than with an IO step between them (3.9 s against 0.55 s, RTX 4050 laptop). CPU (`--gpu off`): no change. Confidence: high. Put an IO step, such as `t : Nat <- IO.now()`, between the forks and this call, as Bend's slash boss demo does."
+    ++ "! runs after a fork in the same evaluation (no IO step between them), so Bend runs it on the CPU pool, not on the GPU. GPU: measured 3.9 s for a numeric fork tree, against 0.55 s after the fix. CPU (`--gpu off`): no change. JS: no GPU, so no change. Confidence: high, as Bend's scheduler decides it. Put an IO step, such as `t : Nat <- IO.now()`, between the forks and this call, as Bend's slash boss demo does. If this call is short, so that the CPU pool runs it as fast, expect this finding."
 
 # The definition an application below `path` calls by name on the host: not with `!`, as a `!` call runs on the GPU,
 # and a `!` call after it stays there.

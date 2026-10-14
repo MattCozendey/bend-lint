@@ -26,7 +26,7 @@ def message(callee: String, loop: String) -> String:
   callee
     ++ " gets the same arguments on every step of "
     ++ loop
-    ++ ", so it computes the same value each time: clang hoists plain arithmetic out of a loop, but not a call of a definition that loops. Every lane. Confidence: high that it repeats; the gain is what the call costs. Compute it once before the loop, and pass it as a parameter; if the loop repeats it on purpose (a benchmark), expect this finding."
+    ++ ", so it computes the same value each time: clang hoists plain arithmetic out of a loop, but not a call of a definition that loops. All lanes. Confidence: medium, as the gain is what the call costs. Compute it once before the loop, and pass it as a parameter. If the call is cheap, or the loop repeats it on purpose (a benchmark), expect this finding."
 
 def loop.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Unit>:
   Bool.pick(List<&2, Unit>, Lint.is_recursive(path, node), [Unit{}], [])
@@ -113,6 +113,30 @@ def fixed(
       )
     case Con{node, rest}:
       fixed(rest, calls, at, out)
+
+# What judging the calls of the definition `node` reads, with `loops`, the definitions of the file that call themselves.
+def Owner.of(loops: List<&2, String>, +node: Lint.Node) -> Owner:
+  match node:
+    case Lint.Node{Lint.Definition{+t, u}, +n, s, +k, f}:
+      Owner{
+        loops,
+        t,
+        n,
+        fixed(
+          k,
+          Lint.visit(
+            ~Unit,
+            ~List<&2, Lint.Node>,
+            ~self.visit,
+            Unit{},
+            [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+          ),
+          0n,
+          []
+        )
+      }
+    case _:
+      Owner{loops, "", "", []}
 
 # Whether `nodes`, the arguments of a call, are the same on every step: literals, the variables of `fixed`, and calls,
 # annotations or constructions of those alone; `fuel` bounds the depth.
@@ -229,9 +253,8 @@ def defs(
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
-    case Con{Lint.Node{Lint.Definition{+t, u}, +n, s, +k, f}, rest}:
+    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +k, f}, rest}:
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
-      +calls = Lint.visit(~Unit, ~List<&2, Lint.Node>, ~self.visit, Unit{}, [owner])
       defs(
         rest,
         loops,
@@ -240,15 +263,9 @@ def defs(
           Lint.Finding,
           Bool.pick(
             List<&2, Lint.Finding>,
-            List.is_empty(&2, List<&2, Lint.Node>, calls) || is_proof(k),
+            Bool.not(List.contains(~String, ~String.eq, loops, t)) || is_proof(k),
             [],
-            Lint.visit(
-              ~Owner,
-              ~Lint.Finding,
-              ~visit,
-              Owner{loops, t, n, fixed(k, calls, 0n, [])},
-              [owner]
-            )
+            Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner.of(loops, owner), [owner])
           ),
           out
         )

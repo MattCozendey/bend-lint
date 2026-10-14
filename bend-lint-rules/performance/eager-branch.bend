@@ -2,13 +2,13 @@
 # definition of the file that calls itself outside a tail position: a value of `Bool.pick`, or the right
 # side of `&&` or `||`. These are functions, so their arguments are computed before they choose; a
 # `match` runs only its chosen case.
-# Heuristics: measured on the C lane (20 CPU threads), a Bool.pick whose unused value called a doubly
-# recursive fib took 0.28 s, against 0.055 s for a match. A loop whose calls of itself are all tail calls
-# is not reported: clang drops it when its value is unused (under Bool.pick, a 2G-step loop cost nothing
-# measurable), though the JS lane still runs it. A loop's own call in `&&` or `||` is never a tail call.
-# A call of a definition that does not call itself, or of Base, is cheap and not reported. A value in a
-# lambda, a type or an equation does not run, and is skipped; an erased argument (a proof's) is not told
-# from a live one. A loop that is short in practice makes a finding that costs little to ignore.
+# Heuristics: measured on the CPU, a Bool.pick whose unused value called a doubly recursive fib took 0.28
+# s, against 0.055 s for a match. A loop whose calls of itself are all tail calls is not reported: clang
+# drops it when its value is unused (under Bool.pick, a 2G-step loop cost nothing measurable), though the
+# JS lane still runs it. A loop's own call in `&&` or `||` is never a tail call. A call of a definition
+# that does not call itself, or of Base, is cheap and not reported. A value in a lambda, a type or an
+# equation does not run, and is skipped; an erased argument (a proof's) is not told from a live one. A
+# loop that is short in practice makes a finding that costs little to ignore.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -100,7 +100,7 @@ def message(kind: String, +callee: String, own: Bool) -> String:
       ": it is the loop's own call, so the loop walks to its end instead of stopping where the condition decides",
       ""
     )
-    ++ ". C lane (CPU and GPU): measured 5x slower than a match, for an unused call that calls itself outside a tail position. JS lane: the same. Confidence: high. Choose with a match: pass the condition to a helper whose match runs only the needed value; inside a loop, where that helper would call the loop back (Bend refuses mutual recursion), pass the condition to the next call, and match on it there. If "
+    ++ ". CPU and GPU: measured 5x slower than a match, for an unused call that calls itself outside a tail position. JS: computes both values too. Confidence: medium, as the cost is what the unneeded call computes. Choose with a match: pass the condition to a helper whose match runs only the needed value; inside a loop, where that helper would call the loop back (Bend refuses mutual recursion), pass the condition to the next call, and match on it there. If "
     ++ callee
     ++ " runs only a few steps here, expect this finding."
 

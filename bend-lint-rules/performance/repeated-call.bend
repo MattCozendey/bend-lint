@@ -1,15 +1,18 @@
 # performance/repeated-call: a call made again, with the same arguments, on one path of a definition: a
-# second call of a definition of the file that loops and returns a number, with its arguments written
-# the same way, in the same branch (the innermost case around both, or the definition's body).
+# second call of a definition of the file that loops and returns a number, with its arguments written the
+# same way, in the same branch (the innermost case around both, or the definition's body).
 # Heuristics: clang does not merge two calls of a definition that loops: Bend runs each through its own
-# calls. pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; with the two calls forked (a parallel
-# let), 0.6 s on 20 threads; computed once (`+h = pow2(q)`), 0.1 s, the program's start. Arguments are
-# the same when written the same way: the same variables, literals, and calls or constructions of them.
-# Calls in a lambda, in a type, in a proof, or in the values of Bool.pick, `&&` or `||` (which
-# performance/eager-branch judges) do not count, nor do the values of one parallel let: copies made in
-# parallel on purpose, as benchmarks do. Only a number is sure to be shareable at no cost: data may be
-# affine (an Array), so that it must be built twice, and sharing it counts references; it is skipped.
-# Numbers are those of performance/gpu-fit, as the callee's return type is written.
+# calls. Measured on the CPU, pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; with the two calls
+# forked (a parallel let), 0.6 s; computed once (`+h = pow2(q)`), 0.1 s, the program's start. In
+# eldergrove-faire and in llama.bend's tokenizer, computing such calls once changed nothing measurable:
+# they walk short lists. Arguments are the same when written the same way: the same variables, literals,
+# and calls or constructions of them. Calls in a lambda, in a type, in a proof, or in the values of
+# Bool.pick, `&&` or `||` (which performance/eager-branch judges) do not count, nor do the values of one
+# parallel let: copies made in parallel on purpose, as benchmarks do. A call that
+# performance/loop-invariant-call reports is left to it: computing it once before the loop also ends the
+# repeat. Only a number is sure to be shareable at no cost: data may be affine (an Array), so that it
+# must be built twice, and sharing it counts references; it is skipped. Numbers are those of
+# performance/gpu-fit, as the callee's return type is written.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -27,10 +30,11 @@ import ./missed-fork.bend as Fork
 type Call is Data:
   Call{target: String, callee: String, args: List<&2, Lint.Node>, span: Lint.Span, branch: U32}
 
-# What finding the calls reads: the definitions of the file that call themselves (as the check names them), and the
-# program's definitions, by the name the check gives them.
-type Program is Data:
-  Program{loops: List<&2, String>, defs: Map<&2, Maybe<&2, GpuFit.Def>>}
+# What finding the calls of one definition reads: what performance/loop-invariant-call reads to judge them, with the
+# definitions of the file that call themselves (as the check names them), and the program's definitions, by the name
+# the check gives them.
+type Scope is Data:
+  Scope{owner: Invariant.Owner, defs: Map<&2, Maybe<&2, GpuFit.Def>>}
 
 # Functions
 # =========
@@ -63,7 +67,7 @@ def message(callee: String, loop: String) -> String:
   callee
     ++ " is called again here, with the same arguments, on this path of "
     ++ loop
-    ++ ": Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. In eldergrove-faire (list lengths, twice per tick) and in llama.bend's tokenizer it changed nothing measurable: those calls walk short lists. Confidence: high that it repeats; the gain is what the call costs, so expect this finding for a call over a short list. Bind its value once, with `+` if it is used twice, and use that name."
+    ++ ", so Bend computes it twice: clang does not merge calls of a definition that loops. All lanes. Measured on the CPU: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s, against 0.1 s after the fix; in eldergrove-faire and in llama.bend's tokenizer, the fix changed nothing measurable, as those calls walk short lists. Confidence: medium, as the gain is what the call costs. Bind its value once, with `+` if it is used twice, and use that name. If the call is cheap, such as a walk of a short list, expect this finding."
 
 # Whether a node below `path` may not run on the path of its branch, or runs as a copy made on purpose: under a lambda,
 # a value of a choice (Bool.pick, Bool.and, Bool.or), or a value of a parallel let.
@@ -110,11 +114,19 @@ def returns_number(info: Maybe<&2, GpuFit.Def>) -> Bool:
     case None{}:
       False{}
 
+# Whether a call that counts so far (if `ok`) still counts: not if performance/loop-invariant-call reports it.
+def is_kept(ok: Bool, owner: Invariant.Owner, path: List<&2, Lint.Above>, node: Lint.Node) -> Bool:
+  match ok:
+    case True{}:
+      List.is_empty(&2, Lint.Finding, Invariant.visit(owner, path, node))
+    case False{}:
+      False{}
+
 # The call of a definition that loops at an application below `path`, if it counts.
-def visit(+program: Program, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Call>:
-  match program node:
-    case Program{
-      loops,
+def visit(+scope: Scope, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Call>:
+  match scope node:
+    case Scope{
+      Invariant.Owner{+loops, target, name, fixed},
       defs
     } Lint.Node{
       Lint.Application{},
@@ -125,15 +137,20 @@ def visit(+program: Program, +path: List<&2, Lint.Above>, +node: Lint.Node) -> L
     }:
       Bool.pick(
         List<&2, Call>,
-        List.contains(
-          ~String,
-          ~String.eq,
-          loops,
-          t
-        )
-          && returns_number(Names.find(GpuFit.Def, defs, t))
-          && Lint.is_live(path)
-          && Bool.not(is_guarded(path, False{})),
+        is_kept(
+          List.contains(
+            ~String,
+            ~String.eq,
+            loops,
+            t
+          )
+            && returns_number(Names.find(GpuFit.Def, defs, t))
+            && Lint.is_live(path)
+            && Bool.not(is_guarded(path, False{})),
+          Invariant.Owner{loops, target, name, fixed},
+          path,
+          node
+        ),
         [Call{t, callee, args, span, branch.at(Invariant.branch(path, None{}))}],
         []
       )
@@ -226,16 +243,22 @@ def judged(
       )
 
 # The calls of a definition (`node`) that count, unless it is a proof.
-def calls.of(proof: Bool, program: Program, node: Lint.Node) -> List<&2, Call>:
+def calls.of(
+  proof: Bool,
+  loops: List<&2, String>,
+  defs: Map<&2, Maybe<&2, GpuFit.Def>>,
+  +node: Lint.Node
+) -> List<&2, Call>:
   match proof:
     case True{}:
       []
     case False{}:
-      Lint.visit(~Program, ~Call, ~visit, program, [node])
+      Lint.visit(~Scope, ~Call, ~visit, Scope{Invariant.Owner.of(loops, node), defs}, [node])
 
 def defs(
   nodes: List<&2, Lint.Node>,
-  +program: Program,
+  +loops: List<&2, String>,
+  +program: Map<&2, Maybe<&2, GpuFit.Def>>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -244,26 +267,30 @@ def defs(
     case Con{Lint.Node{Lint.Definition{t, u}, +n, s, +k, f}, rest}:
       defs(
         rest,
+        loops,
         program,
         judged(
-          calls.of(Invariant.is_proof(k), program, Lint.Node{Lint.Definition{t, u}, n, s, k, f}),
+          calls.of(
+            Invariant.is_proof(k),
+            loops,
+            program,
+            Lint.Node{Lint.Definition{t, u}, n, s, k, f}
+          ),
           [],
           n,
           out
         )
       )
     case Con{node, rest}:
-      defs(rest, program, out)
+      defs(rest, loops, program, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +nodes = Lint.Here.nodes(here)
   Lint.done(
     defs(
       nodes,
-      Program{
-        Invariant.loops(nodes, []),
-        GpuFit.program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, GpuFit.Def>))
-      },
+      Invariant.loops(nodes, []),
+      GpuFit.program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, GpuFit.Def>)),
       []
     )
   )

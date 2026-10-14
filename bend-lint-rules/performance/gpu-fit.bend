@@ -1,19 +1,23 @@
-# performance/gpu-fit: a call that may run faster on the other side of the GPU: a `!` call (it runs on the
-# GPU, if there is one) of a definition under which no parallel let runs, so one GPU lane runs it alone;
-# a `!` call of a definition that forks but receives data, not only numbers; or a call of a definition
-# that forks over numbers only, made without `!`, from a definition that does not fork.
-# Heuristics: measured on an RTX 4050 laptop GPU against 20 threads of its CPU (`--gpu off`): a `!` on
+# performance/gpu-fit: a call that may run faster on the CPU than on the GPU, or the reverse: a `!` call
+# (it runs on the GPU, if there is one) of a definition under which no parallel let runs, so one GPU
+# thread runs it alone; a `!` call of a definition that forks but receives data, not only numbers; or a
+# call of a definition that forks over numbers only, made without `!`, from a definition that does not
+# fork.
+# Heuristics: measured on a discrete GPU (CUDA) against its machine's CPU (`--gpu off`): a `!` on
 # BendSR's compute_mae, a list walk that never forks, took 6.5 s against 0.08 s without the `!` (0.11 s
 # against 0.07 s on the CPU); Bend's slash boss draw, which forks over data, took 10.5 ms against 7.4 ms;
 # the GPU also costs a fixed 0.3 to 0.8 s to start there, after which numeric work is nearly free: a
 # numeric fork tree of 16,384 leaves took 0.95 s against 3.6 s on the CPU, but one that took 0.06 s on
-# the CPU took 0.49 s. The same draw takes 8 ms on an M4 (unified memory), and an RTX 4090 desktop drew
-# it at 17 to 19 FPS ("bend guide shaders"): a discrete GPU pays for each page it reads across PCIe,
-# whatever its speed. It follows calls through the program's files; a definition outside them is
-# Base's, where only Image.free (and Image.drop, through it) forks. Numbers are U32, I32, F32, Nat,
-# Bool, Char (and their 64-bit forms), and a record of numbers only, defined in the program's files;
-# anything else is data. Erased and template parameters do not count. A `!` call of a definition that
-# returns Unit is left to performance/drop-in-bang.
+# the CPU took 0.49 s. The same draw takes 8 ms on an Apple M-series GPU (unified memory), and a high-end
+# desktop GPU drew it at 17 to 19 FPS ("bend guide shaders"): a discrete GPU pays for each page it reads
+# across PCIe, whatever its speed. The JS lane has no GPU. The hint to add a `!` does not see a `!` in a
+# caller: in Bend's benchmarks, which run under a `!` at their top, its 7 hints were all wrong, and a `!`
+# in a `!` was up to 4.6x slower. Nor does it see a fork before the call in the caller's evaluation,
+# which keeps the `!` on the CPU (performance/bang-after-fork). It follows calls through the program's
+# files; a definition outside them is Base's, where only Image.free (and Image.drop, through it) forks.
+# Numbers are U32, I32, F32, Nat, Bool, Char (and their 64-bit forms), and a record of numbers only,
+# defined in the program's files; anything else is data. Erased and template parameters do not count. A
+# `!` call of a definition that returns Unit is left to performance/drop-in-bang.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -340,11 +344,11 @@ def bangs(s: String, +at: U32, out: List<&2, U32>) -> List<&2, U32>:
 
 def alone(+callee: String) -> String:
   callee
-    ++ "! runs on one GPU lane, alone: no parallel let runs under "
+    ++ "! runs on one GPU thread, alone: no parallel let runs under "
     ++ callee
-    ++ ". GPU: measured 80x slower than without the `!` (a list walk of BendSR, RTX 4050 laptop). CPU (`--gpu off`): 1.6x slower. Confidence: high. Remove the `!`, or fork inside "
+    ++ ". GPU: measured 6.5 s for a list walk of BendSR, against 0.08 s without the `!`. CPU (`--gpu off`): 1.6x slower with the `!`. JS: no GPU, so no change. Confidence: high, as one GPU thread is much slower than a CPU core. Remove the `!`, or fork inside "
     ++ callee
-    ++ " with a parallel let."
+    ++ " with a parallel let. If a timing shows the `!` faster here, expect this finding."
 
 def slower(callee: String, param: Param) -> String:
   match param:
@@ -353,13 +357,13 @@ def slower(callee: String, param: Param) -> String:
         ++ "! receives data ("
         ++ name
         ++ Bool.pick(String, String.is_empty(ty), "", ": " ++ ty)
-        ++ "), which a discrete GPU reads across PCIe, page by page. Discrete GPU (CUDA): slower than `--gpu off` for Bend's slash boss draw on an RTX 4050 laptop (1.4x), and for portal-bend on an RTX 4060 desktop. Unified memory (Apple M-series): the GPU wins that draw. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`; where the GPU wins, expect this finding."
+        ++ "), which a discrete GPU reads across PCIe, page by page. GPU: on discrete GPUs (CUDA), measured slower than `--gpu off` for Bend's slash boss draw (1.4x) and for portal-bend; with unified memory (Apple M-series), the GPU wins that draw. CPU (`--gpu off`): not measured. JS: no GPU, so no change. Confidence: medium, as it depends on the machine. Time the program with and without `--gpu off`. If the GPU wins, expect this finding."
 
 def faster(+callee: String) -> String:
   callee
     ++ " forks over numbers only, so `"
     ++ callee
-    ++ "!(..)` can run faster on the GPU, if the call is long: a discrete GPU costs a fixed 0.3 to 0.8 s to start, then numeric work is nearly free. Measured on an RTX 4050 laptop: 3.8x faster for a fork tree that took 3.6 s on 20 CPU threads, 8x slower for one that took 0.06 s. Confidence: low, as it depends on how long this call runs and on the machine. Add the `!` if this call takes over a second on the CPU, and time both; if it is short, expect this finding."
+    ++ "!(..)` can run faster on the GPU, if the call is long: a discrete GPU costs a fixed 0.3 to 0.8 s to start, then numeric work is nearly free. GPU: measured 3.8x faster for a fork tree that took 3.6 s on the CPU, and 8x slower for one that took 0.06 s. CPU (`--gpu off`): not measured. JS: no GPU, so no change. Confidence: low, as it depends on how long this call runs, and on the machine. Add the `!` if this call takes over a second on the CPU, and time both; a fork before it in the same evaluation keeps it on the CPU (performance/bang-after-fork). If the call is short, or already runs under a `!` of a caller (a `!` in a `!` measured up to 4.6x slower), expect this finding."
 
 def Def.target(info: Maybe<&2, Def>) -> String:
   match info:

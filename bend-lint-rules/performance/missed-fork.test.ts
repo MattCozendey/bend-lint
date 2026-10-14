@@ -10,9 +10,13 @@ import { buildRule, BUILDS, getFindingTexts } from "../../src/linter/testing.ts"
 
 const RULE = "performance/missed-fork";
 
-// What each finding says after what it found, about the cost of a fork.
-const CAVEAT =
-  " C lane (CPU, and GPU under a `!`): measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS lane: one thread, no gain. Confidence: low, as it depends on how much work each call does. If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding.";
+// What each finding says after what it found: what a fork costs, on each lane.
+const COSTS =
+  "Bend runs calls in parallel only as the values of a parallel let. CPU, and GPU under a `!`: measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS: one thread, so no gain. Confidence: low, as it depends on how much work each call does.";
+
+// What each finding says last: when to expect it.
+const EXPECTED =
+  " If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding.";
 
 // Functions
 // =========
@@ -42,8 +46,10 @@ setDefaultTimeout(120_000);
     expect(
       await getReports(getFile(getDef("f", "      U32.add(f(p, i), f(p, U32.inc(i)))"))),
     ).toEqual([
-      "12:7 performance/missed-fork: f calls itself 2 times in this expression (`f(p, i)`, `f(p, U32.inc(i))`), and these calls run one after the other. Bend runs calls in parallel only as the values of a parallel let. To run them in parallel, bind them first with one parallel let of fresh names, such as `a b = f(p, i) f(p, U32.inc(i))`, and use those names here." +
-        CAVEAT,
+      "12:7 performance/missed-fork: f calls itself 2 times in this expression (`f(p, i)`, `f(p, U32.inc(i))`), and these calls run one after the other. " +
+        COSTS +
+        " To run them in parallel, bind them first with one parallel let of fresh names, such as `a b = f(p, i) f(p, U32.inc(i))`, and use those names here." +
+        EXPECTED,
     ]);
   });
 
@@ -81,8 +87,10 @@ setDefaultTimeout(120_000);
         ),
       ),
     ).toEqual([
-      "12:7 performance/missed-fork: f calls itself in 2 lets that follow each other (`+l = f(p, i)`, `r = f(p, U32.inc(i))`), and these calls run one after the other. Bend runs calls in parallel only as the values of a parallel let. To run them in parallel, merge the lets into one: `+l r = f(p, i) f(p, U32.inc(i))`." +
-        CAVEAT,
+      "12:7 performance/missed-fork: f calls itself in 2 lets that follow each other (`+l = f(p, i)`, `r = f(p, U32.inc(i))`), and these calls run one after the other. " +
+        COSTS +
+        " To run them in parallel, merge the lets into one: `+l r = f(p, i) f(p, U32.inc(i))`." +
+        EXPECTED,
     ]);
   });
 

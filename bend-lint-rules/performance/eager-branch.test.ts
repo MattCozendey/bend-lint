@@ -20,7 +20,7 @@ const SPIN =
 
 // What each finding says after its first sentence: why it matters and what to do.
 const ADVICE =
-  ". C lane (CPU and GPU): measured 5x slower than a match, for an unused call that calls itself outside a tail position. JS lane: the same. Confidence: high. Choose with a match: pass the condition to a helper whose match runs only the needed value; inside a loop, where that helper would call the loop back (Bend refuses mutual recursion), pass the condition to the next call, and match on it there.";
+  ". CPU and GPU: measured 5x slower than a match, for an unused call that calls itself outside a tail position. JS: computes both values too. Confidence: medium, as the cost is what the unneeded call computes. Choose with a match: pass the condition to a helper whose match runs only the needed value; inside a loop, where that helper would call the loop back (Bend refuses mutual recursion), pass the condition to the next call, and match on it there.";
 
 // Functions
 // =========
@@ -64,7 +64,7 @@ setDefaultTimeout(120_000);
         await getReports(
           "import Base\n\ndef has(xs: List<&2, U32>, +x: U32) -> Bool:\n  match xs:\n    case Nil{}:\n      False{}\n    case Con{h, t}:\n      U32.is_eq(h, x) || has(t, x)\n",
         )
-      ).map((f) => f.split(". C lane")[0]),
+      ).map((f) => f.split(". CPU and GPU")[0]),
     ).toEqual([
       "8:26 performance/eager-branch: || computes its right side even when its left side decides the result (True), so this call of has runs even then: it is the loop's own call, so the loop walks to its end instead of stopping where the condition decides",
     ]);

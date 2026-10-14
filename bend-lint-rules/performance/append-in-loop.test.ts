@@ -31,13 +31,13 @@ setDefaultTimeout(120_000);
     expect(
       await getReports(getLoop("List<&2, U32>", "      f(p, List.append(&2, U32, acc, [1]))")),
     ).toEqual([
-      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. Every lane. Confidence: high. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`; to add a list each step, collect the lists, with `piece <> pieces`, and join them once: `List.concat(&2, U32, List.reverse(&2, List<&2, U32>, pieces))`. If the loop runs only a few steps, expect this finding.",
+      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. All lanes. Confidence: high, as the copies grow with the square of the steps. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`; to add a list each step, collect the lists, with `piece <> pieces`, and join them once: `List.concat(&2, U32, List.reverse(&2, List<&2, U32>, pieces))`. If the loop runs only a few steps, expect this finding.",
     ]);
   });
 
   test("++ to the accumulator of a loop is reported, with how to join the pieces", async () => {
     expect(await getReports(getLoop("String", '      f(p, acc ++ "x")'))).toEqual([
-      "8:12 performance/append-in-loop: ++ copies acc on each call of f, so a loop of n steps copies O(n²) characters. C lane (CPU and GPU): measured 12.6 s against 0.07 s for 20,000 lines. JS lane: strings join natively, no cost. Confidence: high. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding.",
+      "8:12 performance/append-in-loop: ++ copies acc on each call of f, so a loop of n steps copies O(n²) characters. CPU and GPU: measured 12.6 s for 20,000 lines, against 0.07 s after the fix. JS: strings join natively, at no cost. Confidence: high, as the copies grow with the square of the steps. Collect the pieces in a list instead, with `piece <> pieces`, and join them once when the loop ends: `String.concat(List.reverse(&2, String, pieces))`. If the loop runs only a few steps, expect this finding.",
     ]);
   });
 

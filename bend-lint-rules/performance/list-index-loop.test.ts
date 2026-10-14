@@ -40,7 +40,7 @@ setDefaultTimeout(120_000);
         getLoop("      f(p, xs, Nat.add(i, 1n), U32.add(acc, or_zero(List.get(&2, U32, xs, i))))"),
       ),
     ).toEqual([
-      "15:53 performance/list-index-loop: List.get walks xs from its head, and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. Every lane. Confidence: high, for a long list. Walk xs instead: match it, use its head, and pass its tail to the next call. If the list stays short, expect this finding.",
+      "15:53 performance/list-index-loop: List.get walks xs from its head, and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. All lanes. Confidence: high, as each step walks the list again. Walk xs instead: match it, use its head, and pass its tail to the next call. If the list stays short, expect this finding.",
     ]);
   });
 
@@ -50,7 +50,7 @@ setDefaultTimeout(120_000);
         getLoop("      f(p, xs, i, U32.add(acc, U32.from_nat(List.length(&2, U32, xs))))"),
       ),
     ).toEqual([
-      "15:45 performance/list-index-loop: List.length walks xs from its head, and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. Every lane. Confidence: high, for a long list. Compute the length once before the loop, and pass it as a parameter. If the list stays short, expect this finding.",
+      "15:45 performance/list-index-loop: List.length walks xs from its head, and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. All lanes. Confidence: high, as each step walks the list again. Compute the length once before the loop, and pass it as a parameter. If the list stays short, expect this finding.",
     ]);
   });
 
@@ -58,7 +58,7 @@ setDefaultTimeout(120_000);
     expect(
       await getReports(getLoop("      f(p, xs, Nat.add(i, 1n), U32.add(acc, at(xs, i)))", AT)),
     ).toEqual([
-      "18:45 performance/list-index-loop: at walks xs from its head (through List.get), and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. Every lane. Confidence: high, for a long list. Walk xs instead: match it, use its head, and pass its tail to the next call. If the list stays short, expect this finding.",
+      "18:45 performance/list-index-loop: at walks xs from its head (through List.get), and f passes xs unchanged to each call of itself, so a loop that visits each of its n items takes O(n²) time. All lanes. Confidence: high, as each step walks the list again. Walk xs instead: match it, use its head, and pass its tail to the next call. If the list stays short, expect this finding.",
     ]);
   });
 

@@ -1,15 +1,15 @@
 # performance/deep-call-in-fork: a fork that calls a definition that calls itself outside a tail
-# position. A value of a parallel let (`a b = f(x) g(y)`), or of a let just before it, calls a
-# definition of the file whose call of itself is not the last thing it does.
+# position. A value of a parallel let (`a b = f(x) g(y)`), or of a let just before it, calls a definition
+# of the file whose call of itself is not the last thing it does.
 # Heuristics: Bend gives a call of itself that is not a tail call a frame per call ("bend guide
-# shaders"). In bend-lint's benchmark (Bend 2.0.36, 16 threads), such a call at each fork cut the
-# speedup from 10x to 1.9x; the same definition with a tail call kept the 10x. In a raytracer that
-# splits its rows that way at each of 9 fork levels, tail-recursive splits made it 4% to 8% faster, on
-# 20 CPU threads; in Bend's slash boss demo, the same change changed no timing, as its list was
-# short. A tail position is the body of a definition, a case, or the rest of a block after its lets,
+# shaders"). In bend-lint's benchmark (Bend 2.0.36, on the CPU), such a call at each fork cut the speedup
+# from 10x to 1.9x; the same definition with a tail call kept the 10x. In a raytracer that splits its
+# rows that way at each of 9 fork levels, tail-recursive splits made it 4% to 8% faster on the CPU; in
+# Bend's slash boss demo, the same change changed no timing, as its list was short. The JS lane is not
+# measured. A tail position is the body of a definition, a case, or the rest of a block after its lets,
 # through annotations. A definition with a parallel let is a fork tree: its calls of itself are the
-# values of its forks, not frames, and it is not reported (Bend's matrix and Merkle benchmarks call
-# such trees in their forks).
+# values of its forks, not frames, and it is not reported (Bend's matrix and Merkle benchmarks call such
+# trees in their forks).
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -155,7 +155,7 @@ def message(+callee: String, loop: String) -> String:
   callee
     ++ " calls itself outside a tail position, so Bend gives each of its calls a frame, and "
     ++ loop
-    ++ " calls it in a fork (a value of its parallel let, or of a let just before it). CPU: measured 4% to 8% faster for a raytracer once such a call was tail-recursive, and a 10x speedup cut to 1.9x with such a call at each fork. GPU: a non-tail recursion in a `!` made a draw 2.3x slower (\"bend guide shaders\"). Confidence: medium. Make "
+    ++ " calls it in a fork (a value of its parallel let, or of a let just before it). CPU: measured 4% to 8% faster for a raytracer after the fix; in a benchmark, such a call at each fork cut a 10x speedup to 1.9x. GPU: such a recursion in a `!` made a draw 2.3x slower (\"bend guide shaders\"). JS: not measured. Confidence: medium, as the cost grows with the depth of the recursion. Make "
     ++ callee
     ++ " tail-recursive with an accumulator, compute its value with native operations (such as U32.shln), or compute it once and pass it down as a parameter. If its input is short, expect this finding."
 
@@ -170,7 +170,7 @@ def judge.deep(
   match deep:
     case True{}:
       Lint.finding(
-        Lint.Warning{},
+        Lint.Information{},
         is_inside(path, node, False{}),
         Lint.Node.span(Some{node}),
         message(callee, name)

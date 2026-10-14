@@ -27,9 +27,9 @@ def message(+name: String, loop: String) -> String:
   name
     ++ " only grows: "
     ++ loop
-    ++ " passes it to itself with something added, and nothing reads it, so Bend builds it on every step and frees it at the end. Every lane: in bend-ml's BPE encode, such a list built per word was half of the time to tokenize 19 KB of text (26.1 s, against 11.5 s after). Confidence: high that it is never read; the gain is what building it costs. Erase it, with `-"
+    ++ " passes it to itself with something added, and nothing reads it, so Bend builds it on every step and frees it at the end. All lanes. Measured on the CPU, in bend-ml's BPE encode, where such a list, built per word, was half of the time: 26.1 s to tokenize 19 KB of text, against 11.5 s after the fix. Confidence: medium, as the gain is what building it costs. Erase it, with `-"
     ++ name
-    ++ "`: the checker keeps it for proofs, and the compiler deletes it; or remove it."
+    ++ "`: the checker keeps it for proofs, and the compiler deletes it; or remove it. If it gets only a few small items, expect this finding."
 
 # How a use of the parameter below `path` ends: 0 if it is read (in anything but the loop's call of itself, at the
 # parameter's place), 1 if it is passed there as it is, 2 if it is passed there with something added (`grown`).
@@ -111,7 +111,7 @@ def params(
           &2,
           Lint.Finding,
           Lint.finding(
-            Lint.Warning{},
+            Lint.Information{},
             is_dead(q, Lint.visit(~Owner, ~U32, ~use.visit, Owner{target, at, b}, [loop])),
             ps,
             message(pn, name)

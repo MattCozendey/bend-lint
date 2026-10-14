@@ -40,7 +40,7 @@ setDefaultTimeout(120_000);
         START + getLoop("f", "      f(p, xs, Nat.add(acc, count(xs, 0n)))"),
       ),
     ).toEqual([
-      "18:29 performance/loop-invariant-call: count gets the same arguments on every step of f, so it computes the same value each time: clang hoists plain arithmetic out of a loop, but not a call of a definition that loops. Every lane. Confidence: high that it repeats; the gain is what the call costs. Compute it once before the loop, and pass it as a parameter; if the loop repeats it on purpose (a benchmark), expect this finding.",
+      "18:29 performance/loop-invariant-call: count gets the same arguments on every step of f, so it computes the same value each time: clang hoists plain arithmetic out of a loop, but not a call of a definition that loops. All lanes. Confidence: medium, as the gain is what the call costs. Compute it once before the loop, and pass it as a parameter. If the call is cheap, or the loop repeats it on purpose (a benchmark), expect this finding.",
     ]);
   });
 
