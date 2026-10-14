@@ -148,7 +148,7 @@ def batch.leaf.go(t: Bool, d: Nat, pp: U32) -> U32:
     case False{}:
       0
     case True{}:
-      round(d, U32.mul(pp, 2654435761))
+      round!(d, U32.mul(pp, 2654435761))
 
 def batch.leaf(+pp: U32, n: U32, d: Nat) -> U32:
   batch.leaf.go(U32.is_lt(pp, n), d, pp)

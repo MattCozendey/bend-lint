@@ -207,7 +207,7 @@ def run(+d: Nat, +n: U32, +lim: U32) -> U32:
   +nnnn = sq(sq(n))
   full = U32.sub(U32.shln(1, U32.to_nat(n)), 1)
   # bound = min-like clamp: lim when lim < n^4, else n^4
-  run.fin(batch(d, 0, U32.sub(U32.shln(1, d), 1), n, full,
+  run.fin(batch!(d, 0, U32.sub(U32.shln(1, d), 1), n, full,
     sel(b2u(U32.is_lt(lim, nnnn)), nnnn, lim)))
 
 def size() -> U32:
