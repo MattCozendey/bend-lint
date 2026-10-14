@@ -5,7 +5,9 @@
 # Heuristics: each of those walks the list from its head, so a loop of n steps over a list of n items
 # takes O(n²) time, where walking the list takes O(n). A branch is the innermost `case` around the
 # read; the loop's call must be in it too. It looks one definition deep, not further. A read in a type
-# does not run, and is skipped.
+# does not run, and is skipped. A read whose result is an argument of a call of the loop itself moves
+# the loop along the list (a step, or a split in two: bend-ml's tensor-array fills a tree of bands so),
+# and is not reported.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -201,6 +203,26 @@ def loops(
 
 # The finding about a walker's call, below `path`, of the list `arg` with the binder `b` that the loop `owner` passes
 # unchanged to a call of itself in the same branch.
+# Whether the call below `path` is an argument of a call of `target`, the loop itself.
+def feeds(path: List<&2, Lint.Above>, target: String) -> Bool:
+  match path:
+    case Con{
+      Lint.Above{
+        Lint.Node{
+          Lint.Application{},
+          n,
+          s,
+          Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args},
+          f
+        },
+        at
+      },
+      rest
+    }:
+      String.eq(t, target) && U32.is_gt(at, 0)
+    case _:
+      False{}
+
 def judged.list(
   walked: Maybe<&2, U32>,
   list: String,
@@ -214,7 +236,15 @@ def judged.list(
     case Some{+b} Lint.Node{Lint.Definition{+t, u}, name, s, +kids, f}:
       Lint.finding(
         Lint.Warning{},
-        loops(Lint.parameter(kids, b), path, owner, t, b) && Lint.is_live(path),
+        loops(
+          Lint.parameter(kids, b),
+          path,
+          owner,
+          t,
+          b
+        )
+          && Lint.is_live(path)
+          && Bool.not(feeds(path, t)),
         span,
         message(callee, through, list, name)
       )

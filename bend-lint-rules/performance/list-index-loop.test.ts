@@ -86,6 +86,14 @@ setDefaultTimeout(120_000);
     ).toEqual([]);
   });
 
+  test("a loop that splits the list, the read's result feeding a call of itself, passes", async () => {
+    expect(
+      await getReports(
+        getLoop("      U32.add(f(p, xs, i, acc), f(p, List.drop(&2, U32, xs, 1n), i, acc))"),
+      ),
+    ).toEqual([]);
+  });
+
   test("a loop that walks the list passes", async () => {
     expect(
       await getReports(
