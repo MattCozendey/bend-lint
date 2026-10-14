@@ -424,7 +424,8 @@ def pow2(d: Nat) -> Nat:
     case 0n:
       1n
     case 1n++q:
-      Nat.add(pow2(q), pow2(q))
+      a b = pow2(q) pow2(q)
+      Nat.add(a, b)
 
 # smallest power of two >= n, by structural recursion on n: returns (depth, 2^depth)
 def cap_pick(ok: Bool, d: Nat, +p: Nat) -> Nat & Nat:
@@ -984,7 +985,8 @@ def Bands.zeros(+d: Nat, +r: Nat, +c: Nat) -> Bands<r, c>:
     case 0n:
       BLeaf{Mat.zeros(r, c)}
     case 1n+q:
-      BNode{Bands.zeros(q, half(r), c), Bands.zeros(q, Nat.sub(r, half(r)), c)}
+      a b = Bands.zeros(q, half(r), c) Bands.zeros(q, Nat.sub(r, half(r)), c)
+      BNode{a, b}
 
 # the row counts of the two bands follow the row count of the node: if rr == r at run
 # time, the same holds for both halves (the bands carry r only in their type)
@@ -1029,7 +1031,8 @@ def bfill(+c: Nat, -r: Nat, b: Bands<r, c>, l: Bool, rt: Bool, +rr: Nat, -e: {rr
     case BNode{x, y} False{} True{}:
       BNode{x, bfill(c, Nat.sub(r, half(r)), y, bfill_l(Nat.sub(rr, half(rr)), c, Nat.sub(i, Nat.mul(half(rr), c)), n), bfill_r(Nat.sub(rr, half(rr)), c, Nat.sub(i, Nat.mul(half(rr), c))), Nat.sub(rr, half(rr)), eq_rest(rr, r, e), Nat.sub(i, Nat.mul(half(rr), c)), n, xs)}
     case BNode{x, y} False{} False{}:
-      BNode{bfill(c, half(r), x, bfill_l(half(rr), c, i, Nat.sub(Nat.mul(half(rr), c), i)), bfill_r(half(rr), c, i), half(rr), eq_half(rr, r, e), i, Nat.sub(Nat.mul(half(rr), c), i), xs), bfill(c, Nat.sub(r, half(r)), y, bfill_l(Nat.sub(rr, half(rr)), c, 0n, Nat.sub(n, Nat.sub(Nat.mul(half(rr), c), i))), bfill_r(Nat.sub(rr, half(rr)), c, 0n), Nat.sub(rr, half(rr)), eq_rest(rr, r, e), 0n, Nat.sub(n, Nat.sub(Nat.mul(half(rr), c), i)), List.drop(&2, F32, xs, Nat.sub(Nat.mul(half(rr), c), i)))}
+      a b = bfill(c, half(r), x, bfill_l(half(rr), c, i, Nat.sub(Nat.mul(half(rr), c), i)), bfill_r(half(rr), c, i), half(rr), eq_half(rr, r, e), i, Nat.sub(Nat.mul(half(rr), c), i), xs) bfill(c, Nat.sub(r, half(r)), y, bfill_l(Nat.sub(rr, half(rr)), c, 0n, Nat.sub(n, Nat.sub(Nat.mul(half(rr), c), i))), bfill_r(Nat.sub(rr, half(rr)), c, 0n), Nat.sub(rr, half(rr)), eq_rest(rr, r, e), 0n, Nat.sub(n, Nat.sub(Nat.mul(half(rr), c), i)), List.drop(&2, F32, xs, Nat.sub(Nat.mul(half(rr), c), i)))
+      BNode{a, b}
 
 def bfill_top(ok: Bool, +r: Nat, +c: Nat, b: Bands<r, c>, +i: Nat, +n: Nat, +xs: List<&2, F32>) -> Bands<r, c>:
   match ok:
@@ -1170,7 +1173,8 @@ def blist(+c: Nat, -r: Nat, b: Bands<r, c>, +rr: Nat, -e: {rr == r : Nat}) -> BR
     case BLeaf{m}:
       brow_leaf(r, c, m, 0, Nat.mul(rr, c))
     case BNode{x, y}:
-      bl_join(r, c, blist(c, half(r), x, half(rr), eq_half(rr, r, e)), blist(c, Nat.sub(r, half(r)), y, Nat.sub(rr, half(rr)), eq_rest(rr, r, e)))
+      a b = blist(c, half(r), x, half(rr), eq_half(rr, r, e)) blist(c, Nat.sub(r, half(r)), y, Nat.sub(rr, half(rr)), eq_rest(rr, r, e))
+      bl_join(r, c, a, b)
 
 # all r*c numbers in row order (in BRow.row)
 def Bands.to_list(+r: Nat, +c: Nat, b: Bands<r, c>) -> BRow<r, c>:
