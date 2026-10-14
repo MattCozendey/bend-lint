@@ -21,7 +21,7 @@ import {
   tryGetJson,
   tryGetUrlFromFolderPathOrUrl,
   tryWriteJsonAtomically,
-  writeFileAtomically,
+  writeNewFileAtomically,
 } from "./utils.ts";
 
 // Constants
@@ -144,8 +144,9 @@ export const getBendCli = (dir: URL): { cmd: string[]; env: Record<string, strin
 });
 
 // bend2 at `pin` (`<owner>/<repo>/<ref>` on GitHub), kept in <cache>/<pin>/bend2.
-// Each file goes in whole (see writeFileAtomically), base.bend last, and none is
-// ever replaced: runs at once may each download, while others read the files.
+// Each file goes in whole, base.bend last, and none is ever replaced (see
+// writeNewFileAtomically): runs at once may each download, while others read
+// the files.
 const getDownloadedBend = async (pin: string): Promise<URL> => {
   if (!/^[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(pin)) {
     throw new Error("not a GitHub <owner>/<repo>/<ref>: " + pin);
@@ -172,12 +173,8 @@ const getDownloadedBend = async (pin: string): Promise<URL> => {
   if (odd !== undefined) {
     throw new Error("base.bend imports " + odd + ", which is not a plain file in effs/");
   }
-  [...(await Promise.all([...effs, ...FILES].map(getFetchedFile))), base].forEach(
-    ([file, body]) => {
-      if (isMissing(file)) {
-        writeFileAtomically(url.fileURLToPath(new URL(file, dir)), body);
-      }
-    },
+  [...(await Promise.all([...effs, ...FILES].map(getFetchedFile))), base].forEach(([file, body]) =>
+    writeNewFileAtomically(url.fileURLToPath(new URL(file, dir)), body),
   );
   console.error("bend-lint: downloaded bend " + pin + " to " + url.fileURLToPath(dir));
   return dir;

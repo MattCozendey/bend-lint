@@ -61,7 +61,27 @@ export const writeFileAtomically = (file: string, text: string): void => {
   nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${Date.now()}`;
   nodeFs.writeFileSync(temp, text);
-  nodeFs.renameSync(temp, file);
+  try {
+    nodeFs.renameSync(temp, file);
+  } catch (e) {
+    nodeFs.rmSync(temp, { force: true });
+    throw e;
+  }
+};
+
+// Writes `text` to `file` whole, unless `file` is there: a file that runs at once may each write,
+// with the same text. On Windows, a rename over a file that another process has open fails; a run
+// that loses that race keeps the file it found.
+export const writeNewFileAtomically = (file: string, text: string): void => {
+  try {
+    if (!nodeFs.existsSync(file)) {
+      writeFileAtomically(file, text);
+    }
+  } catch (e) {
+    if (!nodeFs.existsSync(file)) {
+      throw e;
+    }
+  }
 };
 
 // The JSON value in `file`, or undefined if it cannot be read.

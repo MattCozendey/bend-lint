@@ -63,6 +63,7 @@ import {
   tryGetJson,
   tryWriteJsonAtomically,
   writeFileAtomically,
+  writeNewFileAtomically,
 } from "../shared/utils.ts";
 
 // Types
@@ -473,9 +474,7 @@ const getPatchedCopy = (dir: URL): URL => {
     nodeFs.readFileSync(new URL("bend.ts", dir), "utf8"),
   );
   const file = new URL(`${getSha256Hex(text).slice(0, 16)}/bend.ts`, SERVER_CACHE_DIR);
-  if (!nodeFs.existsSync(file)) {
-    writeFileAtomically(url.fileURLToPath(file), text);
-  }
+  writeNewFileAtomically(url.fileURLToPath(file), text);
   return file;
 };
 
@@ -1959,9 +1958,7 @@ export const getRulesProgram = (project: string, { ids, packages }: Rules): stri
     "",
   ].join("\n");
   const source = nodePath.join(BUILD, `rules.${getSha256Hex(text).slice(0, 16)}.bend`);
-  if (!nodeFs.existsSync(source)) {
-    writeFileAtomically(source, text);
-  }
+  writeNewFileAtomically(source, text);
   return source;
 };
 
