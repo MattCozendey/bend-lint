@@ -2,7 +2,7 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "options": { "typeAware": true },
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
-  "ignorePatterns": ["**/*.bend"],
+  "ignorePatterns": ["**/*.bend", "demos/**"],
   "jsPlugins": ["./src/meta/oxlint-plugins/custom-oxlint-plugins.ts"],
   "rules": {
     "typescript/consistent-type-definitions": ["error", "type"],

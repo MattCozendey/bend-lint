@@ -6,5 +6,8 @@ CPU.*
 Heap.*
 C-CPU.*
 
-# Other projects, checked out to measure the rules on (see demos/PINS.txt)
-demos/
+# demos/: other projects the rules are measured on (see demos/PINS.txt); not their model
+# weights, nor the link to bend-lint-rules that demos/bend-lint.json needs
+demos/llama.bend/data/
+demos/bend-lint-rules
+__pycache__/
