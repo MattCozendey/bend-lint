@@ -1,0 +1,31 @@
+renderer=dda init_ms=0
+frames=32 elapsed_ms=551
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=537
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=535
+
+renderer=dda init_ms=1
+frames=32 elapsed_ms=536
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=540
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=541
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=548
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=586
+
+renderer=dda init_ms=1
+frames=32 elapsed_ms=544
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=541
+
+Saved docs/dda-estimate-data/cube-cut.tsv

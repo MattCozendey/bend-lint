@@ -1,0 +1,119 @@
+--- a/bend2/effs/audio.c
++++ b/bend2/effs/audio.c
+@@ -150,6 +150,116 @@
+   free(p);
+ }
+ 
++#elif defined(__EMSCRIPTEN_PTHREADS__)
++// An AudioWorklet drains the ring straight out of the shared WebAssembly
++// memory. The AudioContext lives on the page's main thread, so opening
++// and closing are sent there and awaited, which needs the evaluator on a
++// worker (-sPROXY_TO_PTHREAD); on the main thread there is no output.
++#include <emscripten.h>
++#include <emscripten/threading.h>
++
++EM_JS(void, audio_js_open, (u32 ring, u32 read, u32 written, u32 pcm, u32 frames, u32 rate, u32 done, u32 failure), {
++  var devices = Module.bendAudio || (Module.bendAudio = new Map());
++  var context, node, url;
++  var finish = function(code) {
++    Atomics.store(HEAP32, done >>> 2, code + 1);
++    Atomics.notify(HEAP32, done >>> 2);
++  };
++  var resume = function() { context.resume().catch(function() {}); };
++  var processor = function() {
++    class BendAudio extends AudioWorkletProcessor {
++      constructor(options) {
++        super();
++        var p = options.processorOptions;
++        this.read = new BigUint64Array(p.memory, p.read, 1);
++        this.written = new BigUint64Array(p.memory, p.written, 1);
++        this.frames = p.frames;
++        this.pcm = new Float32Array(p.memory, p.pcm, 2 * p.frames);
++      }
++      process(inputs, outputs) {
++        var channels = outputs[0];
++        if (channels.length !== 2) return true;
++        var read = Atomics.load(this.read, 0);
++        var count = Math.min(Number(Atomics.load(this.written, 0) - read), channels[0].length);
++        var start = Number(read % BigInt(this.frames));
++        for (var i = 0; i < count; i++) {
++          var at = ((start + i) % this.frames) * 2;
++          channels[0][i] = this.pcm[at];
++          channels[1][i] = this.pcm[at + 1];
++        }
++        Atomics.store(this.read, 0, read + BigInt(count));
++        return true;
++      }
++    }
++    registerProcessor('bend-audio', BendAudio);
++  };
++  (async function() {
++    try {
++      context = new AudioContext({sampleRate: rate});
++      url = URL.createObjectURL(new Blob(['(' + processor.toString() + ')()'], {type: 'text/javascript'}));
++      await context.audioWorklet.addModule(url);
++      node = new AudioWorkletNode(context, 'bend-audio', {
++        numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
++        processorOptions: {memory: HEAPU8.buffer, read: read >>> 0, written: written >>> 0, pcm: pcm >>> 0, frames: frames}
++      });
++      node.connect(context.destination);
++      devices.set(ring, {context: context, node: node, resume: resume});
++      document.addEventListener('pointerdown', resume);
++      document.addEventListener('keydown', resume);
++      resume();
++      finish(0);
++    } catch (error) {
++      if (node) node.disconnect();
++      if (context) await context.close().catch(function() {});
++      finish(failure);
++    } finally {
++      if (url) URL.revokeObjectURL(url);
++    }
++  })();
++});
++
++EM_JS(void, audio_js_close, (u32 ring, u32 done), {
++  var device = Module.bendAudio && Module.bendAudio.get(ring);
++  (async function() {
++    if (device) {
++      document.removeEventListener('pointerdown', device.resume);
++      document.removeEventListener('keydown', device.resume);
++      device.node.disconnect();
++      if (device.context.state !== "closed") await device.context.close();
++      Module.bendAudio.delete(ring);
++    }
++    Atomics.store(HEAP32, done >>> 2, 1);
++    Atomics.notify(HEAP32, done >>> 2);
++  })();
++});
++
++static u32 io_audio_wait(_Atomic(u32)* done) {
++  u32 code;
++  while ((code = atomic_load_explicit(done, memory_order_acquire)) == 0) {
++    emscripten_futex_wait((void*)done, 0, 1000);
++  }
++  return code - 1;
++}
++
++static u32 io_ring_start(IoRing* p, u32 rate) {
++  if (emscripten_is_main_browser_thread()) {
++    return ENOTSUP;
++  }
++  _Atomic(u32) done = 0;
++  MAIN_THREAD_ASYNC_EM_ASM({ audio_js_open($0, $1, $2, $3, $4, $5, $6, $7); },
++    p, &p->read, &p->written, p->pcm, IO_RING, rate, &done, ENODEV);
++  return io_audio_wait(&done);
++}
++
++static void io_ring_free(IoRing* p) {
++  if (!emscripten_is_main_browser_thread()) {
++    _Atomic(u32) done = 0;
++    MAIN_THREAD_ASYNC_EM_ASM({ audio_js_close($0, $1); }, p, &done);
++    io_audio_wait(&done);
++  }
++  free(p);
++}
++
+ #else
+ 
+ static u32 io_ring_start(IoRing* p, u32 rate) {

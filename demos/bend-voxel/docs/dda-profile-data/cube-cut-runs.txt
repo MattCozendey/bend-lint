@@ -1,0 +1,31 @@
+renderer=dda init_ms=0
+frames=32 elapsed_ms=565
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=560
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=613
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=579
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=586
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=555
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=580
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=593
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=563
+
+renderer=dda init_ms=0
+frames=32 elapsed_ms=590
+
+Saved docs/dda-profile-data/cube-cut.tsv

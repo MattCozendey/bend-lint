@@ -1,0 +1,6 @@
+Mandelbrot completed 256x256 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 48.159 ms
+deep bits=144 reference_GPU_ms=41.543 repairs=0 repair_GPU_ms=0.011
+deep bits=144 reference_GPU_ms=27.863 repairs=0 repair_GPU_ms=0.010
+deep bits=144 reference_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.014
+deep bits=1088 reference_GPU_ms=486.209 repairs=0 repair_GPU_ms=0.010
+deep bits=3424 reference_GPU_ms=4556.103 repairs=0 repair_GPU_ms=0.012

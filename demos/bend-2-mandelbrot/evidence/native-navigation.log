@@ -1,0 +1,8 @@
+deep bits=1088 reference_GPU_ms=0.792 repairs=0 repair_GPU_ms=33.174
+Mandelbrot completed 2200x1560 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 10845.008 ms
+{"name": "native-300", "resolution": [2200, 1560], "iterations": 16384, "bits": 1088, "gpu": true, "repairs": 0, "render_ms": 10845.008, "total_ms": 10931.195291996119, "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"}
+deep bits=1088 reference_GPU_ms=2.062 repairs=0 repair_GPU_ms=24.203
+{"name": "native-300-pan", "resolution": [2200, 1560], "iterations": 16384, "bits": 1088, "gpu": true, "repairs": 0, "render_ms": 10276.850999999999, "total_ms": 10308.62095800694, "sha256": "4eb3910536e953cd443917721a781cce9f60fcf9bebb2c8b7817ce529b691a98"}
+deep bits=1088 reference_GPU_ms=4.169 repairs=0 repair_GPU_ms=23.940
+{"name": "native-300-small-zoom", "resolution": [2200, 1560], "iterations": 16384, "bits": 1088, "gpu": true, "repairs": 0, "render_ms": 584.784, "total_ms": 628.9230420079548, "sha256": "683737b7f261e70749094f4af2a564a9a00db9219fe0ef5bc309891e1b8f73da"}
+Native-resolution GPU navigation checks passed.

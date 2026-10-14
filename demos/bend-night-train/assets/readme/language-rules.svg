@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340"
+     role="img" aria-labelledby="lr-title lr-desc">
+  <title id="lr-title">Four Bend 2 rules that have to be known in advance</title>
+  <desc id="lr-desc">Declaration order is part of the program; mutual recursion is
+  forbidden; match is a statement, not an expression; and only a parameter can be
+  destructured. All four were found by running this project's code.</desc>
+
+  <rect width="1200" height="340" rx="26" fill="#070b12"/>
+
+  <g id="copy">
+    <text x="68" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">Four rules to know in advance</text>
+    <text x="68" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">docs/language-notes.md &#183; each one was hit by running this code</text>
+  </g>
+
+  <g id="rule-1">
+    <rect x="68" y="150" width="257" height="130" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+    <text x="86" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#4a7ba8">order</text>
+    <text x="86" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="22" font-weight="600" fill="#e9eef7">Order is code</text>
+    <text x="86" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">a def must precede</text>
+    <text x="86" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">every use of it</text>
+  </g>
+
+  <g id="rule-2">
+    <rect x="341" y="150" width="257" height="130" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+    <text x="359" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#4a7ba8">recursion</text>
+    <text x="359" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="22" font-weight="600" fill="#e9eef7">No mutual calls</text>
+    <text x="359" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">two definitions</text>
+    <text x="359" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">cannot call each other</text>
+  </g>
+
+  <g id="rule-3">
+    <rect x="614" y="150" width="257" height="130" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+    <text x="632" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#4a7ba8">match</text>
+    <text x="632" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="22" font-weight="600" fill="#e9eef7">Not an expression</text>
+    <text x="632" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">binders fall in the</text>
+    <text x="632" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">order written</text>
+  </g>
+
+  <g id="rule-4">
+    <rect x="887" y="150" width="257" height="130" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+    <text x="905" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#4a7ba8">binders</text>
+    <text x="905" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="22" font-weight="600" fill="#e9eef7">Only parameters</text>
+    <text x="905" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">can be destructured;</text>
+    <text x="905" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">a let cannot</text>
+  </g>
+</svg>

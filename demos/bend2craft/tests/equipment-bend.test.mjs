@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import Equipment from "../world/equipment.bend";
+
+let state = Equipment.empty();
+assert.equal(Equipment.equip_ok(Equipment.equip(state, 38)), true);
+state = Equipment.equip_state(Equipment.equip(state, 38));
+assert.equal(Equipment.blocks_damage(state), true);
+assert.equal(Number(Equipment.armor_defense(state)), 0);
+const helmet = Equipment.equip(state, 44);
+assert.equal(helmet.ok, true);
+state = Equipment.equip_state(helmet);
+assert.equal(Number(Equipment.armor_defense(state)), 1);
+const chest = Equipment.equip(state, 45);
+state = Equipment.equip_state(chest);
+assert.equal(Number(Equipment.armor_defense(state)), 4);
+const taken = Equipment.take_slot(state, 2n);
+assert.equal(taken.ok, true);
+assert.equal(Number(taken.item), 45);
+assert.equal(Number(Equipment.armor_defense(taken.equipment)), 1);
+console.log("equipment ok");

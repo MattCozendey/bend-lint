@@ -1,0 +1,6 @@
+# Binary and GPU program built by `bend main.bend -o tres`
+/tres
+/tres.gpu
+/tres.c
+
+.DS_Store

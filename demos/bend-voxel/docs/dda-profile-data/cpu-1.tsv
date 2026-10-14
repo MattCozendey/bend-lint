@@ -1,0 +1,3 @@
+renderer	median_ms	min_ms	max_ms	samples_ms
+accepted	865.0	854.5	910.5	854.5 902.5 865.0 910.5 854.75 
+candidate	853.0	835.75	860.5	853.0 854.5 835.75 842.75 860.5 

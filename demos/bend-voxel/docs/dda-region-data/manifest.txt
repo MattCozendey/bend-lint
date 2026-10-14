@@ -1,0 +1,21 @@
+2026-10-05 15:29:52 UTC
+bend 2.0.34
+CPU(s):                                  12
+On-line CPU(s) list:                     0-11
+Model name:                              AMD Ryzen 5 1600 Six-Core Processor
+Core(s) per socket:                      6
+Socket(s):                               1
+CPU(s) scaling MHz:                      70%
+NUMA node0 CPU(s):                       0-11
+name, driver_version, memory.total [MiB], utilization.gpu [%]
+NVIDIA GeForce GTX 1660, 615.71.09, 6144 MiB, 1 %
+ 19:29:52 up  2:33,  1 user,  load average: 0.83, 1.92, 1.85
+dd147799e61710421b30a022738f17f5c2a7aad73ecd3b2a74f65959ed2915da  dda.bend
+9280c3921dc51e17e084fa570694c0bb738c712f6e0da4c8a209339fa15345f2  scripts/dda_compare.bend
+6821dd1bd0900980f394a0b47d09874ab129d8b2a2eb8aea22f85089f2818acd  scripts/dda_benchmark.bend
+70253acee6c7d2ce03cee71d4e2b0fb7a7323dd6a152cb0146d6034024d23efe  LAWS.bend
+03c32e9aa51066e9046ea194542c7af1887e6bbfe5e239e062b73e0e5d1b82be  PROOF.bend
+5d75dec57450c8498c155bdcba8d094beeb571e1729a2eec28f6514c56c8145e  build/dda-compare
+15f063f4d49159950714193683c247537917b869f1ac1d5ec8cde03c44fe3c05  build/dda-compare.gpu
+c54b7d2ff588ac4db1bd9196a86f06f2fe693ca02f5916aba75175e6c7911240  build/dda-benchmark
+d3bc9666b4ae1aec3b1798c8184569eaa9ccf5a14b7b2c7d6513f741a63f7868  build/dda-benchmark.gpu

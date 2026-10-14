@@ -1,0 +1,4 @@
+configuration	renderer	median_ms	min_ms	max_ms	samples_ms
+atelier-cpu-6	existing	147.25	144.5	150.75	144.5 146.25 150.5 150.75 147.25 
+atelier-cpu-6	faces	115.75	112.5	125.0	115.75 112.5 115.0 125.0 116.25 
+atelier-cpu-6	dda	1388.0	1380.0	1390.75	1380.0 1388.0 1390.75 1389.75 1386.25 

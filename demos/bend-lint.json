@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "performance/append-in-loop": {},
+    "performance/bang-after-fork": {},
+    "performance/dead-accumulator": {},
+    "performance/deep-call-in-fork": {},
+    "performance/drop-in-bang": {},
+    "performance/eager-branch": {},
+    "performance/gpu-fit": {},
+    "performance/list-index-loop": {},
+    "performance/loop-invariant-call": {},
+    "performance/missed-fork": {},
+    "performance/repeated-call": {},
+    "performance/unused-result": {}
+  }
+}

@@ -1,0 +1,20 @@
+rays=262144 dda_hits=178330 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=7 direction_mismatches=4 color_mismatches=3 max_depth_error=0
+rays=262144 dda_hits=38330 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=0 direction_mismatches=0 color_mismatches=0 max_depth_error=0
+rays=262144 dda_hits=38330 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=0 direction_mismatches=0 color_mismatches=0 max_depth_error=0
+rays=262144 dda_hits=262144 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=0 direction_mismatches=0 color_mismatches=0 max_depth_error=0
+rays=262144 dda_hits=112896 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=0 direction_mismatches=0 color_mismatches=0 max_depth_error=0
+rays=262144 dda_hits=38330 occupancy_mismatches=0 depth_mismatches=0 cell_mismatches=0 direction_mismatches=0 color_mismatches=0 max_depth_error=0
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-cpu-5.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-cpu-6.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-cpu-7.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-cpu.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-gpu-5.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-gpu-6.ppm
+c6a3a915ebfc7b8707b622aeab5f175939a9eff6cb3912716270db01b18e6de9  .audit/dda/final-dda-gpu-7.ppm
+72da032252741819b8c12adfaf4968ec018b0be110372ed65cc4c31a3bf3a584  .audit/dda/final-faces.ppm
+Ray replay order: Atelier opening; cube opening; carved cube opening; inside solid cube; cube axis view; cube opposite view.
+All six comparisons exited successfully. Each compared all 262144 pixel rays.
+All seven DDA exports compared byte for byte: CPU sequential, CPU fork depths 5/6/7, GPU fork depths 5/6/7.
+The final cached-palette DDA and face exports also match their pre-caching image artifacts.
+bend PROOF.bend: ALL PROOFS CHECK.
+bend PROOF.bend --verdict: ALL PROOFS CHECK.

@@ -1,0 +1,22 @@
+{
+  "shader_sha256": "bed762922acac7b64fb0c96f173d9caf15f128d2ea5dd50b55b04d74276eef53",
+  "build_and_Bend_proofs_passed": true,
+  "exact_integer_oracle_cases": 36,
+  "pixel_images_byte_identical": 6,
+  "independent_Decimal_samples": 48,
+  "maximum_Decimal_channel_error": 0,
+  "region_cases_byte_identical": 8,
+  "repair_cases": 2,
+  "reference_cancel_total_ms": 56.355042004724964,
+  "cancel_requested_after_ms": 50,
+  "latest_request_after_cancel_ms": 1.2550000101327896,
+  "commands": [
+    "./build.sh",
+    "python3 validate_reference_state.py ../mandelbrot/precision.metal",
+    "python3 benchmark_fused_reference.py .build/baseline/worker --repeats 7",
+    "python3 validate_reference.py",
+    "python3 validate_acceleration.py .build/baseline/worker",
+    "python3 validate_batches.py"
+  ],
+  "notes": "Tests ran in the isolated performance worktree; no app was launched and no saved version or remote was changed."
+}

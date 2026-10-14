@@ -1,0 +1,31 @@
+renderer=dda init_ms=307
+frames=2 elapsed_ms=1647
+
+renderer=dda init_ms=298
+frames=2 elapsed_ms=1021
+
+renderer=dda init_ms=295
+frames=2 elapsed_ms=1090
+
+renderer=dda init_ms=303
+frames=2 elapsed_ms=1707
+
+renderer=dda init_ms=306
+frames=2 elapsed_ms=1775
+
+renderer=dda init_ms=303
+frames=2 elapsed_ms=1042
+
+renderer=dda init_ms=312
+frames=2 elapsed_ms=1048
+
+renderer=dda init_ms=300
+frames=2 elapsed_ms=1527
+
+renderer=dda init_ms=297
+frames=2 elapsed_ms=1668
+
+renderer=dda init_ms=303
+frames=2 elapsed_ms=1006
+
+Saved docs/dda-estimate-data/gpu6.tsv

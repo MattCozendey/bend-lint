@@ -1,0 +1,39 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 7.0,
+  "colors": 192,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    {
+      "id": "lvl-1",
+      "axis": "y",
+      "start": 0.0,
+      "end": 0.55,
+      "exit": { "start": 6.65, "end": 6.95 }
+    },
+    {
+      "id": "lvl-2",
+      "axis": "y",
+      "start": 0.35,
+      "end": 0.9,
+      "exit": { "start": 6.55, "end": 6.85 }
+    },
+    {
+      "id": "lvl-3",
+      "axis": "y",
+      "start": 0.7,
+      "end": 1.25,
+      "exit": { "start": 6.45, "end": 6.75 }
+    }
+  ],
+  "layers": [
+    {
+      "id": "leaf-mark",
+      "enter": { "start": 1.45, "end": 2.05, "from": [0, 12] },
+      "exit": { "start": 6.05, "end": 6.35, "to": [0, 12] }
+    }
+  ]
+}

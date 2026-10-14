@@ -1,0 +1,86 @@
+[
+  {
+    "name": "generic_-35",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 94,
+    "max_channel_error_vs_decimal": 94,
+    "sha256": "93a55e183ccc852355ad1904aa766302d6b2c5daecaed3a100dc4c0ea6d12a0f"
+  },
+  {
+    "name": "antenna_-35",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "b703702f4a046f19e7ff1a641a1d7cbd8dea52e054ead657c159841a87b321ff"
+  },
+  {
+    "name": "generic_-44",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 41,
+    "max_channel_error_vs_decimal": 41,
+    "sha256": "64c3068b3a5df22a3a9b8caea229aaaec214e7b29a90e59fd16a4ef8e390f06f"
+  },
+  {
+    "name": "antenna_-44",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "1a3645885c261b5204c9f71f4d9dc6712a5fcc5928da70b2f044cca33bbf3830"
+  },
+  {
+    "name": "generic_-50",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 135,
+    "max_channel_error_vs_decimal": 135,
+    "sha256": "486050ddc6e14434c04204843eda92bcc489d45be61d3219d2784f788608495a"
+  },
+  {
+    "name": "antenna_-50",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "010809a9c314e8dfdd731f110ae9b93fcac0106ff4015d090446c596c0a8bbb3"
+  },
+  {
+    "name": "generic_-59",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 6,
+    "max_channel_error_vs_decimal": 6,
+    "sha256": "cb5d65dedc9f25a2cf32e5e492f53eb5f4ba6759784d7c1942d149bc5fc910cb"
+  },
+  {
+    "name": "antenna_-59",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "35816dbc32ba5ae43578b59ee342ca06e07ece2d6f8387baa2dd0644b66713a9"
+  },
+  {
+    "name": "generic_-60",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 24,
+    "max_channel_error_vs_decimal": 24,
+    "sha256": "fc999c96bee2902b2984565c183bb6581f428b38ae990e1d88088b6ffd039b22"
+  },
+  {
+    "name": "antenna_-60",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "41e7cbad2b72d251621f27e0b01b882f498ee4a56848b3fb2c917ba4ba732bca"
+  },
+  {
+    "name": "generic_-61",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "2337e843ef28c1b61d671e91b5ac5c814ef8ef64e6edfc1cf3dcc88d1dbcfd76"
+  },
+  {
+    "name": "antenna_-61",
+    "different_pixels": 0,
+    "baseline_max_channel_error_vs_decimal": 0,
+    "max_channel_error_vs_decimal": 0,
+    "sha256": "d0f6b42131becc6012b3005cde5d7ec6bf7cfe06d1b971d4bc23aeeacc2e8550"
+  }
+]

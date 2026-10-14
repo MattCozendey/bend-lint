@@ -1,0 +1,14 @@
+2026-10-05T22:17:28+04:00
+ 22:17:28 up  5:21,  1 user,  load average: 3.26, 3.22, 3.18
+COMMAND         %CPU
+ps               100
+helium          35.3
+bash            33.3
+t3code           8.9
+helium           8.6
+electron         8.5
+vesktop          8.4
+niri             8.4
+helium           8.3
+helium           6.7
+t3code           5.2

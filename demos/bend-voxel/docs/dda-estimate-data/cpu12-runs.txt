@@ -1,0 +1,31 @@
+renderer=dda init_ms=261
+frames=32 elapsed_ms=4453
+
+renderer=dda init_ms=281
+frames=32 elapsed_ms=3621
+
+renderer=dda init_ms=256
+frames=32 elapsed_ms=3655
+
+renderer=dda init_ms=270
+frames=32 elapsed_ms=4250
+
+renderer=dda init_ms=271
+frames=32 elapsed_ms=4414
+
+renderer=dda init_ms=287
+frames=32 elapsed_ms=4063
+
+renderer=dda init_ms=297
+frames=32 elapsed_ms=3578
+
+renderer=dda init_ms=268
+frames=32 elapsed_ms=4092
+
+renderer=dda init_ms=259
+frames=32 elapsed_ms=4008
+
+renderer=dda init_ms=265
+frames=32 elapsed_ms=3475
+
+Saved docs/dda-estimate-data/cpu12.tsv

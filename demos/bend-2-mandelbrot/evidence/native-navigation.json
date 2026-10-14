@@ -1,0 +1,46 @@
+[
+  {
+    "name": "native-300",
+    "resolution": [
+      2200,
+      1560
+    ],
+    "iterations": 16384,
+    "bits": 1088,
+    "gpu": true,
+    "repairs": 0,
+    "render_ms": 111.464,
+    "total_ms": 155.4915420128964,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "native-300-pan",
+    "resolution": [
+      2200,
+      1560
+    ],
+    "iterations": 16384,
+    "bits": 1088,
+    "gpu": true,
+    "repairs": 0,
+    "render_ms": 107.26599999999999,
+    "total_ms": 114.38358301529661,
+    "sha256": "4eb3910536e953cd443917721a781cce9f60fcf9bebb2c8b7817ce529b691a98",
+    "identical_overlap_pixels": 3392037
+  },
+  {
+    "name": "native-300-small-zoom",
+    "resolution": [
+      2200,
+      1560
+    ],
+    "iterations": 16384,
+    "bits": 1088,
+    "gpu": true,
+    "repairs": 0,
+    "render_ms": 107.38199999999999,
+    "total_ms": 114.3622089875862,
+    "sha256": "683737b7f261e70749094f4af2a564a9a00db9219fe0ef5bc309891e1b8f73da",
+    "max_channel_error_vs_decimal": 0
+  }
+]

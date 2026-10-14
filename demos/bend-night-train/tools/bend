@@ -1,0 +1,72 @@
+#!/bin/sh
+# Local Bend launcher.
+#
+# Three jobs.  It keeps Bend's state next to the checkout, because the sandbox
+# this project was developed in keeps $HOME read-only and a bare `bend` fails
+# when it writes to ~/.bend; it points Bend at this host's CUDA; and it fences
+# off `--publish`.
+#
+# The publish guard is not paranoia.  hub.bend-lang.com has no accounts, no
+# names and no versions -- a package is named by a hash of its contents -- and
+# its responses are served immutable.  There is no delete and no identity to
+# authorise one, so anything published stays published.  A research agent in
+# this project published a scratch file that way while probing the toolchain.
+# Hence: refuse, unless a human says so in as many words.
+set -e
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(dirname "$here")
+
+for arg in "$@"; do
+  if [ "$arg" = "--publish" ] && [ "${BEND_ALLOW_PUBLISH:-}" != "1" ]; then
+    cat >&2 <<'MSG'
+tools/bend: refusing --publish.
+
+  Publishing is irreversible.  hub.bend-lang.com has no accounts, no names and
+  no versions: a package is named by a hash of its contents and served
+  immutable.  Nothing in the client can take it back down.
+
+  If you have read what is about to go up and really mean it, re-run with:
+
+      BEND_ALLOW_PUBLISH=1 tools/bend <file.bend> --publish
+MSG
+    exit 2
+  fi
+done
+
+if [ -z "${BEND_HOME:-}" ]; then
+  if [ -f "$root/.bend/current/bend2/main.ts" ]; then
+    BEND_HOME="$root/.bend"
+  else
+    BEND_HOME="$HOME/.bend"
+  fi
+fi
+
+export BEND_HOME
+export BEND_NO_TELEMETRY=1
+
+# CUDA.  Bend builds a program that uses `!` for the GPU only when it finds
+# nvrtc.h under $CUDA_HOME, which defaults to /usr/local/cuda.  This host has
+# no /usr/local/cuda: the distro ships the CUDA 12 toolkit with headers in
+# /usr/include and libraries in the multiarch lib dir, so point Bend there.
+# Without this the build silently makes a CPU-only binary and `--gpu` later
+# fails with "this binary found no GPU device", even though the device is
+# present.  The GPU lane also needs clang 19+ (Bend picks clang-19 itself
+# when it is installed).
+if [ -z "${CUDA_HOME:-}" ] && [ ! -e /usr/local/cuda/include/nvrtc.h ] \
+   && [ -e /usr/include/nvrtc.h ]; then
+  CUDA_HOME=/usr
+fi
+if [ -n "${CUDA_HOME:-}" ]; then
+  export CUDA_HOME
+fi
+
+if [ -x "$BEND_HOME/bin/bend" ]; then
+  exec "$BEND_HOME/bin/bend" "$@"
+fi
+if command -v bend >/dev/null 2>&1; then
+  exec bend "$@"
+fi
+echo "tools/bend: no Bend found; install it with" >&2
+echo "  curl -fsSL https://bend-lang.com/install.sh | sh" >&2
+exit 127

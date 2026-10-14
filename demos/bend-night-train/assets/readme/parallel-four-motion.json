@@ -1,0 +1,45 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 7.0,
+  "colors": 192,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    {
+      "id": "bar-32",
+      "axis": "x",
+      "start": 1.25,
+      "end": 1.85,
+      "exit": { "start": 6.25, "end": 6.5 }
+    }
+  ],
+  "layers": [
+    {
+      "id": "branch-a",
+      "enter": { "start": 0.15, "end": 0.7, "from": [40, 0] },
+      "exit": { "start": 6.7, "end": 6.95, "to": [40, 0] }
+    },
+    {
+      "id": "branch-b",
+      "enter": { "start": 0.3, "end": 0.85, "from": [40, 0] },
+      "exit": { "start": 6.6, "end": 6.85, "to": [40, 0] }
+    },
+    {
+      "id": "branch-c",
+      "enter": { "start": 0.45, "end": 1.0, "from": [40, 0] },
+      "exit": { "start": 6.5, "end": 6.75, "to": [40, 0] }
+    },
+    {
+      "id": "branch-d",
+      "enter": { "start": 0.6, "end": 1.15, "from": [40, 0] },
+      "exit": { "start": 6.4, "end": 6.65, "to": [40, 0] }
+    },
+    {
+      "id": "bar-32-label",
+      "enter": { "start": 1.85, "end": 2.2, "from": [0, 8] },
+      "exit": { "start": 6.05, "end": 6.3, "to": [0, 8] }
+    }
+  ]
+}

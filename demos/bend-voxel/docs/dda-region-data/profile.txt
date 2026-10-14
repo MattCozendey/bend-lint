@@ -1,0 +1,6 @@
+CPU 12, region DDA, fork depth 6, separate diagnostic run
+renderer=dda init_ms=257
+render_ms=112 present_ms=26 dispose_ms=1
+GPU, region DDA, fork depth 6, separate diagnostic run
+renderer=dda init_ms=289
+render_ms=787 present_ms=123 dispose_ms=3

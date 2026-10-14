@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480"
+     role="img" aria-labelledby="bs-title bs-desc">
+  <title id="bs-title">Wall time against thread count for three frame depths</title>
+  <desc id="bs-desc">Median of three runs per cell. Depth 10 falls from 1.66 s on one
+  thread to 0.31 s on 32 threads, a speed-up of 5.4x; depth 9 from 0.66 s to 0.19 s;
+  depth 8 from 0.36 s to 0.16 s. The frame digest is one value per depth at every thread
+  count.</desc>
+
+  <rect width="1200" height="480" rx="26" fill="#070b12"/>
+
+  <g id="copy">
+    <text x="68" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">Wall time against thread count</text>
+    <text x="68" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">bench/results.csv &#183; median of 3 runs &#183; NT_PPM=0 &#183; one process per run</text>
+  </g>
+
+  <g id="grid" stroke="#1e2a3a" stroke-width="1">
+    <line x1="130" y1="157" x2="1100" y2="157"/>
+    <line x1="130" y1="231" x2="1100" y2="231"/>
+    <line x1="130" y1="306" x2="1100" y2="306"/>
+  </g>
+  <line x1="130" y1="380" x2="1100" y2="380" stroke="#2f4d6e" stroke-width="1.5"/>
+
+  <g id="axis" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#7b8798">
+    <text x="112" y="163" text-anchor="end">1.5 s</text>
+    <text x="112" y="237" text-anchor="end">1.0 s</text>
+    <text x="112" y="312" text-anchor="end">0.5 s</text>
+    <text x="112" y="386" text-anchor="end">0</text>
+    <text x="130" y="410" text-anchor="middle">1</text>
+    <text x="324" y="410" text-anchor="middle">2</text>
+    <text x="518" y="410" text-anchor="middle">4</text>
+    <text x="712" y="410" text-anchor="middle">8</text>
+    <text x="906" y="410" text-anchor="middle">16</text>
+    <text x="1100" y="410" text-anchor="middle">32</text>
+    <text x="615" y="442" text-anchor="middle"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">threads</text>
+  </g>
+
+  <g id="series" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline stroke="#4a7ba8" points="130,326.5 324,341.4 518,347.3 712,350.3 906,351.8 1100,356.2"/>
+    <polyline stroke="#7b8798" points="130,282 324,320.6 518,336.9 712,344.3 906,345.8 1100,351.8"/>
+    <polyline stroke="#ffc76b" points="130,133.4 324,246.3 518,293.8 712,316.1 906,325 1100,334"/>
+  </g>
+
+  <g id="points">
+    <g fill="#4a7ba8">
+      <circle cx="130" cy="326.5" r="4"/><circle cx="324" cy="341.4" r="4"/><circle cx="518" cy="347.3" r="4"/>
+      <circle cx="712" cy="350.3" r="4"/><circle cx="906" cy="351.8" r="4"/><circle cx="1100" cy="356.2" r="4"/>
+    </g>
+    <g fill="#7b8798">
+      <circle cx="130" cy="282" r="4"/><circle cx="324" cy="320.6" r="4"/><circle cx="518" cy="336.9" r="4"/>
+      <circle cx="712" cy="344.3" r="4"/><circle cx="906" cy="345.8" r="4"/><circle cx="1100" cy="351.8" r="4"/>
+    </g>
+    <g fill="#ffc76b">
+      <circle cx="130" cy="133.4" r="4"/><circle cx="324" cy="246.3" r="4"/><circle cx="518" cy="293.8" r="4"/>
+      <circle cx="712" cy="316.1" r="4"/><circle cx="906" cy="325" r="4"/><circle cx="1100" cy="334" r="4"/>
+    </g>
+  </g>
+
+  <g id="callouts" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+    <text x="142" y="140" fill="#ffc76b">1.66 s</text>
+    <text x="1076" y="322" fill="#ffc76b" text-anchor="end">0.31 s</text>
+    <text x="1076" y="298" fill="#ffc76b" text-anchor="end" font-size="22" font-weight="600">5.4&#215;</text>
+  </g>
+
+  <g id="legend" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18">
+    <rect x="950" y="136" width="14" height="14" rx="3" fill="#ffc76b"/>
+    <text x="974" y="149" fill="#e9eef7">depth 10 &#8212; 1024&#178;</text>
+    <rect x="950" y="166" width="14" height="14" rx="3" fill="#7b8798"/>
+    <text x="974" y="179" fill="#e9eef7">depth 9 &#8212; 512&#178;</text>
+    <rect x="950" y="196" width="14" height="14" rx="3" fill="#4a7ba8"/>
+    <text x="974" y="209" fill="#e9eef7">depth 8 &#8212; 256&#178;</text>
+  </g>
+</svg>

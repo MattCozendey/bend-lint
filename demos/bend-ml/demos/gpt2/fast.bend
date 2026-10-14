@@ -1,0 +1,588 @@
+# GPT-2 small (124M) in Bend with bend-ml-tensor-array: the matrix·vector products (124 M
+# multiply-adds per token) run over Array<F32> with parallel blocks; attention, LayerNorm
+# and GELU stay in lists (they are small). Matrix shapes are checked by the type.
+#
+#   bend demos/gpt2/fast.bend -o /tmp/gpt2_fast && /tmp/gpt2_fast "The capital of France is" 8
+#
+# Run from the repository root, after `reference/gpt2_prep.py --split`.
+
+import Base
+import bend-ml-tensor-array@0.1.7.0/main.bend as TA
+import bend-ml-tensor@0.1.2.0/main.bend as T
+import bend-ml-bpe-tokenizer@0.1.2.0/main.bend as BPE
+import ./load.bend as L
+import ./tok.bend as K
+
+# the weight matrices are kept in 2^d row bands (TA.Bands), 2^(d + 1) for the 50257-row embedding, and
+# each matrix · vector product runs its bands in parallel without copying the weights (NOTES.md,
+# exp. 11). With 2 threads or fewer the bands cannot help and only cost (appending their results), so
+# d = 0: a single band, which computes exactly what the sequential Mat.matmul_nt computes.
+def depth_sel(few: Bool) -> Nat:
+  match few:
+    case True{}:
+      0n
+    case False{}:
+      4n
+
+def depth_for(+threads: U32) -> Nat:
+  depth_sel(U32.is_le(threads, 2))
+
+def slice64(xs: List<&2, F32>, off: Nat) -> List<&2, F32>:
+  List.take(&2, F32, List.drop(&2, F32, xs, off), 64n)
+
+def scores_l(+qh: List<&2, F32>, ks: List<&2, List<&2, F32>>, +off: Nat) -> List<&2, F32>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case Con{k, t}:
+      (T.dot.go(qh, slice64(k, off), 0.0) * 0.125 : F32) <> scores_l(qh, t, off)
+
+def weighted(w: List<&2, F32>, vs: List<&2, List<&2, F32>>, +off: Nat, acc: List<&2, F32>) -> List<&2, F32>:
+  match w vs:
+    case Con{+a, wt} Con{v, vt}:
+      weighted(wt, vt, off, T.zip_with.add(acc, T.scale.l(a, slice64(v, off))))
+    case _ _:
+      acc
+
+def head_out(qh: List<&2, F32>, ks: List<&2, List<&2, F32>>, +vs: List<&2, List<&2, F32>>, +off: Nat) -> List<&2, F32>:
+  weighted(T.softmax.l(scores_l(qh, ks, off)), vs, off, T.fill.l(64n, 0.0))
+
+def attn(h: Nat, +off: Nat, +q: List<&2, F32>, +ks: List<&2, List<&2, F32>>, +vs: List<&2, List<&2, F32>>) -> List<&2, F32>:
+  match h:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      List.append(&2, F32, head_out(slice64(q, off), ks, vs, off), attn(p, Nat.add(off, 64n), q, ks, vs))
+
+def gt_head(xs: List<&2, F32>, +v: F32) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{+h, t}:
+      F32.is_gt(h, v)
+
+def argmax.go(xs: List<&2, F32>, g: Bool, +i: Nat, +bi: Nat, +bv: F32) -> Nat:
+  match xs g:
+    case Nil{} _:
+      bi
+    case Con{+h, +t} True{}:
+      argmax.go(t, gt_head(t, h), 1n+i, i, h)
+    case Con{h, +t} False{}:
+      argmax.go(t, gt_head(t, bv), 1n+i, bi, bv)
+
+def argmax(xs: List<&2, F32>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case Con{+h, +t}:
+      argmax.go(t, gt_head(t, h), 1n, 0n, h)
+
+def selb(b: Bool, x: List<&2, U32>, y: List<&2, U32>) -> List<&2, U32>:
+  match b:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def enc1(+cp: U32) -> List<&2, U32>:
+  selb(U32.is_lt(cp, 128), cp <> Nil{}, selb(U32.is_lt(cp, 2048), (192 + U32.div(cp, 64) : U32) <> ((128 + U32.mod(cp, 64) : U32) <> Nil{}), selb(U32.is_lt(cp, 65536), (224 + U32.div(cp, 4096) : U32) <> ((128 + U32.mod(U32.div(cp, 64), 64) : U32) <> ((128 + U32.mod(cp, 64) : U32) <> Nil{})), (240 + U32.div(cp, 262144) : U32) <> ((128 + U32.mod(U32.div(cp, 4096), 64) : U32) <> ((128 + U32.mod(U32.div(cp, 64), 64) : U32) <> ((128 + U32.mod(cp, 64) : U32) <> Nil{}))))))
+
+def utf8_of(cs: List<&2, Char>) -> List<&2, U32>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Con{Chr{cp}, t}:
+      List.append(&2, U32, enc1(cp), utf8_of(t))
+
+def u32s(xs: List<&2, Nat>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{n, t}:
+      U32.from_nat(n) <> u32s(t)
+
+def index_sel(b: Bool, x: Nat, y: Nat) -> Nat:
+  match b:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def index_of(perm: List<&2, Nat>, +id: Nat, +i: Nat) -> Nat:
+  match perm:
+    case Nil{}:
+      0n
+    case Con{p, t}:
+      index_sel(Nat.is_eq(p, id), i, index_of(t, id, 1n+i))
+
+def tk_sel(b: Bool, x: BPE.Tk, y: BPE.Tk) -> BPE.Tk:
+  match b:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def tk_of_gid(+perm: List<&2, Nat>, +id: Nat) -> BPE.Tk:
+  tk_sel(Nat.is_lt(id, 256n), BPE.B{index_of(perm, id, 0n)}, BPE.M{Nat.sub(id, 256n)})
+
+def tks_of(+perm: List<&2, Nat>, ids: List<&2, Nat>) -> List<&2, BPE.Tk>:
+  match ids:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      tk_of_gid(perm, h) <> tks_of(perm, t)
+
+def head_b(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      0
+    case Con{c, t}:
+      c
+
+def ulen(+b: U32) -> Nat:
+  K.sel(U32.is_lt(b, 192), 1n, K.sel(U32.is_lt(b, 224), 2n, K.sel(U32.is_lt(b, 240), 3n, 4n)))
+
+def selu(b: Bool, x: U32, y: U32) -> U32:
+  match b:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def cont(+b: U32) -> Bool:
+  Bool.and(U32.is_le(128, b), U32.is_le(b, 191))
+
+def cp_of(+b0: U32, +b1: U32, +b2: U32, +b3: U32, n: Nat) -> U32:
+  match n:
+    case 1n:
+      selu(U32.is_lt(b0, 128), b0, 63)
+    case 2n:
+      selu(cont(b1), (U32.sub(b0, 192) * 64 + U32.sub(b1, 128) : U32), 63)
+    case 3n:
+      selu(Bool.and(cont(b1), cont(b2)), (U32.sub(b0, 224) * 4096 + U32.sub(b1, 128) * 64 + U32.sub(b2, 128) : U32), 63)
+    case _:
+      selu(Bool.and(cont(b1), Bool.and(cont(b2), cont(b3))), (U32.sub(b0, 240) * 262144 + U32.sub(b1, 128) * 4096 + U32.sub(b2, 128) * 64 + U32.sub(b3, 128) : U32), 63)
+
+def drop_n(xs: List<&2, U32>, n: Nat) -> List<&2, U32>:
+  List.drop(&2, U32, xs, n)
+
+def tail1(xs: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{c, t}:
+      t
+
+def utf8_chars(fuel: Nat, bs: List<&2, U32>) -> List<&2, Char>:
+  match fuel bs:
+    case 1n+p Con{+b0, +t}:
+      Chr{cp_of(b0, head_b(t), head_b(tail1(t)), head_b(tail1(tail1(t))), ulen(b0))} <> utf8_chars(p, drop_n(t, Nat.sub(ulen(b0), 1n)))
+    case _ _:
+      Nil{}
+
+def text_of2(+bs: List<&2, U32>) -> String:
+  String.from_list(utf8_chars(List.length(&2, U32, bs), bs))
+
+def text_of(+table: List<&2, BPE.Rule>, +perm: List<&2, Nat>, ids: List<&2, Nat>) -> String:
+  text_of2(u32s(BPE.decode(table, tks_of(perm, ids))))
+
+# ---------------------------------------------------------------------
+# model
+# ---------------------------------------------------------------------
+
+type Layer is Type:
+  Layer{ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>}
+
+type Model is Type:
+  Model{wte: TA.Bands<50257n, 768n>, wpe: TA.Mat<1024n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>}
+
+# key and value cache of one layer (one row of 768 numbers per position)
+
+type KV is Data:
+  KV{k: List<&2, List<&2, F32>>, v: List<&2, List<&2, F32>>}
+
+type BR is Type:
+  BR{x: List<&2, F32>, kv: KV, l: Layer}
+
+def nm(+i: Nat, f: String) -> String:
+  "h" ++ Nat.show(i) ++ "." ++ f
+
+# ---- the boundary: every weight file must hold exactly the numbers its shape needs ----
+
+def size_cmp(ok: Bool, +path: String, +got: U32, +want: Nat) -> IO(Unit):
+  match ok:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      IO.die(Unit, 1, path ++ ": expected " ++ Nat.show(want) ++ " bytes, found " ++ U32.show(got) ++ "; run reference/gpt2_prep.py --split again")
+
+def size_ok(m: File & Result<&1, &1, U32 & String, U32>, +want: Nat, +path: String) -> IO(Unit):
+  match m:
+    case Tuple{f, r}:
+      do IO<Unit>:
+        +n : U32 <- IO.pass(U32, r)
+        File.close(f)
+        size_cmp(U32.is_eq(n, U32.from_nat(want)), path, n, want)
+
+# stops the program unless the file holds exactly n F32 numbers (n * 4 bytes)
+def check_size(+path: String, +n: Nat) -> IO(Unit):
+  do IO<Unit>:
+    f : File <- IO.try(File, File.open(path, "r"))
+    m : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
+    size_ok(m, Nat.mul(n, 4n), path)
+
+def wpath(name: String) -> String:
+  "demos/gpt2/data/w/" ++ name ++ ".bin"
+
+def get_list(+name: String, +n: Nat) -> IO(List<&2, F32>):
+  do IO<List<&2, F32>>:
+    check_size(wpath(name), n)
+    L.read_floats(wpath(name), n)
+
+# reads the file in 1 MB blocks and writes each block straight into the matrix, so only one
+# block is a list at any time
+def stream_mat(-r: Nat, -c: Nat, k: Nat, +off: U32, +idx: U32, m: File & Result<&1, &1, U32 & String, List<&2, U32>>, acc: TA.Mat<r, c>) -> IO(TA.Mat<r, c>):
+  match k m:
+    case 0n Tuple{f, rs}:
+      do IO<TA.Mat<r, c>>:
+        File.close(f)
+        return acc
+    case 1n+p Tuple{f, rs}:
+      do IO<TA.Mat<r, c>>:
+        bs : List<&2, U32> <- IO.pass(List<&2, U32>, rs)
+        m2 : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, (off + 1048576 : U32), 1048576)
+        stream_mat(r, c, p, (off + 1048576 : U32), (idx + 262144 : U32), m2, TA.Mat.fill_at(r, c, idx, L.f32s(bs), acc))
+
+def get_mat2(-r: Nat, -c: Nat, path: String, +n: Nat, z: TA.Mat<r, c>) -> IO(TA.Mat<r, c>):
+  do IO<TA.Mat<r, c>>:
+    f : File <- IO.try(File, File.open(path, "r"))
+    m : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, 0, 1048576)
+    stream_mat(r, c, L.blocks_of(Nat.mul(n, 4n), 1048576n), 0, 0, m, z)
+
+def get_mat(+name: String, +r: Nat, +c: Nat) -> IO(TA.Mat<r, c>):
+  do IO<TA.Mat<r, c>>:
+    check_size(wpath(name), Nat.mul(r, c))
+    get_mat2(r, c, wpath(name), Nat.mul(r, c), TA.Mat.zeros(r, c))
+
+# ---- matrices kept in bands: each band is read from its own range of the file ----
+
+# writes the little-endian F32 numbers held in bs (4 bytes each) at index i, without building a
+# list of F32 first
+def fill_bytes(bs: List<&2, U32>, +i: U32, a: Array<F32>) -> Array<F32>:
+  match bs:
+    case Con{+b0, Con{+b1, Con{+b2, Con{+b3, t}}}}:
+      fill_bytes(t, (i + 1 : U32), Array.set(F32, a, i, L.f32_le(b0, b1, b2, b3)))
+    case _:
+      a
+
+def fill_bytes_mat(-r: Nat, -c: Nat, +i: U32, bs: List<&2, U32>, m: TA.Mat<r, c>) -> TA.Mat<r, c>:
+  match m:
+    case TA.Mat{d}:
+      TA.Mat{fill_bytes(bs, i, d)}
+
+# reads blocks of at most 1 MB until rem bytes have been read, so a band never takes numbers
+# that belong to the next one
+def stream_exact(k: Nat, -r: Nat, -c: Nat, +rem: Nat, +off: U32, +idx: U32, m: File & Result<&1, &1, U32 & String, List<&2, U32>>, acc: TA.Mat<r, c>) -> IO(TA.Mat<r, c>):
+  match k m:
+    case 0n Tuple{f, rs}:
+      do IO<TA.Mat<r, c>>:
+        File.close(f)
+        return acc
+    case 1n+p Tuple{f, rs}:
+      do IO<TA.Mat<r, c>>:
+        bs : List<&2, U32> <- IO.pass(List<&2, U32>, rs)
+        m2 : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, (off + 1048576 : U32), U32.from_nat(Nat.min(1048576n, Nat.sub(rem, 1048576n))))
+        stream_exact(p, r, c, Nat.sub(rem, 1048576n), (off + 1048576 : U32), (idx + 262144 : U32), m2, fill_bytes_mat(r, c, idx, bs, acc))
+
+# rr x c numbers starting at number `start` of the file, into a band of r rows (rr == r, see
+# load_tree; the Array is sized for rr * c numbers as Mat.zeros would size it)
+def get_band(path: String, -r: Nat, +rr: Nat, +c: Nat, +start: Nat) -> IO(TA.Mat<r, c>):
+  do IO<TA.Mat<r, c>>:
+    f : File <- IO.try(File, File.open(path, "r"))
+    m : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, U32.from_nat(Nat.mul(start, 4n)), U32.from_nat(Nat.min(1048576n, Nat.mul(Nat.mul(rr, c), 4n))))
+    stream_exact(L.blocks_of(Nat.mul(Nat.mul(rr, c), 4n), 1048576n), r, c, Nat.mul(Nat.mul(rr, c), 4n), U32.from_nat(Nat.mul(start, 4n)), 0, m, TA.Mat{Array.new(F32, TA.cap_depth(Nat.mul(rr, c)), 0.0)})
+
+# fills the bands of b (whose shape comes from TA.Bands.zeros) in row order; rr is r at run time
+def load_tree(+c: Nat, -r: Nat, b: TA.Bands<r, c>, +rr: Nat, -e: {rr == r : Nat}, +path: String, +start: Nat) -> IO(TA.Bands<r, c>):
+  match b:
+    case TA.BLeaf{m}:
+      do IO<TA.Bands<r, c>>:
+        band : TA.Mat<r, c> <- get_band(path, r, rr, c, start)
+        return TA.BLeaf{band}
+    case TA.BNode{x, y}:
+      do IO<TA.Bands<r, c>>:
+        x2 : TA.Bands<TA.half(r), c> <- load_tree(c, TA.half(r), x, TA.half(rr), TA.eq_half(rr, r, e), path, start)
+        y2 : TA.Bands<Nat.sub(r, TA.half(r)), c> <- load_tree(c, Nat.sub(r, TA.half(r)), y, Nat.sub(rr, TA.half(rr)), TA.eq_rest(rr, r, e), path, Nat.add(start, Nat.mul(TA.half(rr), c)))
+        return TA.BNode{x2, y2}
+
+def get_bands(+name: String, +d: Nat, +r: Nat, +c: Nat) -> IO(TA.Bands<r, c>):
+  do IO<TA.Bands<r, c>>:
+    check_size(wpath(name), Nat.mul(r, c))
+    load_tree(c, r, TA.Bands.zeros(d, r, c), r, {==}, wpath(name), 0n)
+
+def load_layer(+d: Nat, +i: Nat) -> IO(Layer):
+  do IO<Layer>:
+    ln1g : List<&2, F32> <- get_list(nm(i, "ln1_g"), 768n)
+    ln1b : List<&2, F32> <- get_list(nm(i, "ln1_b"), 768n)
+    aw : TA.Bands<2304n, 768n> <- get_bands(nm(i, "aw"), d, 2304n, 768n)
+    ab : List<&2, F32> <- get_list(nm(i, "ab"), 2304n)
+    pw : TA.Bands<768n, 768n> <- get_bands(nm(i, "pw"), d, 768n, 768n)
+    pb : List<&2, F32> <- get_list(nm(i, "pb"), 768n)
+    ln2g : List<&2, F32> <- get_list(nm(i, "ln2_g"), 768n)
+    ln2b : List<&2, F32> <- get_list(nm(i, "ln2_b"), 768n)
+    fw : TA.Bands<3072n, 768n> <- get_bands(nm(i, "fw"), d, 3072n, 768n)
+    fb : List<&2, F32> <- get_list(nm(i, "fb"), 3072n)
+    mw : TA.Bands<768n, 3072n> <- get_bands(nm(i, "mw"), d, 768n, 3072n)
+    mb : List<&2, F32> <- get_list(nm(i, "mb"), 768n)
+    return Layer{ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb}
+
+def load_layers(k: Nat, +d: Nat, +i: Nat, acc: List<&1, Layer>) -> IO(List<&1, Layer>):
+  match k:
+    case 0n:
+      IO.pure(List<&1, Layer>, List.reverse(&1, Layer, acc))
+    case 1n+p:
+      do IO<List<&1, Layer>>:
+        l : Layer <- load_layer(d, i)
+        load_layers(p, d, 1n+i, l <> acc)
+
+def load_model() -> IO(Model):
+  do IO<Model>:
+    threads : U32 <- IO.thread_count()
+    +d : Nat = depth_for(threads)
+    wte : TA.Bands<50257n, 768n> <- get_bands("wte", Nat.add(d, Nat.min(d, 1n)), 50257n, 768n)
+    wpe : TA.Mat<1024n, 768n> <- get_mat("wpe", 1024n, 768n)
+    layers : List<&1, Layer> <- load_layers(12n, d, 0n, Nil{})
+    lnfg : List<&2, F32> <- get_list("lnf_g", 768n)
+    lnfb : List<&2, F32> <- get_list("lnf_b", 768n)
+    return Model{wte, wpe, layers, lnfg, lnfb}
+
+# ---------------------------------------------------------------------
+# one transformer block for one position
+# ---------------------------------------------------------------------
+
+def ln(+xs: List<&2, F32>, +g: List<&2, F32>, +b: List<&2, F32>) -> List<&2, F32>:
+  T.layernorm.l(xs, 768.0, 0.00001, g, b)
+
+# 6. second MLP product and the block output
+
+def k6b(+x1: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +y: List<&2, F32>) -> BR:
+  BR{T.zip_with.add(x1, T.zip_with.add(y, mb)), kv, Layer{ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb}}
+
+# 5. first MLP product (768 -> 3072), bias and GELU
+
+def k6(+x1: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, +mb: List<&2, F32>, r: TA.BL<768n, 3072n>) -> BR:
+  match r:
+    case TA.BL{mw, c}:
+      k6b(x1, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, c)
+
+def k5b(+x1: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +y: List<&2, F32>) -> BR:
+  k6(x1, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mb, TA.Bands.matvec_l(768n, 3072n, mw, (T.gelu.l(T.zip_with.add(y, fb)))))
+
+def k5(+x1: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, r: TA.BL<3072n, 768n>) -> BR:
+  match r:
+    case TA.BL{fw, c}:
+      k5b(x1, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, c)
+
+# 4. attention projection, residual, second LayerNorm
+
+def k4c(+x1: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>) -> BR:
+  k5(x1, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fb, mw, mb, TA.Bands.matvec_l(3072n, 768n, fw, (ln(x1, ln2g, ln2b))))
+
+def k4b(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +y: List<&2, F32>) -> BR:
+  k4c(T.zip_with.add(x, T.zip_with.add(y, pb)), kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb)
+
+def k4(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, r: TA.BL<768n, 768n>) -> BR:
+  match r:
+    case TA.BL{pw, c}:
+      k4b(x, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, c)
+
+# 3. attention over the cache
+
+def k3b(+x: List<&2, F32>, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +q: List<&2, F32>, +nk: List<&2, List<&2, F32>>, +nv: List<&2, List<&2, F32>>) -> BR:
+  k4(x, KV{nk, nv}, ln1g, ln1b, aw, ab, pb, ln2g, ln2b, fw, fb, mw, mb, TA.Bands.matvec_l(768n, 768n, pw, (attn(12n, 0n, q, nk, nv))))
+
+# 2. qkv: q (768), k (768), v (768)
+
+def k3(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +q: List<&2, F32>, +kr: List<&2, F32>, +vr: List<&2, F32>) -> BR:
+  match kv:
+    case KV{ks, vs}:
+      k3b(x, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, q, List.append(&2, List<&2, F32>, ks, kr <> Nil{}), List.append(&2, List<&2, F32>, vs, vr <> Nil{}))
+
+def k2b(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, +qkv: List<&2, F32>) -> BR:
+  k3(x, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, List.take(&2, F32, qkv, 768n), List.take(&2, F32, List.drop(&2, F32, qkv, 768n), 768n), List.drop(&2, F32, qkv, 1536n))
+
+def k2(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, aw: TA.Bands<2304n, 768n>, +y: List<&2, F32>) -> BR:
+  k2b(x, kv, ln1g, ln1b, aw, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, T.zip_with.add(y, ab))
+
+def k1(+x: List<&2, F32>, kv: KV, +ln1g: List<&2, F32>, +ln1b: List<&2, F32>, +ab: List<&2, F32>, pw: TA.Bands<768n, 768n>, +pb: List<&2, F32>, +ln2g: List<&2, F32>, +ln2b: List<&2, F32>, fw: TA.Bands<3072n, 768n>, +fb: List<&2, F32>, mw: TA.Bands<768n, 3072n>, +mb: List<&2, F32>, r: TA.BL<2304n, 768n>) -> BR:
+  match r:
+    case TA.BL{aw, c}:
+      k2(x, kv, ln1g, ln1b, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, aw, c)
+
+def block(l: Layer, kv: KV, +x: List<&2, F32>) -> BR:
+  match l:
+    case Layer{+ln1g, +ln1b, aw, +ab, pw, +pb, +ln2g, +ln2b, fw, +fb, mw, +mb}:
+      k1(x, kv, ln1g, ln1b, ab, pw, pb, ln2g, ln2b, fw, fb, mw, mb, TA.Bands.matvec_l(2304n, 768n, aw, (ln(x, ln1g, ln1b))))
+
+# ---------------------------------------------------------------------
+# layers, embedding and logits
+# ---------------------------------------------------------------------
+
+type RunOut is Type:
+  RunOut{x: List<&2, F32>, layers: List<&1, Layer>, cs: List<&2, KV>}
+
+# pend is the result of the previous block
+
+def run(ls: List<&1, Layer>, cs: List<&2, KV>, al: List<&1, Layer>, ac: List<&2, KV>, pend: BR) -> RunOut:
+  match ls cs pend:
+    case Con{l, lt} Con{c, ct} BR{x, kv, l0}:
+      run(lt, ct, l0 <> al, kv <> ac, block(l, c, x))
+    case _ _ BR{x, kv, l0}:
+      RunOut{x, List.reverse(&1, Layer, l0 <> al), List.reverse(&2, KV, kv <> ac)}
+
+def start(ls: List<&1, Layer>, cs: List<&2, KV>, x: List<&2, F32>) -> RunOut:
+  match ls cs:
+    case Con{l, lt} Con{c, ct}:
+      run(lt, ct, Nil{}, Nil{}, block(l, c, x))
+    case _ _:
+      RunOut{x, Nil{}, Nil{}}
+
+type Out is Type:
+  Out{id: Nat, lg: F32, cs: List<&2, KV>, m: Model}
+
+def f5(+id_row: List<&2, F32>, wte: TA.Bands<50257n, 768n>, wpe: TA.Mat<1024n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, cs: List<&2, KV>) -> Out:
+  Out{argmax(id_row), T.max.l(id_row), cs, Model{wte, wpe, layers, lnfg, lnfb}}
+
+def f4b(wte: TA.Bands<50257n, 768n>, wpe: TA.Mat<1024n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, cs: List<&2, KV>, +row: List<&2, F32>) -> Out:
+  f5(row, wte, wpe, layers, lnfg, lnfb, cs)
+
+def f4(wpe: TA.Mat<1024n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, cs: List<&2, KV>, r: TA.BL<50257n, 768n>) -> Out:
+  match r:
+    case TA.BL{wte, c}:
+      f4b(wte, wpe, layers, lnfg, lnfb, cs, c)
+
+def f3(wpe: TA.Mat<1024n, 768n>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, wte: TA.Bands<50257n, 768n>, r: RunOut) -> Out:
+  match r:
+    case RunOut{x, layers, cs}:
+      f4(wpe, layers, lnfg, lnfb, cs, TA.Bands.matvec_l(50257n, 768n, wte, (ln(x, lnfg, lnfb))))
+
+def f3b(wpe: TA.Mat<1024n, 768n>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, wte: TA.Bands<50257n, 768n>, r: RunOut) -> Out:
+  f3(wpe, lnfg, lnfb, wte, r)
+
+def f2(wte: TA.Bands<50257n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, cs: List<&2, KV>, row: List<&2, F32>, r: TA.MRow<1024n, 768n>) -> Out:
+  match r:
+    case TA.MRow{wpe, prow}:
+      f3b(wpe, lnfg, lnfb, wte, start(layers, cs, T.zip_with.add(row, prow)))
+
+def f1(wpe: TA.Mat<1024n, 768n>, layers: List<&1, Layer>, +lnfg: List<&2, F32>, +lnfb: List<&2, F32>, cs: List<&2, KV>, +pos: U32, r: TA.BRow<50257n, 768n>) -> Out:
+  match r:
+    case TA.BRow{wte, row}:
+      f2(wte, layers, lnfg, lnfb, cs, row, TA.Mat.read_row(1024n, 768n, wpe, pos))
+
+# one position: returns the most likely id, its logit, the new caches and the model
+
+def fwd(m: Model, cs: List<&2, KV>, tok: Nat, pos: Nat) -> Out:
+  match m:
+    case Model{wte, wpe, layers, lnfg, lnfb}:
+      f1(wpe, layers, lnfg, lnfb, cs, U32.from_nat(pos), TA.Bands.read_row(50257n, 768n, wte, tok))
+
+# ---------------------------------------------------------------------
+# greedy generation (feeds the prompt, then its own most likely token)
+# ---------------------------------------------------------------------
+
+type St is Data:
+  St{cs: List<&2, KV>, tok: Nat, pos: Nat, queue: List<&2, Nat>, left: Nat, gen: List<&2, Nat>}
+
+type SM is Type:
+  SM{st: St, m: Model}
+
+def tsec2(+dt: Nat) -> String:
+  Nat.show(Nat.div(dt, 1000n)) ++ "." ++ Nat.show(Nat.div(Nat.mod(dt, 1000n), 100n)) ++ "s"
+
+def tsec(t1: Nat, t0: Nat) -> String:
+  tsec2(Nat.sub(t1, t0))
+
+def adv2(queue: List<&2, Nat>, left: Nat, +pos: Nat, gen: List<&2, Nat>, +t0: Nat, r: Out) -> IO(SM):
+  match queue r:
+    case Con{q, qt} Out{id, lg, cs, m}:
+      IO.pure(SM, SM{St{cs, q, 1n+pos, qt, left, gen}, m})
+    case Nil{} Out{+id, +lg, cs, m}:
+      do IO<SM>:
+        t1 : Nat <- IO.now()
+        IO.print("  id " ++ Nat.show(id) ++ "  logit " ++ F32.show(lg) ++ "  pos " ++ Nat.show(pos) ++ "  t=" ++ tsec(t1, t0))
+        return SM{St{cs, id, 1n+pos, Nil{}, Nat.sub(left, 1n), id <> gen}, m}
+
+def adv(m: Model, st: St, t0: Nat) -> IO(SM):
+  match st:
+    case St{cs, tok, +pos, queue, left, gen}:
+      adv2(queue, left, pos, gen, t0, fwd(m, cs, tok, pos))
+
+def loop(fuel: Nat, +t0: Nat, sm: SM) -> IO(St):
+  match fuel sm:
+    case 0n SM{st, m}:
+      IO.pure(St, st)
+    case 1n+p SM{st, m}:
+      do IO<St>:
+        s2 : SM <- adv(m, st, t0)
+        loop(p, t0, s2)
+
+# ---------------------------------------------------------------------
+# main program
+# ---------------------------------------------------------------------
+
+def fin(+table: List<&2, BPE.Rule>, +perm: List<&2, Nat>, ids: List<&2, Nat>, st: St) -> IO(Unit):
+  match st:
+    case St{cs, tok, pos, queue, left, gen}:
+      IO.print("text: " ++ text_of(table, perm, List.append(&2, Nat, ids, List.reverse(&2, Nat, gen))))
+
+def start2(model: Model, +table: List<&2, BPE.Rule>, +perm: List<&2, Nat>, +ids: List<&2, Nat>, +n: Nat) -> IO(Unit):
+  match ids:
+    case Nil{}:
+      IO.print("empty prompt")
+    case Con{t0, qt}:
+      do IO<Unit>:
+        t0ms : Nat <- IO.now()
+        IO.print("prompt ids: " ++ K.show_nats(ids))
+        st : St <- loop(Nat.add(List.length(&2, Nat, ids), Nat.sub(n, 1n)), t0ms, SM{St{List.replicate(KV, 12n, KV{Nil{}, Nil{}}), t0, 0n, qt, n, Nil{}}, model})
+        fin(table, perm, ids, st)
+
+def generate(model: Model, +mb: List<&2, U32>, +pb: List<&2, U32>, prompt: String, n: Nat) -> IO(Unit):
+  start2(model, K.rules.go(K.nums(mb), 0n), K.nums(pb), K.encode_text(K.rules.go(K.nums(mb), 0n), K.nums(pb), utf8_of(String.to_list(prompt))), n)
+
+# refuse to run on a malformed merges table (checked before the weights are loaded)
+def run3(ok: Bool, +mb: List<&2, U32>, +pb: List<&2, U32>, prompt: String, n: Nat) -> IO(Unit):
+  match ok:
+    case True{}:
+      do IO<Unit>:
+        t0 : Nat <- IO.now()
+        model : Model <- load_model()
+        t1 : Nat <- IO.now()
+        IO.print("weights loaded in " ++ tsec(t1, t0))
+        generate(model, mb, pb, prompt, n)
+    case False{}:
+      IO.print("invalid merges table")
+
+def run2(+mb: List<&2, U32>, +pb: List<&2, U32>, prompt: String, n: Nat) -> IO(Unit):
+  run3(K.ids_ok(K.nums(mb), 0n), mb, pb, prompt, n)
+
+def run1(prompt: String, mn: Maybe<&2, Nat>) -> IO(Unit):
+  match mn:
+    case None{}:
+      IO.print("usage: gpt2_fast \"prompt\" n_tokens")
+    case Some{n}:
+      do IO<Unit>:
+        mb : List<&2, U32> <- K.read_bytes("demos/gpt2/data/merges_num.txt")
+        pb : List<&2, U32> <- K.read_bytes("demos/gpt2/data/perm.txt")
+        run2(mb, pb, prompt, n)
+
+def dispatch(args: List<String>) -> IO(Unit):
+  match args:
+    case Con{prog, Con{prompt, Con{n, Nil{}}}}:
+      run1(prompt, Nat.read(n))
+    case _:
+      IO.print("usage: gpt2_fast \"prompt\" n_tokens")
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    args : List<String> <- IO.args()
+    dispatch(args)

@@ -1,0 +1,44 @@
+{
+  "version": "v0.1.0",
+  "date": "2026-09-20",
+  "bend_version": "2.0.16",
+  "platform": "macOS / Apple Silicon / Metal",
+  "preservation": "Renderer sources and compiled app preserved in a local archive before publication. Renderer source bytes unchanged during publication preparation.",
+  "renderer_sources": {
+    "build.sh": "c78834c463322656b8433b00ce8eb6faba19095bb2d02783203522d727d79f74",
+    "run.sh": "9632d39dbbc35b2f7bb33c0b80e48830fea856aef5632fbcfe8bdbb33de18e15",
+    "camera.py": "dce30590f36c60b1994d68d5165c470ff29e0b1c088a36c625a13c7337154946",
+    "complex.bend": "de246ecab3aa39e8f20b7d953326ec644305713a50b81083dc5dea50d6951584",
+    "core.bend": "87addfa2a61164cf0de67b8d910ed31d879049d106047e3ad880fad710aee8c6",
+    "host.m": "5a47f800cdc6258e2bc052e4382fa0457554b0a55c6ec122c19a905cca7af7cf",
+    "interaction.h": "a2920e90b08a0f4db1756e04d8b934fc4e2b392c25197d5aa8553f5aff04eed3",
+    "main.bend": "e711972bff6c6f03cde2bdf49c307f056ea2c2f8bb7e36b80ab764874ca075dd",
+    "perturbation.bend": "646859aa5520046ce7a3528d03e9667a4ff382bfd9913d890d06570a67d0ddf5",
+    "precision.metal": "54546ecfaad9059ef05c95f83c31520895812542e41e1b74ac1805a63b2e0c7c",
+    "scaled.bend": "007f288611bce312e3a2bc2b3b146f2fb36e8382d611c6ad5a85c6324252407f",
+    "scheduler.h": "ac4ae25960791a916aa71debe9d67ecfc03c312a42390f82a2ebd0ba8af8a333",
+    "worker.c": "706fcf38e58497192d1178c82cbeb41e531703f702479f7e1ce1a8606c23a31a",
+    "LAWS.bend": "60f5b2a0d77850b9677776ddb8eac5eff91b673b72d39b297f3147ef0681245d",
+    "PROOF.bend": "b290f807be9d716535fd377a68f950541ca63e1b8fb32e22dd96f1d7e5da0a3b",
+    "Mandelbrot.app/Contents/Info.plist": "c1f622f7fac024d6650420aa61b765440ddedccfd35a93f861666bd862b956d3"
+  },
+  "local_app_artifacts": {
+    "Mandelbrot.app/Contents/Info.plist": "c1f622f7fac024d6650420aa61b765440ddedccfd35a93f861666bd862b956d3",
+    "Mandelbrot.app/Contents/MacOS/mandelbrot": "73edc618056034fe21251cec2246b2ac34caaf781c2d301f89fa888e4410ab7f",
+    "Mandelbrot.app/Contents/MacOS/mandelbrot.gpu": "ebb08ce86cf176f52c9cd28568d30b068fa5654fcb035dd0cc97c4065f093869",
+    "Mandelbrot.app/Contents/MacOS/worker": "259afab5588a7acccb4b26505257b687b0e657bec4aff669a4ec8d434628a442",
+    "Mandelbrot.app/Contents/MacOS/worker.gpu": "2a27cb3cd66dd53d9e52781d6ce2d78e80bd31b64d82ca3359cc6dd86e9f253e",
+    "Mandelbrot.app/Contents/Resources/camera.py": "dce30590f36c60b1994d68d5165c470ff29e0b1c088a36c625a13c7337154946"
+  },
+  "binary_distribution": "Generated executables are excluded from Git; build from this source tag.",
+  "publication_validation": {
+    "clean_source_export_build": "passed",
+    "bend_proofs": "11 laws passed",
+    "decimal_samples_through_1e1000": "passed",
+    "pan_overlap": "187125 identical pixels",
+    "256_and_512_region_stitching": "passed including repaired pixel",
+    "cancellation_and_recovery": "passed",
+    "scheduler_replacements": 100000,
+    "actual_appkit_handlers_and_adaptive_tiles": "passed"
+  }
+}

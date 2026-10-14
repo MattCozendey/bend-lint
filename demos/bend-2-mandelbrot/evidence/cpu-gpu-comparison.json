@@ -1,0 +1,8 @@
+{
+  "pixels": 262144,
+  "identical": 262143,
+  "max_channel_error": 1,
+  "pixels_over_1": 0,
+  "pixels_over_8": 0,
+  "mean_max_channel_error": 3.814697265625e-06
+}

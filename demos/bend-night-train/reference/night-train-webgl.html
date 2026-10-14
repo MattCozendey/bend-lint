@@ -1,0 +1,1623 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#05060d">
+<link rel="icon" href="data:,">
+<title>Ночной поезд — из окна</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#05060d}
+  body{
+    font-family:ui-rounded,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:#f0e2d0;-webkit-user-select:none;user-select:none;
+    touch-action:none;overscroll-behavior:none;
+  }
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  /* ветер в лицо: лёгкая виньетка по краям */
+  #vignette{
+    position:fixed;inset:0;pointer-events:none;z-index:2;
+    background:radial-gradient(120% 90% at 50% 45%,rgba(0,0,0,0) 55%,rgba(0,0,0,.55) 100%);
+  }
+
+  #hud{
+    position:fixed;z-index:3;left:0;right:0;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    display:flex;gap:9px;justify-content:center;flex-wrap:wrap;padding:0 12px;
+    transition:opacity 1s ease;
+  }
+  #hud.dim{opacity:.58}
+  #hud:hover,#hud:focus-within{opacity:1}
+  .btn{
+    appearance:none;border:1px solid rgba(255,205,160,.22);
+    background:rgba(22,16,12,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    color:rgba(255,228,198,.8);font:inherit;font-size:13px;letter-spacing:.03em;
+    padding:11px 14px;min-height:46px;border-radius:999px;cursor:pointer;
+    transition:background .25s,color .25s,transform .12s;
+  }
+  .btn:active{transform:scale(.95)}
+  .btn.on{background:rgba(255,168,88,.2);color:#fff1e0;border-color:rgba(255,190,140,.5)}
+  .btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e9bf85;outline-offset:4px}
+  #journey{position:fixed;z-index:3;top:calc(env(safe-area-inset-top,0px) + 22px);left:24px;pointer-events:none;text-shadow:0 2px 12px #000}
+  #journey span{display:block;color:#dbc7a7;font-size:11px;letter-spacing:.19em;text-transform:uppercase}
+  #journey small{display:block;margin-top:7px;color:#a2adbc;font-size:12px;letter-spacing:.04em}
+  #settings{position:fixed;z-index:4;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);left:50%;transform:translateX(-50%);width:min(340px,calc(100% - 28px));padding:20px;border:1px solid #c8a47140;border-radius:20px;background:#10151ef2;box-shadow:0 16px 60px #0008;backdrop-filter:blur(14px)}
+  #settings[hidden]{display:none}
+  #settings h2{font-size:15px;font-weight:500;margin-bottom:14px;color:#f0dec2}
+  #settings label{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px;font-size:14px;color:#c9cdd4}
+  #settings select{font:inherit;color:#f0dec2;background:#242b36;border:1px solid #657083;border-radius:8px;padding:9px;max-width:165px}
+  #settings input{accent-color:#d4ab75;width:22px;height:22px}
+  #settings .btn{width:100%;margin-top:12px}
+  #settings p{font-size:12px;line-height:1.6;color:#99a5b7;margin-top:14px}
+  #hint{pointer-events:none}
+  @media(max-width:600px){body #hint{top:calc(env(safe-area-inset-top,0px) + 81px);font-size:12px;letter-spacing:.03em}#journey{left:20px}#hud{gap:7px;padding:0 10px}.btn{font-size:12px;padding:11px 13px}}
+  @media(max-height:500px){#journey{top:calc(env(safe-area-inset-top,0px) + 12px)}#hint{display:none}#settings{bottom:70px;max-height:calc(100dvh - 80px);overflow:auto}#hud{bottom:calc(env(safe-area-inset-bottom,0px) + 8px)}}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  #hint{
+    position:fixed;z-index:3;left:0;right:0;
+    top:calc(env(safe-area-inset-top,0px) + 14px);
+    text-align:center;font-size:13px;letter-spacing:.1em;
+    color:rgba(255,228,198,.55);text-shadow:0 2px 12px rgba(0,0,0,.9);
+    transition:opacity 1.6s ease;
+  }
+  #hint.gone{opacity:0}
+
+  #err{
+    position:fixed;inset:0;z-index:9;display:none;place-items:center;
+    padding:30px;text-align:center;line-height:1.6;font-size:15px;
+    background:#0a0a12;color:#f0d9c0;
+  }
+</style>
+</head>
+<body>
+<canvas id="gl" tabindex="0" aria-label="Вид из ночного поезда. Веди пальцем или используй стрелки, чтобы оглядеться."></canvas>
+<div id="vignette"></div>
+<div id="journey"><span>Ночной экспресс</span><small>лес спит, а мы едем дальше</small></div>
+<div id="hint">веди пальцем, чтобы оглядеться</div>
+<div id="hud" aria-label="Управление поездкой">
+  <button class="btn" id="btnSound" aria-pressed="false">звук</button>
+  <button class="btn" id="btnLean" aria-pressed="true">у окна</button>
+  <button class="btn" id="btnLook">смотреть вперёд</button>
+  <button class="btn" id="btnSettings" aria-expanded="false" aria-controls="settings">ещё</button>
+</div>
+<section id="settings" aria-labelledby="settingsTitle" hidden>
+  <h2 id="settingsTitle">Как тебе уютнее</h2>
+  <label>Детали <select id="quality"><option value="auto">Автоматически</option><option value="high">Максимум</option><option value="low">Экономно</option></select></label>
+  <label>Скорость <select id="speed"><option value="16">Не спеша</option><option value="24.5" selected>Обычная</option><option value="32">Экспресс</option></select></label>
+  <label>Покачивание <input type="checkbox" id="motion" checked></label>
+  <label>Фары <input type="checkbox" id="btnLamp" checked></label>
+  <button class="btn" id="btnFullscreen">на весь экран</button>
+  <p>Кнопка «у окна» придвигает тебя к вагону. «Выглянуть» возвращает широкий вид вдоль состава.</p>
+</section>
+<div id="err"></div>
+
+<script>
+(() => {
+'use strict';
+
+// Initialization failures need a readable message instead of a blank canvas.
+window.addEventListener('error',()=>{
+  const err=document.getElementById('err');err.style.display='grid';
+  err.textContent='Не удалось запустить поезд. Обнови страницу или попробуй другой браузер.';
+});
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+if (!gl){
+  const e = document.getElementById('err');
+  e.style.display = 'grid';
+  e.textContent = 'Здесь нужен WebGL2 — попробуй открыть в другом браузере.';
+  return;
+}
+
+// ───────────────────────────────────────────────────────────── математика
+const M4 = {
+  ident: () => new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+  mul(a, b, out){
+    out = out || new Float32Array(16);
+    for (let i = 0; i < 4; i++){
+      const ai0=a[i], ai1=a[i+4], ai2=a[i+8], ai3=a[i+12];
+      out[i]    = ai0*b[0]  + ai1*b[1]  + ai2*b[2]  + ai3*b[3];
+      out[i+4]  = ai0*b[4]  + ai1*b[5]  + ai2*b[6]  + ai3*b[7];
+      out[i+8]  = ai0*b[8]  + ai1*b[9]  + ai2*b[10] + ai3*b[11];
+      out[i+12] = ai0*b[12] + ai1*b[13] + ai2*b[14] + ai3*b[15];
+    }
+    return out;
+  },
+  perspective(fovy, aspect, near, far){
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([
+      f/aspect,0,0,0,
+      0,f,0,0,
+      0,0,(far+near)*nf,-1,
+      0,0,2*far*near*nf,0
+    ]);
+  },
+  lookAt(eye, center, up){
+    let zx = eye[0]-center[0], zy = eye[1]-center[1], zz = eye[2]-center[2];
+    let l = Math.hypot(zx,zy,zz) || 1; zx/=l; zy/=l; zz/=l;
+    let xx = up[1]*zz - up[2]*zy, xy = up[2]*zx - up[0]*zz, xz = up[0]*zy - up[1]*zx;
+    l = Math.hypot(xx,xy,xz) || 1; xx/=l; xy/=l; xz/=l;
+    const yx = zy*xz - zz*xy, yy = zz*xx - zx*xz, yz = zx*xy - zy*xx;
+    return new Float32Array([
+      xx, yx, zx, 0,
+      xy, yy, zy, 0,
+      xz, yz, zz, 0,
+      -(xx*eye[0]+xy*eye[1]+xz*eye[2]),
+      -(yx*eye[0]+yy*eye[1]+yz*eye[2]),
+      -(zx*eye[0]+zy*eye[1]+zz*eye[2]), 1
+    ]);
+  },
+  // модель вагона: положение + рыскание + крен
+  rigid(px, py, pz, yaw, roll, sx, sy, sz){
+    const cy = Math.cos(yaw), sy_ = Math.sin(yaw);
+    const cr = Math.cos(roll), sr = Math.sin(roll);
+    // R = Ry(yaw) * Rz(roll)
+    const m00 = cy*cr,        m01 = -cy*sr,       m02 = sy_;
+    const m10 = sr,           m11 = cr,           m12 = 0;
+    const m20 = -sy_*cr,      m21 = sy_*sr,       m22 = cy;
+    return new Float32Array([
+      m00*sx, m10*sx, m20*sx, 0,
+      m01*sy, m11*sy, m21*sy, 0,
+      m02*sz, m12*sz, m22*sz, 0,
+      px, py, pz, 1
+    ]);
+  }
+};
+
+// ───────────────────────────────────────────────── путь: одна формула на всех
+// Те же коэффициенты продублированы в GLSL — мир и камера обязаны совпадать.
+// Дуга нарочно крутая: на длине состава путь уводит вбок метров на сорок,
+// иначе из окна видно только соседний вагон, а не весь поезд.
+const TRACK = { a1: 58.0, f1: 0.00840, a2: 13.0, f2: 0.02150, p2: 1.3,
+                b1: 3.4,  g1: 0.00625, b2: 1.6,  g2: 0.015625, q2: 0.7 };
+const trackX = s => TRACK.a1*Math.sin(s*TRACK.f1) + TRACK.a2*Math.sin(s*TRACK.f2 + TRACK.p2);
+const trackY = s => TRACK.b1*Math.sin(s*TRACK.g1) + TRACK.b2*Math.sin(s*TRACK.g2 + TRACK.q2);
+const trackDX = s => TRACK.a1*TRACK.f1*Math.cos(s*TRACK.f1) + TRACK.a2*TRACK.f2*Math.cos(s*TRACK.f2 + TRACK.p2);
+const trackDY = s => TRACK.b1*TRACK.g1*Math.cos(s*TRACK.g1) + TRACK.b2*TRACK.g2*Math.cos(s*TRACK.g2 + TRACK.q2);
+const trackYaw = s => Math.atan2(trackDX(s), 1);
+const trackRoll = s => {                     // на дуге состав слегка кренится
+  const h = 6;
+  const curve = (trackDX(s + h) - trackDX(s - h)) / (2 * h);
+  return Math.max(-0.09, Math.min(0.09, curve * 260));
+};
+
+const GLSL_TRACK = `
+  float trackX(float s){ return ${TRACK.a1.toFixed(3)}*sin(s*${TRACK.f1.toFixed(6)}) + ${TRACK.a2.toFixed(3)}*sin(s*${TRACK.f2.toFixed(6)} + ${TRACK.p2.toFixed(3)}); }
+  float trackY(float s){ return ${TRACK.b1.toFixed(3)}*sin(s*${TRACK.g1.toFixed(6)}) + ${TRACK.b2.toFixed(3)}*sin(s*${TRACK.g2.toFixed(6)} + ${TRACK.q2.toFixed(3)}); }
+  float trackYaw(float s){
+    float d = ${TRACK.a1.toFixed(3)}*${TRACK.f1.toFixed(6)}*cos(s*${TRACK.f1.toFixed(6)})
+            + ${TRACK.a2.toFixed(3)}*${TRACK.f2.toFixed(6)}*cos(s*${TRACK.f2.toFixed(6)} + ${TRACK.p2.toFixed(3)});
+    return atan(d, 1.0);
+  }
+  float hash21(vec2 p){
+    p = fract(p * vec2(123.34, 345.45));
+    p += dot(p, p + 34.345);
+    return fract(p.x * p.y);
+  }
+  float vnoise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float a = hash21(i), b = hash21(i+vec2(1,0)), c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
+    return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+  }
+  float fbm(vec2 p){
+    float v = 0.0, amp = 0.5;
+    for (int i = 0; i < 4; i++){ v += amp * vnoise(p); p *= 2.03; amp *= 0.5; }
+    return v;
+  }
+  // высота земли: холмы, выполаживающиеся к насыпи
+  float terrain(float x, float z){
+    float hills = (fbm(vec2(x, z) * 0.0042) - 0.5) * 34.0 + (fbm(vec2(x, z) * 0.021) - 0.5) * 4.5;
+    float d = abs(x - trackX(z));
+    float k = smoothstep(9.0, 46.0, d);
+    float bed = trackY(z) - 0.9;
+    return mix(bed, bed + hills, k);
+  }
+`;
+
+// ─────────────────────────────────────────────────────── общий фрагментный код
+const FS_COMMON = `#version 300 es
+  precision highp float;
+  in vec3 vWorld;
+  in vec3 vNormal;
+  in vec3 vColor;
+  in float vEmissive;
+  out vec4 fragColor;
+
+  uniform vec3 uCam;
+  uniform vec3 uMoonDir;
+  uniform vec3 uHeadPos;
+  uniform vec3 uHeadDir;
+  uniform float uHeadOn;
+  uniform vec3 uFogColor;
+  uniform float uFogDensity;
+  uniform vec3 uWin[10];        // тёплые пятна от окон вагонов
+  uniform float uWinCount;
+
+  void main(){
+    vec3 N = normalize(vNormal);
+    vec3 V = uCam - vWorld;
+    float dist = length(V);
+
+    // полусферный ambient: сверху холодное небо, снизу почти чернота
+    float sky = N.y * 0.5 + 0.5;
+    vec3 ambient = mix(vec3(0.065, 0.079, 0.110), vec3(0.22, 0.27, 0.36), sky);
+
+    // луна: рассеянный свет плюс узкий блик — от него оживают рельсы и крыши
+    vec3 Vn = V / max(dist, 0.001);
+    float moon = max(dot(N, uMoonDir), 0.0);
+    vec3 Hv = normalize(uMoonDir + Vn);
+    float spec = pow(max(dot(N, Hv), 0.0), 48.0);
+    vec3 light = ambient + vec3(0.40, 0.47, 0.66) * moon * 1.15 + vec3(0.55, 0.62, 0.82) * spec * 0.55;
+
+    // прожектор локомотива
+    vec3 L = uHeadPos - vWorld;
+    float ld = length(L);
+    L /= max(ld, 0.001);
+    float cone = smoothstep(0.955, 0.995, dot(-L, uHeadDir));
+    float atten = 1.0 / (1.0 + 0.0022 * ld * ld);
+    float lambert = max(dot(N, L), 0.0);
+    light += vec3(1.0, 0.87, 0.66) * cone * atten * lambert * 26.0 * uHeadOn;
+
+    // свет, падающий из окон на насыпь и траву
+    for (int i = 0; i < 10; i++){
+      if (float(i) >= uWinCount) break;
+      vec3 WL = uWin[i] - vWorld;
+      float wd2 = dot(WL, WL);
+      float watt = 1.0 / (1.0 + wd2 * 0.055);
+      light += vec3(1.0, 0.70, 0.36) * watt * max(dot(N, normalize(WL)), 0.0) * 1.25;
+    }
+
+    float grain = fract(sin(dot(floor(vWorld.xz * 18.0), vec2(12.9898,78.233))) * 43758.5453);
+    float textureAmount = (1.0 - step(0.01, vEmissive)) * (1.0 - smoothstep(15.0,100.0,dist));
+    vec3 col = vColor * light * (1.0 - textureAmount * grain * 0.12) + vColor * vEmissive;
+    col = col / (vec3(1.0) + col * 0.38);
+
+    float f = 1.0 - exp(-pow(dist * uFogDensity, 2.0));
+    col = mix(col, uFogColor, clamp(f, 0.0, 1.0));
+
+    fragColor = vec4(col, 1.0);
+  }
+`;
+
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    throw new Error(gl.getShaderInfoLog(sh) + '\n' + src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));
+  }
+  return sh;
+}
+function program(vsSrc, fsSrc){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){
+    const info = gl.getActiveUniform(p, i);
+    u[info.name.replace('[0]','')] = gl.getUniformLocation(p, info.name);
+  }
+  return { p, u };
+}
+
+// ───────────────────────────────────────────────────────────────── программы
+// 1. небо: полноэкранный треугольник, звёзды и луна прямо во фрагменте
+const skyProg = program(`#version 300 es
+  precision highp float;
+  out vec2 vNdc;
+  void main(){
+    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+    vNdc = p * 2.0 - 1.0;
+    gl_Position = vec4(vNdc, 1.0, 1.0);
+  }
+`, `#version 300 es
+  precision highp float;
+  in vec2 vNdc;
+  out vec4 fragColor;
+  uniform mat4 uInvVP;
+  uniform vec3 uCam;
+  uniform vec3 uMoonDir;
+  uniform vec3 uFogColor;
+  uniform float uTime;
+
+  float hash31(vec3 p){
+    p = fract(p * 0.3183 + vec3(0.71, 0.113, 0.419));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  // сглаженный шум — иначе облака Млечного Пути распадаются на кубики
+  float vnoise3(vec3 p){
+    vec3 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash31(i),                  n100 = hash31(i + vec3(1,0,0));
+    float n010 = hash31(i + vec3(0,1,0)),    n110 = hash31(i + vec3(1,1,0));
+    float n001 = hash31(i + vec3(0,0,1)),    n101 = hash31(i + vec3(1,0,1));
+    float n011 = hash31(i + vec3(0,1,1)),    n111 = hash31(i + vec3(1,1,1));
+    return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+               mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+  }
+
+  void main(){
+    vec4 far = uInvVP * vec4(vNdc, 1.0, 1.0);
+    vec3 dir = normalize(far.xyz / far.w - uCam);
+
+    float h = clamp(dir.y, -1.0, 1.0);
+    // ночное небо: у горизонта теплее и светлее, в зените глубокая синь
+    vec3 top = vec3(0.014, 0.020, 0.052);
+    vec3 mid = vec3(0.045, 0.061, 0.126);
+    vec3 low = vec3(0.150, 0.135, 0.190);
+    vec3 col = h > 0.18 ? mix(mid, top, smoothstep(0.18, 0.85, h))
+                        : mix(low, mid, smoothstep(-0.05, 0.18, h));
+
+    // Млечный Путь: широкая полоса под наклоном, размытая шумом
+    {
+      vec3 axis = normalize(vec3(0.62, 0.42, -0.66));
+      float band = 1.0 - abs(dot(dir, axis));
+      float core = smoothstep(0.80, 1.0, band);
+      vec3 q = dir * 7.0;
+      float cloud = 0.0, amp = 0.62;
+      for (int i = 0; i < 4; i++){
+        cloud += amp * vnoise3(q);
+        q *= 2.07; amp *= 0.52;
+      }
+      float milky = core * (0.25 + cloud * 0.95) * smoothstep(-0.02, 0.22, h);
+      col += vec3(0.10, 0.108, 0.150) * milky;
+    }
+
+    // звёзды рисуются отдельным проходом — здесь только небо
+
+    // луна с гало
+    float md = dot(dir, uMoonDir);
+    col += vec3(0.55, 0.62, 0.85) * pow(max(md, 0.0), 420.0) * 0.32;
+    col += vec3(0.24, 0.29, 0.45) * pow(max(md, 0.0), 14.0) * 0.30;
+    if (md > 0.99965){
+      float e = smoothstep(0.99965, 0.99985, md);
+      float maria = vnoise3(dir * 320.0);
+      col = mix(col, vec3(0.90, 0.93, 0.88) * (0.8 + maria * 0.2), e);
+    }
+
+    // дымка у горизонта — сшивает небо с туманом сцены
+    vec3 cloudP = dir * 5.0 + vec3(uTime * 0.0015, 0.0, 0.0);
+    float clouds = smoothstep(0.50,0.78,vnoise3(cloudP) * 0.7 + vnoise3(cloudP * 2.7) * 0.3);
+    col = mix(col, vec3(0.105,0.135,0.19), clouds * 0.42 * smoothstep(0.02,0.23,h));
+    col = mix(col, uFogColor, 1.0 - smoothstep(-0.06, 0.16, h));
+    float az = atan(dir.x, dir.z);
+    float ridge = 0.025 + sin(az * 7.0) * 0.015 + sin(az * 17.0 + 2.0) * 0.009;
+    col = mix(col, vec3(0.060,0.087,0.128), 1.0 - smoothstep(ridge, ridge + 0.004, h));
+    float nearRidge = 0.008 + sin(az * 11.0 + 1.0) * 0.011;
+    col = mix(col, uFogColor, 1.0 - smoothstep(nearRidge, nearRidge + 0.003, h));
+    fragColor = vec4(col, 1.0);
+  }
+`);
+
+// 2. земля: сетка строится в шейдере вокруг камеры
+const groundProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec2 aGrid;    // x: 0..1 вдоль пути, y: -1..1 поперёк
+  uniform mat4 uVP;
+  uniform float uS;                       // положение камеры вдоль пути
+  out vec3 vWorld; out vec3 vNormal; out vec3 vColor; out float vEmissive;
+  ${GLSL_TRACK}
+
+  vec3 groundPoint(vec2 g){
+    float t = g.x;
+    // назад тоже нужен запас: иначе при взгляде на хвост виден край мира
+    float ahead = pow(t, 2.2) * 1250.0 - 330.0;
+    float s = uS + ahead;
+    float side = sign(g.y) * pow(abs(g.y), 1.7) * 430.0;
+    float x = trackX(s) + side;
+    return vec3(x, terrain(x, s), s);
+  }
+
+  void main(){
+    vec3 p = groundPoint(aGrid);
+    float e = 2.2;
+    vec3 px = groundPoint(aGrid + vec2(0.0015, 0.0));
+    vec3 pz = groundPoint(aGrid + vec2(0.0, 0.004));
+    vec3 n = normalize(cross(pz - p, px - p));
+    if (n.y < 0.0) n = -n;
+
+    float wet = smoothstep(0.0, 26.0, abs(p.x - trackX(p.z)));
+    vec3 grass = mix(vec3(0.105, 0.125, 0.108), vec3(0.070, 0.092, 0.120), wet);
+    float blotch = fbm(vec2(p.x, p.z) * 0.03);
+    grass *= 0.75 + blotch * 0.6;
+
+    vWorld = p; vNormal = n; vColor = grass; vEmissive = 0.0;
+    gl_Position = uVP * vec4(p, 1.0);
+  }
+`, FS_COMMON);
+
+// 3. рельсовый путь: насыпь, две нити рельсов, шпалы — одна лента в шейдере
+const trackProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec2 aGrid;    // x вдоль, y — номер полосы
+  uniform mat4 uVP;
+  uniform float uS;
+  out vec3 vWorld; out vec3 vNormal; out vec3 vColor; out float vEmissive;
+  ${GLSL_TRACK}
+
+  void main(){
+    float t = aGrid.x;
+    float s = uS - 330.0 + pow(t, 1.9) * 1100.0;
+    int lane = int(aGrid.y);
+
+    // 0,1 — насыпь; 2..5 — рельсы; 6,7 — контактный провод с провисанием
+    float off, h;
+    vec3 col;
+    if (lane < 2){
+      off = (lane == 0 ? -4.6 : 4.6);
+      h = trackY(s) - 0.62;
+      col = vec3(0.085, 0.078, 0.070);
+    } else if (lane < 4){
+      off = (lane == 2 ? -0.79 : -0.65);
+      h = trackY(s) - 0.02;
+      col = vec3(0.38, 0.40, 0.44);
+    } else if (lane < 6){
+      off = (lane == 4 ? 0.65 : 0.79);
+      h = trackY(s) - 0.02;
+      col = vec3(0.38, 0.40, 0.44);
+    } else {
+      float span = 44.0;
+      float k = fract(s / span);
+      float sag = sin(k * 3.14159) * 0.9;
+      off = (lane == 6 ? -0.14 : 0.14);
+      h = trackY(s) + 5.15 - sag;
+      col = vec3(0.10, 0.10, 0.11);
+    }
+
+    float yaw = trackYaw(s);
+    float x = trackX(s) + off * cos(yaw);
+    float z = s - off * sin(yaw);
+
+    vWorld = vec3(x, h, z);
+    vNormal = vec3(0.0, 1.0, 0.0);
+    vColor = col;
+    vEmissive = 0.0;
+    gl_Position = uVP * vec4(vWorld, 1.0);
+  }
+`, FS_COMMON);
+
+// 4. инстансы: шпалы, столбы, деревья — позиции считаются из gl_InstanceID
+const instProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec3 aNormal;
+  uniform mat4 uVP;
+  uniform float uS;
+  uniform int uKind;          // 0 шпалы, 1 столбы, 2 деревья, 3 кроны
+  uniform float uStep;
+  uniform float uStart;
+  out vec3 vWorld; out vec3 vNormal; out vec3 vColor; out float vEmissive;
+  ${GLSL_TRACK}
+
+  void main(){
+    float id = float(gl_InstanceID);
+    vec3 p = aPos;
+    vec3 n = aNormal;
+    vec3 col;
+    float emissive = 0.0;
+
+    if (uKind == 0){                                  // шпалы
+      float s = floor((uS + uStart) / uStep) * uStep + id * uStep;
+      float yaw = trackYaw(s);
+      p *= vec3(2.7, 0.16, 0.28);
+      float c = cos(yaw), sn = sin(yaw);
+      p = vec3(p.x * c + p.z * sn, p.y, -p.x * sn + p.z * c);
+      n = vec3(n.x * c + n.z * sn, n.y, -n.x * sn + n.z * c);
+      p += vec3(trackX(s), trackY(s) - 0.30, s);
+      col = vec3(0.070, 0.058, 0.048);
+    } else if (uKind == 1){                            // столбы контактной сети
+      float s = floor((uS + uStart) / uStep) * uStep + id * uStep;
+      float side = -6.4;
+      p *= vec3(0.16, 5.4, 0.16);
+      p += vec3(trackX(s) + side, trackY(s) + 2.65, s);
+      col = vec3(0.055, 0.052, 0.050);
+    } else if (uKind <= 4) {                            // деревья: ствол и крона
+      float cell = floor((uS + uStart) / uStep) + id;
+      float r1 = hash21(vec2(cell, 3.7));
+      float r2 = hash21(vec2(cell, 9.1));
+      float r3 = hash21(vec2(cell, 17.3));
+      float s = cell * uStep + r1 * uStep;
+      float side = (r2 < 0.5 ? -1.0 : 1.0) * (13.0 + pow(r3,1.5) * 210.0);
+      float x = trackX(s) + side;
+      float ground = terrain(x, s);
+      float scale = 0.85 + hash21(vec2(cell, 24.7)) * 1.9;
+      if (uKind == 2){                                  // ствол
+        p *= vec3(0.24 * scale, 5.0 * scale, 0.24 * scale);
+        p += vec3(x, ground + 2.5 * scale, s);
+        col = vec3(0.035, 0.030, 0.028);
+      } else if (uKind == 3){                            // нижний ярус кроны
+        p *= vec3(4.2 * scale, 7.8 * scale, 4.2 * scale);
+        p += vec3(x, ground + 4.7 * scale, s);
+        col = mix(vec3(0.055, 0.095, 0.080), vec3(0.105, 0.155, 0.125), r1);
+      } else {                                           // верхний ярус
+        p *= vec3(1.9 * scale, 3.4 * scale, 1.9 * scale);
+        p += vec3(x, ground + 5.4 * scale + 1.5 * scale, s);
+        col = mix(vec3(0.063, 0.105, 0.087), vec3(0.12, 0.17, 0.14), r1);
+      }
+    } else if (uKind == 5){                            // catenary crossarms and hangers
+      float cell=floor((uS+uStart)/uStep)+floor(id/2.0);
+      float s=cell*uStep;
+      if(mod(id,2.0)<1.0){p*=vec3(6.65,.10,.10);p+=vec3(trackX(s)-3.2,trackY(s)+5.3,s);}
+      else {p*=vec3(.065,.55,.065);p+=vec3(trackX(s),trackY(s)+5.0,s);}
+      col=vec3(.18,.20,.21);
+    } else if(uKind == 6 || uKind == 7){                // stones and grass close to the embankment
+      float cell=floor((uS+uStart)/uStep)+id;
+      float r=hash21(vec2(cell,4.21)),r2=hash21(vec2(cell,8.71));
+      float s=cell*uStep+r*uStep;
+      float x=trackX(s)+(r<.5?-1.0:1.0)*(5.4+r2*30.0);
+      if(uKind==6){p*=vec3(.4+r2,.16+r*.6,.3+r2);col=vec3(.17,.19,.22);}
+      else {p*=vec3(.24+r*.3,.5+r2*.9,.24);col=mix(vec3(.09,.14,.10),vec3(.22,.23,.15),r);}
+      p+=vec3(x,terrain(x,s)+(uKind==6?.14:.25),s);
+    } else {                                          // small villages, fixed in world coordinates
+      float cell=floor((uS+uStart)/uStep)+floor(id/5.0);
+      float house=mod(id,5.0), r=hash21(vec2(cell,house+23.0));
+      float s=cell*uStep+(house-2.0)*17.0;
+      float side=hash21(vec2(cell,71.0))<.5?-1.0:1.0;
+      float x=trackX(s)+side*(48.0+r*44.0);
+      float y=terrain(x,s);
+      float width=4.3+r*2.5,height=2.6+r*1.4,depth=5.5+r*3.0;
+      if(uKind==8){p*=vec3(width,height,depth);p+=vec3(x,y+height*.5,s);col=mix(vec3(.20,.19,.18),vec3(.30,.24,.20),r);}
+      else if(uKind==9){p*=vec3(width*1.15,1.8,depth*1.15);p+=vec3(x,y+height+.9,s);col=vec3(.13,.16,.18);}
+      else if(uKind==10){p*=vec3(.85,.85,.03);p+=vec3(x+.7,y+height*.55,s-depth*.5-.025);col=vec3(.95,.56,.22);emissive=1.4;}
+      else {p*=vec3(.48,1.8,.48);p+=vec3(x-width*.25,y+height+1.1,s+1.1);col=vec3(.20,.16,.14);}
+    }
+
+    vWorld = p; vNormal = normalize(n); vColor = col; vEmissive = emissive;
+    gl_Position = uVP * vec4(p, 1.0);
+  }
+`, FS_COMMON);
+
+// 5. обычные меши с модельной матрицей — вагоны
+const meshProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec3 aNormal;
+  uniform mat4 uVP;
+  uniform mat4 uModel;
+  layout(location = 2) in vec3 aColor;
+  layout(location = 3) in float aEmissive;
+  out vec3 vWorld; out vec3 vNormal; out vec3 vColor; out float vEmissive;
+  void main(){
+    vec4 wp = uModel * vec4(aPos, 1.0);
+    vWorld = wp.xyz;
+    vNormal = mat3(uModel) * aNormal;
+    vColor = aColor;
+    vEmissive = aEmissive;
+    gl_Position = uVP * wp;
+  }
+`, FS_COMMON);
+
+// 6. светящиеся билборды: фары, окна, дым, искры
+const glowProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec2 aCorner;
+  layout(location = 1) in vec3 iPos;
+  layout(location = 2) in vec4 iParam;      // радиус, r, g, b
+  layout(location = 3) in float iAlpha;
+  uniform mat4 uVP;
+  uniform vec3 uRight;
+  uniform vec3 uUp;
+  out vec2 vUv; out vec3 vTint; out float vAlpha;
+  void main(){
+    vUv = aCorner;
+    vTint = iParam.yzw;
+    vAlpha = iAlpha;
+    vec3 world = iPos + (uRight * aCorner.x + uUp * aCorner.y) * iParam.x;
+    gl_Position = uVP * vec4(world, 1.0);
+  }
+`, `#version 300 es
+  precision highp float;
+  in vec2 vUv; in vec3 vTint; in float vAlpha;
+  out vec4 fragColor;
+  void main(){
+    float d = length(vUv);
+    if (d > 1.0) discard;
+    float a = pow(1.0 - d, 2.6) * vAlpha;
+    fragColor = vec4(vTint * a, a);
+  }
+`);
+
+// 7. звёзды: круглые точки на дальней сфере, каждая со своим мерцанием
+const starProg = program(`#version 300 es
+  precision highp float;
+  layout(location = 0) in vec2 aCorner;
+  layout(location = 1) in vec4 iDir;        // xyz — направление, w — яркость
+  uniform mat4 uVP;
+  uniform vec3 uCam;
+  uniform vec3 uRight;
+  uniform vec3 uUp;
+  uniform float uTime;
+  out vec2 vUv; out vec3 vTint; out float vAlpha;
+  void main(){
+    vUv = aCorner;
+    float tw = 0.72 + 0.28 * sin(uTime * (0.6 + fract(iDir.w * 13.0) * 2.2) + iDir.w * 40.0);
+    float low = smoothstep(-0.04, 0.16, iDir.y);          // у горизонта тонут в дымке
+    vAlpha = iDir.w * tw * low;
+    vTint = mix(vec3(0.78, 0.85, 1.0), vec3(1.0, 0.90, 0.76), fract(iDir.w * 31.0));
+    float size = 0.75 + iDir.w * 2.0;
+    vec3 world = uCam + iDir.xyz * 900.0 + (uRight * aCorner.x + uUp * aCorner.y) * size;
+    gl_Position = uVP * vec4(world, 1.0);
+  }
+`, `#version 300 es
+  precision highp float;
+  in vec2 vUv; in vec3 vTint; in float vAlpha;
+  out vec4 fragColor;
+  void main(){
+    float d = length(vUv);
+    if (d > 1.0) discard;
+    float core = pow(max(0.0, 1.0 - d), 3.5);
+    float halo = pow(max(0.0, 1.0 - d), 1.2) * 0.22;
+    float a = (core + halo) * vAlpha;
+    fragColor = vec4(vTint * a, a);
+  }
+`);
+
+// ─────────────────────────────────────────────────────────────── геометрия
+function buildGrid(cols, rows, xFrom, xTo, yFrom, yTo){
+  const verts = [], idx = [];
+  for (let j = 0; j <= rows; j++){
+    for (let i = 0; i <= cols; i++){
+      verts.push(xFrom + (xTo - xFrom) * i / cols, yFrom + (yTo - yFrom) * j / rows);
+    }
+  }
+  for (let j = 0; j < rows; j++){
+    for (let i = 0; i < cols; i++){
+      const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  return { verts: new Float32Array(verts), idx: new Uint32Array(idx), count: idx.length };
+}
+
+function makeVao2(data){
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  gl.bufferData(gl.ARRAY_BUFFER, data.verts, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, count: data.count };
+}
+
+// куб с нормалями
+function boxMesh(){
+  const p = [], n = [], idx = [];
+  const faces = [
+    { nrm:[0,0,1],  v:[[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]] },
+    { nrm:[0,0,-1], v:[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,1,-1]] },
+    { nrm:[1,0,0],  v:[[1,-1,1],[1,-1,-1],[1,1,-1],[1,1,1]] },
+    { nrm:[-1,0,0], v:[[-1,-1,-1],[-1,-1,1],[-1,1,1],[-1,1,-1]] },
+    { nrm:[0,1,0],  v:[[-1,1,1],[1,1,1],[1,1,-1],[-1,1,-1]] },
+    { nrm:[0,-1,0], v:[[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1]] }
+  ];
+  faces.forEach((f, fi) => {
+    f.v.forEach(v => { p.push(v[0]*0.5, v[1]*0.5, v[2]*0.5); n.push(...f.nrm); });
+    const b = fi * 4;
+    idx.push(b, b+1, b+2, b, b+2, b+3);
+  });
+  return { pos: new Float32Array(p), nrm: new Float32Array(n), idx: new Uint16Array(idx) };
+}
+
+// конус — крона дерева
+function coneMesh(seg){
+  const p = [], n = [], idx = [];
+  for (let i = 0; i < seg; i++){
+    const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+    const x0 = Math.cos(a0)*0.5, z0 = Math.sin(a0)*0.5;
+    const x1 = Math.cos(a1)*0.5, z1 = Math.sin(a1)*0.5;
+    const base = p.length / 3;
+    p.push(0, 0.5, 0,  x0, -0.5, z0,  x1, -0.5, z1);
+    const nx = (x0 + x1) * 0.5, nz = (z0 + z1) * 0.5;
+    const nl = Math.hypot(nx, 0.35, nz);
+    for (let k = 0; k < 3; k++) n.push(nx/nl, 0.35/nl, nz/nl);
+    idx.push(base, base+2, base+1);
+  }
+  return { pos: new Float32Array(p), nrm: new Float32Array(n), idx: new Uint16Array(idx) };
+}
+
+function makeMeshVao(mesh){
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const pb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+  gl.bufferData(gl.ARRAY_BUFFER, mesh.pos, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  const nb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, nb);
+  gl.bufferData(gl.ARRAY_BUFFER, mesh.nrm, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.idx, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, count: mesh.idx.length };
+}
+
+const groundVao = makeVao2(buildGrid(96, 120, 0.0, 1.0, -1.0, 1.0));
+// Separate strips: connecting adjacent rail lanes also fills the gap between rails.
+const trackGrid = buildGrid(420, 7, 0, 1, 0, 7);
+const stripIndices = [];
+for (const row of [0, 2, 4, 6]){
+  for (let i = 0; i < 420; i++){
+    const a = row * 421 + i, b = a + 1, c = a + 421, d = c + 1;
+    stripIndices.push(a,c,b,b,c,d);
+  }
+}
+trackGrid.idx = new Uint32Array(stripIndices); trackGrid.count = stripIndices.length;
+const trackVao = makeVao2(trackGrid);
+const boxVao    = makeMeshVao(boxMesh());
+const coneVao   = makeMeshVao(coneMesh(7));
+function pineMesh(){
+  const pos=[],nrm=[],idx=[];
+  for(let tier=0;tier<5;tier++){
+    const radius=.5-tier*.087, bottom=-.5+tier*.18, height=.49-tier*.025;
+    for(let i=0;i<10;i++){
+      const a=i/10*Math.PI*2,b=(i+1)/10*Math.PI*2;
+      const r=radius*(1+Math.sin(i*19.7+tier)*.14),rr=radius*(1+Math.sin((i+1)*19.7+tier)*.14);
+      const o=pos.length/3;
+      pos.push(0,bottom+height,0,Math.cos(a)*r,bottom,Math.sin(a)*r,Math.cos(b)*rr,bottom,Math.sin(b)*rr);
+      const nx=Math.cos((a+b)*.5),nz=Math.sin((a+b)*.5),ny=radius/height,l=Math.hypot(1,ny);
+      for(let j=0;j<3;j++)nrm.push(nx/l,ny/l,nz/l);
+      idx.push(o,o+2,o+1);
+    }
+  }
+  return {pos:new Float32Array(pos),nrm:new Float32Array(nrm),idx:new Uint16Array(idx)};
+}
+const pineVao=makeMeshVao(pineMesh());
+function gableMesh(){
+  const pos=[],nrm=[],idx=[];
+  const a=[-.5,-.5,-.5],b=[.5,-.5,-.5],c=[0,.5,-.5],d=[-.5,-.5,.5],e=[.5,-.5,.5],f=[0,.5,.5];
+  for(const tri of [[a,c,b],[d,e,f],[a,d,f],[a,f,c],[b,c,f],[b,f,e]]){
+    const [p,q,r]=tri,u=q.map((v,i)=>v-p[i]),v=r.map((x,i)=>x-p[i]);
+    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],l=Math.hypot(...n),o=pos.length/3;
+    for(const vertex of tri){pos.push(...vertex);nrm.push(...n.map(x=>x/l));}
+    idx.push(o,o+1,o+2);
+  }
+  return {pos:new Float32Array(pos),nrm:new Float32Array(nrm),idx:new Uint16Array(idx)};
+}
+const gableVao=makeMeshVao(gableMesh());
+
+// билборды
+const MAX_GLOW = 440;
+const glowPos   = new Float32Array(MAX_GLOW * 3);
+const glowParam = new Float32Array(MAX_GLOW * 4);
+const glowAlpha = new Float32Array(MAX_GLOW);
+let glowCount = 0;
+const glowVao = (() => {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const corner = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, corner);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, 1,1, -1,-1, 1,1, -1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  const pb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+  gl.bufferData(gl.ARRAY_BUFFER, glowPos.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(1, 1);
+
+  const qb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+  gl.bufferData(gl.ARRAY_BUFFER, glowParam.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(2, 1);
+
+  const ab = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, ab);
+  gl.bufferData(gl.ARRAY_BUFFER, glowAlpha.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(3, 1);
+
+  gl.bindVertexArray(null);
+  return { vao, pb, qb, ab };
+})();
+
+// звёздная сфера: направления генерируются один раз
+const STARS = 1100;
+const starVao = (() => {
+  const dirs = new Float32Array(STARS * 4);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < STARS; i++){
+    // равномерно по полусфере, чуть гуще к зениту
+    const u = rnd(), v = rnd();
+    const theta = u * Math.PI * 2;
+    const y = Math.pow(v, 0.75);
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    dirs[i*4] = Math.cos(theta) * r;
+    dirs[i*4+1] = y;
+    dirs[i*4+2] = Math.sin(theta) * r;
+    dirs[i*4+3] = 0.40 + Math.pow(rnd(), 2) * 0.85;      // редкие яркие, много слабых
+  }
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const corner = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, corner);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, 1,1, -1,-1, 1,1, -1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const db = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, db);
+  gl.bufferData(gl.ARRAY_BUFFER, dirs, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(1, 1);
+  gl.bindVertexArray(null);
+  return vao;
+})();
+
+function addGlow(x, y, z, radius, r, g, b, alpha){
+  if (glowCount >= MAX_GLOW) return;
+  const i = glowCount++;
+  glowPos[i*3] = x; glowPos[i*3+1] = y; glowPos[i*3+2] = z;
+  glowParam[i*4] = radius; glowParam[i*4+1] = r; glowParam[i*4+2] = g; glowParam[i*4+3] = b;
+  glowAlpha[i] = alpha;
+}
+
+// ───────────────────────────────────────────────────────────────── состав
+const CAR_LEN = 24.0, CAR_GAP = 2.6, CAR_W = 2.9, CAR_H = 4.0;
+
+// Static colored meshes. One draw per carriage, including its small details.
+function coloredBuilder(){
+  const pos=[], nrm=[], colors=[], emissions=[], idx=[];
+  function add(mesh, at, scale, color, emissive=0, rotateX=0){
+    const offset=pos.length/3, c=Math.cos(rotateX), sn=Math.sin(rotateX);
+    for(let i=0;i<mesh.pos.length;i+=3){
+      const x=mesh.pos[i]*scale[0],y=mesh.pos[i+1]*scale[1],z=mesh.pos[i+2]*scale[2];
+      pos.push(x+at[0],y*c-z*sn+at[1],y*sn+z*c+at[2]);
+      let nx=mesh.nrm[i]/scale[0],ny=mesh.nrm[i+1]/scale[1],nz=mesh.nrm[i+2]/scale[2];
+      const l=Math.hypot(nx,ny,nz)||1;
+      nrm.push(nx/l,(ny*c-nz*sn)/l,(ny*sn+nz*c)/l);
+      colors.push(...color);emissions.push(emissive);
+    }
+    for(const i of mesh.idx)idx.push(i+offset);
+  }
+  const cube=boxMesh();
+  return {add,box:(at,scale,color,emissive=0)=>add(cube,at,scale,color,emissive),finish(){
+    const mesh={pos:new Float32Array(pos),nrm:new Float32Array(nrm),idx:new Uint16Array(idx)};
+    if(pos.length/3>65535)throw Error('Carriage mesh exceeds index range');
+    const result=makeMeshVao(mesh);gl.bindVertexArray(result.vao);
+    for(const [slot,size,data] of [[2,3,colors],[3,1,emissions]]){
+      gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(slot);gl.vertexAttribPointer(slot,size,gl.FLOAT,false,0,0);
+    }
+    gl.bindVertexArray(null);return result;
+  }};
+}
+function roofMesh(){
+  const pos=[],nrm=[],idx=[];
+  for(let i=0;i<=12;i++){
+    const a=i/12*Math.PI,x=Math.cos(a)*0.5,y=Math.sin(a)*0.5;
+    pos.push(x,y,-0.5,x,y,0.5);nrm.push(Math.cos(a),Math.sin(a),0,Math.cos(a),Math.sin(a),0);
+    if(i<12){const b=i*2;idx.push(b,b+2,b+1,b+1,b+2,b+3);}
+  }
+  for(const end of [-1,1])for(let i=0;i<12;i++){
+    const a=i/12*Math.PI,b=(i+1)/12*Math.PI,o=pos.length/3;
+    pos.push(0,0,end*.5,Math.cos(a)*.5,Math.sin(a)*.5,end*.5,Math.cos(b)*.5,Math.sin(b)*.5,end*.5);
+    for(let j=0;j<3;j++)nrm.push(0,0,end);
+    if(end>0)idx.push(o,o+1,o+2);else idx.push(o,o+2,o+1);
+  }
+  return {pos,nrm,idx};
+}
+function wheelMesh(){
+  const pos=[],nrm=[],idx=[];
+  for(let i=0;i<14;i++){
+    const a=i/14*Math.PI*2,b=(i+1)/14*Math.PI*2;
+    const y=Math.cos(a)*.5,z=Math.sin(a)*.5,yy=Math.cos(b)*.5,zz=Math.sin(b)*.5;
+    let o=pos.length/3;
+    pos.push(-.5,y,z,.5,y,z,-.5,yy,zz,.5,yy,zz);
+    nrm.push(0,y*2,z*2,0,y*2,z*2,0,yy*2,zz*2,0,yy*2,zz*2);
+    idx.push(o,o+2,o+1,o+1,o+2,o+3);
+    for(const side of [-1,1]){
+      o=pos.length/3;pos.push(side*.5,0,0,side*.5,y,z,side*.5,yy,zz);
+      for(let j=0;j<3;j++)nrm.push(side,0,0);
+      if(side>0)idx.push(o,o+1,o+2);else idx.push(o,o+2,o+1);
+    }
+  }
+  return {pos,nrm,idx};
+}
+const brass=[.49,.35,.18], metal=[.13,.17,.20], dark=[.027,.042,.052];
+function carriageMesh(variant,loco=false){
+  const b=coloredBuilder(),length=loco?19.7:CAR_LEN, paint=loco?[.12,.19,.20]:[.12,.20,.22];
+  b.box([0,2.6,0],[CAR_W,3.0,length],paint);
+  b.box([0,1.04,0],[2.8,.28,length],dark);
+  b.add(roofMesh(),[0,4.1,0],[3.02,1.3,length+.12],[.21,.25,.28]);
+  // Roof seams and ventilation cowls.
+  for(let z=-length/2+1;z<length/2;z+=2.2)b.add(roofMesh(),[0,4.115,z],[3.04,1.31,.035],metal);
+  for(let z=-6;z<=6;z+=4)b.box([0,4.79,z],[.52,.17,.86],metal);
+  for(const side of [-1,1]){
+    b.box([side*1.464,1.78,0],[.025,.055,length],brass);
+    b.box([side*1.464,3.92,0],[.025,.045,length],brass);
+    // Shallow horizontal corrugations on the lower body.
+    for(let y=1.27;y<1.7;y+=.105)b.box([side*1.462,y,0],[.022,.025,length-.2],[.19,.25,.26]);
+    for(let w=0;w<(loco?3:7);w++){
+      const z=loco?6+w*1.15:(w-3)*3;
+      const lit=(variant*7+w)*7919%11>2;
+      b.box([side*1.475,3.05,z],[.045,1.24,1.83],brass);
+      b.box([side*1.503,3.05,z],[.025,1.08,1.66],dark);
+      b.box([side*1.522,3.05,z],[.012,.94,1.51],lit?[.94,.62,.29]:[.07,.13,.19],lit?.62:.02);
+      // One curtain is half drawn in some compartments.
+      if(lit)b.box([side*1.533,3.05,z-.57],[.01,.94,w%3===0?.56:.24],[.28,.20,.14],.25);
+      b.box([side*1.544,3.05,z],[.022,1.0,.032],metal);
+      b.box([side*1.544,3.37,z],[.022,.032,1.5],metal);
+      b.box([side*1.55,2.47,z],[.14,.065,1.9],metal);
+    }
+    for(const end of [-1,1]){
+      const z=end*(length/2-1);
+      b.box([side*1.47,2.5,z],[.025,2.65,1.3],dark);
+      b.box([side*1.49,2.5,z],[.022,2.50,1.18],[.14,.21,.22]);
+      b.box([side*1.514,3.13,z],[.02,.77,.69],[.11,.16,.19]);
+      b.box([side*1.56,2.23,z+.4],[.07,.10,.21],brass);
+      for(let y=1;y<1.5;y+=.22)b.box([side*1.62,y,z],[.38,.065,1.28],metal);
+      b.box([side*1.59,2.34,z-.78],[.065,1.75,.055],brass);
+    }
+  }
+  for(const end of [-1,1]){
+    b.box([0,2.5,end*(length/2+.2)],[1.65,2.5,.4],dark);
+    for(let z=0;z<5;z++)b.box([0,2.5,end*(length/2+.08+z*.105)],[1.75,2.6,.04],metal);
+    b.box([0,.76,end*(length/2+.45)],[.32,.25,.9],metal);
+    const bogie=end*length*.33;
+    b.box([0,.64,bogie],[2.65,.48,3.6],dark);
+    for(const axle of [-1,1]){
+      b.box([0,.48,bogie+axle*1.15],[2.75,.17,.17],metal);
+      for(const side of [-1,1]){
+        b.add(wheelMesh(),[side*1.20,.46,bogie+axle*1.15],[.22,.91,.91],[.21,.23,.24]);
+        b.add(wheelMesh(),[side*1.34,.46,bogie+axle*1.15],[.05,.33,.33],brass);
+      }
+    }
+  }
+  if(loco){
+    b.box([0,3.35,length/2+.015],[2.2,.75,.06],[.29,.39,.41],.15);
+    b.box([0,4.9,-3],[.6,.65,.7],dark);
+    for(let i=0;i<8;i++)b.box([-1.48,2.8,-5+i*.65],[.04,.72,.12],dark);
+  }
+  return b.finish();
+}
+const carMeshes=[carriageMesh(0),carriageMesh(1),carriageMesh(2)];
+const locoMesh=carriageMesh(0,true);
+// Камера — в середине состава: вперёд уходят вагоны и локомотив,
+// назад — хвост, поэтому оглядываться имеет смысл в обе стороны.
+const CARS_BEHIND = 5, CARS_AHEAD = 10;
+const CARS = CARS_BEHIND + CARS_AHEAD;
+const carIndexToS = i => state.s - CAR_LEN * 0.62 + i * (CAR_LEN + CAR_GAP);
+const carS = i => carIndexToS(i - CARS_BEHIND);
+
+const state = {
+  s: 110,
+  speed: 24.5,                       // м/с ≈ 88 км/ч
+  yaw: 0, pitch: -0.02,
+  yawTarget: 0, pitchTarget: -0.02,
+  autoLook: true,
+  headOn: true,
+  lean: 1, leanTarget: 1,
+  motion: !matchMedia("(prefers-reduced-motion: reduce)").matches,
+  quality: "auto", renderScale: 1.5, frameMs: 16.7, frames: 0, scaleAt: 0,
+  t: 0, last: 0
+};
+
+const smoke = [];
+for (let i = 0; i < 44; i++) smoke.push({ life: Math.random() });
+
+// пыль и искры, проносящиеся мимо лица — от них и рождается ощущение скорости
+const motes = [];
+for (let i = 0; i < 70; i++){
+  motes.push({
+    ds: Math.random() * 90 - 30,
+    side: (Math.random() - 0.5) * 9,
+    up: Math.random() * 5 - 1.4,
+    r: 0.035 + Math.random() * 0.13,
+    warm: Math.random() < 0.28,
+    drift: (Math.random() - 0.5) * 1.6,
+    seed: Math.random() * 10
+  });
+}
+
+// ────────────────────────────────────────────────────────────────── рендер
+let W = 0, H = 0;
+const fogColor = [0.055, 0.068, 0.115];
+const moonDir = (() => {
+  const v = [0.42, 0.36, 0.83];
+  const l = Math.hypot(...v);
+  return [v[0]/l, v[1]/l, v[2]/l];
+})();
+
+function resize(){
+  const cap=state.quality==="high"?2:state.quality==="low"?1:state.renderScale;
+  const dpr = Math.min(window.devicePixelRatio || 1, cap);
+  W = Math.round(window.innerWidth * dpr);
+  H = Math.round(window.innerHeight * dpr);
+  canvas.width = W; canvas.height = H;
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const winLights = new Float32Array(30);
+let winLightCount = 0;
+
+function setCommon(prog, cam, headPos, headDir){
+  gl.uniform3fv(prog.u.uWin, winLights);
+  gl.uniform1f(prog.u.uWinCount, winLightCount);
+  gl.uniform3fv(prog.u.uCam, cam);
+  gl.uniform3fv(prog.u.uMoonDir, moonDir);
+  gl.uniform3fv(prog.u.uHeadPos, headPos);
+  gl.uniform3fv(prog.u.uHeadDir, headDir);
+  gl.uniform1f(prog.u.uHeadOn, state.headOn ? 1 : 0);
+  gl.uniform3fv(prog.u.uFogColor, fogColor);
+  gl.uniform1f(prog.u.uFogDensity, 0.0026);
+}
+
+let rafId=0;
+function frame(now){
+  rafId=0;
+  if (document.hidden || gl.isContextLost()) { state.last=0; return; }
+  const elapsed=state.last?now-state.last:16.7;
+  const dt = Math.min(elapsed / 1000, 0.10);
+  state.frameMs += (elapsed-state.frameMs)*.025;
+  state.frames++;
+  if(state.quality==='auto' && now-state.scaleAt>3000){
+    state.scaleAt=now;
+    const old=state.renderScale;
+    if(state.frameMs>24)state.renderScale=Math.max(.85,state.renderScale-.15);
+    else if(state.frameMs<18)state.renderScale=Math.min(1.75,state.renderScale+.1);
+    if(old!==state.renderScale)resize();
+  }
+  state.last = now; state.t += dt;
+  state.s += state.speed * dt;
+
+  // камера: высунулся из окна своего вагона
+  const s = state.s;
+  const baseYaw = trackYaw(s);
+  const sway = state.motion ? Math.sin(state.t * 1.9) * 0.022 + Math.sin(state.t * 3.7) * 0.008 : 0;
+  const bob = state.motion ? Math.sin(state.t * 5.3) * 0.018 + Math.sin(state.t * 2.6) * 0.016 : 0;
+  // голова снаружи; вынос чуть дышит — от этого вид кажется живым, а не рельсовым
+  state.lean += (state.leanTarget-state.lean)*Math.min(1,dt*2.8);
+  const sideOffset = -2.15-state.lean*2.45 + (state.motion?Math.sin(state.t*.31)*.12:0);
+  const camX = trackX(s) + sideOffset * Math.cos(baseYaw);
+  const camZ = s - sideOffset * Math.sin(baseYaw);
+  const camY = trackY(s) + 3.05 + bob;
+  const cam = [camX, camY, camZ];
+
+  // локомотив: он же цель взгляда по умолчанию
+  const headCenterS=carS(CARS-1)+CAR_LEN*.5;
+  const headYaw=trackYaw(headCenterS);
+  const sHead=headCenterS+9.92*Math.cos(headYaw);
+  const headPos=[trackX(headCenterS)+9.92*Math.sin(headYaw),trackY(headCenterS)+1.6,sHead];
+  const headDir = [Math.sin(headYaw), -0.075, Math.cos(headYaw)];
+  {
+    const l = Math.hypot(...headDir);
+    headDir[0] /= l; headDir[1] /= l; headDir[2] /= l;
+  }
+
+  // «смотреть вперёд» — держать в кадре сам состав: цель не локомотив,
+  // а точка на две трети пути к нему, иначе поезд уезжает за край кадра
+  if (state.autoLook){
+    const aimS = carS(CARS_BEHIND + Math.round((CARS_AHEAD - 1) * 0.62));
+    const aimYaw = trackYaw(aimS);
+    const aimX = trackX(aimS) + 4.2 * Math.cos(aimYaw);
+    const aimZ = aimS - 4.2 * Math.sin(aimYaw);
+    let want = Math.atan2(aimX - camX, aimZ - camZ) - baseYaw;
+    while (want > Math.PI) want -= Math.PI * 2;
+    while (want < -Math.PI) want += Math.PI * 2;
+    want = Math.max(-0.95, Math.min(0.45, want));
+    state.yawTarget += (want - state.yawTarget) * Math.min(1, dt * 1.4);
+    state.pitchTarget += (0.012 - state.pitchTarget) * Math.min(1, dt * 1.4);
+  }
+  state.yaw += (state.yawTarget - state.yaw) * Math.min(1, dt * 7);
+  state.pitch += (state.pitchTarget - state.pitch) * Math.min(1, dt * 7);
+
+  // направление взгляда: вдоль пути + поворот головы
+  const lookYaw = baseYaw + state.yaw + sway * 0.35;
+  const lookPitch = state.pitch + sway * 0.1;
+  const dir = [
+    Math.sin(lookYaw) * Math.cos(lookPitch),
+    Math.sin(lookPitch),
+    Math.cos(lookYaw) * Math.cos(lookPitch)
+  ];
+  const center = [cam[0] + dir[0], cam[1] + dir[1], cam[2] + dir[2]];
+
+  const proj = M4.perspective(W<H?1.20:1.12, W / H, 0.15, 1500);
+  const view = M4.lookAt(cam, center, [0, 1, 0]);
+  const vp = M4.mul(proj, view);
+
+  // тёплые пятна из окон — по одному на каждые два вагона, со стороны камеры
+  winLightCount = 0;
+  for (let i = 0; i < 10; i++){
+    const ws = state.s - 120 + i * 42;
+    const yaw = trackYaw(ws);
+    winLights[i*3]     = trackX(ws) - 2.4 * Math.cos(yaw);
+    winLights[i*3 + 1] = trackY(ws) + 2.9;
+    winLights[i*3 + 2] = ws + 2.4 * Math.sin(yaw);
+    winLightCount++;
+  }
+
+  gl.clearColor(fogColor[0], fogColor[1], fogColor[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.CULL_FACE);
+  gl.disable(gl.BLEND);
+
+  // небо
+  gl.depthMask(false);
+  gl.useProgram(skyProg.p);
+  const invVP = invert(vp);
+  gl.uniformMatrix4fv(skyProg.u.uInvVP, false, invVP);
+  gl.uniform3fv(skyProg.u.uCam, cam);
+  gl.uniform3fv(skyProg.u.uMoonDir, moonDir);
+  gl.uniform3fv(skyProg.u.uFogColor, fogColor);
+  gl.uniform1f(skyProg.u.uTime,state.t);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // звёзды — пока глубина не пишется, поверх неба
+  {
+    const fwd = dir;
+    let rgt = [fwd[2], 0, -fwd[0]];
+    const rl = Math.hypot(rgt[0], rgt[1], rgt[2]) || 1;
+    rgt = [rgt[0]/rl, rgt[1]/rl, rgt[2]/rl];
+    const up = [
+      rgt[1]*fwd[2] - rgt[2]*fwd[1],
+      rgt[2]*fwd[0] - rgt[0]*fwd[2],
+      rgt[0]*fwd[1] - rgt[1]*fwd[0]
+    ];
+    gl.useProgram(starProg.p);
+    gl.uniformMatrix4fv(starProg.u.uVP, false, vp);
+    gl.uniform3fv(starProg.u.uCam, cam);
+    gl.uniform3fv(starProg.u.uRight, rgt);
+    gl.uniform3fv(starProg.u.uUp, up);
+    gl.uniform1f(starProg.u.uTime, state.t);
+    gl.bindVertexArray(starVao);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, STARS);
+    gl.disable(gl.BLEND);
+  }
+  gl.depthMask(true);
+
+  // земля
+  gl.useProgram(groundProg.p);
+  gl.uniformMatrix4fv(groundProg.u.uVP, false, vp);
+  gl.uniform1f(groundProg.u.uS, s);
+  setCommon(groundProg, cam, headPos, headDir);
+  gl.bindVertexArray(groundVao.vao);
+  gl.drawElements(gl.TRIANGLES, groundVao.count, gl.UNSIGNED_INT, 0);
+
+  // путь
+  gl.disable(gl.CULL_FACE);
+  gl.useProgram(trackProg.p);
+  gl.uniformMatrix4fv(trackProg.u.uVP, false, vp);
+  gl.uniform1f(trackProg.u.uS, s);
+  setCommon(trackProg, cam, headPos, headDir);
+  gl.bindVertexArray(trackVao.vao);
+  gl.drawElements(gl.TRIANGLES, trackVao.count, gl.UNSIGNED_INT, 0);
+  gl.enable(gl.CULL_FACE);
+
+  // шпалы, столбы, деревья
+  gl.useProgram(instProg.p);
+  gl.uniformMatrix4fv(instProg.u.uVP, false, vp);
+  gl.uniform1f(instProg.u.uS, s);
+  setCommon(instProg, cam, headPos, headDir);
+
+  gl.bindVertexArray(boxVao.vao);
+  gl.uniform1i(instProg.u.uKind, 0);
+  gl.uniform1f(instProg.u.uStep, 0.62);
+  gl.uniform1f(instProg.u.uStart, -200);
+  gl.drawElementsInstanced(gl.TRIANGLES, boxVao.count, gl.UNSIGNED_SHORT, 0, 620);
+
+  gl.uniform1i(instProg.u.uKind, 1);
+  gl.uniform1f(instProg.u.uStep, 44.0);
+  gl.uniform1f(instProg.u.uStart, -260);
+  gl.drawElementsInstanced(gl.TRIANGLES, boxVao.count, gl.UNSIGNED_SHORT, 0, 30);
+
+  const treeCount = state.quality==='low'?600:1000;
+  gl.uniform1f(instProg.u.uStart, -320);
+  gl.uniform1f(instProg.u.uStep, state.quality==='low'?1.8:1.1);
+  gl.uniform1i(instProg.u.uKind, 2);
+  gl.drawElementsInstanced(gl.TRIANGLES, boxVao.count, gl.UNSIGNED_SHORT, 0, treeCount);
+  gl.bindVertexArray(pineVao.vao);
+  gl.uniform1i(instProg.u.uKind,3);
+  gl.drawElementsInstanced(gl.TRIANGLES,pineVao.count,gl.UNSIGNED_SHORT,0,treeCount);
+  gl.bindVertexArray(boxVao.vao);
+  gl.uniform1i(instProg.u.uKind,5);gl.uniform1f(instProg.u.uStep,44);
+  gl.uniform1f(instProg.u.uStart,-260);
+  gl.drawElementsInstanced(gl.TRIANGLES,boxVao.count,gl.UNSIGNED_SHORT,0,60);
+  for(const [kind,count,step,start] of [[6,300,2,-160],[7,1600,.30,-140],[8,35,240,-480],[9,35,240,-480],[10,35,240,-480],[11,35,240,-480]]){
+    if(kind===7&&state.quality==='low')continue;
+    const mesh=kind===7?coneVao:kind===9?gableVao:boxVao;
+    gl.bindVertexArray(mesh.vao);
+    gl.uniform1i(instProg.u.uKind,kind);gl.uniform1f(instProg.u.uStep,step);gl.uniform1f(instProg.u.uStart,start);
+    gl.drawElementsInstanced(gl.TRIANGLES,mesh.count,gl.UNSIGNED_SHORT,0,count);
+  }
+
+  // вагоны
+  gl.useProgram(meshProg.p);
+  gl.uniformMatrix4fv(meshProg.u.uVP, false, vp);
+  setCommon(meshProg, cam, headPos, headDir);
+  gl.bindVertexArray(boxVao.vao);
+
+  glowCount = 0;
+
+  for (let i = 0; i < CARS; i++){
+    const cs = carS(i) + CAR_LEN * 0.5;
+    const yaw = trackYaw(cs), roll = trackRoll(cs);
+    const isLoco = i === CARS - 1;
+    const model=M4.rigid(trackX(cs),trackY(cs),cs,yaw,roll,1,1,1);
+    const mesh=isLoco?locoMesh:carMeshes[i%3];
+    gl.bindVertexArray(mesh.vao);
+    gl.uniformMatrix4fv(meshProg.u.uModel,false,model);
+    gl.drawElements(gl.TRIANGLES,mesh.count,gl.UNSIGNED_SHORT,0);
+    if(!isLoco){
+      for(const side of [-1,1])for(let w=0;w<7;w++){
+        if(((i%3)*7+w)*7919%11<=2)continue;
+        const x=side*1.75,y=3.05,z=(w-3)*3;
+        addGlow(model[0]*x+model[4]*y+model[8]*z+model[12],
+          model[1]*x+model[5]*y+model[9]*z+model[13],
+          model[2]*x+model[6]*y+model[10]*z+model[14],
+          2.8,1.0,.67,.32,.14);
+      }
+    }
+  }
+
+  // фары и габариты локомотива
+  if (state.headOn){
+    const yaw = trackYaw(sHead);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    for (const k of [-1, 1]){
+      const hx = headPos[0] + rx * k * 1.0, hz = headPos[2] + rz * k * 1.0;
+      addGlow(hx, headPos[1], hz, 2.2, 1.0, 0.93, 0.75, 0.95);
+      addGlow(hx, headPos[1], hz, 7.0, 1.0, 0.88, 0.62, 0.32);
+    }
+    addGlow(headPos[0], headPos[1] + 1.5, headPos[2], 1.2, 1.0, 0.85, 0.55, 0.55);
+
+    // конус света в воздухе — намёк на пыль в луче
+    for (let i = 1; i <= 9; i++){
+      const d = i * 7.5;
+      const fs = sHead + d;
+      addGlow(trackX(fs), trackY(fs) + 1.2, fs, 2.0 + d * 0.30, 1.0, 0.86, 0.62, 0.055 * (1 - i / 11));
+    }
+  }
+
+  // пыль в потоке воздуха: летит назад со скоростью состава
+  for (const m of motes){
+    m.ds -= state.speed * dt * (0.85 + m.seed * 0.03);
+    if (m.ds < -26){
+      m.ds += 110;
+      m.side = (Math.random() - 0.5) * 9;
+      m.up = Math.random() * 5 - 1.4;
+    }
+    const ms = s + m.ds;
+    const yaw = trackYaw(ms);
+    const wobble = Math.sin(state.t * 3.1 + m.seed * 6) * m.drift;
+    const mx = trackX(ms) + (-3.1 + m.side * 0.55 + wobble) * Math.cos(yaw);
+    const mz = ms - (-3.1 + m.side * 0.55 + wobble) * Math.sin(yaw);
+    const my = trackY(ms) + 2.2 + m.up;
+    const near = 1 - Math.min(1, Math.abs(m.ds) / 26);
+    if (m.warm) addGlow(mx, my, mz, m.r * 2.4, 1.0, 0.80, 0.52, 0.22 * near);
+    else addGlow(mx, my, mz, m.r * 2.0, 0.72, 0.80, 0.95, 0.12 * near);
+  }
+
+  // Wayside signals and fireflies stay in the landscape as the camera passes.
+  for(let i=0;i<8;i++){
+    const gs=(Math.floor(s/176)-2+i)*176;
+    addGlow(trackX(gs)-6.4,trackY(gs)+3.8,gs,.26,.30,1,.57,.9);
+    addGlow(trackX(gs)-6.4,trackY(gs)+3.8,gs,1.2,.20,1,.43,.18);
+  }
+  for(let i=0;i<28;i++){
+    const cell=Math.floor(s/8)-8+i,gs=cell*8;
+    const side=-12-Math.sin(cell*6.3)*5;
+    const blink=Math.pow(Math.max(0,Math.sin(state.t*.75+cell*3.1)),3);
+    addGlow(trackX(gs)+side,trackY(gs)+1.1+Math.sin(cell)*.7,gs,.28,.73,.95,.37,blink*.26);
+  }
+
+  // дым из трубы локомотива
+  {
+    const emitS = headCenterS - 3;
+    for (const pt of smoke){
+      pt.life += dt * 0.30;
+      if (pt.life > 1){
+        pt.life = 0;
+        pt.s = emitS;
+        pt.side = (Math.random() - 0.5) * 0.5;
+        pt.rise = 0;
+        pt.seed = Math.random();
+      }
+      if (pt.s === undefined){ pt.s = emitS - Math.random() * 60; pt.side = 0; pt.seed = Math.random(); }
+      pt.rise = pt.life * 7.5;
+      const back = pt.life * 46;
+      const ps = pt.s - back;
+      const px = trackX(ps) + pt.side + Math.sin(pt.seed * 12 + pt.life * 3) * pt.life * 3.5;
+      const py = trackY(ps) + 4.6 + pt.rise;
+      const a = Math.max(0, 0.30 * (1 - pt.life) * Math.min(1, pt.life * 6));
+      addGlow(px, py, ps, 2.0 + pt.life * 11, 0.62, 0.63, 0.70, a);
+    }
+  }
+
+  // рисуем всё светящееся
+  if (glowCount){
+    gl.useProgram(glowProg.p);
+    gl.uniformMatrix4fv(glowProg.u.uVP, false, vp);
+    // экранные оси для билбордов
+    const fwd = dir;
+    let rgt = [fwd[2], 0, -fwd[0]];
+    let rl = Math.hypot(rgt[0], rgt[1], rgt[2]) || 1;
+    rgt = [rgt[0]/rl, rgt[1]/rl, rgt[2]/rl];
+    const up = [
+      rgt[1]*fwd[2] - rgt[2]*fwd[1],
+      rgt[2]*fwd[0] - rgt[0]*fwd[2],
+      rgt[0]*fwd[1] - rgt[1]*fwd[0]
+    ];
+    gl.uniform3fv(glowProg.u.uRight, rgt);
+    gl.uniform3fv(glowProg.u.uUp, up);
+
+    gl.bindVertexArray(glowVao.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glowVao.pb);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, glowPos, 0, glowCount * 3);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glowVao.qb);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, glowParam, 0, glowCount * 4);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glowVao.ab);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, glowAlpha, 0, glowCount);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, glowCount);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
+  gl.bindVertexArray(null);
+  rafId=requestAnimationFrame(frame);
+}
+
+// обращение матрицы 4×4 — нужно только для луча неба
+function invert(m){
+  const inv = new Float32Array(16);
+  const a00=m[0],a01=m[1],a02=m[2],a03=m[3],
+        a10=m[4],a11=m[5],a12=m[6],a13=m[7],
+        a20=m[8],a21=m[9],a22=m[10],a23=m[11],
+        a30=m[12],a31=m[13],a32=m[14],a33=m[15];
+  const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10,
+        b03=a01*a12-a02*a11, b04=a01*a13-a03*a11, b05=a02*a13-a03*a12,
+        b06=a20*a31-a21*a30, b07=a20*a32-a22*a30, b08=a20*a33-a23*a30,
+        b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+  let det = b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  if (!det) return M4.ident();
+  det = 1.0/det;
+  inv[0]=(a11*b11-a12*b10+a13*b09)*det;
+  inv[1]=(a02*b10-a01*b11-a03*b09)*det;
+  inv[2]=(a31*b05-a32*b04+a33*b03)*det;
+  inv[3]=(a22*b04-a21*b05-a23*b03)*det;
+  inv[4]=(a12*b08-a10*b11-a13*b07)*det;
+  inv[5]=(a00*b11-a02*b08+a03*b07)*det;
+  inv[6]=(a32*b02-a30*b05-a33*b01)*det;
+  inv[7]=(a20*b05-a22*b02+a23*b01)*det;
+  inv[8]=(a10*b10-a11*b08+a13*b06)*det;
+  inv[9]=(a01*b08-a00*b10-a03*b06)*det;
+  inv[10]=(a30*b04-a31*b02+a33*b00)*det;
+  inv[11]=(a21*b02-a20*b04-a23*b00)*det;
+  inv[12]=(a11*b07-a10*b09-a12*b06)*det;
+  inv[13]=(a00*b09-a01*b07+a02*b06)*det;
+  inv[14]=(a31*b01-a30*b03-a32*b00)*det;
+  inv[15]=(a20*b03-a21*b01+a22*b00)*det;
+  return inv;
+}
+
+// ─────────────────────────────────────────────────────────────────── звук
+// Здесь ты снаружи: ветер громче, а стук долетает снизу, приглушённым.
+const audio = (() => {
+  let ac = null, master = null, wind = null, windFilter = null, wheels = null;
+  let noiseBuf = null, nextClack = 0, on = false;
+
+  function makeNoise(){
+    const len = 2 * ac.sampleRate;
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++){
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.2;
+    }
+    return buf;
+  }
+
+  function build(){
+    if (ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    noiseBuf = makeNoise();
+
+    master = ac.createGain();
+    master.gain.value = 0;
+    master.connect(ac.destination);
+
+    // ветер: широкая полоса, чуть плавающая по частоте
+    const ws = ac.createBufferSource();
+    ws.buffer = noiseBuf; ws.loop = true;
+    windFilter = ac.createBiquadFilter();
+    windFilter.type = 'bandpass'; windFilter.frequency.value = 480; windFilter.Q.value = 0.55;
+    wind = ac.createGain(); wind.gain.value = 0.42;
+    ws.connect(windFilter); windFilter.connect(wind); wind.connect(master);
+    ws.start();
+
+    const lfo = ac.createOscillator(); lfo.frequency.value = 0.09;
+    const lfoAmp = ac.createGain(); lfoAmp.gain.value = 0.14;
+    lfo.connect(lfoAmp); lfoAmp.connect(wind.gain); lfo.start();
+
+    // общий низкий гул хода
+    const rs = ac.createBufferSource();
+    rs.buffer = noiseBuf; rs.loop = true;
+    const rlp = ac.createBiquadFilter();
+    rlp.type = 'lowpass'; rlp.frequency.value = 200;
+    const rg = ac.createGain(); rg.gain.value = 0.30;
+    rs.connect(rlp); rlp.connect(rg); rg.connect(master);
+    rs.start();
+
+    wheels = ac.createGain(); wheels.gain.value = 1;
+    wheels.connect(master);
+
+    nextClack = ac.currentTime + 0.3;
+    setInterval(schedule, 200);
+  }
+
+  function hit(t, gain, type, freq, q, decay){
+    const s = ac.createBufferSource();
+    s.buffer = noiseBuf; s.loop = true;
+    const f = ac.createBiquadFilter();
+    f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    s.connect(f); f.connect(g); g.connect(wheels);
+    s.start(t, Math.random() * 1.5); s.stop(t + decay + 0.05);
+    s.onended=()=>{s.disconnect();f.disconnect();g.disconnect();};
+  }
+
+  function clack(t, power){
+    const tt = t + (Math.random() - 0.5) * 0.012;
+    const v = power * (0.9 + Math.random() * 0.2);
+    hit(tt,         1.30 * v, 'lowpass',  130, 1.2, 0.18);
+    hit(tt + 0.004, 0.55 * v, 'bandpass', 300, 1.1, 0.10);
+    hit(tt + 0.002, 0.30 * v, 'bandpass', 1500, 1.4, 0.05);
+  }
+
+  function schedule(){
+    if (!ac || !on || ac.state!=="running" || document.hidden) return;
+    nextClack=Math.max(nextClack,ac.currentTime+.025);
+    wind.gain.setTargetAtTime(.12+state.lean*.30,ac.currentTime,.3);
+    windFilter.frequency.setTargetAtTime(240+state.lean*280,ac.currentTime,.3);
+    // стык рельса раз в 25 м: период честно считается из скорости состава
+    const period = 25 / Math.max(4, state.speed);
+    const bogie = Math.min(0.22, 3.4 / Math.max(4, state.speed));
+    while (nextClack < ac.currentTime + 0.5){
+      const t = nextClack;
+      clack(t, 1.0);
+      clack(t + bogie, 0.7);
+      clack(t + period * 0.45, 0.85);
+      clack(t + period * 0.45 + bogie, 0.6);
+      nextClack += period;
+    }
+  }
+
+  return {
+    async toggle(){
+      build(); await ac.resume();
+      on = !on;
+      nextClack=ac.currentTime+.1;
+      master.gain.cancelScheduledValues(ac.currentTime);
+      master.gain.linearRampToValueAtTime(on ? 0.5 : 0.0001, ac.currentTime + (on ? 1.6 : 0.9));
+      return on;
+    },
+    async visibility(){
+      if(!ac)return;
+      if(document.hidden)await ac.suspend();
+      else if(on){await ac.resume();nextClack=ac.currentTime+.1;}
+    }
+  };
+})();
+
+// ─────────────────────────────────────────────────────────────── управление
+let activePointer=null,lastX=0,lastY=0;
+const hint=document.getElementById('hint'),hud=document.getElementById('hud');
+let dimTimer;
+function wakeHud(){
+  hud.classList.remove('dim');clearTimeout(dimTimer);
+  dimTimer=setTimeout(()=>hud.classList.add('dim'),7000);
+}
+function manualLook(){state.autoLook=false;hint.classList.add('gone');wakeHud();}
+canvas.addEventListener('pointerdown',e=>{
+  if(activePointer!==null || !e.isPrimary)return;
+  activePointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;
+  manualLook();canvas.setPointerCapture(e.pointerId);
+});
+function look(dx,dy){
+  state.yawTarget=Math.max(-2.9,Math.min(.65,state.yawTarget-dx));
+  state.pitchTarget=Math.max(-.95,Math.min(1.10,state.pitchTarget+dy));
+}
+canvas.addEventListener('pointermove',e=>{
+  if(e.pointerId!==activePointer)return;
+  const k=2.6/Math.max(360,Math.min(innerWidth,innerHeight));
+  look((e.clientX-lastX)*k,(e.clientY-lastY)*k*.8);
+  lastX=e.clientX;lastY=e.clientY;
+});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,e=>{
+  if(e.pointerId===activePointer)activePointer=null;
+});
+canvas.addEventListener('keydown',e=>{
+  const move={ArrowLeft:[.11,0],ArrowRight:[-.11,0],ArrowUp:[0,.08],ArrowDown:[0,-.08]}[e.key];
+  if(!move)return;e.preventDefault();manualLook();look(...move);
+});
+const btnSound=document.getElementById('btnSound');
+btnSound.addEventListener('click',async()=>{
+  btnSound.disabled=true;
+  try{
+    const on=await audio.toggle();
+    btnSound.classList.toggle('on',on);btnSound.setAttribute('aria-pressed',String(on));
+    btnSound.textContent=on?'звук вкл':'звук';
+  }catch{
+    hint.textContent='Не удалось включить звук. Попробуй нажать ещё раз.';hint.classList.remove('gone');
+  }finally{btnSound.disabled=false;}
+});
+const btnLean=document.getElementById('btnLean');
+btnLean.addEventListener('click',()=>{
+  state.leanTarget=state.leanTarget?0:1;
+  btnLean.setAttribute('aria-pressed',String(Boolean(state.leanTarget)));
+  btnLean.textContent=state.leanTarget?'у окна':'выглянуть';
+});
+document.getElementById('btnLook').addEventListener('click',()=>{
+  state.autoLook=true;state.pitchTarget=-.02;
+});
+const settings=document.getElementById('settings'),btnSettings=document.getElementById('btnSettings');
+function showSettings(open){settings.hidden=!open;btnSettings.setAttribute('aria-expanded',String(open));wakeHud();}
+btnSettings.addEventListener('click',()=>showSettings(settings.hidden));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!settings.hidden){showSettings(false);btnSettings.focus();}});
+canvas.addEventListener('pointerdown',()=>showSettings(false));
+document.getElementById('quality').addEventListener('change',e=>{
+  state.quality=e.target.value;state.frameMs=16.7;state.frames=0;resize();
+});
+document.getElementById('speed').addEventListener('change',e=>{state.speed=Number(e.target.value);});
+const motion=document.getElementById('motion');motion.checked=state.motion;
+motion.addEventListener('change',()=>{state.motion=motion.checked;});
+document.getElementById('btnLamp').addEventListener('change',e=>{state.headOn=e.target.checked;});
+const fullscreen=document.getElementById('btnFullscreen');
+fullscreen.hidden=!document.documentElement.requestFullscreen;
+fullscreen.addEventListener('click',async()=>{
+  try{
+    if(document.fullscreenElement)await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  }catch{hint.textContent='Полный экран недоступен в этом браузере.';hint.classList.remove('gone');}
+});
+document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'свернуть экран':'на весь экран';});
+hud.addEventListener('pointerdown',wakeHud);hud.addEventListener('focusin',wakeHud);
+setTimeout(()=>hint.classList.add('gone'),12000);wakeHud();
+document.addEventListener('visibilitychange',()=>{
+  cancelAnimationFrame(rafId);rafId=0;
+  state.last=0;activePointer=null;
+  audio.visibility().catch(()=>{hint.textContent='Нажми «звук», чтобы возобновить аудио.';hint.classList.remove('gone');});
+  if(!document.hidden)rafId=requestAnimationFrame(frame);
+});
+canvas.addEventListener('webglcontextlost',e=>{
+  e.preventDefault();
+  cancelAnimationFrame(rafId);rafId=0;
+  const err=document.getElementById('err');err.style.display='grid';
+  err.textContent='Графика приостановлена браузером. Обнови страницу, чтобы продолжить поездку.';
+});
+window.__train3d = state;
+rafId=requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

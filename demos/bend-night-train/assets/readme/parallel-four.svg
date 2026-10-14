@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480"
+     role="img" aria-labelledby="pf-title pf-desc">
+  <title id="pf-title">One quadtree node becomes four parallel branches</title>
+  <desc id="pf-desc">A frame node Quad(a, b, c, d) is four calls that render their own
+  quadrants. At depth 10 the wall time falls from 1.66 s on one thread to 0.31 s on 32
+  threads, a speed-up of 5.4x, with the same frame digest.</desc>
+
+  <rect width="1200" height="480" rx="26" fill="#070b12"/>
+
+  <g id="copy">
+    <text x="68" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">Four branches, one picture</text>
+    <text x="68" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">Raster.frame &#183; a Quad node is four calls</text>
+
+    <text x="86" y="184" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#4a7ba8">Quad{a,b,c,d}</text>
+    <rect x="86" y="202" width="72" height="72" fill="none" stroke="#2f4d6e" stroke-width="1.5"/>
+    <line x1="122" y1="202" x2="122" y2="274" stroke="#2f4d6e" stroke-width="1.5"/>
+    <line x1="86" y1="238" x2="158" y2="238" stroke="#2f4d6e" stroke-width="1.5"/>
+    <text x="182" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">one node,</text>
+    <text x="182" y="256" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">four calls</text>
+
+    <text x="68" y="336" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">depth 10, one thread</text>
+    <rect x="68" y="348" width="330" height="18" rx="4" fill="#2f4d6e"/>
+    <text x="410" y="363" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#e9eef7">1.66 s</text>
+
+    <text x="68" y="402" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="18" fill="#7b8798">32 threads</text>
+    <rect x="68" y="414" width="330" height="18" rx="4" fill="#131c29"/>
+
+    <text x="560" y="150" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#7b8798">each branch shades its own quadrant</text>
+  </g>
+
+  <g id="branch-a">
+    <path d="M 314 224 Q 440 195 552 195" fill="none" stroke="#3c6a94" stroke-width="2"/>
+    <rect x="560" y="166" width="572" height="58" rx="12" fill="#0d1420" stroke="#1e2a3a"/>
+    <rect x="578" y="177" width="36" height="36" fill="none" stroke="#2f4d6e" stroke-width="1.5"/>
+    <path d="M 578 195 L 614 195 M 596 177 L 596 213" stroke="#2f4d6e" stroke-width="1.5"/>
+    <rect x="579" y="178" width="17" height="17" fill="#4a7ba8"/>
+    <text x="634" y="204" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="22" fill="#e9eef7">a</text>
+  </g>
+
+  <g id="branch-b">
+    <path d="M 314 224 Q 440 267 552 267" fill="none" stroke="#3c6a94" stroke-width="2"/>
+    <rect x="560" y="238" width="572" height="58" rx="12" fill="#0d1420" stroke="#1e2a3a"/>
+    <rect x="578" y="249" width="36" height="36" fill="none" stroke="#2f4d6e" stroke-width="1.5"/>
+    <path d="M 578 267 L 614 267 M 596 249 L 596 285" stroke="#2f4d6e" stroke-width="1.5"/>
+    <rect x="597" y="250" width="17" height="17" fill="#4a7ba8"/>
+    <text x="634" y="276" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="22" fill="#e9eef7">b</text>
+  </g>
+
+  <g id="branch-c">
+    <path d="M 314 224 Q 440 339 552 339" fill="none" stroke="#3c6a94" stroke-width="2"/>
+    <rect x="560" y="310" width="572" height="58" rx="12" fill="#0d1420" stroke="#1e2a3a"/>
+    <rect x="578" y="321" width="36" height="36" fill="none" stroke="#2f4d6e" stroke-width="1.5"/>
+    <path d="M 578 339 L 614 339 M 596 321 L 596 357" stroke="#2f4d6e" stroke-width="1.5"/>
+    <rect x="579" y="340" width="17" height="17" fill="#4a7ba8"/>
+    <text x="634" y="348" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="22" fill="#e9eef7">c</text>
+  </g>
+
+  <g id="branch-d">
+    <path d="M 314 224 Q 440 411 552 411" fill="none" stroke="#3c6a94" stroke-width="2"/>
+    <rect x="560" y="382" width="572" height="58" rx="12" fill="#0d1420" stroke="#1e2a3a"/>
+    <rect x="578" y="393" width="36" height="36" fill="none" stroke="#2f4d6e" stroke-width="1.5"/>
+    <path d="M 578 411 L 614 411 M 596 393 L 596 429" stroke="#2f4d6e" stroke-width="1.5"/>
+    <rect x="597" y="412" width="17" height="17" fill="#4a7ba8"/>
+    <text x="634" y="420" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="22" fill="#e9eef7">d</text>
+  </g>
+
+  <g id="bar-32">
+    <rect x="68" y="414" width="62" height="18" rx="4" fill="#ffc76b"/>
+  </g>
+  <g id="bar-32-label">
+    <text x="142" y="429" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#e9eef7">0.31 s</text>
+    <text x="216" y="430" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="24" font-weight="600" fill="#ffc76b">5.4&#215;</text>
+  </g>
+</svg>

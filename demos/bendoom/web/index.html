@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Play Hangar, the first level of DOOM, running in Bend 2.">
+<meta name="theme-color" content="#2f2821">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://doom.elies.site/">
+<meta property="og:title" content="Bendoom">
+<meta property="og:description" content="Play Hangar, the first level of DOOM, running in Bend 2.">
+<meta property="og:image" content="https://doom.elies.site/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Bendoom logo beside the E1M1 spawn, drawn by the Bend renderer.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="art/icon.png">
+<title>Bendoom</title>
+<style>
+  :root {
+    --scale: 3;
+    --px: calc(var(--scale) * 1px);
+    --red: #d8261c;
+    --gold: #e8c048;
+    color-scheme: dark;
+    font: 14px/1.6 ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    color: #cbb89a;
+    background: #2f2821 url(art/floor.png) 0 0 / calc(64 * var(--px));
+    image-rendering: pixelated;
+  }
+  body {
+    box-sizing: border-box;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px max(16px, 50% - 480px) 48px;
+    background: radial-gradient(ellipse at 50% 35%, #0000 25%, #000c 95%), linear-gradient(#0000 55%, #5a0a0470);
+  }
+  :is(h1, button, .level) img { display: block; zoom: var(--scale); }
+  header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 32px; margin-bottom: 24px; }
+  h1 { --scale: 8; margin: 0; filter: drop-shadow(0 6px 0 #1c0000); }
+  header p { max-width: 42ch; margin: 0; text-align: right; }
+  a { color: var(--gold); white-space: nowrap; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  a:hover { color: #fff; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
+  .bevel { border: calc(3 * var(--px)) solid; border-image: url(art/bevel.png) 3 repeat; }
+  #screen { position: relative; aspect-ratio: 4 / 3; background: #000; box-shadow: 0 16px 48px #000; }
+  #screen > :not(#sound) { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bend { outline: none; }
+  #wipe { pointer-events: none; }
+  #cover { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 12px; padding: 32px; background: linear-gradient(#0000 50%, #000d); }
+  button { padding: 0; background: none; border: 0; color: var(--red); font: inherit; text-transform: uppercase; cursor: pointer; }
+  #play { display: flex; align-items: center; gap: calc(8 * var(--px)); font: 900 40px/1 Impact, "Arial Black", sans-serif; }
+  #play:enabled::before { content: ""; width: calc(20 * var(--px)); height: calc(19 * var(--px)); background: url(art/skull.png) 0 0 / 200% 100%; animation: skull .46s step-end infinite; }
+  @keyframes skull { 50% { background-position: 100% 0; } }
+  #play:disabled { opacity: .4; cursor: wait; }
+  #status { margin: 0; color: var(--gold); text-transform: uppercase; letter-spacing: .12em; text-shadow: 0 2px 0 #000; }
+  #sound { position: absolute; top: calc(4 * var(--px)); left: calc(4 * var(--px)); }
+  .level { --scale: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0; }
+  .level > :first-child { --scale: 4; }
+  #keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 24px; margin: 0; padding: 20px 24px; background: #000b; }
+  #keys div { display: flex; align-items: center; gap: 12px; }
+  dt { display: flex; gap: 4px; }
+  dd { margin: 0; text-transform: uppercase; letter-spacing: .08em; }
+  kbd { min-width: 1.4em; padding: 1px 6px; text-align: center; font: 700 12px/1.6 inherit; color: #eee; background: #585858; border: 2px solid; border-color: #9a9a9a #262626 #262626 #9a9a9a; }
+  footer { margin-top: 24px; color: #8d7b62; font-size: 12px; text-align: center; text-transform: uppercase; letter-spacing: .08em; }
+  [hidden] { display: none !important; }
+  @media (max-width: 720px) {
+    :root { --scale: 2; }
+    h1 { --scale: 5; }
+    .level { --scale: 1; }
+    .level > :first-child { --scale: 2; }
+  }
+</style>
+<header>
+  <h1><img src="art/bendoom.png" alt="Bendoom"></h1>
+  <p>DOOM's first level, written in Bend 2 and compiled to WebAssembly. <a href="https://github.com/eliesgalvira/bendoom">Source & downloads</a></p>
+</header>
+<main>
+  <div id="screen" class="bevel">
+    <canvas id="bend" tabindex="0" aria-label="Bendoom game"></canvas>
+    <img id="title" src="art/title.png" alt="">
+    <canvas id="wipe" width="320" height="200" aria-hidden="true"></canvas>
+    <div id="cover">
+      <button id="play" disabled><img src="art/new-game.png" alt="New game"></button>
+      <p id="status" role="status">Loading game…</p>
+    </div>
+    <button id="sound" hidden><img src="art/sound.png" alt="Click to enable sound"></button>
+  </div>
+  <p class="level"><img src="art/hangar.png" alt="E1M1: Hangar"><img src="art/hurt-me-plenty.png" alt="Hurt me plenty."></p>
+  <dl id="keys" class="bevel">
+    <div><dt><kbd>W</kbd><kbd>S</kbd></dt><dd>Walk</dd></div>
+    <div><dt><kbd>A</kbd><kbd>D</kbd></dt><dd>Strafe</dd></div>
+    <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Turn</dd></div>
+    <div><dt><kbd>Shift</kbd></dt><dd>Run</dd></div>
+    <div><dt><kbd>F</kbd></dt><dd>Fire</dd></div>
+    <div><dt><kbd>Space</kbd></dt><dd>Use · respawn</dd></div>
+    <div><dt><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Weapons</dd></div>
+    <div><dt><kbd>Esc</kbd></dt><dd>Quit</dd></div>
+  </dl>
+</main>
+<footer>Original shareware DOOM. Keyboard required.</footer>
+<script>
+  const play = document.getElementById('play');
+  const cover = document.getElementById('cover');
+  const status = document.getElementById('status');
+  const sound = document.getElementById('sound');
+  const canvas = document.getElementById('bend');
+  const title = document.getElementById('title');
+  const wipe = document.getElementById('wipe');
+  const controls = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowLeft', 'ArrowRight',
+    'ArrowUp', 'ArrowDown', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
+    'Space', 'Digit1', 'Digit2', 'Digit3', 'Escape']);
+  const held = new Map();
+  let playing = false;
+  function fail(error) {
+    console.error(error);
+    playing = false;
+    cover.hidden = false;
+    status.textContent = "Couldn't start the game. Try a current desktop browser, or use the download above.";
+    play.disabled = false;
+    play.textContent = 'Reload';
+    play.onclick = () => location.reload();
+  }
+  // Vanilla's screen melt: 2-pixel columns of the title screen fall at 35 Hz from staggered starts.
+  function melt() {
+    const context = wipe.getContext('2d');
+    const y = [-Math.floor(Math.random() * 16)];
+    for (let i = 1; i < 160; i++) y[i] = Math.min(0, Math.max(-15, y[i - 1] + Math.floor(Math.random() * 3) - 1));
+    const tick = setInterval(() => {
+      context.clearRect(0, 0, 320, 200);
+      for (let i = 0; i < 160; i++) {
+        y[i] = Math.min(200, y[i] + (y[i] < 0 ? 1 : y[i] < 16 ? y[i] + 1 : 8));
+        const top = Math.max(0, y[i]);
+        context.drawImage(title, 2 * i, 0, 2, 200 - top, 2 * i, top, 2, 200 - top);
+      }
+      title.hidden = true;
+      if (y.every(row => row === 200)) { clearInterval(tick); wipe.hidden = true; }
+    }, 1000 / 35);
+  }
+  var Module = {
+    noInitialRun: true,
+    arguments: ['--threads', '1'],
+    preRun: [() => Object.assign(Module.ENV, {
+      BENDOOM_IWAD: '/doom1.wad', BENDOOM_MUSIC: '/music', BENDOOM_SOUNDS: '/sounds'
+    })],
+    setStatus(text) {
+      const [, loaded, total] = text.match(/\((\d+)\/(\d+)\)/) || [];
+      if (total) status.textContent = `Loading WAD… ${Math.floor(100 * loaded / total)}%`;
+    },
+    onRuntimeInitialized() {
+      status.textContent = 'Press Enter';
+      play.disabled = false;
+    },
+    onAbort: fail,
+    print: console.log,
+    printErr: console.error,
+    onExit(code) {
+      if (code !== 0) { fail('Game exited with code ' + code); return; }
+      playing = false;
+      cover.hidden = false;
+      status.textContent = 'Game closed.';
+      play.textContent = 'Play again';
+      play.onclick = () => location.reload();
+    }
+  };
+  play.onclick = () => {
+    playing = true;
+    cover.hidden = true;
+    canvas.focus();
+    Module.callMain(Module.arguments);
+    melt();
+  };
+  sound.onclick = () => {
+    for (const device of Module.bendAudio?.values() || []) device.context.resume().catch(fail);
+  };
+  setInterval(() => {
+    sound.hidden = !playing || ![...(Module.bendAudio?.values() || [])]
+      .some(device => device.context.state === 'suspended');
+  }, 250);
+  for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {
+    if (playing && event.code === 'KeyF') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.dispatchEvent(new KeyboardEvent(type, {code: 'ControlLeft', key: 'Control'}));
+    }
+  }, true);
+  window.addEventListener('keydown', event => {
+    if (!playing && event.key === 'Enter' && !play.disabled) {
+      event.preventDefault();
+      play.click();
+    } else if (playing && controls.has(event.code)) {
+      event.preventDefault();
+      held.set(event.code, event.key);
+    }
+  });
+  window.addEventListener('keyup', event => held.delete(event.code));
+  window.addEventListener('blur', () => {
+    for (const [code, key] of held) window.dispatchEvent(new KeyboardEvent('keyup', {code, key}));
+    held.clear();
+  });
+  if (!crossOriginIsolated) {
+    fail('The page needs cross-origin isolation to start its workers.');
+  } else {
+    const script = document.createElement('script');
+    script.src = 'game.js';
+    script.onerror = fail;
+    document.body.append(script);
+  }
+</script>
+</html>

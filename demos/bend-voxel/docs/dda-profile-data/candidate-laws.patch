@@ -1,0 +1,16 @@
+--- .audit/region-profile/baseline/LAWS.bend	2026-10-05 20:44:17.903591015 +0400
++++ LAWS.bend	2026-10-05 21:03:13.553250112 +0400
+@@ -263,3 +263,13 @@
+ 	for crossing: X.Crossing
+ 	for region: X.Region
+ 	{X.Trace.regions(0n,inside,previous,grid,eye,ray,crossing,region) == None{} : Maybe<&2,X.SurfaceHit>}
++
++law dda_converged_axis_count:
++	for fuel: Nat
++	for positive: Bool
++	for origin: F32
++	for delta: F32
++	for cell: U32
++	for time: F32
++	for +bound: U32
++	{X.Axis.count(fuel,True{},positive,origin,delta,cell,time,bound,bound) == bound : U32}

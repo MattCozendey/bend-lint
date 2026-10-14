@@ -1,0 +1,28 @@
+{
+  perSystem = { config, lib, pkgs, ... }:
+    let
+      inherit (lib.attrsets) optionalAttrs;
+      inherit (lib.lists) optionals;
+    in {
+      devShells.default = pkgs.mkShell ({
+        BENDOOM_IWAD = config.packages.bendoom-freedoom.iwad;
+        BENDOOM_MUSIC = config.packages.music-freedoom;
+        BENDOOM_SOUNDS = config.packages.sounds-freedoom;
+
+        packages = [
+          config.packages.bend
+          pkgs.bun
+          pkgs.nushell
+          pkgs.llvmPackages_19.clang
+          pkgs.jujutsu
+          pkgs.chocolate-doom
+          pkgs.xorg.xorgserver
+          pkgs.xdotool
+        ];
+
+        buildInputs = optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.libx11 pkgs.alsa-lib ];
+      } // optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        ALSA_PLUGIN_DIR = config.packages.bendoom-freedoom.alsa-plugins;
+      });
+    };
+}

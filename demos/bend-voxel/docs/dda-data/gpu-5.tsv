@@ -1,0 +1,4 @@
+configuration	renderer	median_ms	min_ms	max_ms	samples_ms
+atelier-gpu-5	existing	5282.0	4450.0	5500.5	4903.0 5323.0 5282.0 5500.5 4450.0 
+atelier-gpu-5	faces	4646.0	4146.0	4742.0	4330.0 4742.0 4650.0 4146.0 4646.0 
+atelier-gpu-5	dda	3418.5	3356.0	3601.0	3418.5 3356.0 3387.0 3482.0 3601.0 

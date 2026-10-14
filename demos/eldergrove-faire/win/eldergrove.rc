@@ -1,0 +1,30 @@
+// The Windows resources: the icon (tools/genicon.py) and version details.
+#include <winver.h>
+
+1 ICON "eldergrove.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,1,0,0
+PRODUCTVERSION  1,1,0,0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      "Noah Hicks"
+      VALUE "FileDescription",  "Eldergrove Faire"
+      VALUE "FileVersion",      "1.1.0"
+      VALUE "InternalName",     "EldergroveFaire"
+      VALUE "LegalCopyright",   "Copyright (c) 2026 Noah Hicks. MIT License."
+      VALUE "OriginalFilename", "EldergroveFaire.exe"
+      VALUE "ProductName",      "Eldergrove Faire"
+      VALUE "ProductVersion",   "1.1.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

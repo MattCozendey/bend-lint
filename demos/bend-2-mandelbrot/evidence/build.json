@@ -1,0 +1,10 @@
+{
+  "bend_version": "bend 2.0.16",
+  "hardware": "Apple M4 Pro",
+  "memory_bytes": 51539607552,
+  "files": {
+    "Mandelbrot.app/Contents/MacOS/mandelbrot": "ba18d062f85c5f304e601b4b58683953560d43076fd71a4f453641ad41528758",
+    "Mandelbrot.app/Contents/MacOS/worker": "bdc6787ca4d64695e0351ff931ef0088afe197eb4e7f6ff9ca7fcf926b701c97",
+    "Mandelbrot.app/Contents/MacOS/worker.gpu": "ad9e8d84a407134895ba866304fb0815695944e8aadee15538a2f152fc7138b3"
+  }
+}

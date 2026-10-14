@@ -1,0 +1,8 @@
+result
+result-*
+.direnv/
+*.c.tmp
+/bendoom
+/bendoom.gpu
+/bytes.scratch
+/research/

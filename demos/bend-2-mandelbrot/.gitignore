@@ -1,0 +1,9 @@
+.build/
+__pycache__/
+worker-source.c
+Mandelbrot.app/Contents/MacOS/
+Mandelbrot.app/Contents/Resources/
+.DS_Store
+.env
+.env.*
+dist/

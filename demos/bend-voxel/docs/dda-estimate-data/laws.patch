@@ -1,0 +1,48 @@
+--- .audit/dda-estimate/baseline/LAWS.bend	2026-10-05 21:46:37.429126115 +0400
++++ LAWS.bend	2026-10-05 21:47:56.293507813 +0400
+@@ -263,3 +263,45 @@
+ 	for crossing: X.Crossing
+ 	for region: X.Region
+ 	{X.Trace.regions(0n,inside,previous,grid,eye,ray,crossing,region) == None{} : Maybe<&2,X.SurfaceHit>}
++
++law dda_zero_plane_events_are_accepted:
++	for positive: Bool
++	for origin: F32
++	for delta: F32
++	for cell: U32
++	for time: F32
++	{X.Axis.before(positive,origin,delta,cell,time,0) == True{} : Bool}
++
++law dda_count_down_stops_at_accepted_plane:
++	for fuel: Nat
++	for at_limit: Bool
++	for positive: Bool
++	for origin: F32
++	for delta: F32
++	for cell: U32
++	for time: F32
++	for +count: U32
++	for limit: U32
++	{X.Axis.correct(1n+fuel,False{},True{},at_limit,positive,origin,delta,cell,time,count,limit) == count : U32}
++
++law dda_count_up_rejects_first_late_plane:
++	for fuel: Nat
++	for at_limit: Bool
++	for positive: Bool
++	for origin: F32
++	for delta: F32
++	for cell: U32
++	for time: F32
++	for +count: U32
++	for limit: U32
++	{X.Axis.correct(1n+fuel,True{},False{},at_limit,positive,origin,delta,cell,time,count,limit) == (count - 1 : U32) : U32}
++
++law dda_count_up_stops_at_accepted_limit:
++	for fuel: Nat
++	for positive: Bool
++	for origin: F32
++	for delta: F32
++	for cell: U32
++	for time: F32
++	for +limit: U32
++	{X.Axis.correct(1n+fuel,True{},True{},True{},positive,origin,delta,cell,time,limit,limit) == limit : U32}

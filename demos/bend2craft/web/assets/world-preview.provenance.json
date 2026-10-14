@@ -1,0 +1,21 @@
+{
+  "asset": "world-preview.webp",
+  "kind": "project-generated render",
+  "source": "Bend2Craft WebGL renderer",
+  "capture": {
+    "date": "2026-09-23",
+    "viewport": "1440x900",
+    "world": "Bend Valley",
+    "profile": "Voyager",
+    "seed": "1337",
+    "renderer": "webgl",
+    "capture_path": "C:/Users/swluc/AppData/Local/Temp/opencode/b2c-world-clean-final-water.png"
+  },
+  "processing": [
+    "Removed HUD, modal, debug, and pointer-lock overlays before capture",
+    "Fixed the capture view to the deterministic spawn valley for a stable menu composition",
+    "Stripped metadata",
+    "Encoded as WebP at quality 88"
+  ],
+  "notes": "Generated from the repository's own deterministic renderer after the painterly water shader pass; no third-party or generated imagery is included."
+}

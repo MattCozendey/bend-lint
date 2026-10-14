@@ -1,0 +1,3 @@
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+bend PROOF.bend --verdict: exit 0, ALL PROOFS CHECK

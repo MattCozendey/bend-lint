@@ -1,0 +1,13 @@
+deep bits=160 reference_cache=miss reference_lanes=1 reference_GPU_ms=3.304 reference_wall_ms=5.544 pixels_wall_ms=53.820 repairs=0 repair_GPU_ms=0.034 prepack_wall_ms=60.104
+Mandelbrot completed 512x384 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 59.858 ms
+deep bits=160 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.067 pixels_wall_ms=4.853 repairs=0 repair_GPU_ms=0.034 prepack_wall_ms=5.158
+deep bits=256 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.734 reference_wall_ms=1.768 pixels_wall_ms=6.104 repairs=1 repair_GPU_ms=10.978 prepack_wall_ms=19.238
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.084 pixels_wall_ms=5.509 repairs=1 repair_GPU_ms=10.689 prepack_wall_ms=16.734
+deep bits=320 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.684 reference_wall_ms=1.803 pixels_wall_ms=6.965 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=8.989
+deep bits=320 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.075 pixels_wall_ms=7.395 repairs=0 repair_GPU_ms=0.024 prepack_wall_ms=7.691
+deep bits=432 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.685 reference_wall_ms=1.457 pixels_wall_ms=9.488 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=11.165
+deep bits=432 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.080 pixels_wall_ms=10.167 repairs=0 repair_GPU_ms=0.674 prepack_wall_ms=11.198
+deep bits=1088 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.918 reference_wall_ms=1.781 pixels_wall_ms=25.471 repairs=0 repair_GPU_ms=0.024 prepack_wall_ms=27.490
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.084 pixels_wall_ms=25.232 repairs=0 repair_GPU_ms=0.469 prepack_wall_ms=26.023
+deep bits=3424 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.711 reference_wall_ms=1.900 pixels_wall_ms=79.103 repairs=0 repair_GPU_ms=0.027 prepack_wall_ms=81.346
+deep bits=3424 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.071 pixels_wall_ms=79.362 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=79.741

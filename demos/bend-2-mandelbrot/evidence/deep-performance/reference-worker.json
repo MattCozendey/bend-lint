@@ -1,0 +1,92 @@
+[
+  {
+    "span": "1e-14",
+    "iterations": 1025,
+    "bits": 144,
+    "implementation": "baseline",
+    "total_ms": 53.400042001158,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-14",
+    "iterations": 1025,
+    "bits": 144,
+    "implementation": "candidate",
+    "total_ms": 23.708082997472957,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-14",
+    "iterations": 1030,
+    "bits": 144,
+    "implementation": "baseline",
+    "total_ms": 39.4619999860879,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-14",
+    "iterations": 1030,
+    "bits": 144,
+    "implementation": "candidate",
+    "total_ms": 7.340875017689541,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-14",
+    "iterations": 1030,
+    "bits": 144,
+    "implementation": "baseline",
+    "total_ms": 11.557792022358626,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-14",
+    "iterations": 1030,
+    "bits": 144,
+    "implementation": "candidate",
+    "total_ms": 7.284166989848018,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-300",
+    "iterations": 512,
+    "bits": 1088,
+    "implementation": "baseline",
+    "total_ms": 495.1063340122346,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-300",
+    "iterations": 512,
+    "bits": 1088,
+    "implementation": "candidate",
+    "total_ms": 43.69083300116472,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-1000",
+    "iterations": 512,
+    "bits": 3424,
+    "implementation": "baseline",
+    "total_ms": 4602.7138749777805,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  },
+  {
+    "span": "1e-1000",
+    "iterations": 512,
+    "bits": 3424,
+    "implementation": "candidate",
+    "total_ms": 162.78654200141318,
+    "repairs": 0,
+    "sha256": "89b04ed4d1205f26aec0aa82d23b06ff81c8cefb25df2e694e54d2d6c638a72b"
+  }
+]

@@ -1,0 +1,39 @@
+# The WAD named by BENDOOM_IWAD is an IWAD holding PLAYPAL and E1M1;
+# DOOM1.WAD and freedoom1.wad answer the same lines.
+import Base
+import ../src/bytes.bend as B
+import ../src/wad.bend as W
+
+def kind(+k: U32) -> String:
+  Bool.pick(String, U32.is_eq(k, 1), "IWAD",
+    Bool.pick(String, U32.is_eq(k, 2), "PWAD", "not a WAD"))
+
+def found(m: Maybe<Nat>) -> String:
+  match m:
+    case None{}:
+      "missing"
+    case Some{i}:
+      "found"
+
+def report(p: Array<U32> & List<&2, W.Wad.Lump>) -> IO(Unit):
+  (a, +lumps) = p
+  do IO<Unit>:
+    IO.print("PLAYPAL " ++ found(W.Wad.index("PLAYPAL", lumps)))
+    IO.print("E1M1 " ++ found(W.Wad.index("E1M1", lumps)))
+
+def header(p: Array<U32> & W.Wad.Header) -> IO(Unit):
+  (a, h) = p
+  W.Header{k, count, dir} = h
+  do IO<Unit>:
+    IO.print(kind(k))
+    report(W.Wad.dir(a))
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    path : String <- IO.try(String, IO.get_env("BENDOOM_IWAD"))
+    bytes : Array<U32> <- IO.try(Array<U32>, B.Bytes.read(path))
+    header(W.Wad.header(bytes))
+
+#|IWAD
+#|PLAYPAL found
+#|E1M1 found

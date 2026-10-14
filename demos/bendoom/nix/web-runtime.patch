@@ -1,0 +1,52 @@
+--- a/bend2/comp.ts
++++ b/bend2/comp.ts
+@@ -5348,7 +5348,7 @@
+ static Corpus corpus_setup(bool gpu, long threads, u64 bytes) {
+   io_gpu     = gpu;
+   KEEP_WORDS = gpu ? CHUNK : CAP_WORDS;
+-  u64 dflt   = gpu ? gpu_span() : 1ull << (W32 ? 30 : 33);
++  u64 dflt   = gpu ? gpu_span() : 1ull << (W32 ? 29 : 33);
+   u64 size   = (gpu && bytes != 0 ? bytes : dflt) & ~16383ull;
+   CORPUS     = gpu ? gpu_map(size) : corpus_map(size);
+   Corpus H   = CORPUS;
+--- a/bend2/effs/window_open.c
++++ b/bend2/effs/window_open.c
+@@ -349,11 +349,35 @@
+   return m ? 32 - CLZ(m) : 0;
+ }
+
+-INLINE void window_host(Corpus H, Term root, u32 w, u32 h, u32 k, u32* out) {
+-  for (u32 i = 0; i < w * h; i += 1) {
+-    out[i] = window_pix(H, root, k, i % w, i / w);
++static void window_rect(Corpus H, Term t, u32 i, u32 x0, u32 y0, u32* pix, u32 w, u32 h) {
++  if (x0 >= w || y0 >= h) {
++    return;
++  }
++  while (i == 0 && term_tag(t) == TAG_CTR) {
++    t = H[term_rfc(t) ? H[term_loc(t)] >> 24 : term_loc(t)];
++  }
++  if (term_tag(t) == TAG_CTR) {
++    Loc l = term_rfc(t) ? H[term_loc(t)] >> 24 : term_loc(t);
++    i -= 1;
++    window_rect(H, H[l + 0], i, x0, y0, pix, w, h);
++    window_rect(H, H[l + 1], i, x0 + (1u << i), y0, pix, w, h);
++    window_rect(H, H[l + 2], i, x0, y0 + (1u << i), pix, w, h);
++    window_rect(H, H[l + 3], i, x0 + (1u << i), y0 + (1u << i), pix, w, h);
++    return;
++  }
++  u32 c  = (u32)term_loc(t) & 0xFFFFFF;
++  u32 x1 = x0 + (1u << i) < w ? x0 + (1u << i) : w;
++  u32 y1 = y0 + (1u << i) < h ? y0 + (1u << i) : h;
++  for (u32 y = y0; y < y1; y += 1) {
++    for (u32 x = x0; x < x1; x += 1) {
++      pix[y * w + x] = c;
++    }
+   }
+ }
++
++INLINE void window_host(Corpus H, Term root, u32 w, u32 h, u32 k, u32* out) {
++  window_rect(H, root, k, 0, 0, out, w, h);
++}
+ #endif
+
+ Term window_open_run(Env e, Term* f, IoWork* w) {

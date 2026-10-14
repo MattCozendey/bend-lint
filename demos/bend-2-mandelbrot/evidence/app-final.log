@@ -1,0 +1,20 @@
+Mandelbrot completed 2200x1560 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 203.121 ms
+deep bits=128 reference_GPU_ms=76.927 repairs=0 repair_GPU_ms=30.959
+deep bits=144 reference_GPU_ms=0.186 repairs=0 repair_GPU_ms=23.582
+deep bits=144 reference_GPU_ms=0.187 repairs=0 repair_GPU_ms=22.617
+deep bits=144 reference_GPU_ms=0.289 repairs=0 repair_GPU_ms=39.950
+deep bits=144 reference_GPU_ms=3.490 repairs=0 repair_GPU_ms=22.541
+deep bits=144 reference_GPU_ms=0.207 repairs=0 repair_GPU_ms=24.359
+deep bits=144 reference_GPU_ms=0.234 repairs=0 repair_GPU_ms=24.004
+deep bits=144 reference_GPU_ms=2.084 repairs=0 repair_GPU_ms=22.800
+deep bits=144 reference_GPU_ms=0.197 repairs=0 repair_GPU_ms=40.105
+deep bits=144 reference_GPU_ms=4.569 repairs=0 repair_GPU_ms=42.468
+deep bits=144 reference_GPU_ms=5.335 repairs=0 repair_GPU_ms=42.100
+deep bits=144 reference_GPU_ms=0.210 repairs=0 repair_GPU_ms=41.729
+deep bits=144 reference_GPU_ms=5.296 repairs=0 repair_GPU_ms=37.588
+deep bits=144 reference_GPU_ms=0.699 repairs=0 repair_GPU_ms=23.876
+deep bits=144 reference_GPU_ms=0.190 repairs=0 repair_GPU_ms=32.409
+deep bits=144 reference_GPU_ms=0.204 repairs=0 repair_GPU_ms=35.516
+deep bits=144 reference_GPU_ms=0.800 repairs=0 repair_GPU_ms=32.425
+deep bits=144 reference_GPU_ms=0.193 repairs=0 repair_GPU_ms=41.954
+deep bits=1088 reference_GPU_ms=1.653 repairs=0 repair_GPU_ms=33.026

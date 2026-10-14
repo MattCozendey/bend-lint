@@ -1,0 +1,31 @@
+renderer=dda init_ms=271
+frames=4 elapsed_ms=3418
+
+renderer=dda init_ms=285
+frames=4 elapsed_ms=3412
+
+renderer=dda init_ms=260
+frames=4 elapsed_ms=3418
+
+renderer=dda init_ms=274
+frames=4 elapsed_ms=3610
+
+renderer=dda init_ms=284
+frames=4 elapsed_ms=3460
+
+renderer=dda init_ms=276
+frames=4 elapsed_ms=3343
+
+renderer=dda init_ms=259
+frames=4 elapsed_ms=3371
+
+renderer=dda init_ms=258
+frames=4 elapsed_ms=3642
+
+renderer=dda init_ms=272
+frames=4 elapsed_ms=3419
+
+renderer=dda init_ms=270
+frames=4 elapsed_ms=3442
+
+Saved docs/dda-profile-data/cpu-1.tsv

@@ -1,0 +1,14 @@
+Bend 2 Mandelbrot
+Copyright 2026 Thomas Csere
+
+This project is licensed under the Apache License, Version 2.0.
+
+The build uses Bend 2, by the Bend contributors, distributed under the
+Apache License, Version 2.0: https://github.com/bendlang/bend
+The compiler and generated executables are not included in this source
+repository. Their upstream licenses continue to apply.
+
+Mathematical and implementation references include Claude Heiland-Allen's
+deep-zoom notes, Zhuoran Yu's perturbation and approximation work, and
+the FractalShark and Imagina projects. XaoS inspired the hold-to-zoom
+interaction. See README.md and evidence/comparison/assessment.md for links.

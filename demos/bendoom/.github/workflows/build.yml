@@ -1,0 +1,113 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+          - runner: macos-14
+            system: aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            max-jobs = 1
+            cores = 3
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ vars.CACHIX_CACHE || 'bendoom' }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
+          pushFilter: '(-bend-[0-9]|-debug$|-dev$)'
+      - name: Check proofs and both execution backends
+        run: nix flake check -L
+      - name: Build games, exporters and portable archives
+        run: |
+          nix build -L .#bendoom .#bendoom-freedoom .#film .#film-freedoom --no-link
+          nix build -L .#portable --out-link shareware
+          nix build -L .#portable-freedoom --out-link freedoom
+          mkdir artifacts
+          cp shareware/*.tar.gz freedoom/*.tar.gz artifacts/
+      - name: Test Linux archives without Nix
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap xvfb xdotool pulseaudio pulseaudio-utils
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          pulseaudio --start --exit-idle-time=-1
+          nix shell --inputs-from . nixpkgs#nushell --command \
+            nu tools/portable-smoke.nu --audio pulse artifacts/*.tar.gz
+      - name: Check macOS runtime dependencies
+        if: runner.os == 'macOS'
+        run: |
+          for archive in artifacts/*.tar.gz; do
+            unpack=$(mktemp -d)
+            tar -xzf "$archive" -C "$unpack"
+            otool -L "$unpack/bin/game" | tee dependencies.txt
+            if grep /nix/store dependencies.txt; then exit 1; fi
+            rm -r "$unpack"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: portable-${{ matrix.system }}
+          path: artifacts/*.tar.gz
+          if-no-files-found: error
+      - name: Collect browser build
+        if: matrix.system == 'x86_64-linux'
+        run: |
+          nix build -L .#web --out-link web-result
+          mkdir website
+          cp -r web-result/. website/
+      - uses: actions/upload-artifact@v7
+        if: matrix.system == 'x86_64-linux'
+        with:
+          name: website
+          path: website/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: portable-*
+          merge-multiple: true
+          path: artifacts
+      - name: Publish verified archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cp tools/play.sh artifacts/play.sh
+          cd artifacts
+          sha256sum -- *.tar.gz > SHA256SUMS
+          gh release create "$RELEASE_TAG" --verify-tag --generate-notes \
+            --title "Bendoom $RELEASE_TAG" -- *.tar.gz SHA256SUMS play.sh

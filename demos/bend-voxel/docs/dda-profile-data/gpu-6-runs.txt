@@ -1,0 +1,31 @@
+renderer=dda init_ms=303
+frames=2 elapsed_ms=1841
+
+renderer=dda init_ms=310
+frames=2 elapsed_ms=1960
+
+renderer=dda init_ms=305
+frames=2 elapsed_ms=1980
+
+renderer=dda init_ms=306
+frames=2 elapsed_ms=1650
+
+renderer=dda init_ms=294
+frames=2 elapsed_ms=1837
+
+renderer=dda init_ms=301
+frames=2 elapsed_ms=1858
+
+renderer=dda init_ms=296
+frames=2 elapsed_ms=1930
+
+renderer=dda init_ms=299
+frames=2 elapsed_ms=1649
+
+renderer=dda init_ms=294
+frames=2 elapsed_ms=1552
+
+renderer=dda init_ms=298
+frames=2 elapsed_ms=1562
+
+Saved docs/dda-profile-data/gpu-6.tsv

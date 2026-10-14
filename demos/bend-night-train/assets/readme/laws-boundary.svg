@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440"
+     role="img" aria-labelledby="lb-title lb-desc">
+  <title id="lb-title">The boundary between what Bend 2 proves and what it cannot state</title>
+  <desc id="lb-desc">On the left, structure is provable: the frame shape and its tile and
+  pixel counts, the completeness of the four-way split, the number of carriages and
+  particles. On the right, numbers are not: every F32 operation is declared as a law
+  without a body, so a pixel's colour, the camera position, the general 4^d law and
+  determinism across threads cannot even be written down.</desc>
+
+  <rect width="1200" height="440" rx="26" fill="#070b12"/>
+
+  <g id="copy">
+    <text x="68" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">Where the provable boundary runs</text>
+    <text x="68" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">LAWS.bend / PROOF.bend &#183; ./tools/bend PROOF.bend &#8594; All terms check.</text>
+  </g>
+
+  <line x1="600" y1="150" x2="600" y2="392" stroke="#2f4d6e" stroke-width="1.5" stroke-dasharray="6 7"/>
+
+  <g id="provable">
+    <rect x="68" y="158" width="16" height="16" rx="3" fill="#4a7ba8"/>
+    <text x="96" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="24" font-weight="600" fill="#e9eef7">provable &#8212; structure</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" fill="#7b8798">
+      <text x="68" y="220">the frame shape: 64 tiles, 4096 px</text>
+      <text x="68" y="254">the four-way split adds up</text>
+      <text x="68" y="288">the consist has exactly k carriages</text>
+      <text x="68" y="322">the number of particles</text>
+    </g>
+  </g>
+
+  <g id="unprovable">
+    <rect x="640" y="158" width="16" height="16" rx="3" fill="none" stroke="#ffc76b" stroke-width="2"/>
+    <text x="668" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="24" font-weight="600" fill="#e9eef7">not provable &#8212; numbers</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" fill="#7b8798">
+      <text x="640" y="220">a pixel&#8217;s colour</text>
+      <text x="640" y="254">the camera position and the track</text>
+      <text x="640" y="288">4^d in the general case</text>
+      <text x="640" y="322">determinism across threads</text>
+    </g>
+  </g>
+
+  <text x="68" y="410" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="20" fill="#7b8798">every F32 operation is a law without a body: a colour cannot even be stated as a law</text>
+</svg>

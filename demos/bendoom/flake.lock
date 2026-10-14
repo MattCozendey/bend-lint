@@ -1,0 +1,80 @@
+{
+  "nodes": {
+    "bend-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-YgKIUrLt+MHsuQuFowgnd8w2tX3PqsHLwIP1PmnsXe8=",
+        "type": "tarball",
+        "url": "https://github.com/eliesgalvira/bendoom/releases/download/bend-2.0.26-source/bend-f52f0338b0d07fdbd948c285dadfd14278fb5c75.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/eliesgalvira/bendoom/releases/download/bend-2.0.26-source/bend-f52f0338b0d07fdbd948c285dadfd14278fb5c75.tar.gz"
+      }
+    },
+    "bend-web-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790039303,
+        "narHash": "sha256-fhcjABYDPrqBcKP9KCUwWk5BKUdmtK5N3wGykiDJJg0=",
+        "owner": "AdrielSantana",
+        "repo": "bend",
+        "rev": "0bafcc5e1a3890b518132130c431cbe98750da76",
+        "type": "github"
+      },
+      "original": {
+        "owner": "AdrielSantana",
+        "repo": "bend",
+        "rev": "0bafcc5e1a3890b518132130c431cbe98750da76",
+        "type": "github"
+      }
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1785627969,
+        "narHash": "sha256-4dtXQk/NMePegK/nWp5NSeuZKLATItOq61lpEvmXqGw=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "427bf4bd9435fdf21321c8cc628c24efc14c0f7a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1787736819,
+        "narHash": "sha256-cV5xEJJK3BvhU8rEd4mC9UsmDi5qscv/kzGPhBRC5WA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "9fbb54b33e91ee4ca368e35a78e0613c720600b3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "bend-src": "bend-src",
+        "bend-web-src": "bend-web-src",
+        "flake-parts": "flake-parts",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

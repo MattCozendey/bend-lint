@@ -1,0 +1,39 @@
+Pre-caching diagnostic, excluded from benchmark samples.
+Command: clang -O3 -pg .audit/dda/profile.c -o .audit/dda/profile-native -lm -lpthread -ldl -lX11
+Command: GMON_OUT_PREFIX=.audit/dda/gmon ./.audit/dda/profile-native --gpu off --threads 1 -- --renderer dda --bench 4
+Four warm-up images plus four measured images.
+spin_58 is Tree.read, mapped by its tree/axis/cell/span parameters and DDA_SOLID match.
+spin_133 is Trace.walk, mapped by its fuel/inside/material/previous/grid/crossing parameters.
+fc28668d46f125c8a7609533f4fada14ebfd5be781fed8bfd7a3829508136562  .audit/dda/profile.c
+92f9e2f7b9821f274633dd7160484c8d762a63e165fe587d75e3fb4fbf7a719d  .audit/dda/profile-native
+Flat profile:
+
+Each sample counts as 0.01 seconds.
+  %   cumulative   self              self     total           
+ time   seconds   seconds    calls  ms/call  ms/call  name    
+ 59.73     39.67    39.67 843156408     0.00     0.00  spin_58
+ 35.55     63.28    23.61  2097152     0.01     0.03  spin_133
+  2.82     65.15     1.87 76556880     0.00     0.00  spin_96
+  0.36     65.39     0.24  4637771     0.00     0.00  term_drop
+  0.30     65.59     0.20  7655688     0.00     0.00  spin_94
+  0.21     65.73     0.14                             _init
+  0.17     65.84     0.11  2097152     0.00     0.03  WL_FID____DDA_FRAME_SEQ
+  0.17     65.95     0.11  2097152     0.00     0.03  spin_184
+  0.14     66.04     0.09  2636692     0.00     0.00  spin_151
+  0.08     66.09     0.05  2097152     0.00     0.00  WL_FID____RENDER_PIXEL_PRESENT
+  0.08     66.14     0.05  1275948     0.00     0.00  spin_93
+  0.08     66.19     0.05   688128     0.00     0.00  WL_FID____DDA_FRAME_SEQ_K420
+  0.08     66.24     0.05        8     6.25     6.25  window_sq
+  0.06     66.28     0.04  6291456     0.00     0.00  spin_171
+renderer=dda init_ms=266
+render_ms=1327 present_ms=34 dispose_ms=2
+renderer=faces init_ms=94
+render_ms=120 present_ms=28 dispose_ms=0
+renderer=existing init_ms=9452
+render_ms=146 present_ms=43 dispose_ms=1
+renderer=dda init_ms=300
+render_ms=2389 present_ms=128 dispose_ms=3
+renderer=faces init_ms=270
+render_ms=756 present_ms=371 dispose_ms=4
+renderer=existing init_ms=9418
+render_ms=826 present_ms=457 dispose_ms=3

@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#87b8d8">
+  <title>Bend2Craft</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body data-mode="menu">
+  <main id="game-shell">
+    <canvas id="game" tabindex="0" aria-label="Voxel world"></canvas>
+    <section id="world-loading" role="status" aria-live="polite" aria-busy="true" aria-label="Loading world" hidden>
+      <div class="world-loading__mark" aria-hidden="true">B2</div>
+      <div class="world-loading__copy">
+        <p id="loading-world-name">Preparing world</p>
+        <h1>Shaping the world</h1>
+        <div id="loading-progress" role="progressbar" aria-label="World loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span></span>
+        </div>
+        <small>Bend 2 is generating deterministic terrain, light, and the first safe place to stand.</small>
+      </div>
+    </section>
+    <div id="vignette" aria-hidden="true"></div>
+    <div id="damage-flash" aria-hidden="true"></div>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="block-highlight" aria-live="off" hidden></div>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <div id="nametags" aria-hidden="true"></div>
+    <div id="particles" aria-hidden="true"></div>
+    <div id="mining-progress" aria-hidden="true" hidden>
+      <span id="mining-progress-fill"></span>
+    </div>
+    <section id="vitals" aria-label="Survival status" hidden>
+      <div id="hearts" role="img" aria-label="Health"></div>
+      <div id="hunger" role="img" aria-label="Hunger"></div>
+      <div id="air" role="img" aria-label="Air" hidden></div>
+    </section>
+    <div id="xp-hud" aria-label="Experience level" hidden>
+      <span id="xp-level">0</span>
+      <div id="xp-track" role="progressbar" aria-label="Experience progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="xp-fill"></span>
+      </div>
+    </div>
+    <div id="survival-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <section id="hud" aria-label="World status">
+      <div class="brand">BEND2CRAFT <span>Wilderness</span></div>
+      <div id="coords" class="hud-coords">loading world…</div>
+      <div id="players-online" class="hud-players" role="status" aria-live="polite" hidden></div>
+      <div id="seed" class="hud-debug">seed: —</div>
+      <div id="stats" class="hud-debug">— blocks visible</div>
+    </section>
+    <div id="selected" class="selected-item">selected: —</div>
+    <section id="debug-overlay" aria-live="off" aria-label="Performance diagnostics" hidden></section>
+    <section id="hotbar" aria-label="Hotbar">
+      <div id="hotbar-slots"></div>
+    </section>
+    <canvas id="first-person-hand-canvas" width="192" height="192" aria-hidden="true"></canvas>
+    <section id="held-item-view" aria-label="Held item">
+      <canvas id="held-item-canvas" width="72" height="72" aria-hidden="true"></canvas>
+      <span id="held-item-label">Empty hand</span>
+    </section>
+    <button id="inventory-toggle" type="button" aria-controls="inventory-panel" aria-expanded="false">Inventory (E)</button>
+    <button id="furnace-toggle" type="button" aria-controls="furnace-panel" aria-expanded="false">Furnace (R)</button>
+    <button id="chest-toggle" type="button" aria-controls="chest-panel" aria-expanded="false" hidden>Chest (C)</button>
+    <section id="inventory-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title" hidden>
+      <header class="inventory-header">
+        <div>
+          <h2 id="inventory-title">Inventory &amp; crafting</h2>
+          <p>Click an item, then a destination slot to move it.</p>
+        </div>
+        <button type="button" data-close-inventory>Close</button>
+      </header>
+      <div class="inventory-content">
+        <section class="equipment-section" aria-labelledby="equipment-title">
+          <h3 id="equipment-title">Equipment</h3>
+          <div id="equipment-slots" class="equipment-slots" aria-label="Armor and offhand slots"></div>
+          <p class="field-hint">Select armor or a shield to equip it. Click an equipped slot to remove it.</p>
+        </section>
+        <section class="inventory-section" aria-labelledby="items-title">
+          <h3 id="items-title">Items</h3>
+          <p class="field-hint">The first row is your hotbar.</p>
+          <div id="inventory-slots" class="inventory-grid" aria-label="All inventory slots"></div>
+        </section>
+        <section class="crafting-section" aria-labelledby="recipes-title">
+          <h3 id="recipes-title">Recipes</h3>
+          <div class="shaped-crafting" aria-label="Shaped 3 by 3 crafting">
+            <label class="field">
+              <span>3×3 shaped recipe</span>
+              <select id="shaped-recipe"></select>
+            </label>
+            <div class="crafting-bench">
+              <div id="crafting-grid" class="crafting-grid" aria-label="3 by 3 crafting grid"></div>
+              <div class="crafting-output">
+                <span>Output</span>
+                <div id="crafting-output" class="inventory-slot" aria-live="polite" aria-label="Crafting output"></div>
+              </div>
+            </div>
+            <div class="shaped-actions">
+              <button type="button" data-shaped-action="load">Load ingredients</button>
+              <button type="button" data-shaped-action="craft">Craft output</button>
+              <button type="button" data-shaped-action="return">Return ingredients</button>
+            </div>
+            <p id="shaped-status" role="status" aria-live="polite">Load a recipe pattern to begin.</p>
+          </div>
+          <div id="recipe-list" class="recipe-list"></div>
+          <p id="inventory-message" role="status" aria-live="polite">Select a recipe when you have its ingredients.</p>
+        </section>
+      </div>
+    </section>
+    <section id="furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title" hidden>
+      <header class="inventory-header">
+        <div>
+          <h2 id="furnace-title">Furnace</h2>
+          <p>Right-click a placed furnace to cook food or smelt materials.</p>
+        </div>
+        <button type="button" data-close-furnace>Close</button>
+      </header>
+      <div class="furnace-content">
+        <div id="furnace-status" role="status" aria-live="polite">No fuel loaded.</div>
+        <div class="furnace-actions">
+          <button type="button" data-furnace-action="input">Load raw iron / wheat</button>
+          <button type="button" data-furnace-action="fuel">Load coal</button>
+          <button type="button" data-furnace-action="output">Take cooked output</button>
+        </div>
+      </div>
+    </section>
+    <section id="chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title" hidden>
+      <header class="inventory-header">
+        <div>
+          <h2 id="chest-title">Chest</h2>
+          <p id="chest-status" role="status" aria-live="polite">Store items safely in this chest.</p>
+        </div>
+        <button type="button" data-close-chest>Close</button>
+      </header>
+      <div class="chest-content">
+        <div id="chest-slots" class="inventory-grid" aria-label="Chest slots"></div>
+        <div class="chest-actions">
+          <button type="button" data-chest-action="deposit">Deposit selected item</button>
+        </div>
+      </div>
+    </section>
+    <section id="help">
+      <strong id="lock-hint">Click to capture the mouse</strong>
+      <span>WASD · mouse look · Space jump · Shift sneak · Ctrl sprint</span>
+      <span>1–9 hotbar · E inventory · R furnace · C chest · G eat · Q drop · F attack/shoot · T trade · N sleep · click mine/attack/place</span>
+    </section>
+    <div id="error" role="alert" hidden></div>
+    <section id="pause" role="dialog" aria-modal="true" aria-labelledby="pause-title" aria-hidden="true" hidden>
+      <div class="menu-panel">
+        <h2 id="pause-title">Game Paused</h2>
+        <p id="pause-subtitle" class="field-hint"></p>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="resume">Back to Game</button>
+          <button class="mc-button" type="button" data-action="quit-title">Save &amp; Quit to Title</button>
+        </div>
+      </div>
+    </section>
+    <section id="death" role="dialog" aria-modal="true" aria-labelledby="death-title" aria-hidden="true" hidden>
+      <div class="menu-panel">
+        <h2 id="death-title">You died!</h2>
+        <p id="death-stats" class="field-hint"></p>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="respawn">Respawn</button>
+          <button class="mc-button" type="button" data-action="quit-title">Quit to Title</button>
+        </div>
+      </div>
+    </section>
+    <section id="menu" role="dialog" aria-modal="true" aria-label="Main menu" hidden>
+      <p id="backend-notice" class="backend-notice" role="status" hidden></p>
+      <div id="world-preview" aria-hidden="true" data-preview-state="ready"></div>
+      <div class="world-preview-shade" aria-hidden="true"></div>
+      <div class="title-screen" id="screen-title" data-screen>
+        <header class="game-brand">
+          <div class="brand-lockup">
+            <span class="brand-cube" aria-hidden="true"></span>
+            <h1 class="logo">BEND2CRAFT</h1>
+          </div>
+          <p>Build a world. Make it yours.</p>
+        </header>
+        <div class="title-play">
+          <div class="continue-summary">
+            <strong id="title-world-name">Start a new world</strong>
+            <span id="title-world-meta">Create a player, choose a seed, and begin exploring.</span>
+          </div>
+          <button id="continue-world-button" class="mc-button primary title-primary" type="button" data-action="continue-world" hidden>
+            Enter World
+          </button>
+          <button id="title-start-button" class="mc-button primary title-secondary" type="button" data-action="goto-profiles">Create Your First World</button>
+        </div>
+        <nav class="title-tools" aria-label="Game menu">
+          <button class="mc-button small" type="button" data-action="goto-options">Options</button>
+          <button class="mc-button small" type="button" data-action="goto-help">How to Play</button>
+        </nav>
+        <footer class="title-foot">
+          <span>Bend 2 world engine</span>
+          <span>Deterministic by design</span>
+        </footer>
+      </div>
+      <div class="menu-panel" id="screen-profiles" data-screen hidden>
+        <h2>Who is playing?</h2>
+        <div id="profile-list" class="world-list"></div>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="play-profile">Play</button>
+          <button class="mc-button" type="button" data-action="goto-create-profile">New Player...</button>
+          <div class="menu-row">
+            <button class="mc-button small" type="button" data-action="delete-profile">Delete</button>
+            <button class="mc-button small" type="button" data-action="back-title">Back</button>
+          </div>
+        </div>
+      </div>
+      <div class="menu-panel" id="screen-create-profile" data-screen hidden>
+        <h2>New Player</h2>
+        <label class="field">
+          <span>Player name</span>
+          <input id="input-profile-name" type="text" maxlength="24" placeholder="Alex" autocomplete="off">
+        </label>
+        <p id="profile-error" class="form-error" hidden></p>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="confirm-profile">Create Player</button>
+          <button class="mc-button" type="button" data-action="back-profiles">Cancel</button>
+        </div>
+      </div>
+      <div class="menu-panel" id="screen-worlds" data-screen hidden>
+        <h2 id="worlds-title">Select World</h2>
+        <div id="world-list" class="world-list"></div>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="play-world">Play Selected World</button>
+          <button class="mc-button" type="button" data-action="goto-create-world">Create New World</button>
+          <button class="mc-button" type="button" data-action="goto-join-server">Join Multiplayer...</button>
+          <div class="menu-row">
+            <button class="mc-button small" type="button" data-action="delete-world">Delete</button>
+            <button class="mc-button small" type="button" data-action="back-profiles">Back</button>
+          </div>
+        </div>
+      </div>
+      <div class="menu-panel" id="screen-join-server" data-screen hidden>
+        <h2>Join Multiplayer</h2>
+        <label class="field">
+          <span>Server address (empty joins the server this page came from)</span>
+          <input id="input-server-address" type="text" maxlength="200" placeholder="192.168.0.10:8080" autocomplete="off" spellcheck="false">
+        </label>
+        <p id="join-error" class="form-error" hidden></p>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="confirm-join-server">Join Server</button>
+          <button class="mc-button" type="button" data-action="back-worlds">Cancel</button>
+        </div>
+      </div>
+      <div class="menu-panel" id="screen-create-world" data-screen hidden>
+        <h2>Create New World</h2>
+        <label class="field">
+          <span>World name</span>
+          <input id="input-world-name" type="text" maxlength="32" placeholder="New World" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Seed (number or words, empty is random)</span>
+          <span class="field-row">
+            <input id="input-seed" type="text" maxlength="64" placeholder="e.g. forest" autocomplete="off">
+            <button class="mc-button small" type="button" data-action="random-seed">Random</button>
+          </span>
+        </label>
+        <label class="field">
+          <span>World mode</span>
+          <select id="input-world-mode">
+            <option value="survival">Survival · monsters and danger</option>
+            <option value="peaceful">Peaceful · no monsters</option>
+          </select>
+        </label>
+        <p id="create-error" class="form-error" hidden></p>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="confirm-world">Create New World</button>
+          <button class="mc-button" type="button" data-action="back-worlds">Cancel</button>
+        </div>
+      </div>
+      <div class="menu-panel wide" id="screen-options" data-screen hidden>
+        <h2>Options</h2>
+        <div class="options-scroll">
+          <section class="options-section" aria-labelledby="options-video-heading">
+            <h3 id="options-video-heading">Video</h3>
+            <label class="field">
+              <span>Graphics Quality</span>
+              <select id="input-graphics-quality" aria-describedby="graphics-quality-hint"></select>
+              <span class="field-hint" id="graphics-quality-hint">Auto scales shadows, volumetric clouds, water detail, cascade resolution and internal render resolution to hold the frame rate. Pinning a tier turns that off.</span>
+            </label>
+            <label class="field">
+              <span>Graphics API</span>
+              <select id="input-renderer" aria-describedby="renderer-hint">
+                <option value="auto">Auto (safe WebGL)</option>
+                <option value="webgpu">WebGPU</option>
+                <option value="webgl">WebGL fallback</option>
+              </select>
+              <span class="field-hint" id="renderer-hint">Auto uses the verified WebGL path; choose WebGPU explicitly to opt into the optional renderer.</span>
+            </label>
+            <label class="field">
+              <span>Field of View: <output id="fov-value">75</output></span>
+              <input id="input-fov" type="range" min="60" max="110" step="1" value="75">
+            </label>
+            <label class="field">
+              <span>Render Distance: <output id="render-distance-value">4</output> chunks</span>
+              <input id="input-render-distance" type="range" min="2" max="8" step="1" value="4">
+              <span class="field-hint">Higher values load more terrain and use more memory.</span>
+            </label>
+            <label class="field">
+              <span>Frame Rate Limit</span>
+              <select id="input-fps-limit" aria-describedby="fps-limit-hint"></select>
+              <span class="field-hint" id="fps-limit-hint">Caps how often the game draws. On a high-refresh display, lowering this cuts power draw and heat, which is what makes macOS stop dropping the display to a lower refresh rate. It can never raise your frame rate.</span>
+            </label>
+            <label class="field">
+              <span>Distant Terrain</span>
+              <select id="input-lod-distance">
+                <option value="0">Off</option>
+                <option value="256">256 blocks</option>
+                <option value="512">512 blocks</option>
+                <option value="1024">1024 blocks</option>
+                <option value="2048">2048 blocks</option>
+              </select>
+              <span class="field-hint">Low-detail terrain past the render distance, generated in the background. Applies when a world is opened.</span>
+            </label>
+          </section>
+
+          <section class="options-section" aria-labelledby="options-graphics-heading">
+            <h3 id="options-graphics-heading">Graphics</h3>
+            <div id="graphics-effect-fields" aria-label="Per-effect graphics settings"></div>
+            <span class="field-hint" id="graphics-effect-hint">Each slider is a share of the game's own look: 0% switches the effect off, 100% is how it ships and 200% doubles it. Graphics Quality decides what the machine can afford; these decide how much of each effect you want, and they hold whichever tier is running. The first four are the ones the tier prices per frame, so moving them moves the frame rate; the rest are already paid for and cost nothing to turn up.</span>
+          </section>
+
+          <section class="options-section" aria-labelledby="options-audio-heading">
+            <h3 id="options-audio-heading">Audio</h3>
+            <label class="field">
+              <span>Master Volume: <output id="volume-master-value">70</output>%</span>
+              <input id="input-volume-master" type="range" min="0" max="100" step="1" value="70">
+            </label>
+            <label class="field">
+              <span>Ambience: <output id="volume-music-value">70</output>%</span>
+              <input id="input-volume-music" type="range" min="0" max="100" step="1" value="70">
+            </label>
+            <label class="field">
+              <span>Sound Effects: <output id="volume-effects-value">90</output>%</span>
+              <input id="input-volume-effects" type="range" min="0" max="100" step="1" value="90">
+            </label>
+            <span class="field-hint">Adjusting a slider plays a preview so the level can be judged before entering the world.</span>
+          </section>
+
+          <section class="options-section" aria-labelledby="options-controls-heading">
+            <h3 id="options-controls-heading">Controls</h3>
+            <label class="field">
+              <span>Mouse Sensitivity: <output id="sensitivity-value">1.0</output></span>
+              <input id="input-sensitivity" type="range" min="0.5" max="3" step="0.1" value="1">
+            </label>
+            <div class="controls-grid" aria-label="Control remapping">
+              <label class="field"><span>Sneak key</span><input id="input-control-sneak" type="text" maxlength="24" autocomplete="off"></label>
+              <label class="field"><span>Sprint key</span><input id="input-control-sprint" type="text" maxlength="24" autocomplete="off"></label>
+              <label class="field"><span>Inventory key</span><input id="input-control-inventory" type="text" maxlength="24" autocomplete="off"></label>
+              <label class="field"><span>Drop key</span><input id="input-control-drop" type="text" maxlength="24" autocomplete="off"></label>
+              <label class="field"><span>Attack key</span><input id="input-control-attack" type="text" maxlength="24" autocomplete="off"></label>
+            </div>
+            <span class="field-hint">Use browser KeyboardEvent codes, for example <code>KeyQ</code>, <code>ShiftLeft</code> or <code>ControlLeft</code>.</span>
+          </section>
+
+          <section class="options-section" aria-labelledby="options-interface-heading">
+            <h3 id="options-interface-heading">Interface</h3>
+            <label class="field">
+              <span>Coordinates readout</span>
+              <select id="input-show-coords">
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+              <span class="field-hint">Shows the player position and seed in the heads-up display.</span>
+            </label>
+          </section>
+        </div>
+        <div class="menu-buttons">
+          <button class="mc-button small" type="button" data-action="options-reset">Reset to defaults</button>
+          <button class="mc-button primary" type="button" data-action="options-done">Done</button>
+        </div>
+      </div>
+      <div class="menu-panel" id="screen-help" data-screen hidden>
+        <h2>How to Play</h2>
+        <ul class="help-list">
+          <li><strong>WASD</strong> move · <strong>Mouse</strong> look · <strong>Space</strong> jump · <strong>Shift</strong> sneak · <strong>Ctrl</strong> sprint</li>
+          <li><strong>Left click</strong> mine or attack the mob under the crosshair · <strong>Right click</strong> place · <strong>F</strong> attack (bow selected: shoot)</li>
+          <li><strong>Shield</strong> selected blocks 2/3 of mob damage · <strong>Swords</strong> deal 4–7 damage</li>
+          <li><strong>1–9</strong> hotbar · <strong>E</strong> inventory · <strong>R</strong> furnace</li>
+          <li><strong>G</strong> eat · <strong>T</strong> trade · <strong>N</strong> sleep · <strong>Esc</strong> pause</li>
+        </ul>
+        <div class="menu-buttons">
+          <button class="mc-button primary" type="button" data-action="back-title-help">Done</button>
+        </div>
+      </div>
+      <div class="menu-panel loading-panel" id="screen-loading" data-screen role="status" aria-live="polite" aria-busy="true" tabindex="-1" hidden>
+        <p class="loading-world-name" id="menu-loading-world-name">World selected</p>
+        <h2>Shaping the world</h2>
+        <div id="menu-loading-progress" class="loading-progress" role="progressbar" aria-label="Preparing world" aria-busy="true">
+          <span></span>
+        </div>
+        <p class="field-hint">Bend 2 is preparing terrain, light, and your first safe place to stand.</p>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

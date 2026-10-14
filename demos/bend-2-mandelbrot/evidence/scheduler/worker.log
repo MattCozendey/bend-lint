@@ -1,0 +1,25 @@
+Mandelbrot completed 537x389 frame: Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 113.498 ms
+deep bits=128 reference_cache=miss reference_lanes=32 reference_GPU_ms=11.456 reference_wall_ms=12.283 pixels_wall_ms=3.008 pixels_GPU_ms=2.781 engine=Metal repairs=0 repair_GPU_ms=0.021 prepack_wall_ms=15.496
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.006 pixels_wall_ms=1.036 pixels_GPU_ms=0.909 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=1.226
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.003 pixels_wall_ms=1.091 pixels_GPU_ms=0.921 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=1.273
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=0.292 pixels_GPU_ms=0.159 engine=Metal repairs=0 repair_GPU_ms=0.003 prepack_wall_ms=0.444
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=0.649 pixels_GPU_ms=0.516 engine=Metal repairs=0 repair_GPU_ms=0.005 prepack_wall_ms=0.806
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=0.652 pixels_GPU_ms=0.513 engine=Metal repairs=0 repair_GPU_ms=0.005 prepack_wall_ms=0.911
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.002 pixels_wall_ms=0.261 pixels_GPU_ms=0.131 engine=Metal repairs=0 repair_GPU_ms=0.003 prepack_wall_ms=0.418
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=2.797 pixels_GPU_ms=2.647 engine=Metal repairs=0 repair_GPU_ms=0.020 prepack_wall_ms=3.044
+deep bits=128 reference_cache=hit reference_lanes=32 reference_GPU_ms=0.000 reference_wall_ms=0.002 pixels_wall_ms=0.287 pixels_GPU_ms=0.159 engine=Metal repairs=0 repair_GPU_ms=0.003 prepack_wall_ms=0.460
+deep bits=256 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.175 reference_wall_ms=0.344 pixels_wall_ms=1.272 pixels_GPU_ms=1.108 engine=Metal repairs=1 repair_GPU_ms=11.040 prepack_wall_ms=13.011
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.002 pixels_wall_ms=0.514 pixels_GPU_ms=0.388 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=0.672
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=0.502 pixels_GPU_ms=0.371 engine=Metal repairs=0 repair_GPU_ms=0.018 prepack_wall_ms=0.736
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=0.362 pixels_GPU_ms=0.229 engine=Metal repairs=1 repair_GPU_ms=10.544 prepack_wall_ms=11.228
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=0.349 pixels_GPU_ms=0.213 engine=Metal repairs=0 repair_GPU_ms=0.005 prepack_wall_ms=0.512
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=1.267 pixels_GPU_ms=1.107 engine=Metal repairs=1 repair_GPU_ms=10.618 prepack_wall_ms=12.251
+deep bits=1088 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.182 reference_wall_ms=0.342 pixels_wall_ms=6.671 pixels_GPU_ms=6.522 engine=Metal repairs=0 repair_GPU_ms=0.021 prepack_wall_ms=7.224
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=2.322 pixels_GPU_ms=2.179 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=2.506
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=2.571 pixels_GPU_ms=2.440 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=2.732
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=0.529 pixels_GPU_ms=0.391 engine=Metal repairs=0 repair_GPU_ms=0.003 prepack_wall_ms=0.698
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=1.306 pixels_GPU_ms=1.187 engine=Metal repairs=0 repair_GPU_ms=0.005 prepack_wall_ms=1.462
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=1.336 pixels_GPU_ms=1.195 engine=Metal repairs=0 repair_GPU_ms=0.005 prepack_wall_ms=1.524
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.000 pixels_wall_ms=0.381 pixels_GPU_ms=0.263 engine=Metal repairs=0 repair_GPU_ms=0.003 prepack_wall_ms=0.514
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=6.501 pixels_GPU_ms=6.343 engine=Metal repairs=0 repair_GPU_ms=0.032 prepack_wall_ms=6.775
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.001 pixels_wall_ms=0.579 pixels_GPU_ms=0.475 engine=Metal repairs=0 repair_GPU_ms=0.008 prepack_wall_ms=0.714

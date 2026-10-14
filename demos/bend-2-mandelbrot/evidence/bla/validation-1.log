@@ -1,0 +1,13 @@
+deep bits=160 reference_cache=miss reference_lanes=1 reference_GPU_ms=1.243 reference_wall_ms=4.781 pixels_wall_ms=62.950 BLA_nodes=15867 BLA_GPU_ms=0.029 repairs=0 repair_GPU_ms=0.030 prepack_wall_ms=68.751
+Mandelbrot completed 512x384 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 68.493 ms
+deep bits=160 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.007 pixels_wall_ms=10.199 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=10.448
+deep bits=256 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.683 reference_wall_ms=2.666 pixels_wall_ms=11.754 BLA_nodes=15867 BLA_GPU_ms=0.022 repairs=1 repair_GPU_ms=10.986 prepack_wall_ms=25.935
+deep bits=256 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.003 pixels_wall_ms=11.589 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=1 repair_GPU_ms=10.751 prepack_wall_ms=22.729
+deep bits=320 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.684 reference_wall_ms=3.067 pixels_wall_ms=10.428 BLA_nodes=15867 BLA_GPU_ms=0.377 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=13.720
+deep bits=320 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.004 pixels_wall_ms=11.920 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.024 prepack_wall_ms=12.188
+deep bits=432 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.685 reference_wall_ms=2.812 pixels_wall_ms=11.344 BLA_nodes=15867 BLA_GPU_ms=0.022 repairs=0 repair_GPU_ms=0.024 prepack_wall_ms=14.403
+deep bits=432 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.004 pixels_wall_ms=9.608 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.024 prepack_wall_ms=9.853
+deep bits=1088 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.690 reference_wall_ms=2.806 pixels_wall_ms=13.788 BLA_nodes=15867 BLA_GPU_ms=0.022 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=16.911
+deep bits=1088 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.004 pixels_wall_ms=14.542 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=14.798
+deep bits=3424 reference_cache=miss reference_lanes=1 reference_GPU_ms=0.710 reference_wall_ms=2.767 pixels_wall_ms=20.680 BLA_nodes=15867 BLA_GPU_ms=0.022 repairs=0 repair_GPU_ms=0.440 prepack_wall_ms=24.152
+deep bits=3424 reference_cache=hit reference_lanes=1 reference_GPU_ms=0.000 reference_wall_ms=0.003 pixels_wall_ms=20.728 BLA_nodes=15867 BLA_GPU_ms=0.000 repairs=0 repair_GPU_ms=0.025 prepack_wall_ms=20.966

@@ -1,0 +1,79 @@
+[
+  {
+    "bits": 128,
+    "points": 2048,
+    "max_float_conversion_error": 5.669774671979155e-08,
+    "parallel_and_chunked_identical": true,
+    "metal": "device=Apple M4 Pro bits=128 points=2048 GPU_ms=58.018"
+  },
+  {
+    "bits": 256,
+    "points": 2048,
+    "max_float_conversion_error": 5.669774671979155e-08,
+    "parallel_and_chunked_identical": true,
+    "metal": "device=Apple M4 Pro bits=256 points=2048 GPU_ms=143.275"
+  },
+  {
+    "bits": 512,
+    "points": 2048,
+    "max_float_conversion_error": 5.669774671979155e-08,
+    "parallel_and_chunked_identical": true,
+    "metal": "device=Apple M4 Pro bits=512 points=2048 GPU_ms=484.208"
+  },
+  {
+    "bits": 144,
+    "center": [
+      "0",
+      "0"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 144,
+    "center": [
+      "0",
+      "1"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 144,
+    "center": [
+      "0",
+      "-1"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 144,
+    "center": [
+      "-2",
+      "0"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 144,
+    "center": [
+      "2",
+      ".5"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 512,
+    "center": [
+      "-.12",
+      "-.65"
+    ],
+    "parallel_and_chunked_identical": true
+  },
+  {
+    "bits": 3424,
+    "center": [
+      "-.743643887037151",
+      ".131825904205330"
+    ],
+    "parallel_and_chunked_identical": true
+  }
+]

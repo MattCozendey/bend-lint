@@ -1,0 +1,108 @@
+[
+  {
+    "depth": 20,
+    "bits": 160,
+    "different_pixels": 51,
+    "max_channel_difference": 10,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 11,
+    "accelerated_decimal_error": 1,
+    "regressions": [],
+    "baseline_ms": 7.87308398867026,
+    "accelerated_ms": 13.471791986376047,
+    "sha256": "e4ccf59e6affecea803a79be2bc10cffa5d2fc637fbc3694bfd387be8d52e3b4"
+  },
+  {
+    "depth": 50,
+    "bits": 256,
+    "different_pixels": 48,
+    "max_channel_difference": 63,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 96,
+    "accelerated_decimal_error": 98,
+    "regressions": [
+      [
+        122,
+        273,
+        96,
+        98
+      ]
+    ],
+    "baseline_ms": 18.839541007764637,
+    "accelerated_ms": 24.51820799615234,
+    "sha256": "301686a5f06bdff8cef6b863921bc5c21c4cdb0cd9d736fd053b26640c66eb77"
+  },
+  {
+    "depth": 68,
+    "bits": 320,
+    "different_pixels": 24,
+    "max_channel_difference": 17,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 10,
+    "accelerated_decimal_error": 7,
+    "regressions": [],
+    "baseline_ms": 9.476417006226256,
+    "accelerated_ms": 14.081333007197827,
+    "sha256": "2782547e46ab94bb8b6416c3f590c73255d6ae0fb2f276c12bb52194b73f459c"
+  },
+  {
+    "depth": 100,
+    "bits": 432,
+    "different_pixels": 50,
+    "max_channel_difference": 14,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 1,
+    "accelerated_decimal_error": 4,
+    "regressions": [
+      [
+        406,
+        219,
+        1,
+        4
+      ]
+    ],
+    "baseline_ms": 14.039541012607515,
+    "accelerated_ms": 13.0967500153929,
+    "sha256": "237cfd3ff1b864b44fb821db626afdb28836e4ac2f012ddf2bab8aa558738b03"
+  },
+  {
+    "depth": 300,
+    "bits": 1088,
+    "different_pixels": 42,
+    "max_channel_difference": 111,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 8,
+    "accelerated_decimal_error": 8,
+    "regressions": [
+      [
+        439,
+        51,
+        1,
+        8
+      ]
+    ],
+    "baseline_ms": 28.33595799165778,
+    "accelerated_ms": 17.22991597489454,
+    "sha256": "ddb21f7599031f07476bf9f366cb21c723626031af9ce468d25843744fa2f422"
+  },
+  {
+    "depth": 1000,
+    "bits": 3424,
+    "different_pixels": 44,
+    "max_channel_difference": 34,
+    "decimal_samples": 24,
+    "baseline_decimal_error": 42,
+    "accelerated_decimal_error": 22,
+    "regressions": [
+      [
+        105,
+        13,
+        0,
+        4
+      ]
+    ],
+    "baseline_ms": 81.91670899395831,
+    "accelerated_ms": 23.450749984476715,
+    "sha256": "87f2a0fe94ad53d8b34a581b26bac3987a0b3bcddc5f576177be99545a4fa789"
+  }
+]

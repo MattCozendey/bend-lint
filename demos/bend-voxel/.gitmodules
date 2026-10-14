@@ -1,0 +1,3 @@
+[submodule "deps/bend-ui-test"]
+	path = deps/bend-ui-test
+	url = https://github.com/aivv73/bend-ui-test.git

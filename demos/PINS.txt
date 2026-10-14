@@ -1,0 +1,17 @@
+bend2craft https://github.com/lennix1337/bend2craft 2bd6fb0d612d16b4cade160a40102dfd67b837ba
+bend-2-mandelbrot https://github.com/tomc98/bend-2-mandelbrot bd5457ab2ed89099959ee6fef45e6d4bb3a75fd3
+bend-craft https://github.com/costamatheus97/bend-craft 1885dd3f836825c64a5d57590166ef25d8c17c4e
+bendJVM https://github.com/MatheusBBarni/bendJVM d2d101a896065153cc5fc760ac18646b7e5c87ef
+bend-ml https://github.com/nuxyel/bend-ml a3063bdfe424da342be2a3214af11e8ace580c48
+bend-night-train https://github.com/kvcop/bend-night-train 8db048b50dca0bba0aaebb6969405338e75ff54a
+bendoom https://github.com/eliesgalvira/bendoom b3497182edad6dac75ab1492cb12ecdb2ae9ad63
+bend-playground https://github.com/krymancer/bend-playground 9a036b1a68913e4f8c6ac88338fa79ad1e7d6374
+BendSR https://github.com/k3ybladewielder/BendSR 573eae18075c160c8bb6b73e568cdff38f0832ee
+bend-voxel https://github.com/aivv73/bend-voxel ff73e606b7352fd7e92bb82a021a66447a9d38cd
+eldergrove-faire https://github.com/RedLynx101/eldergrove-faire a64398116aadd4b2e48021d1e16134495ac4cef0
+portal-bend https://github.com/danielhe4rt/portal-bend fa130db948ec01f882c84781271cf1c7dfb0dd8f
+raytracing-bend2 https://github.com/aguspiza/raytracing-bend2 cd79fdcd8280f6b050cb8137faceda2af072fc44
+three-bodies https://github.com/AdrielSantana/three-bodies e66863d672a83575ddf5bc775021282bdac69482
+slash_boss_3d https://github.com/bendlang/bend.git eeb956ea85f51d9ae95284c45afec8b57c22d761
+llama.bend https://github.com/nuxyel/llama.bend 54e4a06900def1fd2e7b3aabf9512c23894b3f09
+bend-bench https://github.com/bendlang/bend.git eeb956ea85f51d9ae95284c45afec8b57c22d761 (bench/runtime/*/main.bend)

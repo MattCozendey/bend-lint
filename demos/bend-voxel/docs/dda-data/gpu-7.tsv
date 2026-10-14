@@ -1,0 +1,4 @@
+configuration	renderer	median_ms	min_ms	max_ms	samples_ms
+atelier-gpu-7	existing	802.0	797.0	869.5	801.0 797.0 845.0 869.5 802.0 
+atelier-gpu-7	faces	734.5	700.0	785.5	707.5 700.0 778.5 734.5 785.5 
+atelier-gpu-7	dda	2693.5	2553.5	2778.0	2693.5 2777.5 2553.5 2778.0 2690.5 

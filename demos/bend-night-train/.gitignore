@@ -1,0 +1,34 @@
+# Bend build outputs
+*.bin
+*.gpu
+*.js.map
+/out/
+/build/
+
+# A checkout-local Bend install, when the wrapper uses one
+/.bend/
+
+# Scratch / probe directories
+/.probe/
+/.probe-*/
+/.scratch/
+
+# Probe programs build next to their source; only the source is kept.
+/probes/*/*
+!/probes/*/*.bend
+
+# Benchmark raw output (small, curated summaries live in docs/benchmarks.md)
+/bench/out/
+
+# Rendered frames: the PPM intermediates are large and regenerable, the
+# PNGs under assets/frames/ are the published artifacts and are kept.
+/assets/frames/*.ppm
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Python bytecode from the tools
+__pycache__/

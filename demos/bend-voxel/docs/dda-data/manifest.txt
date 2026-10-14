@@ -1,0 +1,46 @@
+Mon Oct  5 14:25:20 UTC 2026
+bend 2.0.34
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           43 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  12
+On-line CPU(s) list:                     0-11
+Vendor ID:                               AuthenticAMD
+Model name:                              AMD Ryzen 5 1600 Six-Core Processor
+CPU family:                              23
+Model:                                   1
+Thread(s) per core:                      2
+Core(s) per socket:                      6
+Socket(s):                               1
+Stepping:                                1
+Microcode version:                       0x8001139
+Frequency boost:                         enabled
+CPU(s) scaling MHz:                      82%
+CPU max MHz:                             3700.0000
+CPU min MHz:                             1550.0000
+BogoMIPS:                                6399.77
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpb hw_pstate ssbd ibpb vmmcall fsgsbase bmi1 avx2 smep bmi2 rdseed adx smap clflushopt sha_ni xsaveopt xsavec xgetbv1 clzero xsaveerptr arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic v_vmsave_vmload vgif overflow_recov succor smca sev
+Virtualization:                          AMD-V
+NVIDIA GeForce GTX 1660, 615.71.09, 20 %
+ 18:25:20 up  1:29,  1 user,  load average: 2.85, 2.97, 2.55
+a72deea70d33193b704fc705c68682d828e2bba526c349d8a0d46318a913d0c2  dda.bend
+1dd2c7047ff4a387b43e9a62726cd718898ba03af2e9a444b28c7bd90f2863ac  scripts/dda_compare.bend
+56feb8934aecd074ec615d1bb4d60a2cd33652d3d349816808192aa65b35bcb5  scripts/dda_benchmark.bend
+5e906aee4ea73f2fa3803c7a5586164933180edc4bcc75f567a3d244ebaad589  voxel.bend
+b786af13c85d4def733b0deb7431c355a3010b973e5c68c1cab60a3227f60904  render.bend
+e10be8ea657e4ea10177a90ba8c9ac6b7b3c36d2d326aea74fa7eefb974921f9  lighting.bend
+5e33f77b4ec29f1f651b7dc3f036a61596792464fef60b05bf170336030172cd  material.bend
+b90ec5fa88dbc65afb3ff9977a4b9066eb96b24c32b4680203e107f875945e56  atelier.bend
+ec0536c3cf59942f066a86dc5f29b49ef2566d4f3e78f00d53f0bb3ae09938b8  atelier_assets.bend
+5ea84047eee8c99c87c43b7e144bfcf136988ff264ecf55b10d170cbe04b532e  build/dda-compare
+c6a4836a2eeb786cb9ddfbea05123bf38ab77de4ba140d8117bc2d59a4ee9585  build/dda-compare.gpu
+e4ad95f2e44083822c3a285f9cc8bed07dfa0b193b0fce7fe266641b5fff343d  build/dda-benchmark
+685efc6511ba12e2629606beeac914c9616a8ddcbd9267f205cc2bb416a77ff6  build/dda-benchmark.gpu
+f0e19ed3777800ea2a14ce7902c12f91c73c72d4da09e3843a675636cd0201d8  main.bend
+cb0ff142fe34a6dc5bcc09e3eedfd07b24ad4b85265e677470c13b283f7cb19e  dump.bend
+15fc18b42719687fd63d77b3f9801056596c62c3dfd399d9d5bc8468ebd649a9  scene_data.bend
+2c0c0b287220ccbe5579722f1c49df3f0b34186d6e259cbc69aabe9eb7de87c0  scripts/benchmark.bend
+02bf355f5269c12906376f700d574e36d779123c6d0cdf58a43ae6fdf1e3be23  scripts/benchmark_number.bend
+7f135089614c553dd55eb3d9b7e9fc37406f5c3d5a791ce43b77e6bad80375b1  scripts/benchmark_host.bend
+0bd03179cd40e9435303cce3513ab1f93a787bb457b4e75c9972e42b3cda31a4  scripts/sha256.bend

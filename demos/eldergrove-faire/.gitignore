@@ -1,0 +1,22 @@
+# build outputs
+/park
+/park.c
+/park.gpu
+/exp_*
+/spike/*
+!/spike/*.bend
+# runtime files
+*.sav
+shots/*.ppm
+tools/_*.py
+shots/*.wav
+tools/_*.sh
+shots/z-*.png
+tools/__pycache__/
+tools/thoughts.bend.txt
+shots/_*.png
+# scratch builds and local screenshots (README images live in docs/images)
+/park_*
+/main_*.bend
+shots/
+/build/

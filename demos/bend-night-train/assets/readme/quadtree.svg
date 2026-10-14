@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420"
+     role="img" aria-labelledby="qt-title qt-desc">
+  <title id="qt-title">The frame split four ways into 64 tiles of 8x8 pixels</title>
+  <desc id="qt-desc">A square frame subdivides into four, then sixteen, then sixty-four
+  leaves. At depth 6 the frame is 64x64 pixels, so each of the 64 leaves owns 8x8 pixels;
+  the counts are stated as the laws frame_tiles and frame_pixels.</desc>
+
+  <rect width="1200" height="420" rx="26" fill="#070b12"/>
+
+  <g id="copy">
+    <text x="68" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">The frame, split four ways</text>
+    <text x="68" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">Raster.frame &#183; depth 6 &#8594; 3 levels &#183; 4&#179; = 64 leaves</text>
+
+    <text x="68" y="212" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#4a7ba8">frame.at(6n)</text>
+    <text x="68" y="254" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="30" font-weight="600" fill="#e9eef7">64 tiles &#215; 64 px = 4096 px</text>
+    <text x="68" y="296" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#7b8798">counted by frame_tiles and frame_pixels,</text>
+    <text x="68" y="324" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#7b8798">and proved.</text>
+    <text x="68" y="372" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#7b8798">A leaf carries only the triangles</text>
+    <text x="68" y="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#7b8798">whose screen box reaches it.</text>
+  </g>
+
+  <rect id="frame-outline" x="820" y="70" width="300" height="300" fill="none"
+        stroke="#2f4d6e" stroke-width="2"/>
+  <text x="970" y="404" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="18" fill="#7b8798">64 tiles of 8&#215;8 px</text>
+
+  <g id="lvl-1" stroke="#2f4d6e" stroke-width="1.5">
+    <line x1="970" y1="70" x2="970" y2="370"/>
+    <line x1="820" y1="220" x2="1120" y2="220"/>
+  </g>
+
+  <g id="lvl-2" stroke="#3c6a94" stroke-width="1.5">
+    <line x1="895" y1="70" x2="895" y2="370"/>
+    <line x1="1045" y1="70" x2="1045" y2="370"/>
+    <line x1="820" y1="145" x2="1120" y2="145"/>
+    <line x1="820" y1="295" x2="1120" y2="295"/>
+  </g>
+
+  <g id="lvl-3" stroke="#4a7ba8" stroke-width="1.5">
+    <line x1="857.5" y1="70" x2="857.5" y2="370"/>
+    <line x1="932.5" y1="70" x2="932.5" y2="370"/>
+    <line x1="1007.5" y1="70" x2="1007.5" y2="370"/>
+    <line x1="1082.5" y1="70" x2="1082.5" y2="370"/>
+    <line x1="820" y1="107.5" x2="1120" y2="107.5"/>
+    <line x1="820" y1="182.5" x2="1120" y2="182.5"/>
+    <line x1="820" y1="257.5" x2="1120" y2="257.5"/>
+    <line x1="820" y1="332.5" x2="1120" y2="332.5"/>
+  </g>
+
+  <g id="leaf-mark">
+    <rect x="1007.5" y="107.5" width="37.5" height="37.5" fill="#ffc76b" fill-opacity="0.9"/>
+    <path d="M 1015 138 L 1030 110 L 1037 132 Z" fill="#070b12" fill-opacity="0.75"/>
+  </g>
+</svg>

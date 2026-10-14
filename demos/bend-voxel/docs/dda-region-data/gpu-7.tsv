@@ -1,0 +1,5 @@
+configuration	renderer	median_ms	min_ms	max_ms	samples_ms
+gpu-f7	existing	759.5	725.5	927.0	759.5 725.5 927.0 889.0 754.5 
+gpu-f7	faces	763.0	599.5	869.0	763.0 745.0 599.5 786.5 869.0 
+gpu-f7	dda	823.0	806.5	861.0	842.5 861.0 806.5 823.0 818.5 
+gpu-f7	dda-step	2903.0	2712.5	3045.5	2903.0 3045.5 2953.0 2849.0 2712.5 

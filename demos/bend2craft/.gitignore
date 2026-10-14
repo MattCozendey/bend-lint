@@ -1,0 +1,22 @@
+.tools/
+dist/
+.bend/
+node_modules/
+.dev/
+# Local design-review scratch: screenshots and agent surface dumps, not source.
+.impeccable/
+# Browser-agent page dumps: accessibility trees from a local run, not source.
+.playwright-cli/
+# Single scratch folder for throwaway artifacts: captures, probe output, logs.
+scratchpad/
+# Local agent state (goal tracking), not source.
+.opencode/
+# The local multiplayer server's saved world.
+worlds/
+# The native client's own world, its world in a room, and what the player carries, written
+# by its save key.
+native/client-world.b2cw
+native/client-room.b2cw
+native/*.b2cw.bag
+# Local Cloudflare Wrangler state.
+.wrangler/

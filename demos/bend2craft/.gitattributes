@@ -1,0 +1,23 @@
+# The toolchain runs through bash (inside WSL on Windows, natively on macOS and
+# Linux), so every text file has to check out with LF endings or `bash` rejects
+# it with `set: pipefail\r: invalid option name`. Without this,
+# `core.autocrlf=true` on a Windows checkout silently rewrites the shell scripts
+# and breaks `npm run verify`.
+* text=auto eol=lf
+
+# Windows launchers still want CRLF. The macOS launcher stays LF, which the
+# catch-all above already guarantees.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets must never be touched by line-ending conversion.
+*.png binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

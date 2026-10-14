@@ -1,0 +1,34 @@
+--- .audit/region-profile/baseline/dda.bend	2026-10-05 20:44:17.903591015 +0400
++++ dda.bend	2026-10-05 21:01:41.883558799 +0400
+@@ -268,14 +268,17 @@
+ 
+ # Count original grid-plane events rather than rounding eye + t * ray.
+ # This keeps cell selection and tied-axis priority identical to unit DDA.
+-def Axis.count(fuel: Nat, +positive: Bool, +origin: F32, +delta: F32, +cell: U32, +time: F32, +low: U32, +high: U32) -> U32:
+-	match fuel:
+-		case 0n: low
+-		case 1n+rest:
++def Axis.count(fuel: Nat, settled: Bool, +positive: Bool, +origin: F32, +delta: F32, +cell: U32, +time: F32, +low: U32, +high: U32) -> U32:
++	match fuel settled:
++		case 0n _: low
++		case 1n+rest True{}: low
++		case 1n+rest False{}:
+ 			+mid = ((low + high + 1) / 2 : U32)
+ 			+plane = Bool.pick(U32,positive,(cell + mid : U32),(cell + 1 - mid : U32))
+ 			+before = U32.is_zero(mid) || ((U32.to_f32(plane) - origin) / delta <= time : F32)
+-			Axis.count(rest,positive,origin,delta,cell,time,Bool.pick(U32,before,mid,low),Bool.pick(U32,before,high,(mid - 1 : U32)))
++			+next_low = Bool.pick(U32,before,mid,low)
++			+next_high = Bool.pick(U32,before,high,(mid - 1 : U32))
++			Axis.count(rest,U32.is_eq(next_low,next_high),positive,origin,delta,cell,time,next_low,next_high)
+ 
+ def Axis.advanced(+positive: Bool, origin: F32, delta: F32, +cell: U32, +time: F32, +count: U32) -> Advance:
+ 	+next = Bool.pick(U32,positive,(cell + count : U32),(cell - count : U32))
+@@ -288,7 +291,7 @@
+ 		case False{}: Advance{cell,cell,False{}}
+ 		case True{}:
+ 			+count = Bool.pick(U32,positive,(high - cell : U32),(cell - low + 1 : U32))
+-			Axis.advanced(positive,origin,delta,cell,time,Axis.count(Nat.add(1n,U32.log2(count)),positive,origin,delta,cell,time,0,count))
++			Axis.advanced(positive,origin,delta,cell,time,Axis.count(Nat.add(1n,U32.log2(count)),False{},positive,origin,delta,cell,time,0,count))
+ 
+ def Crossing.advanced(time: F32, ray: R.Vec3, x: Advance, y: Advance, z: Advance) -> Crossing:
+ 	R.Vec3{dx,dy,dz} = ray

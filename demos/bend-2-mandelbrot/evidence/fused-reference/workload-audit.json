@@ -1,0 +1,546 @@
+{
+  "method": "Exact Decimal recurrence from zero; center plus 4x4 stratified native-resolution pixel sample, repeated at two precisions.",
+  "scope": "Workload selection only, not a GPU benchmark. Bounded at budget is not proof of set membership. Very deep finite-decimal centers may produce a uniform image.",
+  "cases": [
+    {
+      "name": "generic_seahorse_12",
+      "center": [
+        "-.743643887037151",
+        ".131825904205330"
+      ],
+      "span": "1e-12",
+      "width": 2200,
+      "height": 1560,
+      "reference_fractional_bits": 144,
+      "iteration_budget": 16384,
+      "escape_radius_squared": 256,
+      "oracle_decimal_digits": [
+        150,
+        200
+      ],
+      "oracle_precision_agreed": true,
+      "center_escape_iteration": 3087,
+      "sampled_pixels": 16,
+      "escaped": 16,
+      "bounded_at_budget": 0,
+      "escape_min": 2034,
+      "escape_median": 2123.5,
+      "escape_max": 2451,
+      "samples": [
+        {
+          "x": 275,
+          "y": 195,
+          "escape_iteration": 2133
+        },
+        {
+          "x": 825,
+          "y": 195,
+          "escape_iteration": 2142
+        },
+        {
+          "x": 1375,
+          "y": 195,
+          "escape_iteration": 2096
+        },
+        {
+          "x": 1925,
+          "y": 195,
+          "escape_iteration": 2080
+        },
+        {
+          "x": 275,
+          "y": 585,
+          "escape_iteration": 2036
+        },
+        {
+          "x": 825,
+          "y": 585,
+          "escape_iteration": 2279
+        },
+        {
+          "x": 1375,
+          "y": 585,
+          "escape_iteration": 2114
+        },
+        {
+          "x": 1925,
+          "y": 585,
+          "escape_iteration": 2094
+        },
+        {
+          "x": 275,
+          "y": 975,
+          "escape_iteration": 2114
+        },
+        {
+          "x": 825,
+          "y": 975,
+          "escape_iteration": 2185
+        },
+        {
+          "x": 1375,
+          "y": 975,
+          "escape_iteration": 2332
+        },
+        {
+          "x": 1925,
+          "y": 975,
+          "escape_iteration": 2034
+        },
+        {
+          "x": 275,
+          "y": 1365,
+          "escape_iteration": 2095
+        },
+        {
+          "x": 825,
+          "y": 1365,
+          "escape_iteration": 2299
+        },
+        {
+          "x": 1375,
+          "y": 1365,
+          "escape_iteration": 2290
+        },
+        {
+          "x": 1925,
+          "y": 1365,
+          "escape_iteration": 2451
+        }
+      ],
+      "cpu_audit_seconds": 0.1502362089813687
+    },
+    {
+      "name": "generic_seahorse_15",
+      "center": [
+        "-.743643887037151",
+        ".131825904205330"
+      ],
+      "span": "1e-15",
+      "width": 2200,
+      "height": 1560,
+      "reference_fractional_bits": 144,
+      "iteration_budget": 16384,
+      "escape_radius_squared": 256,
+      "oracle_decimal_digits": [
+        150,
+        200
+      ],
+      "oracle_precision_agreed": true,
+      "center_escape_iteration": 3087,
+      "sampled_pixels": 16,
+      "escaped": 16,
+      "bounded_at_budget": 0,
+      "escape_min": 3071,
+      "escape_median": 3140.5,
+      "escape_max": 3332,
+      "samples": [
+        {
+          "x": 275,
+          "y": 195,
+          "escape_iteration": 3089
+        },
+        {
+          "x": 825,
+          "y": 195,
+          "escape_iteration": 3332
+        },
+        {
+          "x": 1375,
+          "y": 195,
+          "escape_iteration": 3078
+        },
+        {
+          "x": 1925,
+          "y": 195,
+          "escape_iteration": 3281
+        },
+        {
+          "x": 275,
+          "y": 585,
+          "escape_iteration": 3101
+        },
+        {
+          "x": 825,
+          "y": 585,
+          "escape_iteration": 3284
+        },
+        {
+          "x": 1375,
+          "y": 585,
+          "escape_iteration": 3149
+        },
+        {
+          "x": 1925,
+          "y": 585,
+          "escape_iteration": 3071
+        },
+        {
+          "x": 275,
+          "y": 975,
+          "escape_iteration": 3110
+        },
+        {
+          "x": 825,
+          "y": 975,
+          "escape_iteration": 3135
+        },
+        {
+          "x": 1375,
+          "y": 975,
+          "escape_iteration": 3089
+        },
+        {
+          "x": 1925,
+          "y": 975,
+          "escape_iteration": 3152
+        },
+        {
+          "x": 275,
+          "y": 1365,
+          "escape_iteration": 3146
+        },
+        {
+          "x": 825,
+          "y": 1365,
+          "escape_iteration": 3176
+        },
+        {
+          "x": 1375,
+          "y": 1365,
+          "escape_iteration": 3099
+        },
+        {
+          "x": 1925,
+          "y": 1365,
+          "escape_iteration": 3278
+        }
+      ],
+      "cpu_audit_seconds": 0.21087737500783987
+    },
+    {
+      "name": "generic_seahorse_68",
+      "center": [
+        "-.743643887037151",
+        ".131825904205330"
+      ],
+      "span": "1e-68",
+      "width": 2200,
+      "height": 1560,
+      "reference_fractional_bits": 320,
+      "iteration_budget": 16384,
+      "escape_radius_squared": 256,
+      "oracle_decimal_digits": [
+        150,
+        200
+      ],
+      "oracle_precision_agreed": true,
+      "center_escape_iteration": 3087,
+      "sampled_pixels": 16,
+      "escaped": 16,
+      "bounded_at_budget": 0,
+      "escape_min": 3087,
+      "escape_median": 3087.0,
+      "escape_max": 3087,
+      "samples": [
+        {
+          "x": 275,
+          "y": 195,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 825,
+          "y": 195,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1375,
+          "y": 195,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1925,
+          "y": 195,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 275,
+          "y": 585,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 825,
+          "y": 585,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1375,
+          "y": 585,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1925,
+          "y": 585,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 275,
+          "y": 975,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 825,
+          "y": 975,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1375,
+          "y": 975,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1925,
+          "y": 975,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 275,
+          "y": 1365,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 825,
+          "y": 1365,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1375,
+          "y": 1365,
+          "escape_iteration": 3087
+        },
+        {
+          "x": 1925,
+          "y": 1365,
+          "escape_iteration": 3087
+        }
+      ],
+      "cpu_audit_seconds": 0.20525454101152718
+    },
+    {
+      "name": "parabolic_68",
+      "center": [
+        "-.75",
+        "0"
+      ],
+      "span": "1e-68",
+      "width": 2200,
+      "height": 1560,
+      "reference_fractional_bits": 320,
+      "iteration_budget": 16384,
+      "escape_radius_squared": 256,
+      "oracle_decimal_digits": [
+        150,
+        200
+      ],
+      "oracle_precision_agreed": true,
+      "center_escape_iteration": null,
+      "sampled_pixels": 16,
+      "escaped": 0,
+      "bounded_at_budget": 16,
+      "escape_min": null,
+      "escape_median": null,
+      "escape_max": null,
+      "samples": [
+        {
+          "x": 275,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 1365,
+          "escape_iteration": null
+        }
+      ],
+      "cpu_audit_seconds": 1.0775182500074152
+    },
+    {
+      "name": "period3_interior_68",
+      "center": [
+        "-.122561166876",
+        ".744861766619"
+      ],
+      "span": "1e-68",
+      "width": 2200,
+      "height": 1560,
+      "reference_fractional_bits": 320,
+      "iteration_budget": 16384,
+      "escape_radius_squared": 256,
+      "oracle_decimal_digits": [
+        150,
+        200
+      ],
+      "oracle_precision_agreed": true,
+      "center_escape_iteration": null,
+      "sampled_pixels": 16,
+      "escaped": 0,
+      "bounded_at_budget": 16,
+      "escape_min": null,
+      "escape_median": null,
+      "escape_max": null,
+      "samples": [
+        {
+          "x": 275,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 195,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 585,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 975,
+          "escape_iteration": null
+        },
+        {
+          "x": 275,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 825,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 1375,
+          "y": 1365,
+          "escape_iteration": null
+        },
+        {
+          "x": 1925,
+          "y": 1365,
+          "escape_iteration": null
+        }
+      ],
+      "cpu_audit_seconds": 1.0506877079897095
+    }
+  ]
+}

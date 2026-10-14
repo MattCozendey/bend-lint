@@ -1,0 +1,146 @@
+[
+  {
+    "name": "deep320",
+    "implementation": "baseline",
+    "total_ms": 284.815166000044,
+    "batch_p50_ms": 4.624166991561651,
+    "batch_p95_ms": 5.460167012643069,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "deep320",
+    "implementation": "candidate",
+    "total_ms": 65.92337499023415,
+    "batch_p50_ms": 1.003332989057526,
+    "batch_p95_ms": 1.149999996414408,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "deep320",
+    "implementation": "candidate",
+    "total_ms": 65.4452920134645,
+    "batch_p50_ms": 0.9920420125126839,
+    "batch_p95_ms": 1.1820420040749013,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "deep320",
+    "implementation": "baseline",
+    "total_ms": 289.6007910021581,
+    "batch_p50_ms": 4.458957992028445,
+    "batch_p95_ms": 6.435041985241696,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "deep320",
+    "implementation": "baseline",
+    "total_ms": 263.46179100801237,
+    "batch_p50_ms": 4.369667003629729,
+    "batch_p95_ms": 4.7601250116713345,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "deep320",
+    "implementation": "candidate",
+    "total_ms": 65.99308300064877,
+    "batch_p50_ms": 1.0107079870067537,
+    "batch_p95_ms": 1.1879999947268516,
+    "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+  },
+  {
+    "name": "generic",
+    "implementation": "baseline",
+    "total_ms": 707.2653750074096,
+    "batch_p50_ms": 10.059916006866843,
+    "batch_p95_ms": 16.106708004372194,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "generic",
+    "implementation": "candidate",
+    "total_ms": 127.89770800736733,
+    "batch_p50_ms": 1.8260000215377659,
+    "batch_p95_ms": 3.0651249981019646,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "generic",
+    "implementation": "candidate",
+    "total_ms": 126.98174998513423,
+    "batch_p50_ms": 1.8278750067111105,
+    "batch_p95_ms": 3.0141249881125987,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "generic",
+    "implementation": "baseline",
+    "total_ms": 709.1023329994641,
+    "batch_p50_ms": 10.077792016090825,
+    "batch_p95_ms": 16.135957994265482,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "generic",
+    "implementation": "baseline",
+    "total_ms": 713.2422499998938,
+    "batch_p50_ms": 10.24562498787418,
+    "batch_p95_ms": 16.238999989582226,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "generic",
+    "implementation": "candidate",
+    "total_ms": 129.0458330186084,
+    "batch_p50_ms": 1.8351250037085265,
+    "batch_p95_ms": 3.05649999063462,
+    "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+  },
+  {
+    "name": "deep300",
+    "implementation": "baseline",
+    "total_ms": 613.6660420161206,
+    "batch_p50_ms": 10.298957990016788,
+    "batch_p95_ms": 11.93241699365899,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "deep300",
+    "implementation": "candidate",
+    "total_ms": 151.8655419931747,
+    "batch_p50_ms": 2.6322079938836396,
+    "batch_p95_ms": 2.7690830174833536,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "deep300",
+    "implementation": "candidate",
+    "total_ms": 150.79579199664295,
+    "batch_p50_ms": 2.6360419869888574,
+    "batch_p95_ms": 2.7417090022936463,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "deep300",
+    "implementation": "baseline",
+    "total_ms": 599.8884169966914,
+    "batch_p50_ms": 10.1979159808252,
+    "batch_p95_ms": 11.806333001004532,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "deep300",
+    "implementation": "baseline",
+    "total_ms": 618.7170000048354,
+    "batch_p50_ms": 10.304583003744483,
+    "batch_p95_ms": 12.069166987203062,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  },
+  {
+    "name": "deep300",
+    "implementation": "candidate",
+    "total_ms": 154.63629201985896,
+    "batch_p50_ms": 2.656875003594905,
+    "batch_p95_ms": 2.781666989903897,
+    "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+  }
+]

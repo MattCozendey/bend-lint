@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300"
+     role="img" aria-labelledby="fp-title fp-desc">
+  <title id="fp-title">How one frame is built in the Bend 2 rasteriser</title>
+  <desc id="fp-desc">Five stages: the scene's triangles and billboards, back-face culling,
+  a four-way quadtree whose 8x8 leaves carry only the triangles that reach them, one shade
+  pass per pixel, and PPM output to a file or a live stream.</desc>
+
+  <rect width="1200" height="300" rx="26" fill="#070b12"/>
+
+  <g id="head" transform="translate(68 0)">
+    <text x="0" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="40" font-weight="600" fill="#e9eef7">How one frame is built</text>
+    <text x="0" y="106" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#7b8798">src/main.bend &#8594; src/raster.bend &#183; one process per frame</text>
+  </g>
+
+  <g id="stages">
+    <g transform="translate(68 140)">
+      <rect width="196" height="120" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+      <text x="18" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#4a7ba8">01</text>
+      <text x="18" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#e9eef7">scene</text>
+      <text x="18" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">track, forest,</text>
+      <text x="18" y="116" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">consist, dust</text>
+    </g>
+    <g transform="translate(285 140)">
+      <rect width="196" height="120" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+      <text x="18" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#4a7ba8">02</text>
+      <text x="18" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#e9eef7">cull</text>
+      <text x="18" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">back faces out,</text>
+      <text x="18" y="116" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">screen box in</text>
+    </g>
+    <g transform="translate(502 140)">
+      <rect width="196" height="120" rx="14" fill="#0d1420" stroke="#2f4d6e"/>
+      <text x="18" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#4a7ba8">03</text>
+      <text x="18" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#e9eef7">split</text>
+      <text x="18" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">four ways, down</text>
+      <text x="18" y="116" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">to an 8&#215;8 leaf</text>
+    </g>
+    <g transform="translate(719 140)">
+      <rect width="196" height="120" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+      <text x="18" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#4a7ba8">04</text>
+      <text x="18" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#e9eef7">shade</text>
+      <text x="18" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">one winner per</text>
+      <text x="18" y="116" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">pixel, once</text>
+    </g>
+    <g transform="translate(936 140)">
+      <rect width="196" height="120" rx="14" fill="#0d1420" stroke="#1e2a3a"/>
+      <text x="18" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#4a7ba8">05</text>
+      <text x="18" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#e9eef7">out</text>
+      <text x="18" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">PPM text, or a</text>
+      <text x="18" y="116" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#7b8798">frame stream</text>
+    </g>
+    <g fill="none" stroke="#4a7ba8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 269 192 l 8 8 l -8 8"/>
+      <path d="M 486 192 l 8 8 l -8 8"/>
+      <path d="M 703 192 l 8 8 l -8 8"/>
+      <path d="M 920 192 l 8 8 l -8 8"/>
+    </g>
+  </g>
+</svg>

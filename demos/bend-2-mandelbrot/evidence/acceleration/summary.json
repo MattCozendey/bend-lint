@@ -1,0 +1,40 @@
+{
+  "hardware": "Apple M4 Pro",
+  "memory_gib": 48,
+  "backend": "Metal",
+  "bend": "2.0.16",
+  "date": "2026-09-20",
+  "width": 2200,
+  "height": 1560,
+  "tile_size": 256,
+  "workers": 1,
+  "compilation_excluded": true,
+  "warmup_excluded": true,
+  "method": "Three warm runs per implementation, interleaved baseline/candidate/candidate/baseline/baseline/candidate. Wall time includes rendering, repair, packing, IPC and image stitching.",
+  "cases": [
+    {
+      "name": "deep320",
+      "baseline_median_ms": 284.815166000044,
+      "current_median_ms": 65.92337499023415,
+      "speedup": 4.320397219381385,
+      "identical_pixels": true,
+      "sha256": "e7e2735e966163e54b108477873a6239ba22cce8ad163bff04e4735c9d47802e"
+    },
+    {
+      "name": "generic",
+      "baseline_median_ms": 709.1023329994641,
+      "current_median_ms": 127.89770800736733,
+      "speedup": 5.544292732428149,
+      "identical_pixels": true,
+      "sha256": "7d6bdf41590df5c1fb041abbddc56dfbc9e63add2f7d11d1a8e0fe7b47729433"
+    },
+    {
+      "name": "deep300",
+      "baseline_median_ms": 613.6660420161206,
+      "current_median_ms": 151.8655419931747,
+      "speedup": 4.040851097372046,
+      "identical_pixels": true,
+      "sha256": "4e280919f2ee792cc5aa16acf2b5d00297a2daa2870a169592ad48ee1c5e7e53"
+    }
+  ]
+}

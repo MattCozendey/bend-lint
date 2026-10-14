@@ -1,0 +1,18 @@
+// Cloudflare Workers deployment for Bend2Craft: the static game from dist/
+// plus the multiplayer world as a Durable Object (SQLite storage, available on
+// the Workers Free plan). Run `npm run build` before `npx wrangler deploy`.
+{
+  "name": "bend2craft",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/multiplayer"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "MULTIPLAYER_WORLD", "class_name": "MultiplayerWorld" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MultiplayerWorld"] }],
+  "vars": { "SEED": "1337", "PEACEFUL": "0" }
+}

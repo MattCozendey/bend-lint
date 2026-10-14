@@ -1,0 +1,86 @@
+{
+  "camera_pointer_anchor_exact": true,
+  "camera_pan_inverse_exact": true,
+  "depth_frames": [
+    {
+      "name": "antenna-1e20",
+      "bits": 160,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 0,
+      "render_ms": 3.223,
+      "total_ms": 37.11916602333076,
+      "sha256": "20a374319303be83c23e63ac134f50d827616d22eca82e7fee52becfa5180bb5",
+      "max_channel_error_vs_decimal": 0
+    },
+    {
+      "name": "antenna-1e50",
+      "bits": 256,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 1,
+      "render_ms": 1.894,
+      "total_ms": 13.318542012711987,
+      "sha256": "9a38678474ccc5974f005f9b35c01a3cbd9a7ce9583cbceaf1a106ce4dd94bc4",
+      "max_channel_error_vs_decimal": 0
+    },
+    {
+      "name": "antenna-1e100",
+      "bits": 432,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 0,
+      "render_ms": 3.0669999999999997,
+      "total_ms": 3.811375005170703,
+      "sha256": "da6a669a7d22424d706d7e5a30ebdf525fe75c8ae34fc9083048f507c3a1ddea",
+      "max_channel_error_vs_decimal": 0
+    },
+    {
+      "name": "antenna-1e300",
+      "bits": 1088,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 0,
+      "render_ms": 7.042,
+      "total_ms": 7.7085829980205745,
+      "sha256": "bfd60340c53169a4a4ce8d3608f300e2b1e422c0812c9da17cc0c149acfb642e",
+      "max_channel_error_vs_decimal": 0
+    },
+    {
+      "name": "antenna-1e1000",
+      "bits": 3424,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 0,
+      "render_ms": 22.529,
+      "total_ms": 23.399584024446085,
+      "sha256": "0204023b71cc80e8aebcaeee780d0fb43dd787279dde02006bfe4eadfe9c3c2a",
+      "max_channel_error_vs_decimal": 0
+    },
+    {
+      "name": "antenna-1e300-pan",
+      "bits": 1088,
+      "width": 512,
+      "height": 384,
+      "iterations": 4096,
+      "gpu": true,
+      "repairs": 0,
+      "render_ms": 19.669999999999998,
+      "total_ms": 21.040124993305653,
+      "sha256": "272bff7974f0cf0f435edd539a54a60984fc589130945366c66449b11f8fd42a",
+      "identical_overlap_pixels": 187125
+    }
+  ],
+  "decimal_samples_per_depth": 8,
+  "note": "Decimal is an independent offline validator only; the app uses GPU reference, perturbation, and repair."
+}

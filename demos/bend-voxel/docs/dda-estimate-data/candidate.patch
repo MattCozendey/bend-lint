@@ -1,0 +1,52 @@
+--- docs/dda-estimate-data/baseline-dda.bend	2026-10-05 21:46:37.471129513 +0400
++++ docs/dda-estimate-data/candidate-dda.bend	2026-10-05 22:11:56.890080892 +0400
+@@ -266,16 +266,30 @@
+ 	Crossing{depth,cell,previous,direction} = crossing
+ 	cell
+ 
+-# Count original grid-plane events rather than rounding eye + t * ray.
+-# This keeps cell selection and tied-axis priority identical to unit DDA.
+-def Axis.count(fuel: Nat, +positive: Bool, +origin: F32, +delta: F32, +cell: U32, +time: F32, +low: U32, +high: U32) -> U32:
+-	match fuel:
+-		case 0n: low
+-		case 1n+rest:
+-			+mid = ((low + high + 1) / 2 : U32)
+-			+plane = Bool.pick(U32,positive,(cell + mid : U32),(cell + 1 - mid : U32))
+-			+before = U32.is_zero(mid) || ((U32.to_f32(plane) - origin) / delta <= time : F32)
+-			Axis.count(rest,positive,origin,delta,cell,time,Bool.pick(U32,before,mid,low),Bool.pick(U32,before,high,(mid - 1 : U32)))
++# The divided plane time remains authoritative; the rounded point is an estimate.
++def Axis.before(positive: Bool, origin: F32, delta: F32, +cell: U32, time: F32, +count: U32) -> Bool:
++	+plane = Bool.pick(U32,positive,(cell + count : U32),(cell + 1 - count : U32))
++	U32.is_zero(count) || ((U32.to_f32(plane) - origin) / delta <= time : F32)
++
++def Axis.correct(fuel: Nat, +up: Bool, before: Bool, at_limit: Bool, +positive: Bool, +origin: F32, +delta: F32, +cell: U32, +time: F32, +count: U32, +limit: U32) -> U32:
++	match fuel up before at_limit:
++		case 0n _ _ _: count
++		case 1n+rest False{} True{} _: count
++		case 1n+rest False{} False{} _:
++			+next = (count - 1 : U32)
++			Axis.correct(rest,False{},Axis.before(positive,origin,delta,cell,time,next),U32.is_eq(next,limit),positive,origin,delta,cell,time,next,limit)
++		case 1n+rest True{} False{} _: (count - 1 : U32)
++		case 1n+rest True{} True{} True{}: count
++		case 1n+rest True{} True{} False{}:
++			+next = (count + 1 : U32)
++			Axis.correct(rest,True{},Axis.before(positive,origin,delta,cell,time,next),U32.is_eq(next,limit),positive,origin,delta,cell,time,next,limit)
++
++def Axis.count(+positive: Bool, +origin: F32, +delta: F32, +cell: U32, +time: F32, +limit: U32) -> U32:
++	+point = (origin + time * delta : F32)
++	+events = Bool.pick(F32,positive,(point - U32.to_f32(cell) : F32),(U32.to_f32(cell) + 1.0 - point : F32))
++	+estimate = U32.min(limit,F32.to_u32(F32.floor(F32.clamp(events,0.0,U32.to_f32(limit)))))
++	+before = Axis.before(positive,origin,delta,cell,time,estimate)
++	Axis.correct(Nat.add(1n,U32.to_nat(limit)),before,before,U32.is_eq(estimate,limit),positive,origin,delta,cell,time,estimate,limit)
+ 
+ def Axis.advanced(+positive: Bool, origin: F32, delta: F32, +cell: U32, +time: F32, +count: U32) -> Advance:
+ 	+next = Bool.pick(U32,positive,(cell + count : U32),(cell - count : U32))
+@@ -288,7 +302,7 @@
+ 		case False{}: Advance{cell,cell,False{}}
+ 		case True{}:
+ 			+count = Bool.pick(U32,positive,(high - cell : U32),(cell - low + 1 : U32))
+-			Axis.advanced(positive,origin,delta,cell,time,Axis.count(Nat.add(1n,U32.log2(count)),positive,origin,delta,cell,time,0,count))
++			Axis.advanced(positive,origin,delta,cell,time,Axis.count(positive,origin,delta,cell,time,count))
+ 
+ def Crossing.advanced(time: F32, ray: R.Vec3, x: Advance, y: Advance, z: Advance) -> Crossing:
+ 	R.Vec3{dx,dy,dz} = ray

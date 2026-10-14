@@ -1,0 +1,80 @@
+[
+  {
+    "depth": 20,
+    "bits": 160,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 1.6431249969173223,
+    "accelerated_ms": 1.5732499887235463,
+    "sha256": "20a374319303be83c23e63ac134f50d827616d22eca82e7fee52becfa5180bb5"
+  },
+  {
+    "depth": 50,
+    "bits": 256,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 13.262415974168107,
+    "accelerated_ms": 13.350458000786602,
+    "sha256": "9a38678474ccc5974f005f9b35c01a3cbd9a7ce9583cbceaf1a106ce4dd94bc4"
+  },
+  {
+    "depth": 68,
+    "bits": 320,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 2.576833008788526,
+    "accelerated_ms": 2.3727910011075437,
+    "sha256": "ea26f6e48a85b8d2006a5a0e8373e2efef9783ede04a7576b77c40fd43106be3"
+  },
+  {
+    "depth": 100,
+    "bits": 432,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 3.1734160147607327,
+    "accelerated_ms": 3.2627500186208636,
+    "sha256": "da6a669a7d22424d706d7e5a30ebdf525fe75c8ae34fc9083048f507c3a1ddea"
+  },
+  {
+    "depth": 300,
+    "bits": 1088,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 7.775541016599163,
+    "accelerated_ms": 8.250750019215047,
+    "sha256": "bfd60340c53169a4a4ce8d3608f300e2b1e422c0812c9da17cc0c149acfb642e"
+  },
+  {
+    "depth": 1000,
+    "bits": 3424,
+    "different_pixels": 0,
+    "max_channel_difference": 0,
+    "decimal_samples": 8,
+    "baseline_decimal_error": 0,
+    "accelerated_decimal_error": 0,
+    "regressions": [],
+    "baseline_ms": 23.59316698857583,
+    "accelerated_ms": 23.202832991955802,
+    "sha256": "0204023b71cc80e8aebcaeee780d0fb43dd787279dde02006bfe4eadfe9c3c2a"
+  }
+]

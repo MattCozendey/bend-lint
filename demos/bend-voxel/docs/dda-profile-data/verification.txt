@@ -1,0 +1,7 @@
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0
+rays=262144 exact_surface_mismatches=0

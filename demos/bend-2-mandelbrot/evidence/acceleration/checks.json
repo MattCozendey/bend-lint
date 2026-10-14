@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-20",
+  "build": "passed",
+  "bend_laws": 11,
+  "checks": {
+    "decimal_antenna_through_1000_orders": "passed",
+    "preserved_renderer_six_depths": "all pixels identical",
+    "moderate_depth_fast_path": "12 images identical",
+    "native_deep_pan": "3392037 overlap pixels identical",
+    "repair_and_256_512_region_stitching": "passed",
+    "reference_cancellation_and_recovery": "passed",
+    "100000_latest_view_replacements": "passed",
+    "actual_appkit_handlers_and_adaptive_tiles": "passed",
+    "optional_bend_gpu_mode": "passed at 320 bits; stable image hash"
+  },
+  "live_ui": {
+    "preset": 7,
+    "width": 2200,
+    "height": 1560,
+    "bits": 1088,
+    "iterations": 16384,
+    "whole_view_ms": 176.1,
+    "inspected": "completed image and HUD"
+  },
+  "scope": "Numerical samples and fixed image comparisons do not certify all coordinates. Timings do not establish a cross-viewer ranking."
+}

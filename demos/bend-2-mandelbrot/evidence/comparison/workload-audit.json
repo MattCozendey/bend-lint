@@ -1,0 +1,345 @@
+{
+  "date": "2026-09-20",
+  "scene": {
+    "center": [
+      "0",
+      "1"
+    ],
+    "span": "1e-68",
+    "width": 2200,
+    "height": 1560,
+    "reference_fractional_bits": 320,
+    "iteration_budget": 16384,
+    "escape_radius_squared": 256
+  },
+  "method": "8x8 stratified pixel sample; independent Decimal recurrence at 150 and 200 decimal digits; identical escape counts at both precisions",
+  "sampled_pixels": 64,
+  "escaped": 64,
+  "bounded_at_budget": 0,
+  "escape_iteration_min": 185,
+  "escape_iteration_median": 187.0,
+  "escape_iteration_max": 198,
+  "scope": "A sample, not a complete image census or a GPU instruction count. Boundary pixels can take much longer.",
+  "samples": [
+    {
+      "x": 137,
+      "y": 97,
+      "escape_iteration": 187
+    },
+    {
+      "x": 412,
+      "y": 97,
+      "escape_iteration": 187
+    },
+    {
+      "x": 687,
+      "y": 97,
+      "escape_iteration": 186
+    },
+    {
+      "x": 962,
+      "y": 97,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1237,
+      "y": 97,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1512,
+      "y": 97,
+      "escape_iteration": 185
+    },
+    {
+      "x": 1787,
+      "y": 97,
+      "escape_iteration": 185
+    },
+    {
+      "x": 2062,
+      "y": 97,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 292,
+      "escape_iteration": 187
+    },
+    {
+      "x": 412,
+      "y": 292,
+      "escape_iteration": 187
+    },
+    {
+      "x": 687,
+      "y": 292,
+      "escape_iteration": 187
+    },
+    {
+      "x": 962,
+      "y": 292,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1237,
+      "y": 292,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1512,
+      "y": 292,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1787,
+      "y": 292,
+      "escape_iteration": 185
+    },
+    {
+      "x": 2062,
+      "y": 292,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 487,
+      "escape_iteration": 188
+    },
+    {
+      "x": 412,
+      "y": 487,
+      "escape_iteration": 187
+    },
+    {
+      "x": 687,
+      "y": 487,
+      "escape_iteration": 187
+    },
+    {
+      "x": 962,
+      "y": 487,
+      "escape_iteration": 187
+    },
+    {
+      "x": 1237,
+      "y": 487,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1512,
+      "y": 487,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1787,
+      "y": 487,
+      "escape_iteration": 185
+    },
+    {
+      "x": 2062,
+      "y": 487,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 682,
+      "escape_iteration": 188
+    },
+    {
+      "x": 412,
+      "y": 682,
+      "escape_iteration": 188
+    },
+    {
+      "x": 687,
+      "y": 682,
+      "escape_iteration": 188
+    },
+    {
+      "x": 962,
+      "y": 682,
+      "escape_iteration": 188
+    },
+    {
+      "x": 1237,
+      "y": 682,
+      "escape_iteration": 187
+    },
+    {
+      "x": 1512,
+      "y": 682,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1787,
+      "y": 682,
+      "escape_iteration": 185
+    },
+    {
+      "x": 2062,
+      "y": 682,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 877,
+      "escape_iteration": 189
+    },
+    {
+      "x": 412,
+      "y": 877,
+      "escape_iteration": 191
+    },
+    {
+      "x": 687,
+      "y": 877,
+      "escape_iteration": 190
+    },
+    {
+      "x": 962,
+      "y": 877,
+      "escape_iteration": 190
+    },
+    {
+      "x": 1237,
+      "y": 877,
+      "escape_iteration": 190
+    },
+    {
+      "x": 1512,
+      "y": 877,
+      "escape_iteration": 186
+    },
+    {
+      "x": 1787,
+      "y": 877,
+      "escape_iteration": 186
+    },
+    {
+      "x": 2062,
+      "y": 877,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 1072,
+      "escape_iteration": 191
+    },
+    {
+      "x": 412,
+      "y": 1072,
+      "escape_iteration": 198
+    },
+    {
+      "x": 687,
+      "y": 1072,
+      "escape_iteration": 194
+    },
+    {
+      "x": 962,
+      "y": 1072,
+      "escape_iteration": 195
+    },
+    {
+      "x": 1237,
+      "y": 1072,
+      "escape_iteration": 188
+    },
+    {
+      "x": 1512,
+      "y": 1072,
+      "escape_iteration": 187
+    },
+    {
+      "x": 1787,
+      "y": 1072,
+      "escape_iteration": 186
+    },
+    {
+      "x": 2062,
+      "y": 1072,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 1267,
+      "escape_iteration": 195
+    },
+    {
+      "x": 412,
+      "y": 1267,
+      "escape_iteration": 191
+    },
+    {
+      "x": 687,
+      "y": 1267,
+      "escape_iteration": 191
+    },
+    {
+      "x": 962,
+      "y": 1267,
+      "escape_iteration": 197
+    },
+    {
+      "x": 1237,
+      "y": 1267,
+      "escape_iteration": 190
+    },
+    {
+      "x": 1512,
+      "y": 1267,
+      "escape_iteration": 187
+    },
+    {
+      "x": 1787,
+      "y": 1267,
+      "escape_iteration": 186
+    },
+    {
+      "x": 2062,
+      "y": 1267,
+      "escape_iteration": 185
+    },
+    {
+      "x": 137,
+      "y": 1462,
+      "escape_iteration": 195
+    },
+    {
+      "x": 412,
+      "y": 1462,
+      "escape_iteration": 189
+    },
+    {
+      "x": 687,
+      "y": 1462,
+      "escape_iteration": 189
+    },
+    {
+      "x": 962,
+      "y": 1462,
+      "escape_iteration": 191
+    },
+    {
+      "x": 1237,
+      "y": 1462,
+      "escape_iteration": 191
+    },
+    {
+      "x": 1512,
+      "y": 1462,
+      "escape_iteration": 188
+    },
+    {
+      "x": 1787,
+      "y": 1462,
+      "escape_iteration": 186
+    },
+    {
+      "x": 2062,
+      "y": 1462,
+      "escape_iteration": 185
+    }
+  ]
+}

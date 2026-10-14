@@ -1,0 +1,11 @@
+<!doctype html>
+<button>Enable audio</button>
+<script>
+  var printed = [];
+  var Module = {
+    arguments: ['--threads', '1'],
+    print: text => printed.push(text),
+    onExit: code => { window.exitCode = code; }
+  };
+</script>
+<script src="audio-test.js"></script>

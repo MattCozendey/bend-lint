@@ -1,0 +1,14 @@
+deep bits=160 reference_GPU_ms=0.175 repairs=0 repair_GPU_ms=0.880
+Mandelbrot completed 512x384 frame: Bend Metal GPU (fractal dispatch verified); device=Apple M4 Pro; 66.439 ms
+{"name": "antenna-1e20", "bits": 160, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 0, "render_ms": 66.439, "total_ms": 116.66170800162945, "sha256": "20a374319303be83c23e63ac134f50d827616d22eca82e7fee52becfa5180bb5", "max_channel_error_vs_decimal": 0}
+deep bits=256 reference_GPU_ms=0.175 repairs=1 repair_GPU_ms=18.671
+{"name": "antenna-1e50", "bits": 256, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 1, "render_ms": 10.193, "total_ms": 30.299834004836157, "sha256": "9a38678474ccc5974f005f9b35c01a3cbd9a7ce9583cbceaf1a106ce4dd94bc4", "max_channel_error_vs_decimal": 0}
+deep bits=432 reference_GPU_ms=0.177 repairs=0 repair_GPU_ms=0.902
+{"name": "antenna-1e100", "bits": 432, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 0, "render_ms": 17.746, "total_ms": 23.862083005951717, "sha256": "da6a669a7d22424d706d7e5a30ebdf525fe75c8ae34fc9083048f507c3a1ddea", "max_channel_error_vs_decimal": 0}
+deep bits=1088 reference_GPU_ms=0.186 repairs=0 repair_GPU_ms=0.867
+{"name": "antenna-1e300", "bits": 1088, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 0, "render_ms": 47.777, "total_ms": 50.101750006433576, "sha256": "bfd60340c53169a4a4ce8d3608f300e2b1e422c0812c9da17cc0c149acfb642e", "max_channel_error_vs_decimal": 0}
+deep bits=3424 reference_GPU_ms=0.213 repairs=0 repair_GPU_ms=0.904
+{"name": "antenna-1e1000", "bits": 3424, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 0, "render_ms": 128.017, "total_ms": 132.615166992764, "sha256": "0204023b71cc80e8aebcaeee780d0fb43dd787279dde02006bfe4eadfe9c3c2a", "max_channel_error_vs_decimal": 0}
+deep bits=1088 reference_GPU_ms=0.190 repairs=0 repair_GPU_ms=1.249
+{"name": "antenna-1e300-pan", "bits": 1088, "width": 512, "height": 384, "iterations": 4096, "gpu": true, "repairs": 0, "render_ms": 46.893, "total_ms": 50.81145800068043, "sha256": "272bff7974f0cf0f435edd539a54a60984fc589130945366c66449b11f8fd42a", "identical_overlap_pixels": 187125}
+All numerical and camera checks passed.

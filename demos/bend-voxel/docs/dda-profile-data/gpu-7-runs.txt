@@ -1,0 +1,31 @@
+renderer=dda init_ms=292
+frames=2 elapsed_ms=1903
+
+renderer=dda init_ms=297
+frames=2 elapsed_ms=1931
+
+renderer=dda init_ms=305
+frames=2 elapsed_ms=1584
+
+renderer=dda init_ms=328
+frames=2 elapsed_ms=1686
+
+renderer=dda init_ms=296
+frames=2 elapsed_ms=1598
+
+renderer=dda init_ms=308
+frames=2 elapsed_ms=1736
+
+renderer=dda init_ms=300
+frames=2 elapsed_ms=1754
+
+renderer=dda init_ms=297
+frames=2 elapsed_ms=1807
+
+renderer=dda init_ms=312
+frames=2 elapsed_ms=1724
+
+renderer=dda init_ms=295
+frames=2 elapsed_ms=1743
+
+Saved docs/dda-profile-data/gpu-7.tsv

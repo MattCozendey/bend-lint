@@ -1,0 +1,11 @@
+--- .audit/region-profile/baseline/PROOF.bend	2026-10-05 20:44:17.903591015 +0400
++++ PROOF.bend	2026-10-05 21:03:13.554250196 +0400
+@@ -236,3 +236,8 @@
+ 
+ def Laws.dda_region_traversal_is_bounded(inside,previous,grid,eye,ray,crossing,region):
+ 	{==}
++
++def Laws.dda_converged_axis_count(fuel,positive,origin,delta,cell,time,bound):
++	match fuel:
++		case 0n: {==}
++		case 1n+rest: {==}

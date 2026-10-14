@@ -1,0 +1,18 @@
+--- .audit/dda-estimate/baseline/PROOF.bend	2026-10-05 21:46:37.429126115 +0400
++++ PROOF.bend	2026-10-05 21:47:56.294507894 +0400
+@@ -236,3 +236,15 @@
+ 
+ def Laws.dda_region_traversal_is_bounded(inside,previous,grid,eye,ray,crossing,region):
+ 	{==}
++
++def Laws.dda_zero_plane_events_are_accepted(positive,origin,delta,cell,time):
++	{==}
++
++def Laws.dda_count_down_stops_at_accepted_plane(fuel,at_limit,positive,origin,delta,cell,time,count,limit):
++	{==}
++
++def Laws.dda_count_up_rejects_first_late_plane(fuel,at_limit,positive,origin,delta,cell,time,count,limit):
++	{==}
++
++def Laws.dda_count_up_stops_at_accepted_limit(fuel,positive,origin,delta,cell,time,limit):
++	{==}

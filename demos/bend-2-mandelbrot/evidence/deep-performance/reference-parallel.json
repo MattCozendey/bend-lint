@@ -1,0 +1,170 @@
+[
+  {
+    "bits": 144,
+    "iterations": 512,
+    "lanes": 1,
+    "gpu_ms": 25.928,
+    "identical": true
+  },
+  {
+    "bits": 144,
+    "iterations": 512,
+    "lanes": 32,
+    "gpu_ms": 5.979,
+    "identical": true
+  },
+  {
+    "bits": 144,
+    "iterations": 512,
+    "lanes": 64,
+    "gpu_ms": 6.528,
+    "identical": true
+  },
+  {
+    "bits": 144,
+    "iterations": 512,
+    "lanes": 128,
+    "gpu_ms": 8.083,
+    "identical": true
+  },
+  {
+    "bits": 512,
+    "iterations": 512,
+    "lanes": 1,
+    "gpu_ms": 122.998,
+    "identical": true
+  },
+  {
+    "bits": 512,
+    "iterations": 512,
+    "lanes": 32,
+    "gpu_ms": 20.084,
+    "identical": true
+  },
+  {
+    "bits": 512,
+    "iterations": 512,
+    "lanes": 64,
+    "gpu_ms": 17.487,
+    "identical": true
+  },
+  {
+    "bits": 512,
+    "iterations": 512,
+    "lanes": 128,
+    "gpu_ms": 17.429,
+    "identical": true
+  },
+  {
+    "bits": 1088,
+    "iterations": 512,
+    "lanes": 1,
+    "gpu_ms": 480.789,
+    "identical": true
+  },
+  {
+    "bits": 1088,
+    "iterations": 512,
+    "lanes": 32,
+    "gpu_ms": 46.946,
+    "identical": true
+  },
+  {
+    "bits": 1088,
+    "iterations": 512,
+    "lanes": 64,
+    "gpu_ms": 38.548,
+    "identical": true
+  },
+  {
+    "bits": 1088,
+    "iterations": 512,
+    "lanes": 128,
+    "gpu_ms": 35.242,
+    "identical": true
+  },
+  {
+    "bits": 3424,
+    "iterations": 512,
+    "lanes": 1,
+    "gpu_ms": 4516.536,
+    "identical": true
+  },
+  {
+    "bits": 3424,
+    "iterations": 512,
+    "lanes": 32,
+    "gpu_ms": 221.452,
+    "identical": true
+  },
+  {
+    "bits": 3424,
+    "iterations": 512,
+    "lanes": 64,
+    "gpu_ms": 156.408,
+    "identical": true
+  },
+  {
+    "bits": 3424,
+    "iterations": 512,
+    "lanes": 128,
+    "gpu_ms": 123.855,
+    "identical": true
+  },
+  {
+    "bits": 8192,
+    "iterations": 128,
+    "lanes": 1,
+    "gpu_ms": 6373.146,
+    "identical": true
+  },
+  {
+    "bits": 8192,
+    "iterations": 128,
+    "lanes": 32,
+    "gpu_ms": 224.648,
+    "identical": true
+  },
+  {
+    "bits": 8192,
+    "iterations": 128,
+    "lanes": 64,
+    "gpu_ms": 139.091,
+    "identical": true
+  },
+  {
+    "bits": 8192,
+    "iterations": 128,
+    "lanes": 128,
+    "gpu_ms": 96.382,
+    "identical": true
+  },
+  {
+    "bits": 16384,
+    "iterations": 128,
+    "lanes": 1,
+    "gpu_ms": 25362.657,
+    "identical": true
+  },
+  {
+    "bits": 16384,
+    "iterations": 128,
+    "lanes": 32,
+    "gpu_ms": 769.596,
+    "identical": true
+  },
+  {
+    "bits": 16384,
+    "iterations": 128,
+    "lanes": 64,
+    "gpu_ms": 438.159,
+    "identical": true
+  },
+  {
+    "bits": 16384,
+    "iterations": 128,
+    "lanes": 128,
+    "gpu_ms": 272.846,
+    "identical": true
+  }
+]
