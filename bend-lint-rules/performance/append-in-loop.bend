@@ -51,21 +51,33 @@ def Append.message(
 ) -> String:
   match a:
     case ListAppend{}:
+      +q = Lint.Span.text(source, Lint.Node.span(List.get(&2, Lint.Node, args, 0n)))
+      +t = Lint.Span.text(source, Lint.Node.span(List.get(&2, Lint.Node, args, 1n)))
       "List.append copies "
         ++ acc
         ++ " on each call of "
         ++ loop
-        ++ ", so a loop of n steps copies O(n²) items. Add each item at the head instead, with `item <> "
+        ++ ", so a loop of n steps copies O(n²) items. Every lane. Confidence: high. Add each item at the head instead, with `item <> "
         ++ acc
         ++ "`, and reverse "
         ++ acc
         ++ " once when the loop ends: `List.reverse("
-        ++ Lint.Span.text(source, Lint.Node.span(List.get(&2, Lint.Node, args, 0n)))
+        ++ q
         ++ ", "
-        ++ Lint.Span.text(source, Lint.Node.span(List.get(&2, Lint.Node, args, 1n)))
+        ++ t
         ++ ", "
         ++ acc
-        ++ ")`. Every lane. Confidence: high. If the loop runs only a few steps, expect this finding."
+        ++ ")`; to add a list each step, collect the lists, with `piece <> pieces`, and join them once: `List.concat("
+        ++ q
+        ++ ", "
+        ++ t
+        ++ ", List.reverse("
+        ++ q
+        ++ ", List<"
+        ++ q
+        ++ ", "
+        ++ t
+        ++ ">, pieces))`. If the loop runs only a few steps, expect this finding."
     case StringAppend{}:
       "++ copies "
         ++ acc

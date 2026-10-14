@@ -31,7 +31,7 @@ setDefaultTimeout(120_000);
     expect(
       await getReports(getLoop("List<&2, U32>", "      f(p, List.append(&2, U32, acc, [1]))")),
     ).toEqual([
-      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`. Every lane. Confidence: high. If the loop runs only a few steps, expect this finding.",
+      "8:12 performance/append-in-loop: List.append copies acc on each call of f, so a loop of n steps copies O(n²) items. Every lane. Confidence: high. Add each item at the head instead, with `item <> acc`, and reverse acc once when the loop ends: `List.reverse(&2, U32, acc)`; to add a list each step, collect the lists, with `piece <> pieces`, and join them once: `List.concat(&2, U32, List.reverse(&2, List<&2, U32>, pieces))`. If the loop runs only a few steps, expect this finding.",
     ]);
   });
 
