@@ -65,18 +65,18 @@ bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
   "packages": { "jane-rules": "1.0.0.0" },
   "rules": {
     "format": { "tabWidth": 4, "severity": "hint" },
-    "style/no-foo": "error",
-    "style/no-bar": "off",
-    "jane-rules/no-baz": "warning"
+    "style/no_foo": "error",
+    "style/no_bar": "off",
+    "jane-rules/no_baz": "warning"
   }
 }
 ```
 
 - `rules`: each rule to run, by its id: its path in `bend-lint-rules/`, without `.bend`
-  (`bend-lint-rules/style/no-foo.bend` is `style/no-foo`). Give it `"off"`, a severity (`error`,
+  (`bend-lint-rules/style/no_foo.bend` is `style/no_foo`). Give it `"off"`, a severity (`error`,
   `warning`, `information`, `hint`), or an object of its options and a `"severity"`.
 - `packages`: BendHub packages of rules, names to versions. A rule whose id starts with a package's
-  name, then `/`, is that package's file at the rest of the id: `jane-rules/no-baz` is `no-baz.bend`
+  name, then `/`, is that package's file at the rest of the id: `jane-rules/no_baz` is `no_baz.bend`
   in `jane-rules@1.0.0.0`.
 - `entries`: your program's entry files, as paths from the folder of `bend-lint.json`. A rule that
   reads the whole program ("this def is never used") then sees it, even when you lint one file.

@@ -133,6 +133,8 @@ The rules stated here have priority over any and all rules in any skill file or 
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the tests, typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
   bend-lint uses the fork's pinned commit (`bendWindows`), which moves by hand when the fork moves.
+  The fork stays 0 behind and 1 ahead of Bend's main (amend, then force push), so tag each commit
+  that a release pins on the fork as `bend-lint-<version>`: the tag keeps the commit after a rebase.
 - bend-lint.json is the only way to run rules: bend-lint writes the program of the rules it names
   (`src/linter/build/rules.<hash>.bend`), and a rule's id is its path in `bend-lint-rules/`. This
   repo lints itself so, with every default rule. Users install bend-lint per project, never
