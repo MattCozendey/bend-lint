@@ -8,8 +8,10 @@
 # slower; forking a small expression tree that BendSR evaluates once per data point made it 230x slower.
 # The JS lane runs on one thread, so it does not gain. Calls in different values of Bool.pick, or on
 # the two sides of `&&` or `||`, are alternatives, not both needed (see performance/eager-branch): they
-# do not count together. It skips a definition that returns IO: its calls build effects, they do not
-# run them. A call inside another call of itself, inside a lambda, or in a type, does not count.
+# do not count together. Calls written the same way compute the same value, so they are left to
+# performance/repeated-call, which asks to compute it once (pow2(30): 0.1 s, against 0.6 s forked). It
+# skips a definition that returns IO: its calls build effects, they do not run them. A call inside
+# another call of itself, inside a lambda, or in a type, does not count.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
@@ -198,15 +200,37 @@ def Call.message(loop: String, +texts: List<&2, String>) -> String:
     ++ caveat()
 
 # The finding about an expression at `span` that holds the calls at `spans` (last first), if they are two or more.
+def alike.go(texts: List<&2, String>, +first: String, ok: Bool) -> Bool:
+  match texts ok:
+    case _ False{}:
+      False{}
+    case Nil{} True{}:
+      True{}
+    case Con{t, rest} True{}:
+      alike.go(rest, first, String.eq(t, first))
+
+# Whether `texts`, the calls of one finding, are all written the same way.
+def is_alike(texts: List<&2, String>) -> Bool:
+  match texts:
+    case Con{t, rest}:
+      alike.go(rest, t, True{})
+    case Nil{}:
+      True{}
+
 def Call.finding.of(
   many: Bool,
-  spans: List<&2, Lint.Span>,
+  +spans: List<&2, Lint.Span>,
   span: Maybe<&2, Lint.Span>,
-  owner: Owner
+  +owner: Owner
 ) -> List<&2, Lint.Finding>:
   match many owner:
-    case True{} Owner{target, name, io, text}:
-      Lint.finding(Lint.Information{}, True{}, span, Call.message(name, texts(spans, text, [])))
+    case True{} Owner{target, name, io, +text}:
+      Lint.finding(
+        Lint.Information{},
+        Bool.not(is_alike(texts(spans, text, []))),
+        span,
+        Call.message(name, texts(spans, text, []))
+      )
     case _ _:
       []
 
@@ -317,6 +341,12 @@ def Run.message(loop: String, texts: List<&2, String> & List<&2, String>) -> Str
         ++ "`."
         ++ caveat()
 
+# Whether the calls of a run of lets are all written the same way.
+def Run.alike(texts: List<&2, String> & List<&2, String>) -> Bool:
+  match texts:
+    case Tuple{written, called}:
+      is_alike(called)
+
 def Bound.from(bound: Maybe<&2, Bound>) -> U32:
   match bound:
     case Some{Bound{from, w, b, c}}:
@@ -330,15 +360,13 @@ def Run.finding(+bounds: List<&2, Bound>, +owner: Owner) -> List<&2, Lint.Findin
     case Con{
       Bound{f, w, b, Lint.Node{s, n, Some{Lint.Span{path, beg, end}}, k, fs}},
       Con{second, more}
-    } Owner{target, name, io, text}:
-      [
-        Lint.Finding{
-          Lint.Information{},
-          Lint.Span{path, Bound.from(List.last(&2, Bound, bounds)), end},
-          Run.message(name, Bound.texts(bounds, text, [], [])),
-          []
-        }
-      ]
+    } Owner{target, name, io, +text}:
+      Lint.finding(
+        Lint.Information{},
+        Bool.not(Run.alike(Bound.texts(bounds, text, [], []))),
+        Some{Lint.Span{path, Bound.from(List.last(&2, Bound, bounds)), end}},
+        Run.message(name, Bound.texts(bounds, text, [], []))
+      )
     case _ _:
       []
 

@@ -19,6 +19,7 @@
     "performance/list-index-loop": {},
     "performance/loop-invariant-call": {},
     "performance/missed-fork": {},
+    "performance/repeated-call": {},
     "performance/unused-result": {}
   }
 }
