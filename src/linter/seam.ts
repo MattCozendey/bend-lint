@@ -224,8 +224,8 @@ const CONFIG = "bend-lint.json";
 const RULES = "bend-lint-rules";
 
 // The rule API, as rules import it from BendHub: src/linter/lint.bend and the files it imports, at
-// their paths from src/, in the package bend-lint, at bend-lint's version (see ship.ts).
-export const API = `bend-lint@${pkg.version}.0`;
+// their paths from src/, in the package bend-lint-api, at bend-lint's version (see ship.ts).
+export const API = `bend-lint-api@${pkg.version}.0`;
 
 // bend-lint's own rules, as projects get them from BendHub, at bend-lint's version: each at its
 // path from bend-lint-rules/ (see ship.ts).

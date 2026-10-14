@@ -138,9 +138,9 @@ The rules stated here have priority over any and all rules in any skill file or 
   repo lints itself so, with every default rule. Users install bend-lint per project, never
   globally: Bend imports only relative paths of plain names.
 - The rule API is `src/linter/lint.bend` and the files it imports. Rules import it from BendHub, as
-  the package `bend-lint` at bend-lint's version (`0.1.0` is `bend-lint@0.1.0.0`); this repo imports
-  it by relative paths. bend-lint's own rules go to BendHub as `bend-lint-rules`, at the same
-  version. `bun run ship <folder>` writes both packages, and the npm package, whose Bend files
+  the package `bend-lint-api` at bend-lint's version (`0.1.0` is `bend-lint-api@0.1.0.0`); this repo
+  imports it by relative paths. bend-lint's own rules go to BendHub as `bend-lint-rules`, at the
+  same version. `bun run ship <folder>` writes both packages, and the npm package, whose Bend files
   import the API from BendHub, and whose install runs init and downloads Bend; `--publish` publishes
   both packages. A change to the API's files changes its hash, so users' rules must move to the new
   version.
