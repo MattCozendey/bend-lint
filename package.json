@@ -5,7 +5,7 @@
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "MIT",
   "bin": {
-    "bend-lint": "./src/linter/seam.ts"
+    "bend-lint": "src/linter/seam.ts"
   },
   "type": "module",
   "scripts": {
