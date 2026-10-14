@@ -31,21 +31,21 @@ def min(+a: F32, +b: F32) -> F32:
 def max(+a: F32, +b: F32) -> F32:
   pick((a < b : F32), b, a)
 
-def clamp(x: F32, lo: F32, hi: F32) -> F32:
+def clamp(+x: F32, +lo: F32, +hi: F32) -> F32:
   min(hi, max(lo, x))
 
-def sat(x: F32) -> F32:
+def sat(+x: F32) -> F32:
   clamp(x, 0.0, 1.0)
 
-def mix(+a: F32, b: F32, t: F32) -> F32:
+def mix(+a: F32, +b: F32, +t: F32) -> F32:
   (a + (b - a) * t : F32)
 
-def pack(r: F32, g: F32, b: F32) -> U32:
+def pack(+r: F32, +g: F32, +b: F32) -> U32:
   (F32.to_u32((255.0 * sat(r) : F32)) << 16n
     .|. F32.to_u32((255.0 * sat(g) : F32)) << 8n
     .|. F32.to_u32((255.0 * sat(b) : F32)) : U32)
 
-def chan(c: U32) -> F32:
+def chan(+c: U32) -> F32:
   (U32.to_f32((c .&. 255 : U32)) / 255.0 : F32)
 
 def Vec.add(+a: Vec, +b: Vec) -> Vec:
@@ -108,7 +108,7 @@ type Cam is Data:
 
 # A world point on the screen as (x, y, 1 / depth); w = 0 behind the
 # near plane.
-def Cam.proj(+cam: Cam, p: Vec) -> Vec:
+def Cam.proj(+cam: Cam, +p: Vec) -> Vec:
   Cam{eye, right, up, fwd, focal, cx, cy, near, _, _} = cam
   +r = Vec.sub(p, eye)
   +depth = Vec.dot(r, fwd)
@@ -125,7 +125,7 @@ def Cam.eye(+cam: Cam) -> Vec:
   eye
 
 # The pixels a world unit spans at p.
-def Cam.px(+cam: Cam, p: Vec) -> F32:
+def Cam.px(+cam: Cam, +p: Vec) -> F32:
   Cam{eye, _, _, fwd, focal, _, _, near, _, _} = cam
   +depth = Vec.dot(Vec.sub(p, eye), fwd)
   (focal * pick((depth > near : F32), (1.0 / depth : F32), 0.0) : F32)
@@ -162,7 +162,7 @@ def Hook.unit() -> Type:
 def Hook.size() -> Type:
   U32 -> @+r: F32 -> @+fx: F32 -> @+fy: F32 -> @+fz: F32 -> Vec
 
-def Unit.go(~unit: Hook.unit(), k: Shape, u: F32, v: F32, +a: F32, +b: F32, w: F32) -> Vec:
+def Unit.go(~unit: Hook.unit(), k: Shape, +u: F32, +v: F32, +a: F32, +b: F32, +w: F32) -> Vec:
   match k:
     case Globe{}:
       +sb = F32.sin(b)
@@ -222,10 +222,10 @@ def Surf.at(~unit: Hook.unit(), +s: Surf, +u: F32, +v: F32) -> Vec:
 
 # A unit shape scaled at a centre; from a to b (its y), w wide and d
 # deep.
-def Inst.ball(k: Shape, c: Vec, sx: F32, sy: F32, sz: F32) -> Surf:
+def Inst.ball(k: Shape, +c: Vec, +sx: F32, +sy: F32, +sz: F32) -> Surf:
   Inst{k, c, Vec{sx, 0.0, 0.0}, Vec{0.0, sy, 0.0}, Vec{0.0, 0.0, sz}}
 
-def Inst.span(k: Shape, +a: Vec, b: Vec, w: F32, d: F32) -> Surf:
+def Inst.span(k: Shape, +a: Vec, +b: Vec, +w: F32, +d: F32) -> Surf:
   +axis = Vec.sub(b, a)
   +up = Vec.unit(axis)
   +right = Vec.unit(Vec.cross(up, Vec{0.002, 0.0, 1.0}))
@@ -273,7 +273,7 @@ def Light.tone3(+c: Vec) -> Vec:
 
 # A channel of one light: Schlick's Fresnel f over f0, Lambert of the
 # rest, the specular sp.
-def Light.ch(base: F32, +f0: F32, fr: F32, sp: F32, kd: F32, lc: F32, nl: F32) -> F32:
+def Light.ch(+base: F32, +f0: F32, +fr: F32, +sp: F32, +kd: F32, +lc: F32, +nl: F32) -> F32:
   +f = (f0 + (1.0 - f0) * fr : F32)
   (((1.0 - f) * kd * base + sp * f) * lc * nl : F32)
 
@@ -286,10 +286,10 @@ def Light.one(+l: Lit, +dir: Vec, +lc: Vec) -> Vec:
   +nl = max(0.0, Vec.dot(n, dir))
   +h = Vec.unit(Vec.add(v, dir))
   +nh = max(0.0, Vec.dot(n, h))
-  vh = max(0.0, Vec.dot(v, h))
+  +vh = max(0.0, Vec.dot(v, h))
   +den = (nh * nh * (a2 - 1.0) + 1.0 : F32)
-  d = (a2 / max(0.00001, (3.1415927 * den * den : F32)) : F32)
-  g = ((nv / (nv * (1.0 - k) + k)) * (nl / (nl * (1.0 - k) + k)) : F32)
+  +d = (a2 / max(0.00001, (3.1415927 * den * den : F32)) : F32)
+  +g = ((nv / (nv * (1.0 - k) + k)) * (nl / (nl * (1.0 - k) + k)) : F32)
   +t = (1.0 - vh : F32)
   +fr = (t * t * t * t * t : F32)
   +sp = (d * g / max(0.0001, (4.0 * nv * nl : F32)) : F32)
@@ -298,7 +298,7 @@ def Light.one(+l: Lit, +dir: Vec, +lc: Vec) -> Vec:
 
 # A point light at q on the point p: a smooth window over its range,
 # over 1 + fall d^2.
-def Light.pt(l: Lit, p: Vec, q: Vec, lc: Vec, range: F32, fall: F32) -> Vec:
+def Light.pt(+l: Lit, +p: Vec, +q: Vec, +lc: Vec, +range: F32, +fall: F32) -> Vec:
   +delta = Vec.sub(q, p)
   +d = F32.sqrt(Vec.dot(delta, delta))
   +near = sat((1.0 - d / range : F32))
@@ -306,7 +306,7 @@ def Light.pt(l: Lit, p: Vec, q: Vec, lc: Vec, range: F32, fall: F32) -> Vec:
     Vec.scale(lc, (near * near / (1.0 + fall * d * d : F32) : F32)))
 
 # The point p of normal n under a material of a tint, seen from the eye.
-def Light.at(+mat: Mat, +tint: Vec, p: Vec, n: Vec, +cam: Cam) -> Lit:
+def Light.at(+mat: Mat, +tint: Vec, +p: Vec, +n: Vec, +cam: Cam) -> Lit:
   Mat{_, rough, metal, glow, _, _, _} = mat
   Vec{tr, tg, tb} = tint
   Cam{eye, _, _, _, _, _, _, _, _, _} = cam
@@ -319,7 +319,7 @@ def Light.at(+mat: Mat, +tint: Vec, p: Vec, n: Vec, +cam: Cam) -> Lit:
     max(0.0001, Vec.dot(nn, view)), (r * r * r * r : F32),
     ((r + 1.0) * (r + 1.0) * 0.125 : F32), ((1.0 - metal) * 0.3183099 : F32)}
 
-def Light.sum(+l: Lit, +amb: Vec, sum: Vec) -> Vec:
+def Light.sum(+l: Lit, +amb: Vec, +sum: Vec) -> Vec:
   Lit{base, tint, glow, _, _, _, _, _, _, _} = l
   Vec{br, bg, bb} = base
   Vec{ar, ag, ab} = amb
@@ -391,14 +391,14 @@ def Tri.cover(+t: Tri, +fx0: F32, +fy0: F32, +fx1: F32, +fy1: F32) -> Bool:
 
 # Bit 4: the quadrant of a coordinate shifted so its level's bit sits
 # there.
-def Cells.bit(c: U32) -> Bool:
+def Cells.bit(+c: U32) -> Bool:
   ((c .&. 16) > 0 : U32)
 
 # The triangle into the cell (cx, cy) of a region of 64 << k: right and
 # low pick the quadrant, the bits shift for the next level. Eight arms:
 # one arm picking the child would share all four.
 def Cells.put(
-  k: Nat, right: Bool, low: Bool, c: Cells, +cx: U32, +cy: U32, t: Tri
+  k: Nat, right: Bool, low: Bool, c: Cells, +cx: U32, +cy: U32, +t: Tri
 ) -> Cells:
   match k:
     case 0n:
@@ -451,7 +451,7 @@ def Cells.merge(a: Cells, b: Cells) -> Cells:
 def Cells.m4(a: Cells, b: Cells, c: Cells, d: Cells) -> Cells:
   Cells.merge(Cells.merge(a, b), Cells.merge(c, d))
 
-def Tri.into(hit: Bool, +cx: U32, +cy: U32, t: Tri, c: Cells) -> Cells:
+def Tri.into(hit: Bool, +cx: U32, +cy: U32, +t: Tri, c: Cells) -> Cells:
   match hit:
     case False{}:
       c
@@ -523,7 +523,7 @@ def Mesh.vert.go(+p: Vec, +l: Vec) -> Vert:
 # differences (one stencil for every patch sharing the vertex, so the
 # shading is seamless; v kept off the poles).
 def Mesh.vert(
-  ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~shade: Hook.shade(F), +s: Surf, mat: Mat,
+  ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~shade: Hook.shade(F), +s: Surf, +mat: Mat,
   +u: F32, +v: F32, +f: F
 ) -> Vert:
   +p = Surf.at(~unit, s, u, v)
@@ -534,8 +534,8 @@ def Mesh.vert(
 
 # A plane (c, du, dv) through three values at the vertices.
 def Tri.plane(
-  a0: F32, b0: F32, c0: F32, a1: F32, b1: F32, c1: F32, v0: F32,
-  v1: F32, +v2: F32
+  +a0: F32, +b0: F32, +c0: F32, +a1: F32, +b1: F32, +c1: F32, +v0: F32,
+  +v1: F32, +v2: F32
 ) -> Vec:
   +d0 = (v0 - v2 : F32)
   +d1 = (v1 - v2 : F32)
@@ -544,8 +544,8 @@ def Tri.plane(
 
 # The triangle of its planes and pixel box into the cells its box spans.
 def Mesh.tri(
-  a0: F32, b0: F32, c0: F32, a1: F32, b1: F32, c1: F32, w: Vec, r: Vec,
-  g: Vec, b: Vec, m: U32, al: F32, +x0: U32, +y0: U32, +x1: U32, +y1: U32,
+  +a0: F32, +b0: F32, +c0: F32, +a1: F32, +b1: F32, +c1: F32, +w: Vec, +r: Vec,
+  +g: Vec, +b: Vec, +m: U32, +al: F32, +x0: U32, +y0: U32, +x1: U32, +y1: U32,
   c: Cells
 ) -> Cells:
   +cx0 = (x0 >> 6n : U32)
@@ -555,8 +555,8 @@ def Mesh.tri(
     Tri{Vec{a0, b0, c0}, Vec{a1, b1, c1}, w, r, g, b, m, al, Rect{x0, y0, x1, y1}}, c)
 
 def Mesh.keep(
-  ok: Bool, +p: Vert, +q: Vert, +r: Vert, area: F32, m: U32, al: F32,
-  bx0: F32, by0: F32, bx1: F32, by1: F32, c: Cells
+  ok: Bool, +p: Vert, +q: Vert, +r: Vert, +area: F32, +m: U32, +al: F32,
+  +bx0: F32, +by0: F32, +bx1: F32, +by1: F32, c: Cells
 ) -> Cells:
   match ok:
     case False{}:
@@ -583,7 +583,7 @@ def Mesh.keep(
 # y1); nothing when one is behind the eye, the box misses, or an
 # opaque one faces away (surfaces wind outward).
 def Mesh.raster(
-  +p: Vert, +q: Vert, +r: Vert, +m: U32, al: F32, x1: F32, y1: F32, c: Cells
+  +p: Vert, +q: Vert, +r: Vert, +m: U32, +al: F32, +x1: F32, +y1: F32, c: Cells
 ) -> Cells:
   Vert{ax, ay, w0, _, _, _} = p
   Vert{bx, by, w1, _, _, _} = q
@@ -602,7 +602,7 @@ def Mesh.raster(
 # each two triangles.
 def Grid.strip(
   ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~shade: Hook.shade(F), j: Nat, +s: Surf,
-  +mat: Mat, +f: F, +u0: F32, +u1: F32, v: F32, +dv: F32, +x1: F32, +y1: F32, +p: Vert, q: Vert,
+  +mat: Mat, +f: F, +u0: F32, +u1: F32, +v: F32, +dv: F32, +x1: F32, +y1: F32, +p: Vert, +q: Vert,
   acc: Cells
 ) -> Cells:
   match j:
@@ -664,16 +664,16 @@ def Grid.depth(f: Nat, +n: U32, +d: Nat) -> Nat:
 
 # Segments for a circle of a screen radius within a pixel of round
 # (its sagitta), at least 4; 20-px steps over a length, at least 1.
-def Grid.arc(r: F32) -> F32:
+def Grid.arc(+r: F32) -> F32:
   max(4.0, F32.ceil((3.1415927 * F32.sqrt((r * 0.5 : F32)) : F32)))
 
-def Grid.len(l: F32) -> F32:
+def Grid.len(+l: F32) -> F32:
   max(1.0, F32.ceil((l * 0.05 : F32)))
 
 # The patches a unit shape of screen half sizes (fx, fy, fz; r the
 # wider of fx, fz) needs around and along: a box four a side (its
 # corners on vertices), the rest by their sagitta both ways.
-def Unit.fit(~size: Hook.size(), k: Shape, +r: F32, fx: F32, fy: F32, fz: F32) -> Vec:
+def Unit.fit(~size: Hook.size(), k: Shape, +r: F32, +fx: F32, +fy: F32, +fz: F32) -> Vec:
   match k:
     case Box{}:
       Vec{(4.0 * Grid.len((r * 2.0 : F32)) : F32), Grid.len((fy * 2.0 : F32)), 0.0}
@@ -684,37 +684,37 @@ def Unit.fit(~size: Hook.size(), k: Shape, +r: F32, fx: F32, fy: F32, fz: F32) -
 
 # The patches a surface needs on the screen: fewer when small; only an
 # instance is sized.
-def Surf.fit(~size: Hook.size(), +s: Surf, cam: Cam) -> Vec:
+def Surf.fit(~size: Hook.size(), +s: Surf, +cam: Cam) -> Vec:
   match s:
     case Inst{k, o, x, y, z}:
       +f = Cam.px(cam, o)
       +fx = (f * Vec.len(x) : F32)
-      fy = (f * Vec.len(y) : F32)
+      +fy = (f * Vec.len(y) : F32)
       +fz = (f * Vec.len(z) : F32)
       Unit.fit(~size, k, max(fx, fz), fx, fy, fz)
     case _:
       Vec{9999.0, 9999.0, 0.0}
 
 def Mesh.fit(
-  ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~shade: Hook.shade(F), +fit: Vec, s: Surf,
-  mat: Mat, nu: U32, nv: U32, f: F
+  ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~shade: Hook.shade(F), +fit: Vec, +s: Surf,
+  +mat: Mat, +nu: U32, +nv: U32, +f: F
 ) -> Cells:
   Vec{fu, fv, _} = fit
   +mu = F32.to_u32(min(U32.to_f32(nu), fu))
-  mv = F32.to_u32(min(U32.to_f32(nv), fv))
+  +mv = F32.to_u32(min(U32.to_f32(nv), fv))
   Grid.go(~F, ~cam, ~unit, ~shade, Grid.depth(9n, mu, 0n), True{}, 0, mu, mv, s, mat, f)
 
 # A surface of a material as a grid of at most nu by nv patches.
 def Mesh.of(
   ~F: Data, ~cam: Hook.cam(F), ~unit: Hook.unit(), ~size: Hook.size(), ~shade: Hook.shade(F),
-  +s: Surf, mat: Mat, nu: U32, nv: U32, +f: F
+  +s: Surf, +mat: Mat, +nu: U32, +nv: U32, +f: F
 ) -> Cells:
   Mesh.fit(~F, ~cam, ~unit, ~shade, Surf.fit(~size, s, cam(f)), s, mat, nu, nv, f)
 
 # A screen quad (counter-clockwise when opaque) at the inverse depth d,
 # of one colour, in the cells of the frame whose last pixel is (x1, y1).
 def Quad.put(
-  +qx0: F32, +qy0: F32, qx1: F32, qy1: F32, +qx2: F32, +qy2: F32, qx3: F32, qy3: F32,
+  +qx0: F32, +qy0: F32, +qx1: F32, +qy1: F32, +qx2: F32, +qy2: F32, +qx3: F32, +qy3: F32,
   +d: F32, +c: U32, +m: U32, +al: F32, +x1: F32, +y1: F32, cells: Cells
 ) -> Cells:
   +r = chan((c >> 16n : U32))
@@ -748,7 +748,7 @@ def Hook.wind() -> Type:
   @+t: F32 -> U32 -> Vec
 
 # Particle i at rest about the anchor o, turned to the facing.
-def Cloth.rest(+i: U32, +fit: Fit, o: Vec, face: F32) -> Vec:
+def Cloth.rest(+i: U32, +fit: Fit, +o: Vec, +face: F32) -> Vec:
   Fit{cols, rows, open, r0, r1, back, top, len, hem, pts, flat, _, _, _, _, _, _} = fit
   +col = U32.to_f32((i % cols : U32))
   +u = pick(U32.is_eq(open, 0), (col * 6.2831853 / U32.to_f32(cols) : F32),
@@ -784,7 +784,7 @@ def Cloth.at(n: Nat, c: Cloth, +i: U32, +stride: U32) -> Vec:
       Cloth.at(k, Bool.pick(Cloth, (part >= 2 : U32), Bool.pick(Cloth, right, d, cc),
         Bool.pick(Cloth, right, b, a)), (i % stride : U32), (stride / 4 : U32))
 
-def Cloth.limit(+v: Vec, m: F32) -> Vec:
+def Cloth.limit(+v: Vec, +m: F32) -> Vec:
   Vec.scale(v, min(1.0, (m / max(0.00001, Vec.len(v)) : F32)))
 
 # Verlet: 0.94 of the motion, the wind, a pull to the rest and a cap on
@@ -800,8 +800,8 @@ def Cloth.move(
       +k = (len * 1.282 : F32)
       +target = Cloth.rest(i, fit, Vec.sub(o, Vec{0.0, drop, 0.0}), face)
       +free = pick((i >= cols : U32), 1.0, 0.0)
-      motion = Cloth.limit(Vec.scale(Vec.sub(p, old), 0.94), (0.38 * k : F32))
-      next = Vec.add(Vec.add(p, motion), Vec.add(Vec.scale(wind(t, i), k),
+      +motion = Cloth.limit(Vec.scale(Vec.sub(p, old), 0.94), (0.38 * k : F32))
+      +next = Vec.add(Vec.add(p, motion), Vec.add(Vec.scale(wind(t, i), k),
         Vec.scale(Vec.sub(target, p), 0.025)))
       Thread{Vec.mix(target, Vec.add(target, Cloth.limit(Vec.sub(next, target), (0.85 * k : F32))),
           free), Vec.mix(target, p, free)}
@@ -813,18 +813,18 @@ def Cloth.move(
         Cloth.move(~wind, d, (i + stride * 3 : U32), s, fit, o, face, t, drop)}
 
 # The pull of particle j on p (particle i) toward their rest distance.
-def Cloth.pull(all: Cloth, i: U32, +j: U32, +fit: Fit, p: Vec) -> Vec:
+def Cloth.pull(+all: Cloth, +i: U32, +j: U32, +fit: Fit, +p: Vec) -> Vec:
   +delta = Vec.sub(Cloth.at(3n, all, j, 16), p)
   +dist = Vec.len(delta)
-  len = Vec.len(Vec.sub(Cloth.rest(i, fit, Vec{0.0, 0.0, 0.0}, 0.0),
+  +len = Vec.len(Vec.sub(Cloth.rest(i, fit, Vec{0.0, 0.0, 0.0}, 0.0),
     Cloth.rest(j, fit, Vec{0.0, 0.0, 0.0}, 0.0)))
   Vec.scale(delta, ((dist - len) / max(0.00001, dist) : F32))
 
 # A local point pushed out of the body and off the floor.
-def Cloth.hold(+local: Vec, +fit: Fit, o: Vec) -> Vec:
+def Cloth.hold(+local: Vec, +fit: Fit, +o: Vec) -> Vec:
   Vec{x, y, z} = local
   Fit{_, _, _, _, _, _, _, _, _, _, _, _, body, lo, hi, floor, _} = fit
-  rad = F32.sqrt((x * x + z * z : F32))
+  +rad = F32.sqrt((x * x + z * z : F32))
   +push = pick(((y > lo) && (y < hi) : F32), max(1.0, (body / max(0.001, rad) : F32)), 1.0)
   Vec.add(o, Vec{(x * push : F32), max(floor, y), (z * push : F32)})
 
@@ -839,13 +839,13 @@ def Cloth.solve(
       +col = (i % cols : U32)
       +row = (i / cols : U32)
       +ring = U32.is_eq(open, 0)
-      l = word((col > 0 : U32), (i - 1 : U32), word(ring, (i + cols - 1 : U32), i))
-      r = word(((col + 1 : U32) < cols : U32), (i + 1 : U32), word(ring, (i + 1 - cols : U32), i))
-      force = Vec.add(Vec.scale(Vec.add(Cloth.pull(all, i, l, fit, p),
+      +l = word((col > 0 : U32), (i - 1 : U32), word(ring, (i + cols - 1 : U32), i))
+      +r = word(((col + 1 : U32) < cols : U32), (i + 1 : U32), word(ring, (i + 1 - cols : U32), i))
+      +force = Vec.add(Vec.scale(Vec.add(Cloth.pull(all, i, l, fit, p),
             Cloth.pull(all, i, r, fit, p)), tie),
         Vec.add(Cloth.pull(all, i, word((row > 0 : U32), (i - cols : U32), i), fit, p),
           Cloth.pull(all, i, word(((row + 1 : U32) < rows : U32), (i + cols : U32), i), fit, p)))
-      safe = Cloth.hold(Vec.sub(Vec.add(p, Vec.scale(force, 0.24)), o), fit, o)
+      +safe = Cloth.hold(Vec.sub(Vec.add(p, Vec.scale(force, 0.24)), o), fit, o)
       Thread{Vec.mix(Cloth.rest(i, fit, Vec.sub(o, Vec{0.0, drop, 0.0}), face), safe,
         pick((i >= cols : U32), 1.0, 0.0)), old}
     case Weave{a, b, cc, d}:
@@ -863,7 +863,7 @@ def Cloth.relax(n: Nat, +c: Cloth, +fit: Fit, +o: Vec, +face: F32, +drop: F32) -
       Cloth.relax(k, Cloth.solve(c, c, 0, 16, fit, o, face, drop), fit, o, face, drop)
 
 def Cloth.step(
-  ~wind: Hook.wind(), c: Cloth, +fit: Fit, +o: Vec, +face: F32, t: F32, +drop: F32
+  ~wind: Hook.wind(), +c: Cloth, +fit: Fit, +o: Vec, +face: F32, +t: F32, +drop: F32
 ) -> Cloth:
   Cloth.relax(3n, Cloth.move(~wind, c, 0, 16, fit, o, face, t, drop), fit, o, face, drop)
 
@@ -886,8 +886,8 @@ def Hook.mesh(F: Data) -> Type:
 # wraps, an open cloth clamps) and the row below, 2 x 2; the columns
 # alternate two colours by the stripe.
 def Cloth.patch(
-  ~F: Data, ~mesh: Hook.mesh(F), +c: Cloth, +i: U32, +fit: Fit, c0: U32, c1: U32, rough: F32,
-  f: F
+  ~F: Data, ~mesh: Hook.mesh(F), +c: Cloth, +i: U32, +fit: Fit, +c0: U32, +c1: U32, +rough: F32,
+  +f: F
 ) -> Cells:
   Fit{cols, _, open, _, _, _, _, _, _, _, _, _, _, _, _, _, stripe} = fit
   +row = ((i / cols) * cols : U32)
@@ -908,21 +908,21 @@ def Cloth.patch(
 # The strand from particle i to the one below: a ribbon facing the
 # eye, w wide each side.
 def Cloth.rope(
-  ~F: Data, ~cam: Hook.cam(F), ~mesh: Hook.mesh(F), +c: Cloth, +i: U32, +fit: Fit, c0: U32,
-  rough: F32, w: F32, +f: F
+  ~F: Data, ~cam: Hook.cam(F), ~mesh: Hook.mesh(F), +c: Cloth, +i: U32, +fit: Fit, +c0: U32,
+  +rough: F32, +w: F32, +f: F
 ) -> Cells:
   Fit{cols, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _} = fit
   +a = Cloth.at(3n, c, i, 16)
   +b = Cloth.at(3n, c, (i + cols : U32), 16)
   +axis = Vec.sub(b, a)
-  right = Vec.unit(Vec.cross(axis, Vec.sub(Cam.eye(cam(f)), a)))
+  +right = Vec.unit(Vec.cross(axis, Vec.sub(Cam.eye(cam(f)), a)))
   mesh(Inst{Plate{}, Vec.mix(a, b, 0.5), Vec.scale(right, w),
     Vec{0.0, 0.0, 0.0}, Vec.scale(axis, (0.0 - 0.5 : F32))}, Mat{c0, rough, 0.0, 0.0, 0, 0, 1.0},
     1, 1, f)
 
 def Cloth.piece(
-  ~F: Data, ~cam: Hook.cam(F), ~mesh: Hook.mesh(F), skip: Bool, rope: Bool, c: Cloth, i: U32,
-  fit: Fit, c0: U32, c1: U32, rough: F32, w: F32, f: F
+  ~F: Data, ~cam: Hook.cam(F), ~mesh: Hook.mesh(F), skip: Bool, rope: Bool, +c: Cloth, +i: U32,
+  +fit: Fit, +c0: U32, +c1: U32, +rough: F32, +w: F32, +f: F
 ) -> Cells:
   match skip rope:
     case True{} _:
@@ -1055,7 +1055,7 @@ def Font.glyph(c: U32) -> String:
 # its ends past the points so joints close; opaque, nearer than any
 # world point (inverse depth 3000).
 def Text.seg(
-  +ax: F32, +ay: F32, +bx: F32, +by: F32, wv: F32, +wh: F32, col: U32, x1: F32, y1: F32,
+  +ax: F32, +ay: F32, +bx: F32, +by: F32, +wv: F32, +wh: F32, +col: U32, +x1: F32, +y1: F32,
   cells: Cells
 ) -> Cells:
   +dx = (bx - ax : F32)
@@ -1069,8 +1069,8 @@ def Text.seg(
     (ay - ey - ex : F32), 3000.0, col, 0, 1.0, x1, y1, cells)
 
 def Text.stroke(
-  on: Bool, ax: F32, ay: F32, bx: F32, by: F32, wv: F32, wh: F32, col: U32,
-  x1: F32, y1: F32, cells: Cells
+  on: Bool, +ax: F32, +ay: F32, +bx: F32, +by: F32, +wv: F32, +wh: F32, +col: U32,
+  +x1: F32, +y1: F32, cells: Cells
 ) -> Cells:
   match on:
     case False{}:
@@ -1082,7 +1082,7 @@ def Text.stroke(
 # step: a point after another (the pen down) is a stroke; a space
 # lifts the pen.
 def Text.strokes(
-  g: String, down: Bool, px: F32, py: F32, +x: F32, +base: F32, +u: F32, +wv: F32,
+  g: String, down: Bool, +px: F32, +py: F32, +x: F32, +base: F32, +u: F32, +wv: F32,
   +wh: F32, +col: U32, +x1: F32, +y1: F32, cells: Cells
 ) -> Cells:
   match g:
@@ -1130,7 +1130,7 @@ def Text.go(
 # y), the top left of its box, in the frame whose last pixel is (x1,
 # y1); the baseline 0.88 of the size down.
 def Text.put(
-  x: F32, y: F32, +sz: F32, +style: U32, col: U32, s: String, x1: F32, y1: F32, cells: Cells
+  +x: F32, +y: F32, +sz: F32, +style: U32, +col: U32, s: String, +x1: F32, +y1: F32, cells: Cells
 ) -> Cells:
   +k = max(0.8, (sz * pick(U32.is_eq(style, 2), 0.06, pick(U32.is_eq(style, 1), 0.05, 0.035)) : F32))
   Text.go(s, x, (y + sz * 0.88 : F32), (sz * 0.116667 : F32), k,
@@ -1178,7 +1178,7 @@ type Four is Data:
 type Filt is Data:
   Filt{+n: U32, ts: Tris, bs: Tris}
 
-def Tris.put(on: Bool, t: Tri, acc: Tris) -> Tris:
+def Tris.put(on: Bool, +t: Tri, acc: Tris) -> Tris:
   match on:
     case True{}:
       TCons{t, acc}
@@ -1188,7 +1188,7 @@ def Tris.put(on: Bool, t: Tri, acc: Tris) -> Tris:
 # A triangle whose box meets the tile's: kept when no edge separates
 # the tile's corner pixels from it.
 def Tris.test(
-  over: Bool, +t: Tri, fx0: F32, fy0: F32, fx1: F32, fy1: F32, f: Filt
+  over: Bool, +t: Tri, +fx0: F32, +fy0: F32, +fx1: F32, +fy1: F32, f: Filt
 ) -> Filt:
   match over:
     case False{}:
@@ -1220,7 +1220,7 @@ def Tri.in(+l0: F32, +l1: F32) -> Bool:
   ((l0 >= 0.0) && (l1 >= 0.0) && (l0 + l1 <= 1.004) : F32)
 
 def Blk.hit(
-  hit: Bool, +t: Tri, w: F32, i: U32, +px: F32, +py: F32, old: Hit
+  hit: Bool, +t: Tri, +w: F32, +i: U32, +px: F32, +py: F32, +old: Hit
 ) -> Hit:
   match hit:
     case False{}:
@@ -1233,7 +1233,7 @@ def Blk.hit(
       Hit{w, pack((rc + ru * px + rv * py : F32), (gc + gu * px + gv * py : F32),
         (bc + bu * px + bv * py : F32)), i}
 
-def Blk.at(~S: Data, ~at: Sky.at(S), none: Bool, c: U32, x: U32, y: U32, sky: S) -> U32:
+def Blk.at(~S: Data, ~at: Sky.at(S), none: Bool, +c: U32, +x: U32, +y: U32, +sky: S) -> U32:
   match none:
     case False{}:
       c
@@ -1241,7 +1241,7 @@ def Blk.at(~S: Data, ~at: Sky.at(S), none: Bool, c: U32, x: U32, y: U32, sky: S)
       at(x, y, sky)
 
 def Blend.mix(
-  lerp: Bool, +al: F32, r: F32, g: F32, b: F32, +oldr: F32, +oldg: F32,
+  lerp: Bool, +al: F32, +r: F32, +g: F32, +b: F32, +oldr: F32, +oldg: F32,
   +oldb: F32
 ) -> U32:
   match lerp:
@@ -1254,7 +1254,7 @@ def Blend.mix(
 # A colour over the old one by the mode: a soft one lerps its tint by
 # alpha under cos^2 of the distance from its centre (r, g over w).
 def Blend.mode(
-  soft: Bool, m: U32, al: F32, +r: F32, +g: F32, b: F32, w: F32, +old: U32
+  soft: Bool, +m: U32, +al: F32, +r: F32, +g: F32, +b: F32, +w: F32, +old: U32
 ) -> U32:
   match soft:
     case False{}:
@@ -1265,7 +1265,7 @@ def Blend.mode(
       Blend.mix(True{}, (al * c * c : F32), chan((t >> 16n : U32)), chan((t >> 8n : U32)), chan(t),
         chan((old >> 16n : U32)), chan((old >> 8n : U32)), chan(old))
 
-def Blend.px(hit: Bool, +t: Tri, +px: F32, +py: F32, old: U32) -> U32:
+def Blend.px(hit: Bool, +t: Tri, +px: F32, +py: F32, +old: U32) -> U32:
   match hit:
     case False{}:
       old
@@ -1279,7 +1279,7 @@ def Blend.px(hit: Bool, +t: Tri, +px: F32, +py: F32, old: U32) -> U32:
         (gc + gu * px + gv * py : F32), (bc + bu * px + bv * py : F32),
         (wc + wu * px + wv * py : F32), old)
 
-def Blk.one(same: Bool, k0: U32, k1: U32, k2: U32, k3: U32) -> Image:
+def Blk.one(same: Bool, +k0: U32, +k1: U32, +k2: U32, +k3: U32) -> Image:
   match same:
     case True{}:
       Pix{k0}
@@ -1328,7 +1328,7 @@ def Blend.step(+t: Tri, +px: F32, +py: F32, +b: Blk) -> Blk:
 # The transparent triangles over the four blocks in the list's order,
 # one flat loop; then their images.
 def Blend.go(
-  bs: Tris, +px: F32, +py: F32, b0: Blk, b1: Blk, b2: Blk, b3: Blk
+  bs: Tris, +px: F32, +py: F32, +b0: Blk, +b1: Blk, +b2: Blk, +b3: Blk
 ) -> Image:
   match bs:
     case TNil{}:
@@ -1382,7 +1382,7 @@ def Blk.step(+t: Tri, +i: U32, +px: F32, +py: F32, +b: Blk) -> Blk:
 # sixteen pixels; then the backdrop, the blends.
 def Blk.go(
   ~S: Data, ~at: Sky.at(S), cs: Tris, bs: Tris, +i: U32, +px: F32, +py: F32, +x: U32, +y: U32,
-  +sa: S, +sb: S, b0: Blk, b1: Blk, b2: Blk, b3: Blk
+  +sa: S, +sb: S, +b0: Blk, +b1: Blk, +b2: Blk, +b3: Blk
 ) -> Image:
   match cs:
     case TNil{}:
@@ -1399,7 +1399,7 @@ def Blk.go(
 
 # Four blocks under the backdrops of their two column pairs.
 def Tile.b4(
-  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), cs: Tris, bs: Tris, +per: Bool, +x: U32, +y: U32,
+  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), +cs: Tris, +bs: Tris, +per: Bool, +x: U32, +y: U32,
   +sky: S
 ) -> Image:
   +b = {Blk{Hit{0.0, 0, 0}, Hit{0.0, 0, 0}, Hit{0.0, 0, 0}, Hit{0.0, 0, 0}, False{}} : Blk}
@@ -1440,8 +1440,8 @@ def Tile.b16(
 # A plain tile (no hit, nothing of the backdrop crossing) is one Pix;
 # else its pixels over its lists.
 def Tile.pick(
-  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), plain: Bool, +cs: Tris, +bs: Tris, per: Bool, x: U32,
-  y: U32, sky: S
+  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), plain: Bool, +cs: Tris, +bs: Tris, +per: Bool, +x: U32,
+  +y: U32, +sky: S
 ) -> Image:
   match plain:
     case True{}:
@@ -1450,7 +1450,7 @@ def Tile.pick(
       Tile.fin(Tile.b16(~S, ~col, ~at, cs, bs, per, x, y, sky), cs, bs)
 
 def Tile.fate(
-  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), f: Filt, +per: Bool, x: U32, y: U32, sky: S
+  ~S: Data, ~col: Sky.col(S), ~at: Sky.at(S), f: Filt, +per: Bool, +x: U32, +y: U32, +sky: S
 ) -> Image:
   Filt{n, cs, bs} = f
   Tile.pick(~S, ~col, ~at, Bool.and(U32.is_eq(n, 0), Bool.not(per)), cs, bs, per, x, y, sky)

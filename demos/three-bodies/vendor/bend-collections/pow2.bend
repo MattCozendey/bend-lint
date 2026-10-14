@@ -15,5 +15,5 @@ def go(d: Nat, acc: Nat) -> Nat:
     case 1n+p:
       go(p, Nat.double(acc))
 
-def pow2t(d: Nat) -> Nat:
+def pow2t(+d: Nat) -> Nat:
   go(d, 1n)

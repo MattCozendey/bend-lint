@@ -147,11 +147,11 @@ def rend.mix(+hd: Nat, +tn: Nat, lut: Lut) -> U32:
       m5 = U32.add(U32.mul(m4, 2654435761), l5)
       m6 = U32.add(U32.mul(m5, 2654435761), l6)
       m7 = U32.add(U32.mul(m6, 2654435761), l7)
-      r = rcol!(Nat.add(hd, 6n), 0, tn, l0, l1, l2, l3, l4, l5, l6, l7)
+      r = rcol(Nat.add(hd, 6n), 0, tn, l0, l1, l2, l3, l4, l5, l6, l7)
       U32.add(U32.mul(m7, 2654435761), r)
 
 def rend(+hd: Nat, +tn: Nat) -> U32:
-  rend.mix(hd, tn, cdf(hfold!(hd, 0, tn)))
+  rend.mix(hd, tn, cdf(hfold(hd, 0, tn)))
 
 def its() -> Nat:
   51n

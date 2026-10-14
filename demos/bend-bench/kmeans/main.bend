@@ -145,7 +145,7 @@ def step.fin(c0: U32, c1: U32, c2: U32, c3: U32, c4: U32, c5: U32, c6: U32,
 def step(d: Nat, +c0: U32, +c1: U32, +c2: U32, +c3: U32, +c4: U32, +c5: U32,
          +c6: U32, +c7: U32) -> Cs:
   step.fin(c0, c1, c2, c3, c4, c5, c6, c7,
-    pfold!(Nat.sub(d, 6n), 0, c0, c1, c2, c3, c4, c5, c6, c7))
+    pfold(Nat.sub(d, 6n), 0, c0, c1, c2, c3, c4, c5, c6, c7))
 
 def loop(r: Nat, +d: Nat, cs: Cs) -> U32:
   match r cs:

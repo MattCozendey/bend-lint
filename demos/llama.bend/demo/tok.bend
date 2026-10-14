@@ -323,8 +323,7 @@ def ws3(+run: List<&2, U32>, +rest: List<&2, U32>, ends: Bool, +n: Nat) -> List<
     case True{}:
       (run, rest)
     case False{}:
-      +l = lcl(run, 0n)
-      ws4(Nat.is_lt(l, n), run, rest, n, l)
+      ws4(Nat.is_lt(lcl(run, 0n), n), run, rest, n, lcl(run, 0n))
 
 # a run that ends the text, or ends right before a digit, is taken whole: SmolLM2 splits every digit off
 # first, so the regex sees the run at the end of its segment and \s+(?!\S) matches all of it

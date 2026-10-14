@@ -868,7 +868,7 @@ def block(+c: Cfg, +d: Nat, lw: LW<c>, -cap: Nat, +t: Nat, kv: KV<cap, t>, -room
                 mv(BR<c, cap, t>, Cfg.ffn(c), Cfg.dim(c), wu, n2, wu => +u =>
                   mv(BR<c, cap, t>, Cfg.dim(c), Cfg.ffn(c), wd, swiglu(g, u), wd => +m =>
                     +y = T.zip_with.add(x1, m)
-                    BR{y, kv2, LW{ln1, wq, wk, wv, wo, ln2, wg, wu, wd}, Act{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}}))))))))
+                    BR{y, kv2, LW{ln1, wq, wk, wv, wo, ln2, wg, wu, wd}, Act{n1, q, k, v, flat(qs), flat(ks), at, a, n2, m, y}}))))))))
 
 # =====================================================================================================
 # The model

@@ -234,7 +234,7 @@ def run.fin(t: Hs) -> U32:
       U32.add(U32.mul(g7, 2654435761), cs)
 
 def run(d: Nat, ts: Nat) -> U32:
-  run.fin(batch!(d, 0, ts))
+  run.fin(batch(d, 0, ts))
 
 def sy() -> Nat:
   17n

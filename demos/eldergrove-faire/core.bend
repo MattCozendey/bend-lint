@@ -3072,11 +3072,9 @@ def Park.tick(p: Park) -> Out:
   +plan = Boards.plan(guests, occ, map, rides, stn, [])
   +moved = Guests.step(guests, map, rides, time, plan, stn, Queue.list(guests, map, []))
   +arr = Guests.arrivals(guests, rides, time, nid, fin)
-  +narr = len32(Guest, arr)
-  +led = Ledger.tick(guests, rides, time, plan, narr, fin, staff)
+  +led = Ledger.tick(guests, rides, time, plan, len32(Guest, arr), fin, staff)
   +evs = Mess.events(guests, plan, map, time)
-  +nmess = len32(U32, mess)
-  +drops = Mess.drops(evs, (nmess < 600 : U32))
+  +drops = Mess.drops(evs, (len32(U32, mess) < 600 : U32))
   +swept = Mess.swept(mess, staff)
   +map1 = Mess.mark(swept, False{}, Mess.mark(drops, True{}, Bin.fill(Mess.only(evs, False{}), map)))
   +map2 = Staff.stamp_if(U32.is_eq((time .&. 63 : U32), 0), staff, Staff.tend(staff, map1), time)
@@ -3084,7 +3082,7 @@ def Park.tick(p: Park) -> Out:
     Rides.tick(rides, 0, map, track, occ, plan,
       Qlen.fill_if(U32.is_eq((time .&. 15 : U32), 0), guests, map, len32(Ride, rides)), U32.is_eq((time .&. 15 : U32), 0), time, Staff.fixing(staff)),
     Tracks.tick(track), Ledger.apply(led, cash), (time + 1 : U32),
-    (nid + narr : U32), Fin.tick(fin, time, guests, rides, nmess, map),
+    (nid + len32(Guest, arr) : U32), Fin.tick(fin, time, guests, rides, len32(U32, mess), map),
     List.append(&2, U32, drops, Mess.kept(mess, staff)), Staff.steps(staff, map, rides, mess, time)}, led, arr, Guests.left(moved), drops, swept}
 
 # Building
@@ -3349,9 +3347,8 @@ def Park.build(p: Park, +tool: U32, +x: U32, +y: U32, +v: U32) -> Out:
   Park{+map, guests, +rides, +track, +cash, +time, nid, fin, mess, staff} = p
   +ok = Build.ok(map, track, cash, tool, x, y)
   +led = Build.ledger(ok, map, rides, tool, x, y)
-  +ntrack = len32(Track, track)
-  Out{Park{Land.fix(Build.map(ok, map, rides, tool, x, y, v, ntrack)), guests,
-    Build.rides(ok, map, rides, tool, x, y, time, ntrack), Build.track(ok, map, track, tool,
+  Out{Park{Land.fix(Build.map(ok, map, rides, tool, x, y, v, len32(Track, track))), guests,
+    Build.rides(ok, map, rides, tool, x, y, time, len32(Track, track)), Build.track(ok, map, track, tool,
     x, y, v), Ledger.apply(led, cash), time, nid, fin, mess, staff}, led, [], [], [], []}
 
 # Coaster track editing

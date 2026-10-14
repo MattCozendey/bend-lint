@@ -174,7 +174,7 @@ def run.fin(r: Nat, +p: Nat, t: Sel) -> U32:
       U32.add(climb(r, s, f, p), c)
 
 def run(d: Nat, s0: U32, r: Nat, +p: Nat) -> U32:
-  run.fin(r, p, batch!(d, s0, p))
+  run.fin(r, p, batch(d, s0, p))
 
 def size() -> Nat:
   18n
