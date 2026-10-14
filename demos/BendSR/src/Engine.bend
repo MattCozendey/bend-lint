@@ -5,7 +5,7 @@ import ./Genetics.bend as G
 
 # Avalia um único indivíduo
 def eval_individual(+tree: T.Expr, +points: +List<T.Point>) -> T.Individual:
-  mae = E.compute_mae!(tree, points)
+  mae = E.compute_mae(tree, points)
   T.Ind{tree, mae}
 
 # Avalia toda a população em paralelo
@@ -13,8 +13,8 @@ def evaluate_population(pop: +List<T.Expr>, +points: +List<T.Point>) -> +List<T.
   match pop:
     case Nil{}: Nil{}
     case Con{+head, tail}:
-      ind = eval_individual!(head, points)
-      tail_eval = evaluate_population!(tail, points)
+      ind = eval_individual(head, points)
+      tail_eval = evaluate_population(tail, points)
       Con{ind, tail_eval}
 
 # Busca um elemento na lista pelo índice
@@ -63,16 +63,16 @@ def generate_next_pop(count: U32, +pop: +List<T.Individual>, +pop_len: U32, +see
   match count:
     case 0: Nil{}
     case +c:
-      child = breed_child!(pop, pop_len, U32.add(seed, U32.mul(count, 37)))
-      rest = generate_next_pop!(c, pop, pop_len, seed)
+      child = breed_child(pop, pop_len, U32.add(seed, U32.mul(count, 37)))
+      rest = generate_next_pop(c, pop, pop_len, seed)
       Con{child, rest}
 
 # Loop recursivo de evolução
 def evolve(gen: Nat, pop: +List<T.Expr>, +points: +List<T.Point>, +pop_len: U32, +seed: U32) -> +List<T.Individual>:
   match gen:
     case 0n:
-      evaluate_population!(pop, points)
+      evaluate_population(pop, points)
     case 1n++g:
-      evaluated = evaluate_population!(pop, points)
-      next_pop = generate_next_pop!(pop_len, evaluated, pop_len, U32.add(seed, U32.mul(U32.from_nat(g), 1000)))
-      evolve!(g, next_pop, points, pop_len, seed)
+      evaluated = evaluate_population(pop, points)
+      next_pop = generate_next_pop(pop_len, evaluated, pop_len, U32.add(seed, U32.mul(U32.from_nat(g), 1000)))
+      evolve(g, next_pop, points, pop_len, seed)

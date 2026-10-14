@@ -11,7 +11,7 @@ def get_var(+idx: U32, +vars: T.FList) -> F32:
     case +p:
       match vars:
         case T.FNil{}: 0.0
-        case T.FCon{head, +tail}: get_var!(p, tail)
+        case T.FCon{head, +tail}: get_var(p, tail)
 
 # Helper para decisão de divisão por zero (inspeciona o parâmetro is_zero)
 def safe_div_help(is_zero: Bool, num: F32, den: F32) -> F32:
@@ -54,5 +54,5 @@ def compute_mae(+expr: T.Expr, +points: +List<T.Point>) -> F32:
       match head:
         case T.Pt{xs, py}:
           head_err = point_error(expr, xs, py)
-          tail_err = compute_mae!(expr, tail)
+          tail_err = compute_mae(expr, tail)
           F32.add(head_err, tail_err)
