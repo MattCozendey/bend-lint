@@ -198,12 +198,13 @@ def reaches.next(
       Some{Lists.onto(&2, String, cs, rest)}
 
 # Whether a parallel let runs under the definitions of `todo` (none: one was found): in them, or in what they call.
-# `fuel` bounds the steps; when it runs out, the answer is yes, as a fork may lie past it.
+# `fuel` bounds the steps; when it runs out, the answer is `unknown`, the one that makes the caller report nothing.
 def reaches(
   fuel: Nat,
   todo: Maybe<&2, List<&2, String>>,
   +seen: List<&2, String>,
-  +defs: Map<&2, Maybe<&2, Def>>
+  +defs: Map<&2, Maybe<&2, Def>>,
+  unknown: Bool
 ) -> Bool:
   match fuel todo:
     case _ None{}:
@@ -211,7 +212,7 @@ def reaches(
     case _ Some{Nil{}}:
       False{}
     case 0n _:
-      True{}
+      unknown
     case 1n+f Some{Con{+t, rest}}:
       reaches(
         f,
@@ -222,7 +223,8 @@ def reaches(
           rest
         ),
         t <> seen,
-        defs
+        defs,
+        unknown
       )
 
 def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&2, Slot>:
@@ -418,7 +420,12 @@ def banged(
 ) -> List<&2, Lint.Finding>:
   match info drop:
     case Some{Def{t, params, forks, calls, r}} False{}:
-      banged.of(reaches(256n, Some{[t]}, [], defs), data(params, None{}, slots), callee, span)
+      banged.of(
+        reaches(4096n, Some{[t]}, [], defs, True{}),
+        data(params, None{}, slots),
+        callee,
+        span
+      )
     case _ _:
       []
 
