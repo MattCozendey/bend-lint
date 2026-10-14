@@ -17,6 +17,7 @@
     "performance/eager-branch": {},
     "performance/gpu-fit": {},
     "performance/list-index-loop": {},
+    "performance/loop-invariant-call": {},
     "performance/missed-fork": {},
     "performance/unused-result": {}
   }
