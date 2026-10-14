@@ -28,9 +28,15 @@ def eval(+expr: T.Expr, +vars: T.FList) -> F32:
   match expr:
     case T.Val{val}: val
     case T.Var{idx}: get_var(idx, vars)
-    case T.Add{left, right}: F32.add(eval(left, vars), eval(right, vars))
-    case T.Mul{left, right}: F32.mul(eval(left, vars), eval(right, vars))
-    case T.Div{num, den}: safe_div(eval(num, vars), eval(den, vars))
+    case T.Add{left, right}:
+      a b = eval(left, vars) eval(right, vars)
+      F32.add(a, b)
+    case T.Mul{left, right}:
+      a b = eval(left, vars) eval(right, vars)
+      F32.mul(a, b)
+    case T.Div{num, den}:
+      a b = eval(num, vars) eval(den, vars)
+      safe_div(a, b)
     case T.Sin{arg}: F32.sin(eval(arg, vars))
     case T.Cos{arg}: F32.cos(eval(arg, vars))
     case T.Exp{arg}: F32.exp(eval(arg, vars))
