@@ -57,7 +57,7 @@ def min(+a: F32, +b: F32) -> F32:
 def max(+a: F32, +b: F32) -> F32:
   pick((a < b : F32), b, a)
 
-def sat(+x: F32) -> F32:
+def sat(x: F32) -> F32:
   min(1.0, max(0.0, x))
 
 # Doubles
@@ -102,13 +102,13 @@ def Rsq.bit(b: Bool) -> U32:
 
 def Rsq.guess(+x: D.F64) -> D.F64:
   +hi = D.word_hi(x)
-  +lo = D.word_lo(x)
+  lo = D.word_lo(x)
   +slo = (lo >> 1n .|. (hi .&. 1) << 31n : U32)
-  +shi = (hi >> 1n : U32)
+  shi = (hi >> 1n : U32)
   D.of_bits((1608969040 - shi - Rsq.bit((3350542249 < slo : U32)) : U32), (3350542249 - slo : U32))
 
 # 1.5
-def Rsq.newton(+h: D.F64, +y: D.F64) -> D.F64:
+def Rsq.newton(h: D.F64, +y: D.F64) -> D.F64:
   D.mul(y, D.sub(D.of_bits(1073217536, 0), D.mul(h, D.mul(y, y))))
 
 def Rsq.of(+x: D.F64) -> D.F64:
@@ -116,7 +116,7 @@ def Rsq.of(+x: D.F64) -> D.F64:
   Rsq.newton(h, Rsq.newton(h, Rsq.newton(h, Rsq.newton(h, Rsq.guess(x)))))
 
 # 1/x, for x > 0.
-def Dbl.inv(+x: D.F64) -> D.F64:
+def Dbl.inv(x: D.F64) -> D.F64:
   +q = Rsq.of(x)
   D.mul(q, q)
 
@@ -136,7 +136,7 @@ def Dbl.of_f32(x: F32) -> D.F64:
 def Dbl.to_f32(+x: D.F64) -> F32:
   +hi = D.word_hi(x)
   +e = (hi >> 20n .&. 2047 : U32)
-  +m = U32.to_f32((8388608 .|. (hi .&. 1048575) << 3n .|. D.word_lo(x) >> 29n : U32))
+  m = U32.to_f32((8388608 .|. (hi .&. 1048575) << 3n .|. D.word_lo(x) >> 29n : U32))
   +v = (m * F32.pow(2.0, (U32.to_f32(e) - 1046.0 : F32)) : F32)
   pick(U32.is_eq(e, 0), 0.0, pick(((hi >> 31n) > 0 : U32), (0.0 - v : F32), v))
 
@@ -185,8 +185,8 @@ def Body.pull(+p: Body, +q: Body) -> Vec:
 def Body.pace(+p: Body, +q: Body) -> D.F64:
   Body{px, py, pu, pv, pm} = p
   Body{qx, qy, qu, qv, qm} = q
-  +dx = D.sub(qx, px)
-  +dy = D.sub(qy, py)
+  dx = D.sub(qx, px)
+  dy = D.sub(qy, py)
   +wx = D.sub(qu, pu)
   +wy = D.sub(qv, pv)
   +i = Rsq.of(Body.r2(dx, dy))
@@ -226,18 +226,18 @@ def Sys.drift(+s: Sys, +h: D.F64) -> Sys:
   Sys{a, b, c} = s
   Sys{Body.drift(a, h), Body.drift(b, h), Body.drift(c, h)}
 
-def Sys.pulled(+s: Sys, +h: D.F64) -> Sys:
+def Sys.pulled(+s: Sys, h: D.F64) -> Sys:
   Sys{a, b, c} = s
   Sys.kick(s, Body.pull(a, b), Body.pull(a, c), Body.pull(b, c), h)
 
 # A leapfrog: half a drift, a kick, half a drift.
-def Sys.leap(+s: Sys, +h: D.F64) -> Sys:
+def Sys.leap(s: Sys, +h: D.F64) -> Sys:
   +hh = D.mul(Dbl.half(), h)
   Sys.drift(Sys.pulled(Sys.drift(s, hh), h), hh)
 
 # Forest-Ruth: three leapfrogs of w, 1 - 2w and w, with w = 1/(2 - 2^(1/3))
 # = 1.3512071919596578, cancel the error to the 4th order.
-def Sys.step(+s: Sys, +h: D.F64) -> Sys:
+def Sys.step(s: Sys, +h: D.F64) -> Sys:
   +w = D.mul(D.of_bits(1073061515, 1857643321), h)
   Sys.leap(Sys.leap(Sys.leap(s, w), D.sub(h, D.add(w, w))), w)
 
@@ -263,12 +263,12 @@ def Sys.run(fuel: Nat, done: Bool, +left: D.F64, +s: Sys) -> Ran:
           +rest = D.sub(left, h)
           Sys.run(f, D.le(rest, Dbl.zero()), rest, Sys.step(s, h))
 
-def Body.shift(p: Body, +dx: D.F64, +dy: D.F64, +du: D.F64, +dv: D.F64) -> Body:
+def Body.shift(p: Body, dx: D.F64, dy: D.F64, du: D.F64, dv: D.F64) -> Body:
   Body{x, y, u, v, m} = p
   Body{D.sub(x, dx), D.sub(y, dy), D.sub(u, du), D.sub(v, dv), m}
 
 # sum m q / sum m, for q one coordinate of the three.
-def Sys.mean(+am: D.F64, +bm: D.F64, +cm: D.F64, aq: D.F64, bq: D.F64, cq: D.F64, +inv: D.F64) -> D.F64:
+def Sys.mean(am: D.F64, bm: D.F64, cm: D.F64, aq: D.F64, bq: D.F64, cq: D.F64, inv: D.F64) -> D.F64:
   D.mul(D.add(D.add(D.mul(am, aq), D.mul(bm, bq)), D.mul(cm, cq)), inv)
 
 # The system seen from its centre of mass, at rest: the camera never
@@ -300,7 +300,7 @@ def Sys.sane(+s: Sys) -> Bool:
 # Is p leaving for good? Seen from the centre of mass of the other
 # two, it is more than 800 px away, moving outwards, and its two-body
 # energy is positive: an ejection, not an excursion.
-def Body.gone(+p: Body, +q: Body, +r: Body, +zoom: D.F64) -> Bool:
+def Body.gone(+p: Body, +q: Body, +r: Body, zoom: D.F64) -> Bool:
   Body{px, py, pu, pv, pm} = p
   Body{qx, qy, qu, qv, +qm} = q
   Body{rx, ry, ru, rv, +rm} = r
@@ -348,7 +348,7 @@ def Scn.rand(+x: U32) -> U32:
   (b .^. b << 5n : U32)
 
 # A number in [0, 1) from the seed's k-th successor.
-def Scn.unit(k: Nat, +seed: U32) -> F32:
+def Scn.unit(k: Nat, seed: U32) -> F32:
   match k:
     case 0n:
       (U32.to_f32((seed >> 8n .&. 65535 : U32)) / 65536.0 : F32)
@@ -550,9 +550,9 @@ def Star.lit(+s: Star, +fx: F32, +fy: F32) -> Lit:
   +reach = (25.0 * rr : F32)
   +sx = (reach / (reach + dx * dx) : F32)
   +sy = (reach / (reach + dy * dy) : F32)
-  +spike = (sat((1.0 - 0.75 * F32.abs(dy) : F32)) * sx * sx + sat((1.0 - 0.75 * F32.abs(dx) : F32)) * sy * sy : F32)
-  +gain = (0.9 * sat((0.25 * (r - 3.0) : F32)) : F32)
-  +lay = sat((1.3 + 0.08 * r - F32.sqrt(min(Px.seg(fx, fy, ox, oy, hx, hy), Px.seg(fx, fy, hx, hy, x, y))) : F32))
+  spike = (sat((1.0 - 0.75 * F32.abs(dy) : F32)) * sx * sx + sat((1.0 - 0.75 * F32.abs(dx) : F32)) * sy * sy : F32)
+  gain = (0.9 * sat((0.25 * (r - 3.0) : F32)) : F32)
+  lay = sat((1.3 + 0.08 * r - F32.sqrt(min(Px.seg(fx, fy, ox, oy, hx, hy), Px.seg(fx, fy, hx, hy, x, y))) : F32))
   Lit{(2.0 * rr / (d2 + rr) + 8.0 * rr / (d2 + reach) + gain * spike + 2.0 * core : F32), (3.0 * core : F32),
     p, (q * dx : F32), (q * dy : F32), F32.to_u32((63.0 * lay : F32))}
 
@@ -581,7 +581,7 @@ def Px.mix(
   Lit{wc, kc, +pc, gxc, gyc, +tc} = lc
   +h = Px.hash(x, y)
   +in0 = (old >> 24n .&. 63 : U32)
-  +due = ((((phase - h) .&. 63) < fade) && (in0 > 0) : U32)
+  due = ((((phase - h) .&. 63) < fade) && (in0 > 0) : U32)
   +in1 = word(((mode .&. 1) > 0 : U32), 0, word(due, (in0 - 1 : U32), in0))
   +k1 = ((ta > 0) && (ta >= in1) : U32)
   +v1 = word(k1, ta, in1)
@@ -597,9 +597,9 @@ def Px.mix(
   +gy = (gya + gyb + gyc : F32)
   +lvl = (7.0 * F32.log(p) : F32)
   +n = F32.floor((lvl + 0.5 : F32))
-  +e = F32.abs((lvl - n : F32))
+  e = F32.abs((lvl - n : F32))
   +slope = (7.0 * F32.sqrt((gx * gx + gy * gy : F32)) / p + 0.000001 : F32)
-  +major = pick(F32.is_eq((n - 4.0 * F32.floor((0.25 * n : F32)) : F32), 0.0), 0.26, 0.11)
+  major = pick(F32.is_eq((n - 4.0 * F32.floor((0.25 * n : F32)) : F32), 0.0), 0.26, 0.11)
   +line = (major * sat((1.2 - e / slope : F32)) * sat((2.4 - 4.0 * slope : F32))
     * U32.to_f32((mode >> 1n .&. 1 : U32)) / p : F32)
   +fa = (wa + line * pa + pick(U32.is_eq(id, 1), glow, 0.0) : F32)
@@ -796,7 +796,7 @@ def World.fate(lost: Bool, late: Bool, flung: Bool, +w: World) -> World:
 
 # The world after the frame's run: the time it got to, its age, the
 # trail ticks that passed, and its fate.
-def World.land(ran: Ran, mid: Sys, +dt: D.F64, +ms: U32, +now: Nat, +w: World) -> World:
+def World.land(ran: Ran, mid: Sys, dt: D.F64, +ms: U32, now: Nat, +w: World) -> World:
   Ran{+s, left} = ran
   World{sys, _, run, opt, clk} = w
   Run{id, seed, t, e0, age, wipe} = run
@@ -810,7 +810,7 @@ def World.land(ran: Ran, mid: Sys, +dt: D.F64, +ms: U32, +now: Nat, +w: World) -
 
 # The second half of the frame's run, from where the first got to and
 # with the time it left; the bodies in between give the trail a bend.
-def World.half(ran: Ran, half: D.F64, +dt: D.F64, +ms: U32, +now: Nat, +w: World) -> World:
+def World.half(ran: Ran, half: D.F64, dt: D.F64, ms: U32, now: Nat, w: World) -> World:
   Ran{+mid, left} = ran
   +due = D.add(half, left)
   World.land(Sys.run(2048n, D.le(due, Dbl.zero()), due, mid), mid, dt, ms, now, w)
@@ -818,7 +818,7 @@ def World.half(ran: Ran, half: D.F64, +dt: D.F64, +ms: U32, +now: Nat, +w: World
 # A frame of the world: paused, only the clocks move; else the bodies
 # run for the time since the last frame (50 ms at most) at the
 # scenario's rate and the user's speed.
-def World.turn(paused: Bool, +ms: U32, +now: Nat, +w: World) -> World:
+def World.turn(paused: Bool, +ms: U32, now: Nat, +w: World) -> World:
   match paused:
     case True{}:
       World{sys, _, run, opt, clk} = w
@@ -925,7 +925,7 @@ def World.digit(digit: Bool, zero: Bool, code: U32, w: World) -> World:
     case False{} False{}:
       w
 
-def World.key(+code: U32, +w: World) -> World:
+def World.key(+code: U32, w: World) -> World:
   match code:
     case 32:
       World.pause(w)
@@ -980,7 +980,7 @@ def Tag.of(on: Bool, text: String) -> String:
       ""
 
 # x with two decimals.
-def Fix.show(+x: F32) -> String:
+def Fix.show(x: F32) -> String:
   +n = F32.to_u32((x * 100.0 + 0.5 : F32))
   +c = (n % 100 : U32)
   U32.show((n / 100 : U32)) ++ "." ++ Tag.of((c < 10 : U32), "0") ++ U32.show(c)
@@ -988,7 +988,7 @@ def Fix.show(+x: F32) -> String:
 # The scenario, the frame rate, the time simulated, the drift of the
 # energy in parts per million, the speed.
 def World.title(w: World, fps: U32) -> String:
-  World{+sys, _, run, opt, _} = w
+  World{sys, _, run, opt, _} = w
   Run{+id, _, t, +e0, _, _} = run
   Opt{paused, _, tour, speed} = opt
   "3 Bodies | " ++ U32.show((id + 1 : U32)) ++ "/10 " ++ Scn.name(id) ++ " | " ++ U32.show(fps)

@@ -19,7 +19,7 @@ import ./bend3d.bend as R
 # Camera
 # ------
 
-def Math.smooth(+x: F32) -> F32:
+def Math.smooth(x: F32) -> F32:
   +u = R.sat(x)
   (u * u * (3.0 - 2.0 * u) : F32)
 
@@ -30,18 +30,18 @@ type Lens is Data:
 # The lens a tick later: it leads the hero's fall, frames him and the
 # boss, and springs to the frame.
 def Lens.follow(
-  +l: Lens, +px: F32, +py: F32, +hvx: F32, +hvy: F32, +bx: F32, +by: F32,
-  +byaw: F32
+  +l: Lens, +px: F32, +py: F32, hvx: F32, hvy: F32, +bx: F32, +by: F32,
+  byaw: F32
 ) -> Lens:
   Lens{x, y, w, vx, vy, vw} = l
-  +cx = R.clamp((px * 0.55 + (bx - F32.cos(byaw)) * 0.45 : F32),
+  cx = R.clamp((px * 0.55 + (bx - F32.cos(byaw)) * 0.45 : F32),
     (0.0 - 5.0 : F32), 5.0)
   +lead = (hvy * 3.0 : F32)
   +low = R.min((py + lead : F32), by)
   +high = R.max((py + 1.8 + lead : F32), (by + 5.1 : F32))
   +wide = R.clamp(R.max((F32.abs((px - bx : F32)) + 14.0 : F32),
       ((high - low + 2.2) * 2.0 : F32)), 19.0, 39.0)
-  +cy = R.clamp(((low + high) * 0.5 - wide * 0.055 : F32), (0.0 - 4.5 : F32),
+  cy = R.clamp(((low + high) * 0.5 - wide * 0.055 : F32), (0.0 - 4.5 : F32),
     8.0)
   +dx = R.clamp(((vx + (cx - x) * 0.06) * 0.68 : F32), (0.0 - 0.25 : F32), 0.25)
   +dy = R.clamp(((vy + (cy - y) * 0.06) * 0.68 : F32), (0.0 - 0.20 : F32), 0.20)
@@ -83,25 +83,25 @@ def Stage.cam(+v: View) -> R.Cam:
 
 # The original's plain face (roughness 0.62), a painted part, a bead, a
 # bone, a translucent face; tags 1 and 2 grain the stone and the moon.
-def Mat.flat(+c: U32) -> R.Mat:
+def Mat.flat(c: U32) -> R.Mat:
   R.Mat{c, 0.62, 0.0, 0.0, 0, 0, 1.0}
 
-def Mat.paint(+c: U32, +rough: F32, +metal: F32, +glow: F32) -> R.Mat:
+def Mat.paint(c: U32, rough: F32, metal: F32, glow: F32) -> R.Mat:
   R.Mat{c, rough, metal, glow, 0, 0, 1.0}
 
-def Mat.bead(+c: U32, +glow: F32) -> R.Mat:
+def Mat.bead(c: U32, glow: F32) -> R.Mat:
   Mat.paint(c, 0.24, 0.20, glow)
 
-def Mat.bone(+c: U32) -> R.Mat:
+def Mat.bone(c: U32) -> R.Mat:
   Mat.paint(c, 0.38, 0.30, 0.0)
 
 # The tint by the material's tag: the stone's grain from the place,
 # the moon's from (u, v), else the colour.
-def Stage.tint(stone: Bool, moon: Bool, +c: U32, +p: R.Vec, +u: F32, +v: F32) -> R.Vec:
+def Stage.tint(stone: Bool, moon: Bool, c: U32, +p: R.Vec, +u: F32, +v: F32) -> R.Vec:
   match stone moon:
     case True{} _:
       R.Vec{x, y, z} = p
-      +g = (F32.sin((x * 2.4 + z * 3.1 : F32)) * F32.cos((y * 2.3 - z * 1.7 : F32)) : F32)
+      g = (F32.sin((x * 2.4 + z * 3.1 : F32)) * F32.cos((y * 2.3 - z * 1.7 : F32)) : F32)
       R.Vec.mix(R.Vec.rgb(2239030), R.Vec.rgb(7765633), (0.3 * R.sat((0.36 + g * 0.14
         + F32.sin((x * 7.8 + y * 3.2 + z * 5.4 : F32)) * 0.06 : F32)) : F32))
     case _ True{}:
@@ -142,11 +142,11 @@ def Stage.shade(+mat: R.Mat, +p: R.Vec, n: R.Vec, u: F32, v: F32, f: View) -> R.
 # Surfaces
 # --------
 
-def Arch.x(+x: F32, +u: F32) -> F32:
+def Arch.x(x: F32, u: F32) -> F32:
   (x - F32.cos((3.1415927 * u : F32)) * 3.1 : F32)
 
 # The vault over the columns: a half ellipse 3.1 wide and 4.0 high.
-def Arch.y(+u: F32) -> F32:
+def Arch.y(u: F32) -> F32:
   (4.3 + 4.0 * F32.sin((3.1415927 * u : F32)) : F32)
 
 # The game's unit shapes: 0 the cliff under the arena and 1 the arch
@@ -197,7 +197,7 @@ def Stage.size(k: U32, +r: F32, +fx: F32, +fy: F32, +fz: F32) -> R.Vec:
     R.pick(own, R.Grid.len(fy), 9999.0), 0.0}
 
 # An own shape in the identity basis.
-def Stage.raw(+k: U32, +x: F32) -> R.Surf:
+def Stage.raw(k: U32, x: F32) -> R.Surf:
   R.Inst{R.Own{k, x}, R.Vec{0.0, 0.0, 0.0}, R.Vec{1.0, 0.0, 0.0}, R.Vec{0.0, 1.0, 0.0},
     R.Vec{0.0, 0.0, 1.0}}
 
@@ -211,8 +211,8 @@ def Mesh.of(+s: R.Surf, +mat: R.Mat, +nu: U32, +nv: U32, +f: View) -> R.Cells:
 # A box of half sizes hx, hz from y0 to y1: its sides (nu around) and
 # its lid (on top at lid 1, underneath at -1).
 def Box.build(
-  +cx: F32, +y0: F32, +y1: F32, +cz: F32, +hx: F32, +hz: F32, +lid: F32, +mat: R.Mat,
-  +nu: U32, +view: View
+  +cx: F32, +y0: F32, y1: F32, +cz: F32, +hx: F32, +hz: F32, +lid: F32, +mat: R.Mat,
+  nu: U32, +view: View
 ) -> R.Cells:
   +hy = ((y1 - y0) * 0.5 : F32)
   +cy = (y0 + hy : F32)
@@ -222,7 +222,7 @@ def Box.build(
   R.Cells.merge(a, b)
 
 # A horn strut from under a platform's edge at x to under its centre.
-def Stage.strut(+x: F32, +px: F32, +py: F32, +view: View) -> R.Cells:
+def Stage.strut(x: F32, px: F32, +py: F32, view: View) -> R.Cells:
   Mesh.of(R.Inst.span(R.Own{2, 0.0}, R.Vec{x, (py - 0.23 : F32), 0.0}, R.Vec{px, (py - 0.73 : F32), 0.0},
     0.75, 0.72), Mat.paint(5658961, 0.75, 0.12, 0.0), 8, 4, view)
 
@@ -242,7 +242,7 @@ def Stage.platform(+px: F32, +py: F32, +r: F32, +view: View) -> R.Cells:
   R.Cells.merge(R.Cells.m4(a, b, c, d), R.Cells.merge(e, f))
 
 # A column of a ruin at x, from -3 to 4.3 at z = -15.
-def Stage.column(+x: F32, +view: View) -> R.Cells:
+def Stage.column(+x: F32, view: View) -> R.Cells:
   Mesh.of(R.Inst.span(R.Tube{}, R.Vec{x, (0.0 - 3.0 : F32), (0.0 - 15.0 : F32)},
     R.Vec{x, 4.3, (0.0 - 15.0 : F32)}, 0.24, 0.24), Mat.flat(2239030), 8, 2, view)
 
@@ -304,13 +304,13 @@ def Stage.level(+x: F32, +y: F32) -> F32:
 
 # A corner of a contact shadow: the ground point q projected, (u, v)
 # (the rim at 1) times w in r and g, the tint (8, 12, 20) in b.
-def Shadow.vert(+u: F32, +v: F32, +q: R.Vec) -> R.Vert:
+def Shadow.vert(u: F32, v: F32, +q: R.Vec) -> R.Vert:
   R.Vec{sx, sy, w} = q
   R.Vert{sx, sy, w, (u * w : F32), (v * w : F32), 527380.0}
 
 # The shadow's quad (mode 3): sp by 0.48 sp about x on the ground lv,
 # alpha 0.36 at the centre, spread and faded by the height h.
-def Shadow.on(on: Bool, +x: F32, +lv: F32, +h: F32, +size: F32, +view: View) -> R.Cells:
+def Shadow.on(on: Bool, +x: F32, lv: F32, +h: F32, size: F32, view: View) -> R.Cells:
   match on:
     case False{}:
       R.CNil{}
@@ -322,13 +322,13 @@ def Shadow.on(on: Bool, +x: F32, +lv: F32, +h: F32, +size: F32, +view: View) -> 
       +al = (0.36 / (1.0 + h * 0.30 : F32) : F32)
       +a = Shadow.vert((0.0 - 1.0 : F32), (0.0 - 1.0 : F32),
         R.Cam.proj(cam, R.Vec{(x - sp : F32), y, (0.0 - sz : F32)}))
-      +b = Shadow.vert(1.0, (0.0 - 1.0 : F32), R.Cam.proj(cam, R.Vec{(x + sp : F32), y, (0.0 - sz : F32)}))
+      b = Shadow.vert(1.0, (0.0 - 1.0 : F32), R.Cam.proj(cam, R.Vec{(x + sp : F32), y, (0.0 - sz : F32)}))
       +c = Shadow.vert(1.0, 1.0, R.Cam.proj(cam, R.Vec{(x + sp : F32), y, sz}))
-      +d = Shadow.vert((0.0 - 1.0 : F32), 1.0, R.Cam.proj(cam, R.Vec{(x - sp : F32), y, sz}))
+      d = Shadow.vert((0.0 - 1.0 : F32), 1.0, R.Cam.proj(cam, R.Vec{(x - sp : F32), y, sz}))
       R.Mesh.raster(a, c, d, 3, al, 1919.0, 1199.0, R.Mesh.raster(a, b, c, 3, al, 1919.0, 1199.0, R.CNil{}))
 
 # The soft shadow of a figure of a size at (x, y); none over the void.
-def Shadow.build(+x: F32, +y: F32, +size: F32, +view: View) -> R.Cells:
+def Shadow.build(+x: F32, +y: F32, size: F32, view: View) -> R.Cells:
   +lv = Stage.level(x, y)
   Shadow.on((lv > (0.0 - 99.0) : F32), x, lv, R.max(0.0, (y - lv : F32)), size, view)
 
@@ -412,7 +412,7 @@ type Boss is Data:
 type Blast is Data:
   Blast{x: F32, y: F32, born: U32, who: U32}
 
-def Blast.over(+m: Maybe<&2, Blast>, +time: U32) -> Bool:
+def Blast.over(+m: Maybe<&2, Blast>, time: U32) -> Bool:
   match m:
     case None{}:
       True{}
@@ -431,10 +431,10 @@ type Game is Data:
 def Sim.dec(+x: U32) -> U32:
   R.word((x > 0 : U32), (x - 1 : U32), 0)
 
-def Sim.has(+held: U32, +bit: U32) -> Bool:
+def Sim.has(held: U32, bit: U32) -> Bool:
   U32.is_ne((held .&. bit : U32), 0)
 
-def Sim.axis(+held: U32, +pos: U32, +neg: U32) -> F32:
+def Sim.axis(+held: U32, pos: U32, neg: U32) -> F32:
   (R.pick(Sim.has(held, pos), 1.0, 0.0) - R.pick(Sim.has(held, neg), 1.0, 0.0) : F32)
 
 def Vec.x(+p: R.Vec) -> F32:
@@ -458,13 +458,13 @@ def Vec.facing(+v: R.Vec) -> F32:
   R.Vec{x, _, z} = v
   F32.atan2((0.0 - z : F32), x)
 
-def Vec.dist(+a: R.Vec, +b: R.Vec) -> F32:
+def Vec.dist(a: R.Vec, b: R.Vec) -> F32:
   R.Vec.len(R.Vec.sub(a, b))
 
 # The distance from p to the segment a..b.
-def Vec.seg(+p: R.Vec, +a: R.Vec, +b: R.Vec) -> F32:
+def Vec.seg(+p: R.Vec, +a: R.Vec, b: R.Vec) -> F32:
   +ab = R.Vec.sub(b, a)
-  +u = R.sat((R.Vec.dot(R.Vec.sub(p, a), ab) / R.max(0.0001, R.Vec.dot(ab, ab)) : F32))
+  u = R.sat((R.Vec.dot(R.Vec.sub(p, a), ab) / R.max(0.0001, R.Vec.dot(ab, ab)) : F32))
   Vec.dist(p, R.Vec.add(a, R.Vec.scale(ab, u)))
 
 # Past the blast zones.
@@ -472,19 +472,19 @@ def Vec.out(+p: R.Vec) -> Bool:
   R.Vec{x, y, _} = p
   ((y < (0.0 - 8.5)) || (y > 14.0) || (F32.abs(x) > 14.5) : F32)
 
-def Act.in(+act: U32, +a: U32, +b: U32) -> Bool:
+def Act.in(+act: U32, a: U32, b: U32) -> Bool:
   ((act >= a) && (act <= b) : U32)
 
-def Act.is(+act: U32, +a: U32, +b: U32, +c: U32, +d: U32) -> Bool:
+def Act.is(+act: U32, a: U32, b: U32, c: U32, d: U32) -> Bool:
   (U32.is_eq(act, a) || U32.is_eq(act, b) || U32.is_eq(act, c) || U32.is_eq(act, d))
 
 # The upward attacks, the downward, the specials, every attack, the
 # smashes charging, the crouching actions (1), an attack's length, the
 # age its hit lands at, a charge's power.
-def Act.up(+act: U32) -> Bool:
+def Act.up(act: U32) -> Bool:
   Act.is(act, 11, 16, 21, 25)
 
-def Act.down(+act: U32) -> Bool:
+def Act.down(act: U32) -> Bool:
   Act.is(act, 12, 17, 22, 26)
 
 def Act.special(+act: U32) -> Bool:
@@ -493,10 +493,10 @@ def Act.special(+act: U32) -> Bool:
 def Act.attack(+act: U32) -> Bool:
   Bool.or(U32.is_eq(act, 1), Bool.or(U32.is_eq(act, 2), Act.in(act, 10, 29)))
 
-def Act.charging(+act: U32) -> Bool:
+def Act.charging(act: U32) -> Bool:
   Act.in(act, 30, 32)
 
-def Act.crouch(+act: U32) -> F32:
+def Act.crouch(act: U32) -> F32:
   R.pick(Act.is(act, 7, 12, 32, 32), 1.0, 0.0)
 
 def Act.length(+act: U32) -> U32:
@@ -507,15 +507,15 @@ def Act.length(+act: U32) -> U32:
 def Act.hit(+act: U32) -> U32:
   (Act.length(act) - R.word(Act.special(act), 9, 5) : U32)
 
-def Act.power(+charge: U32) -> F32:
+def Act.power(charge: U32) -> F32:
   (1.0 + R.sat((U32.to_f32(charge) / 45.0 : F32)) * 1.3 : F32)
 
-def Fighter.spawn(+p: R.Vec, +stocks: U32, +inv: U32) -> Fighter:
+def Fighter.spawn(p: R.Vec, stocks: U32, inv: U32) -> Fighter:
   Fighter{Vec.plane(p), R.Vec{0.0, 0.0, 0.0}, 0.0, 0.0, 100.0, 0, 0, 0, inv, stocks, 6, 0, 0}
 
 # A fresh game: the hero at -3.4, the boss at 3.2 facing him, 360
 # vitality.
-def Game.fresh(+held: U32, +mode: U32) -> Game:
+def Game.fresh(held: U32, mode: U32) -> Game:
   +home = {R.Vec{(0.0 - 3.4 : F32), 0.0, 0.0} : R.Vec}
   Game{0, held, 0, mode, Fighter.spawn(home, 3, 0),
     Boss{R.Vec{3.2, 0.0, 0.0}, R.Vec{0.0, 0.0, 0.0}, 3.14159, 360.0, 0, 0.0, 0, 0, 40, 0.0, 0.0}, 0,
@@ -526,7 +526,7 @@ def Game.init() -> Game:
   Game.fresh(0, 0)
 
 # The bit of a key: w a s d j k i l r p, the arrows as w s a d.
-def Key.bit(+c: U32, +code: U32, +bit: U32) -> U32:
+def Key.bit(c: U32, code: U32, bit: U32) -> U32:
   R.word(U32.is_eq(c, code), bit, 0)
 
 # The bit of a key: w a s d j k i l r p, the arrows as w s a d.
@@ -548,27 +548,27 @@ def Game.key(+g: Game, +code: U32, +down: Bool) -> Game:
 # 2.15, the top at 3.65, none (-100); S held drops through.
 def Stage.landing(+p: R.Vec, +old: F32, +through: Bool) -> F32:
   R.Vec{x, y, _} = p
-  +base = ((F32.abs(x) <= 7.3) && (old >= 0.0) && (y <= 0.0) : F32)
-  +side = (Bool.not(through) && ((F32.abs((F32.abs(x) - 4.5 : F32)) < 1.5)
+  base = ((F32.abs(x) <= 7.3) && (old >= 0.0) && (y <= 0.0) : F32)
+  side = (Bool.not(through) && ((F32.abs((F32.abs(x) - 4.5 : F32)) < 1.5)
     && (old >= 2.15) && (y <= 2.15) : F32))
-  +top = (Bool.not(through) && ((F32.abs(x) < 1.55) && (old >= 3.65) && (y <= 3.65) : F32))
+  top = (Bool.not(through) && ((F32.abs(x) < 1.55) && (old >= 3.65) && (y <= 3.65) : F32))
   R.pick(top, 3.65, R.pick(side, 2.15, R.pick(base, 0.0, (0.0 - 100.0 : F32))))
 
-def Vec.place(+p: R.Vec, +level: F32, +landed: Bool) -> R.Vec:
+def Vec.place(+p: R.Vec, level: F32, landed: Bool) -> R.Vec:
   R.Vec{x, y, _} = p
   R.Vec{x, R.pick(landed, level, y), 0.0}
 
-def Fighter.air(+p: R.Vec, +v: R.Vec) -> Bool:
+def Fighter.air(+p: R.Vec, v: R.Vec) -> Bool:
   ((F32.abs(Vec.y(v)) > 0.005 : F32) || (Vec.y(p) > (Stage.landing(R.Vec.add(p,
     R.Vec{0.0, (0.0 - 0.025 : F32), 0.0}), Vec.y(p), False{}) + 0.04 : F32) : F32))
 
 # The attack the keys pick: K a special, J a normal; up, down, a side
 # (back in the air when held against the facing) or neutral.
-def Fighter.kind(+special: Bool, +air: Bool, +held: U32, +face: F32) -> U32:
+def Fighter.kind(special: Bool, +air: Bool, +held: U32, face: F32) -> U32:
   +up = Sim.has(held, 1)
   +down = Sim.has(held, 4)
   +side = (Sim.has(held, 2) || Sim.has(held, 8))
-  +back = ((Sim.axis(held, 8, 2) * F32.cos(face) : F32) < (0.0 - 0.1 : F32) : F32)
+  back = ((Sim.axis(held, 8, 2) * F32.cos(face) : F32) < (0.0 - 0.1 : F32) : F32)
   R.word(special,
     R.word(air, R.word(up, 25, R.word(down, 26, R.word(side, 24, 23))),
       R.word(up, 21, R.word(down, 22, R.word(side, 20, 2)))),
@@ -617,22 +617,22 @@ def Fighter.tick(+f: Fighter, +held: U32, +taps: U32) -> Fighter:
   +dx = Sim.axis(held, 8, 2)
   +aim = R.pick(((F32.abs(dx) > 0.1 : F32) && Bool.not(air) && Bool.not(hurt)),
     Vec.facing(R.Vec{dx, 0.0, 0.0}), face)
-  +side = (U32.is_eq(act, 20) || U32.is_eq(act, 24))
+  side = (U32.is_eq(act, 20) || U32.is_eq(act, 24))
   +rise = (special && Act.up(act))
-  +dive = (special && Act.down(act) && air)
-  +burst = (side && (timer > 20 : U32))
-  +speed = R.pick((loading || winding), 0.0, R.pick(crouch, 0.016, R.pick(block, 0.009,
+  dive = (special && Act.down(act) && air)
+  burst = (side && (timer > 20 : U32))
+  speed = R.pick((loading || winding), 0.0, R.pick(crouch, 0.016, R.pick(block, 0.009,
     R.pick(hurt, 0.008, R.pick(air, 0.025, 0.061)))))
-  +normal = R.clamp((vx * R.pick(hurt, 0.965, R.pick(air, 0.91, 0.77)) + dx * speed : F32),
+  normal = R.clamp((vx * R.pick(hurt, 0.965, R.pick(air, 0.91, 0.77)) + dx * speed : F32),
     R.pick(hurt, (0.0 - 2.0 : F32), (0.0 - 0.31 : F32)), R.pick(hurt, 2.0, 0.31))
   +evading = (U32.is_eq(action, 6) && (age > 14 : U32))
   +escape = R.Vec.scale(R.Vec.unit(R.Vec{dx, Sim.axis(held, 1, 4), 0.0}), 0.40)
   +nx = R.pick(dodge, R.Vec.dot(escape, R.Vec{1.0, 0.0, 0.0}), R.pick(evading, (vx * 0.93 : F32),
     R.pick(burst, (R.pick((F32.abs(dx) > 0.1 : F32), dx, F32.cos(aim)) * 0.40 : F32),
       R.pick(rise, (dx * 0.12 : F32), normal))))
-  +gravity = R.pick((Sim.has(held, 4) && (vy < 0.0 : F32)), 0.040, 0.020)
+  gravity = R.pick((Sim.has(held, 4) && (vy < 0.0 : F32)), 0.040, 0.020)
   +fall = R.max((0.0 - 0.65 : F32), (vy - gravity : F32))
-  +hop = R.pick((Bool.not(Sim.has(held, 64)) && (vy > 0.19 : F32)
+  hop = R.pick((Bool.not(Sim.has(held, 64)) && (vy > 0.19 : F32)
     && Bool.not(Act.special(action)) && Bool.not(hurt)), R.min(fall, 0.19), fall)
   +ny = R.pick(dodge, Vec.y(escape), R.pick(evading, (vy * 0.93 : F32),
     R.pick(jump, 0.39, R.pick(rise, 0.48, R.pick(dive, (0.0 - 0.52 : F32), hop)))))
@@ -655,7 +655,7 @@ def Boss.name() -> String:
   "THE SEVERANT"
 
 def Boss.tab(
-  +s: U32, +a: U32, +b: U32, +c: U32, +d: U32, +e: U32, +f: U32, +g: U32, +h: U32
+  +s: U32, a: U32, b: U32, c: U32, d: U32, e: U32, f: U32, g: U32, h: U32
 ) -> U32:
   R.word(U32.is_eq(s, 0), a, R.word(U32.is_eq(s, 1), b, R.word(U32.is_eq(s, 2), c,
     R.word(U32.is_eq(s, 3), d, R.word(U32.is_eq(s, 4), e, R.word(U32.is_eq(s, 5), f,
@@ -664,13 +664,13 @@ def Boss.tab(
 # A state's wind-up, active and recovery ticks (the leap's recovery
 # lasts to the landing; the landing strikes at once), their sum, is
 # its blade live.
-def Boss.wind(+s: U32) -> U32:
+def Boss.wind(s: U32) -> U32:
   Boss.tab(s, 100000, 30, 18, 16, 12, 46, 6, 0)
 
-def Boss.act(+s: U32) -> U32:
+def Boss.act(s: U32) -> U32:
   Boss.tab(s, 0, 8, 8, 10, 10, 4, 6, 6)
 
-def Boss.rec(+s: U32) -> U32:
+def Boss.rec(s: U32) -> U32:
   Boss.tab(s, 0, 26, 22, 24, 1000, 36, 14, 30)
 
 def Boss.live(+s: U32, +age: U32) -> Bool:
@@ -683,7 +683,7 @@ type Pose is Data:
 
 # A generic pick loses the callee's borrow facts (two shares in
 # Boss.pose), so the poses keep their own.
-def Pose.pick(c: Bool, +a: Pose, +b: Pose) -> Pose:
+def Pose.pick(c: Bool, a: Pose, b: Pose) -> Pose:
   match c:
     case True{}:
       a
@@ -729,13 +729,13 @@ def Pose.strike(+s: U32) -> Pose:
 
 # The pose of a state at an age: from rest to the wind-up key, to the
 # strike key, back to rest, each eased; reeling when stunned.
-def Boss.pose(+s: U32, +age: U32, +stun: U32) -> Pose:
+def Boss.pose(+s: U32, age: U32, stun: U32) -> Pose:
   +a = U32.to_f32(age)
   +w = U32.to_f32(Boss.wind(s))
   +n = U32.to_f32(Boss.act(s))
   +kw = Pose.wind(s)
   +ks = Pose.strike(s)
-  +pose = Pose.pick((a < w : F32), Pose.mix(Pose.rest(), kw, Math.smooth((a / w : F32))),
+  pose = Pose.pick((a < w : F32), Pose.mix(Pose.rest(), kw, Math.smooth((a / w : F32))),
     Pose.pick((a < (w + n : F32) : F32), Pose.mix(kw, ks, Math.smooth(((a - w) / n : F32))),
       Pose.mix(ks, Pose.rest(), Math.smooth(((a - w - n) / U32.to_f32(Boss.rec(s)) : F32)))))
   Pose.mix(pose, Pose{0.1, 1.7, 0.4, (0.0 - 1.1 : F32), 0.6, 0.25, (0.0 - 0.45 : F32)},
@@ -761,24 +761,24 @@ def Pose.root(+k: Pose) -> R.Vec:
 
 # A local point of the boss in the world; the blade's hilt and tip
 # (3.1 along its direction); the cloths' anchor.
-def Boss.at(+p: R.Vec, +face: F32, +local: R.Vec) -> R.Vec:
+def Boss.at(p: R.Vec, face: F32, local: R.Vec) -> R.Vec:
   R.Vec.add(p, R.Vec.turn(local, face))
 
-def Boss.hilt(+p: R.Vec, +face: F32, +k: Pose) -> R.Vec:
+def Boss.hilt(p: R.Vec, face: F32, k: Pose) -> R.Vec:
   Boss.at(p, face, Pose.grip(k))
 
-def Boss.tip(+p: R.Vec, +face: F32, +k: Pose) -> R.Vec:
+def Boss.tip(p: R.Vec, face: F32, +k: Pose) -> R.Vec:
   Boss.at(p, face, R.Vec.add(Pose.grip(k), R.Vec.scale(Pose.dir(k), 3.1)))
 
-def Boss.hash(+t: U32) -> U32:
+def Boss.hash(t: U32) -> U32:
   ((((t + 7) * 2654435761 : U32) >> 13n : U32) .&. 255 : U32)
 
 # The next attack: a leap at a hero in the air; up close a cleave,
 # sweep or draw (a leap or a sweep at a guard); at mid range a lunge,
 # leap or draw; none far off.
-def Boss.choose(+gap: F32, +rise: F32, +act: U32, +seed: U32) -> U32:
+def Boss.choose(+gap: F32, rise: F32, act: U32, seed: U32) -> U32:
   +r = (seed .&. 7 : U32)
-  +near = (gap < 3.6 : F32)
+  near = (gap < 3.6 : F32)
   +mid = (gap < 7.0 : F32)
   R.word(((rise > 1.2 : F32) && mid), 4,
     R.word(near, R.word(U32.is_eq(act, 3), R.word((r < 4 : U32), 4, 2),
@@ -789,7 +789,7 @@ def Boss.choose(+gap: F32, +rise: F32, +act: U32, +seed: U32) -> U32:
 # a finished attack chains (enraged under 160: cleave to sweep, sweep
 # to lunge) or stalks with a pause; a stalk past its pause, grounded
 # and in range, picks an attack; the age runs twice as fast enraged.
-def Boss.tick(+b: Boss, +f: Fighter, +t: U32) -> Boss:
+def Boss.tick(+b: Boss, +f: Fighter, t: U32) -> Boss:
   Boss{p, v, face, hp, stun, strain, state, age, hold, mark, _} = b
   R.Vec{x, y, _} = p
   R.Vec{vx, vy, _} = v
@@ -802,19 +802,19 @@ def Boss.tick(+b: Boss, +f: Fighter, +t: U32) -> Boss:
   +dx = (hx - x : F32)
   +dist = F32.abs(dx)
   +seed = Boss.hash(t)
-  +done = ((state > 0 : U32) && ((age + step : U32) >= (Boss.wind(state) + Boss.act(state)
+  done = ((state > 0 : U32) && ((age + step : U32) >= (Boss.wind(state) + Boss.act(state)
     + Boss.rec(state) : U32) : U32))
-  +landed = (U32.is_eq(state, 4) && (age > 14 : U32) && Bool.not(air))
-  +ready = (U32.is_eq(state, 0) && (age >= hold : U32) && Bool.not(stunned) && Bool.not(air))
-  +chain = R.word((raging && U32.is_eq(state, 1)), 2, R.word((raging && U32.is_eq(state, 2)), 3, 0))
+  landed = (U32.is_eq(state, 4) && (age > 14 : U32) && Bool.not(air))
+  ready = (U32.is_eq(state, 0) && (age >= hold : U32) && Bool.not(stunned) && Bool.not(air))
+  chain = R.word((raging && U32.is_eq(state, 1)), 2, R.word((raging && U32.is_eq(state, 2)), 3, 0))
   +s2 = R.word(stunned, 0, R.word(landed, 7, R.word(done, chain,
     R.word(ready, Boss.choose(dist, (hy - y : F32), action, seed), state))))
   +fresh = Bool.not(U32.is_eq(s2, state))
   +age2 = R.word(fresh, 0, (age + R.word(U32.is_eq(state, 0), 1, step) : U32))
   +hold2 = R.word((fresh && U32.is_eq(s2, 0)), (14 + (seed .&. 15) : U32), hold)
   +mark2 = R.pick((fresh && U32.is_eq(s2, 4)), R.clamp(hx, (0.0 - 6.5 : F32), 6.5), mark)
-  +toward = R.pick((dx < 0.0 : F32), (0.0 - 1.0 : F32), 1.0)
-  +walking = (U32.is_eq(s2, 0) && (age2 >= hold2 : U32) && Bool.not(stunned) && Bool.not(air))
+  toward = R.pick((dx < 0.0 : F32), (0.0 - 1.0 : F32), 1.0)
+  walking = (U32.is_eq(s2, 0) && (age2 >= hold2 : U32) && Bool.not(stunned) && Bool.not(air))
   +walk = R.pick(walking, (toward * R.pick((dist > 3.5 : F32), 0.05,
     R.pick((dist < 2.7 : F32), (0.0 - 0.03 : F32), 0.0)) : F32), 0.0)
   +lunging = (U32.is_eq(s2, 3) && Boss.live(3, age2))
@@ -841,9 +841,9 @@ def Boss.contact(+f: Fighter, +b: Boss) -> Bool:
   Fighter{q, _, _, _, _, _, _, _, inv, _, _, _, _} = f
   Boss{p, _, face, hp, stun, _, state, age, _, _, _} = b
   +k = Boss.pose(state, age, stun)
-  +blade = (Boss.live(state, age) && (Vec.seg(R.Vec.add(q, R.Vec{0.0, 0.75, 0.0}),
+  blade = (Boss.live(state, age) && (Vec.seg(R.Vec.add(q, R.Vec{0.0, 0.75, 0.0}),
     Vec.plane(Boss.hilt(p, face, k)), Vec.plane(Boss.tip(p, face, k))) < 0.7 : F32))
-  +ring = (U32.is_eq(state, 7) && (age < 6 : U32) && (F32.abs((Vec.x(q) - Vec.x(p) : F32)) < 2.5 : F32)
+  ring = (U32.is_eq(state, 7) && (age < 6 : U32) && (F32.abs((Vec.x(q) - Vec.x(p) : F32)) < 2.5 : F32)
     && ((Vec.y(q) - Vec.y(p) : F32) < 0.6 : F32))
   ((blade || ring) && U32.is_eq(inv, 0) && U32.is_eq(stun, 0) && (hp > 0.0 : F32))
 
@@ -871,21 +871,21 @@ def Fighter.strike(+f: Fighter, +b: Boss) -> F32:
   +up = Act.up(action)
   +down = Act.down(action)
   +special = Act.special(action)
-  +dx = (F32.cos(face) * R.pick((up || down), 0.3,
+  dx = (F32.cos(face) * R.pick((up || down), 0.3,
     R.pick(U32.is_eq(action, 15), (0.0 - 1.0 : F32), 1.0)) : F32)
-  +dy = R.pick(up, 1.0, R.pick(down, (0.0 - 1.0 : F32), 0.1))
+  dy = R.pick(up, 1.0, R.pick(down, (0.0 - 1.0 : F32), 0.1))
   +origin = R.Vec.add(p, R.Vec{0.0, 0.75, 0.0})
   +reach = R.pick(special, 3.8, R.pick(U32.is_eq(action, 10), 2.7, 2.15))
-  +tip = R.Vec.add(origin, R.Vec.scale(R.Vec{dx, dy, 0.0}, reach))
-  +near = (Boss.touch(b, origin, tip) || (Act.is(action, 13, 2, 23, 22)
+  tip = R.Vec.add(origin, R.Vec.scale(R.Vec{dx, dy, 0.0}, reach))
+  near = (Boss.touch(b, origin, tip) || (Act.is(action, 13, 2, 23, 22)
     && (Vec.dist(origin, R.Vec.add(q, R.Vec{0.0, 1.6, 0.0})) < reach : F32)))
-  +power = R.pick(special, R.pick(down, 32.0, 26.0),
+  power = R.pick(special, R.pick(down, 32.0, 26.0),
     R.pick(down, 18.0, R.pick(up, 15.0, 13.0)))
   R.pick((Act.attack(action) && U32.is_eq(age, Act.hit(action)) && near),
     (power * Act.power(charge) : F32), 0.0)
 
 # A down air that hits bounces the hero and gives a jump back.
-def Fighter.pogo(+f: Fighter, +hit: F32) -> Fighter:
+def Fighter.pogo(+f: Fighter, hit: F32) -> Fighter:
   Fighter{p, v, face, damage, guard, jumps, action, age, inv, stocks, grace, queued, charge} = f
   +bounce = ((hit > 0.0 : F32) && U32.is_eq(action, 17))
   Fighter{p, R.Vec.mix(v, R.Vec{0.0, 0.39, 0.0}, R.pick(bounce, 1.0, 0.0)), face, damage, guard,
@@ -902,11 +902,11 @@ def Fighter.impact(hit: Bool, +f: Fighter, +b: Boss) -> Fighter:
       Fighter{p, _, face, damage, guard, jumps, action, age, _, stocks, grace, queued, charge} = f
       Boss{q, _, _, _, _, strain, state, _, _, _, _} = b
       +block = (U32.is_eq(action, 3) && (guard > 24.0 : F32))
-      +parry = (block && (age <= 6 : U32))
+      parry = (block && (age <= 6 : U32))
       # The state's knockback (its scale over 10) and its damage.
-      +power = R.pick(block, 0.07, ((0.22 + damage * 0.0035)
+      power = R.pick(block, 0.07, ((0.22 + damage * 0.0035)
         * (U32.to_f32(Boss.tab(state, 10, 10, 8, 10, 13, 15, 8, 13)) * 0.1 : F32) : F32))
-      +launch = R.Vec.add(R.Vec.scale(Vec.dir(q, p), power), R.Vec{0.0, R.pick(block, 0.03, 0.29), 0.0})
+      launch = R.Vec.add(R.Vec.scale(Vec.dir(q, p), power), R.Vec{0.0, R.pick(block, 0.03, 0.29), 0.0})
       Fighter{p, launch, face,
         (damage + R.pick(block, 0.0, U32.to_f32(Boss.tab(state, 0, 17, 12, 14, 20, 24, 12, 20))) : F32),
         R.max(0.0, (guard - R.pick(parry, 0.0, 24.0) : F32)), jumps,
@@ -916,15 +916,15 @@ def Fighter.impact(hit: Bool, +f: Fighter, +b: Boss) -> Fighter:
 # The boss struck for an amount, parried (struck in the guard's first
 # 6 ticks, guard over 24) or blocking: its vitality falls, it is
 # stunned, launched and strained; a block starts the counter.
-def Boss.hurt(+b: Boss, +amount: F32, +struck: Bool, +block: Bool, +f: Fighter) -> Boss:
+def Boss.hurt(+b: Boss, +amount: F32, struck: Bool, +block: Bool, +f: Fighter) -> Boss:
   Boss{p, v, face, hp, stun, strain, state, age, hold, mark, gait} = b
   Fighter{q, _, _, _, guard, _, action, hage, _, _, _, _, charge} = f
   +parry = (struck && U32.is_eq(action, 3) && (hage <= 6 : U32) && (guard > 24.0 : F32))
   +hit = ((amount > 0.0 : F32) || parry)
   +power = ((0.11 + strain * 0.0016) * Act.power(charge)
     * R.pick(Act.special(action), 1.4, 1.0) : F32)
-  +lift = R.pick(Act.up(action), 0.85, R.pick(Act.down(action), (0.0 - 0.65 : F32), 0.40))
-  +launch = R.Vec.add(R.Vec.scale(Vec.dir(q, p), power), R.Vec{0.0, (lift * power : F32), 0.0})
+  lift = R.pick(Act.up(action), 0.85, R.pick(Act.down(action), (0.0 - 0.65 : F32), 0.40))
+  launch = R.Vec.add(R.Vec.scale(Vec.dir(q, p), power), R.Vec{0.0, (lift * power : F32), 0.0})
   +daze = R.word(parry, 65, R.word(hit, (10 + F32.to_u32((power * 32.0 : F32)) : U32), stun))
   Boss{p, R.Vec.mix(v, launch, R.pick(hit, 1.0, 0.0)), face,
     R.max(0.0, (hp - amount - R.pick(parry, 22.0, 0.0) : F32)), daze,
@@ -934,7 +934,7 @@ def Boss.hurt(+b: Boss, +amount: F32, +struck: Bool, +block: Bool, +f: Fighter) 
 
 # Does the boss block: in its stalk past its pause, not stunned, three
 # times in eight?
-def Boss.blocks(+b: Boss, +amount: F32, +t: U32) -> Bool:
+def Boss.blocks(+b: Boss, amount: F32, t: U32) -> Bool:
   Boss{_, _, _, _, stun, _, state, age, hold, _, _} = b
   ((amount > 0.0 : F32) && U32.is_eq(state, 0) && U32.is_eq(stun, 0) && (age >= hold : U32)
     && ((Boss.hash(t) .&. 7 : U32) < 3 : U32))
@@ -977,7 +977,7 @@ def Fighter.rest(done: Bool, +f: Fighter) -> Fighter:
 
 # The cape after a tick: kept (paused), seeded at the hero (a
 # respawn), or stepped about his shoulders, lowered in a crouch.
-def Game.cape(keep: Bool, reset: Bool, cloth: R.Cloth, +f: Fighter, +time: U32) -> R.Cloth:
+def Game.cape(keep: Bool, reset: Bool, cloth: R.Cloth, +f: Fighter, time: U32) -> R.Cloth:
   match keep reset:
     case True{} _:
       cloth
@@ -990,7 +990,7 @@ def Game.cape(keep: Bool, reset: Bool, cloth: R.Cloth, +f: Fighter, +time: U32) 
 
 # The boss's cloths after a tick: kept (paused), or stepped about its
 # anchor.
-def Game.garb(keep: Bool, +g: Garb, +b: Boss, +time: U32) -> Garb:
+def Game.garb(keep: Bool, g: Garb, +b: Boss, time: U32) -> Garb:
   match keep:
     case True{}:
       g
@@ -1000,7 +1000,7 @@ def Game.garb(keep: Bool, +g: Garb, +b: Boss, +time: U32) -> Garb:
 
 # The lens after the hero and the boss (the hero alone once the boss
 # is dead).
-def Game.follow(+l: Lens, +f: Fighter, +b: Boss) -> Lens:
+def Game.follow(l: Lens, +f: Fighter, +b: Boss) -> Lens:
   Fighter{p, v, face, _, _, _, _, _, _, _, _, _, _} = f
   R.Vec{px, py, _} = p
   R.Vec{vx, vy, _} = v
@@ -1013,7 +1013,7 @@ def Game.follow(+l: Lens, +f: Fighter, +b: Boss) -> Lens:
 # The detonation after a tick: the hero's where he fell out, the
 # boss's where it died, else the last.
 def Game.blast(
-  out: Bool, killed: Bool, old: Maybe<&2, Blast>, +f: Fighter, +b: Boss, +time: U32
+  out: Bool, killed: Bool, old: Maybe<&2, Blast>, +f: Fighter, +b: Boss, time: U32
 ) -> Maybe<&2, Blast>:
   match out killed:
     case True{} _:
@@ -1029,7 +1029,7 @@ def Game.blast(
 
 # The mode after a tick: 3 with the hero's lives out, 2 with the boss's
 # vitality once its detonation (42 ticks) is over, else 1.
-def Game.outcome(+f: Fighter, +b: Boss, blast: Maybe<&2, Blast>, +time: U32) -> U32:
+def Game.outcome(+f: Fighter, +b: Boss, blast: Maybe<&2, Blast>, time: U32) -> U32:
   Fighter{_, _, _, _, _, _, _, _, _, stocks, _, _, _} = f
   Boss{_, _, _, hp, _, _, _, _, _, _, _} = b
   R.word(U32.is_eq(stocks, 0), 3, R.word(((hp <= 0.0 : F32) && Blast.over(blast, time)), 2, 1))
@@ -1070,7 +1070,7 @@ def Game.rest(+g: Game) -> Game:
 # The mode toggled by P: a pause (4) resumes the fight (1), the fight
 # pauses, any other mode stays; paused and fighting are the mode's
 # tests, taken apart so LAWS.bend can split on them.
-def Mode.toggle.go(paused: Bool, fighting: Bool, +mode: U32) -> U32:
+def Mode.toggle.go(paused: Bool, fighting: Bool, mode: U32) -> U32:
   R.word(paused, 1, R.word(fighting, 4, mode))
 
 def Mode.toggle(+mode: U32) -> U32:
@@ -1114,14 +1114,14 @@ def Game.step(+g: Game) -> Game:
 # Live.steps runs them), n fades of a countdown, and a frame's events
 # joined.
 
-def Game.steps(n: Nat, +g: Game) -> Game:
+def Game.steps(n: Nat, g: Game) -> Game:
   match n:
     case 0n:
       g
     case 1n+k:
       Game.steps(k, Game.step(g))
 
-def Sim.fade(n: Nat, +x: U32) -> U32:
+def Sim.fade(n: Nat, x: U32) -> U32:
   match n:
     case 0n:
       x
@@ -1141,9 +1141,9 @@ def Game.cat(a: List<Event>, b: List<Event>) -> List<Event>:
 # The blade's angle: a swing over the attack's progress (raised for
 # an upward attack, straight down for a downward one, reversed for a
 # back air), 2.2 charging, -0.32 at rest.
-def Hero.angle(+act: U32, +age: U32) -> F32:
+def Hero.angle(+act: U32, age: U32) -> F32:
   +len = U32.to_f32(Act.length(act))
-  +u = R.sat(((len - U32.to_f32(age)) / len : F32))
+  u = R.sat(((len - U32.to_f32(age)) / len : F32))
   +swing = R.mix(1.8, (0.0 - 0.8 : F32), Math.smooth((u * 2.5 : F32)))
   R.pick(Act.in(act, 30, 32), 2.2, R.pick(Act.attack(act),
     R.pick(Act.up(act), (swing + 1.25 : F32), R.pick(Act.down(act),
@@ -1153,7 +1153,7 @@ def Hero.angle(+act: U32, +age: U32) -> F32:
 # A part of the hero: a surface in his frame, turned to his facing at
 # his feet.
 def Hero.part(
-  s: R.Surf, +mat: R.Mat, +nu: U32, +nv: U32, +at: R.Vec, +face: F32, +view: View
+  s: R.Surf, mat: R.Mat, nu: U32, nv: U32, at: R.Vec, face: F32, view: View
 ) -> R.Cells:
   Mesh.of(R.Surf.turn(s, at, face), mat, nu, nv, view)
 
@@ -1163,7 +1163,7 @@ def Hero.leg(
   +stride: F32, +side: F32, +air: F32, +crouch: F32, +dodge: F32, +at: R.Vec,
   +face: F32, +view: View
 ) -> R.Cells:
-  +hip = {R.Vec{0.0, (0.69 - crouch * 0.28 : F32), (side * 0.10 : F32)} : R.Vec}
+  hip = {R.Vec{0.0, (0.69 - crouch * 0.28 : F32), (side * 0.10 : F32)} : R.Vec}
   +knee = {R.Vec{(stride * 0.45 + air * 0.15 + crouch * 0.20 : F32),
     (0.39 + F32.abs(stride) * 0.20 + air * 0.15 - crouch * 0.12 + dodge * 0.16 : F32),
     (side * 0.13 : F32)} : R.Vec}
@@ -1182,7 +1182,7 @@ def Hero.leg(
 
 # A horn of the crown on a side of the mask at (hx, hy).
 def Hero.horn(
-  +side: F32, +hx: F32, +hy: F32, +shell: R.Mat, +at: R.Vec, +face: F32, +view: View
+  +side: F32, +hx: F32, +hy: F32, shell: R.Mat, at: R.Vec, face: F32, view: View
 ) -> R.Cells:
   Hero.part(R.Inst.span(R.Own{2, 0.0}, R.Vec{(hx + side * 0.17 : F32), (hy + 0.13 : F32), 0.0},
     R.Vec{(hx + side * 0.24 : F32), (hy + 0.62 : F32), 0.0}, 0.60, 0.55), shell, 8, 4,
@@ -1191,7 +1191,7 @@ def Hero.horn(
 # The mask (white, or flashing) at (hx, hy), its horns, its chin, the
 # eyes on the side seen.
 def Hero.head(
-  +hx: F32, +hy: F32, +white: U32, +at: R.Vec, +face: F32, +view: View
+  +hx: F32, +hy: F32, white: U32, +at: R.Vec, +face: F32, +view: View
 ) -> R.Cells:
   +shell = Mat.paint(white, 0.46, 0.02, 0.0)
   +side = R.pick((F32.cos(face) >= 0.0 : F32), 0.184, (0.0 - 0.184 : F32))
@@ -1210,7 +1210,7 @@ def Hero.head(
 # The arm to the hand, the blade from the hand at its angle (glowing
 # when charged), the hand's bead, the grip behind it.
 def Hero.blade(
-  +lean: F32, +crouch: F32, +theta: F32, +white: U32, +charge: U32, +at: R.Vec,
+  lean: F32, +crouch: F32, +theta: F32, white: U32, charge: U32, +at: R.Vec,
   +face: F32, +view: View
 ) -> R.Cells:
   +ct = F32.cos(theta)
@@ -1230,7 +1230,7 @@ def Hero.blade(
 
 # The hero at a time: body and mask over the legs (a run cycle by his
 # speed), leaning into his motion, the blade, his shadow.
-def Hero.build(+f: Fighter, +t: F32, +view: View) -> R.Cells:
+def Hero.build(+f: Fighter, t: F32, +view: View) -> R.Cells:
   Fighter{p, v, face, _, _, _, act, age, inv, _, _, _, charge} = f
   R.Vec{x, y, _} = p
   R.Vec{vx, _, _} = v
@@ -1263,7 +1263,7 @@ def Boss.cloth() -> R.Mat:
 def Boss.leg(
   +stride: F32, +side: F32, +air: F32, +dip: F32, +at: R.Vec, +face: F32, +view: View
 ) -> R.Cells:
-  +hip = {R.Vec{0.05, (1.75 - dip : F32), (side * 0.30 : F32)} : R.Vec}
+  hip = {R.Vec{0.05, (1.75 - dip : F32), (side * 0.30 : F32)} : R.Vec}
   +knee = {R.Vec{(stride * 0.9 + air * 0.3 + dip * 0.55 : F32),
     (0.92 + F32.abs(stride) * 0.25 + air * 0.35 - dip * 0.45 : F32), (side * 0.34 : F32)} : R.Vec}
   +foot = {R.Vec{(stride * 1.5 - air * side * 0.3 - dip * 0.2 : F32),
@@ -1295,8 +1295,8 @@ def Boss.sword(+g: R.Vec, +d: R.Vec, +at: R.Vec, +face: F32, +view: View) -> R.C
   +tip = R.Vec.add(g, R.Vec.scale(d, 3.1))
   +mid = R.Vec.add(g, R.Vec.scale(d, 1.6))
   +edge = Mat.paint(10352639, 0.3, 0.0, 1.4)
-  +root = R.Vec.add(R.Vec.add(g, R.Vec.scale(d, 0.2)), R.Vec.scale(right, (0.0 - 0.09 : F32)))
-  +point = R.Vec.add(R.Vec.add(tip, R.Vec.scale(d, (0.0 - 0.08 : F32))), R.Vec.scale(right, 0.27))
+  root = R.Vec.add(R.Vec.add(g, R.Vec.scale(d, 0.2)), R.Vec.scale(right, (0.0 - 0.09 : F32)))
+  point = R.Vec.add(R.Vec.add(tip, R.Vec.scale(d, (0.0 - 0.08 : F32))), R.Vec.scale(right, 0.27))
   a b c dd e f = Hero.part(R.Inst.span(R.Own{3, 0.0}, g, tip, 1.5, 1.5), Mat.paint(13161184, 0.18, 0.9, 0.0),
       8, 8, at, face, view)
     Hero.part(R.Inst.span(R.Tube{}, root, mid, 0.022, 0.022), edge, 4, 1, at, face, view)
@@ -1311,20 +1311,20 @@ def Boss.sword(+g: R.Vec, +d: R.Vec, +at: R.Vec, +face: F32, +view: View) -> R.C
 
 # A point on the mask (an ellipsoid of 0.42, 0.46, 0.34 about the
 # head, 0.05 ahead) at (x, y) on its side z, lifted by h.
-def Boss.mask(+head: R.Vec, +x: F32, +y: F32, +z: F32, +h: F32) -> R.Vec:
+def Boss.mask(head: R.Vec, +x: F32, +y: F32, z: F32, h: F32) -> R.Vec:
   R.Vec.add(head, R.Vec{(x + 0.05 : F32), y, (z * ((0.34 + h) * F32.sqrt(R.max(0.0,
     (1.0 - (x * x) / 0.1764 - (y * y) / 0.2116 : F32))) : F32) : F32)})
 
 # The head: the hood (dark, behind and over), the pale mask, a crack
 # down the side seen (two dark threads), a glowing slit eye each side
 # (red enraged).
-def Boss.head(+head: R.Vec, +hot: Bool, +at: R.Vec, +face: F32, +view: View) -> R.Cells:
+def Boss.head(+head: R.Vec, hot: Bool, +at: R.Vec, +face: F32, +view: View) -> R.Cells:
   +eye = Mat.paint(R.word(hot, 16726560, 2152703), 0.3, 0.0, 3.0)
   +dark = Mat.paint(659473, 0.9, 0.0, 0.0)
   +side = R.pick((F32.cos(face) >= 0.0 : F32), 1.0, (0.0 - 1.0 : F32))
-  +top = Boss.mask(head, 0.06, 0.40, side, 0.01)
+  top = Boss.mask(head, 0.06, 0.40, side, 0.01)
   +knot = Boss.mask(head, (0.0 - 0.02 : F32), 0.04, side, 0.01)
-  +chin = Boss.mask(head, 0.16, (0.0 - 0.26 : F32), side, 0.01)
+  chin = Boss.mask(head, 0.16, (0.0 - 0.26 : F32), side, 0.01)
   a b c d e f = Hero.part(R.Inst.ball(R.Globe{}, R.Vec.add(head, R.Vec{(0.0 - 0.32 : F32), 0.14, 0.0}),
       0.52, 0.58, 0.50), dark, 10, 5, at, face, view)
     Hero.part(R.Inst.ball(R.Globe{}, R.Vec.add(head, R.Vec{0.05, 0.0, 0.0}), 0.42, 0.46, 0.34),
@@ -1338,7 +1338,7 @@ def Boss.head(+head: R.Vec, +hot: Bool, +at: R.Vec, +face: F32, +view: View) -> 
   R.Cells.merge(R.Cells.m4(a, b, c, d), R.Cells.merge(e, f))
 
 # Hips to chest, the chest, the hips, the neck.
-def Boss.trunk(+hips: R.Vec, +chest: R.Vec, +head: R.Vec, +p: R.Vec, +face: F32, +view: View) -> R.Cells:
+def Boss.trunk(+hips: R.Vec, +chest: R.Vec, head: R.Vec, +p: R.Vec, +face: F32, +view: View) -> R.Cells:
   a b c d = Hero.part(R.Inst.span(R.Tube{}, hips, chest, 0.36, 0.30), Boss.cloth(), 10, 2, p, face, view)
     Hero.part(R.Inst.ball(R.Globe{}, chest, 0.46, 0.50, 0.38), Boss.cloth(), 10, 5, p, face, view)
     Hero.part(R.Inst.ball(R.Globe{}, hips, 0.38, 0.32, 0.32), Boss.cloth(), 10, 5, p, face, view)
@@ -1349,12 +1349,12 @@ def Boss.trunk(+hips: R.Vec, +chest: R.Vec, +head: R.Vec, +p: R.Vec, +face: F32,
 # in the air), the arms to the grip, the katana, the cloths, the
 # shadow.
 def Boss.body(
-  +p: R.Vec, +face: F32, +k: Pose, +stride: F32, +air: F32, +hot: Bool, +garb: Garb, +view: View
+  +p: R.Vec, +face: F32, +k: Pose, +stride: F32, +air: F32, hot: Bool, garb: Garb, +view: View
 ) -> R.Cells:
   R.Vec{bx, by, _} = p
   Pose{_, _, _, _, _, dip, lean} = k
-  +hips = Pose.spine(k, 0.0)
-  +chest = Pose.spine(k, 0.57)
+  hips = Pose.spine(k, 0.0)
+  chest = Pose.spine(k, 0.57)
   +head = Pose.spine(k, 1.0)
   +grip = Pose.grip(k)
   +d = Pose.dir(k)
@@ -1374,7 +1374,7 @@ def Boss.body(
 # The boss at a time: its pose by its state and age (reeling when
 # stunned), a stride by its gait, its eyes red enraged; dead, its
 # detonation stands for it.
-def Boss.alive(dead: Bool, +b: Boss, +garb: Garb, +t: F32, +view: View) -> R.Cells:
+def Boss.alive(dead: Bool, +b: Boss, garb: Garb, t: F32, view: View) -> R.Cells:
   match dead:
     case True{}:
       R.CNil{}
@@ -1388,12 +1388,12 @@ def Boss.alive(dead: Bool, +b: Boss, +garb: Garb, +t: F32, +view: View) -> R.Cel
 # ----
 
 # An angle u of the way from a to b, the short way round.
-def Math.turn(+a: F32, +b: F32, +u: F32) -> F32:
+def Math.turn(+a: F32, +b: F32, u: F32) -> F32:
   (a + F32.atan2(F32.sin((b - a : F32)), F32.cos((b - a : F32))) * u : F32)
 
 # The hero u of the way between two ticks; snapped when a life was
 # lost or he moved 2 or more (a respawn).
-def Fighter.lerp(+a: Fighter, +b: Fighter, +u: F32) -> Fighter:
+def Fighter.lerp(+a: Fighter, +b: Fighter, u: F32) -> Fighter:
   Fighter{p0, v0, f0, _, _, _, _, _, _, s0, _, _, _} = a
   Fighter{p, v, face, damage, guard, jumps, action, age, inv, stocks, grace, queued, charge} = b
   +k = R.pick((U32.is_eq(s0, stocks) && (Vec.dist(p0, p) < 2.0 : F32)), u, 1.0)
@@ -1419,20 +1419,20 @@ def Fighter.at(+f: Fighter) -> R.Vec:
 def Game.lerp(+a: Game, +b: Game, +u: F32) -> Game:
   Game{_, _, _, _, p0, b0, _, c0, r0, l0, _} = a
   Game{time, held, taps, mode, hero, boss, flash, cloth, garb, lens, blast} = b
-  +snap = (Vec.dist(Fighter.at(p0), Fighter.at(hero)) >= 2.0 : F32)
+  snap = (Vec.dist(Fighter.at(p0), Fighter.at(hero)) >= 2.0 : F32)
   Game{time, held, taps, mode, Fighter.lerp(p0, hero, u), Boss.lerp(b0, boss, u), flash,
     R.Cloth.lerp(c0, cloth, R.pick(snap, 1.0, u)), Garb.lerp(r0, garb, u), Lens.lerp(l0, lens, u),
     blast}
 
 # The view's clock: the tick and the way to the next, held in a pause.
-def Game.clock(+g: Game, +u: F32) -> F32:
+def Game.clock(+g: Game, u: F32) -> F32:
   Game{time, _, _, mode, _, _, _, _, _, _, _} = g
   R.pick(U32.is_eq(mode, 4), U32.to_f32(time),
     R.max(0.0, (U32.to_f32(time) - 1.0 + u : F32)))
 
 # A point on a sphere of radius r at c toward s, and the nearer of two
 # points to s.
-def Vec.onto(+c: R.Vec, +r: F32, +s: R.Vec) -> R.Vec:
+def Vec.onto(+c: R.Vec, r: F32, +s: R.Vec) -> R.Vec:
   R.Vec.mix(c, s, R.min(1.0, (r / R.max(0.001, Vec.dist(c, s)) : F32)))
 
 def Vec.nearer(+a: R.Vec, +b: R.Vec, +s: R.Vec) -> R.Vec:
@@ -1445,7 +1445,7 @@ def Game.contact(+f: Fighter, +b: Boss) -> R.Vec:
   Boss{q, _, yaw, _, stun, _, state, bage, _, _, _} = b
   +k = Boss.pose(state, bage, stun)
   +s = R.Vec.add(p, R.Vec{0.0, 0.9, 0.16})
-  +on = Vec.nearer(Vec.onto(Boss.at(q, yaw, Pose.spine(k, 0.57)), 0.8, s),
+  on = Vec.nearer(Vec.onto(Boss.at(q, yaw, Pose.spine(k, 0.57)), 0.8, s),
     Vec.onto(Boss.at(q, yaw, Pose.spine(k, 1.0)), 0.5, s), s)
   R.Vec.mix(s, on, R.pick(Act.attack(action), 1.0, 0.0))
 
@@ -1472,7 +1472,7 @@ type Fx is Data:
 # A quad of projected corners, one colour blended (m 1 alpha, 2
 # additive) at al; behind the eye, nothing.
 def Fx.put(
-  +a: R.Vec, +b: R.Vec, +c: R.Vec, +d: R.Vec, +col: U32, +m: U32, +al: F32, cells: R.Cells
+  +a: R.Vec, +b: R.Vec, +c: R.Vec, +d: R.Vec, col: U32, m: U32, al: F32, cells: R.Cells
 ) -> R.Cells:
   R.Vec{ax, ay, aw} = a
   R.Vec{bx, by, _} = b
@@ -1481,7 +1481,7 @@ def Fx.put(
   R.Quad.put(ax, ay, bx, by, cx, cy, dx, dy, R.min(aw, cw), col, m, al, 1919.0, 1199.0, cells)
 
 def Fx.quad(
-  +a: R.Vec, +b: R.Vec, +c: R.Vec, +d: R.Vec, +col: U32, +m: U32, +al: F32, +view: View,
+  a: R.Vec, b: R.Vec, c: R.Vec, d: R.Vec, col: U32, m: U32, al: F32, view: View,
   cells: R.Cells
 ) -> R.Cells:
   +cam = Stage.cam(view)
@@ -1490,7 +1490,7 @@ def Fx.quad(
 
 # An additive beam from a to b, w0 wide at a and w1 at b, across z.
 def Fx.beam(
-  +a: R.Vec, +b: R.Vec, +w0: F32, +w1: F32, +col: U32, +al: F32, +view: View, cells: R.Cells
+  +a: R.Vec, +b: R.Vec, +w0: F32, +w1: F32, col: U32, al: F32, view: View, cells: R.Cells
 ) -> R.Cells:
   +n = R.Vec.unit(R.Vec.cross(R.Vec.sub(b, a), R.Vec{0.0, 0.0, 1.0}))
   Fx.quad(R.Vec.add(a, R.Vec.scale(n, w0)), R.Vec.add(b, R.Vec.scale(n, w1)),
@@ -1498,7 +1498,7 @@ def Fx.beam(
 
 # A point of an arc at an angle on a circle of radius r about the
 # chest (0.90 up, 0.34 before) of a figure at p facing face.
-def Fx.arcpt(+ang: F32, +r: F32, +p: R.Vec, +face: F32) -> R.Vec:
+def Fx.arcpt(+ang: F32, +r: F32, p: R.Vec, face: F32) -> R.Vec:
   Boss.at(p, face, R.Vec{(F32.cos(ang) * r : F32), (0.90 + F32.sin(ang) * r : F32), 0.34})
 
 # n segments of an additive arc from segment i: from theta over sweep
@@ -1571,11 +1571,11 @@ def Fx.rib(
 
 # At most n segments of an arc of a sweep at a radius about p: fewer
 # when small on the screen.
-def Fx.segs(+n: F32, +sweep: F32, +r: F32, +p: R.Vec, +view: View) -> F32:
-  +cam = Stage.cam(view)
+def Fx.segs(n: F32, sweep: F32, r: F32, p: R.Vec, view: View) -> F32:
+  cam = Stage.cam(view)
   R.min(n, F32.ceil((R.Grid.arc((r * R.Cam.px(cam, p) : F32)) * sweep * 0.159155 : F32)))
 
-def Fx.nat(+n: F32) -> Nat:
+def Fx.nat(n: F32) -> Nat:
   U32.to_nat(F32.to_u32(n))
 
 # A thread: a thin ribbon of up to 20 segments and its soft halo.
@@ -1643,7 +1643,7 @@ def Fx.special(down: Bool, +act: U32, +u: F32, +p: R.Vec, +face: F32, +view: Vie
 
 # The charge's glow (u of the full charge): a thread about the chest
 # turning with time, an additive field and a ring, growing.
-def Fx.charge(+u: F32, +t: F32, +p: R.Vec, +face: F32, +view: View) -> R.Cells:
+def Fx.charge(+u: F32, t: F32, +p: R.Vec, +face: F32, +view: View) -> R.Cells:
   +size = (0.25 + u * 0.20 : F32)
   +n = Fx.segs(24.0, 6.2831853, (0.24 + u * 0.22 : F32), p, view)
   Fx.thread(0, (t * 0.10 : F32), (0.45 + u * 0.35 : F32), p, face, 16767096,
@@ -1655,7 +1655,7 @@ def Fx.charge(+u: F32, +t: F32, +p: R.Vec, +face: F32, +view: View) -> R.Cells:
 
 # The guard's field: a translucent shell grown by the guard, pale in
 # the parry window (its first 6 ticks), lit by a flash.
-def Fx.guard(+guard: F32, +age: U32, +flash: U32, +p: R.Vec, +view: View) -> R.Cells:
+def Fx.guard(+guard: F32, age: U32, flash: U32, p: R.Vec, view: View) -> R.Cells:
   +early = (age < 6 : U32)
   Mesh.of(R.Inst.ball(R.Globe{}, R.Vec.add(p, R.Vec{0.0, 0.86, 0.0}), (0.72 + guard * 0.003 : F32),
       (0.98 + guard * 0.003 : F32), 0.85),
@@ -1703,8 +1703,8 @@ def Fx.boom(+p: R.Vec, +age: F32, +col: U32, +view: View) -> R.Cells:
 # The blade's trail: n quads back from the tip and the blade's middle
 # to the ones a tick earlier, fading.
 def Fx.trail(
-  n: Nat, +k: U32, +p: R.Vec, +face: F32, +state: U32, +age: U32, +stun: U32, +tip: R.Vec,
-  +mid: R.Vec, +view: View, acc: R.Cells
+  n: Nat, +k: U32, +p: R.Vec, +face: F32, +state: U32, +age: U32, +stun: U32, tip: R.Vec,
+  mid: R.Vec, +view: View, acc: R.Cells
 ) -> R.Cells:
   match n:
     case 0n:
@@ -1779,7 +1779,7 @@ def Fx.add(on: Bool, fx: Fx, rest: List<&2, Fx>) -> List<&2, Fx>:
 
 # The boss's effects: its blade's trail while live and 4 ticks after,
 # the slam's wave, the block's flash at the hilt, the aura enraged.
-def Fx.boss(+b: Boss, +t: F32, rest: List<&2, Fx>) -> List<&2, Fx>:
+def Fx.boss(+b: Boss, t: F32, rest: List<&2, Fx>) -> List<&2, Fx>:
   Boss{p, _, face, hp, stun, _, state, age, _, _, _} = b
   R.Vec{x, y, _} = p
   +k = Boss.pose(state, age, stun)
@@ -1792,7 +1792,7 @@ def Fx.boss(+b: Boss, +t: F32, rest: List<&2, Fx>) -> List<&2, Fx>:
           Aura{Boss.at(p, face, Pose.spine(k, 1.0)), t}, rest))))
 
 # The detonation while it lasts, held inside the lens.
-def Fx.blast(m: Maybe<&2, Blast>, +l: Lens, +t: F32, rest: List<&2, Fx>) -> List<&2, Fx>:
+def Fx.blast(m: Maybe<&2, Blast>, +l: Lens, t: F32, rest: List<&2, Fx>) -> List<&2, Fx>:
   match m:
     case None{}:
       rest
@@ -1836,7 +1836,7 @@ def Fx.draw(fx: List<&2, Fx>, +view: View) -> R.Cells:
 # The original's HUD on its 1024 x 640 canvas: a rectangle, alpha over
 # the scene (m 1) or opaque (m 0) at the inverse depth d.
 def Hud.rect(
-  +x: F32, +y: F32, +w: F32, +h: F32, +col: U32, +m: U32, +al: F32, +d: F32, cells: R.Cells
+  +x: F32, +y: F32, w: F32, h: F32, col: U32, m: U32, al: F32, d: F32, cells: R.Cells
 ) -> R.Cells:
   +x0 = (x * 1.875 : F32)
   +y0 = (y * 1.875 : F32)
@@ -1846,7 +1846,7 @@ def Hud.rect(
 
 # Text of a size and style at (x, y) on the canvas.
 def Hud.text(
-  x: F32, y: F32, size: F32, +style: U32, +col: U32, s: String, cells: R.Cells
+  x: F32, y: F32, size: F32, style: U32, col: U32, s: String, cells: R.Cells
 ) -> R.Cells:
   R.Text.put((x * 1.875 : F32), (y * 1.875 : F32), (size * 1.875 : F32), style, col, s, 1919.0,
     1199.0, cells)
@@ -1937,7 +1937,7 @@ def Hud.title(cells: R.Cells) -> R.Cells:
                       "I  Jump     L  Guard / air dodge     P  Pause", cells))))))))))
 
 # The end of a duel: its title at x, its line at x2, the choices.
-def Hud.end(+x: F32, +col: U32, title: String, +x2: F32, line: String, cells: R.Cells) -> R.Cells:
+def Hud.end(x: F32, col: U32, title: String, x2: F32, line: String, cells: R.Cells) -> R.Cells:
   Hud.text(x, 113.0, 43.0, 1, col, title, Hud.text(x2, 169.0, 17.0, 1, 11715764, line,
     Hud.text(414.0, 495.0, 15.0, 0, 14540496, "L  Duel again     K  Back", cells)))
 
@@ -1948,7 +1948,7 @@ def Hud.pause(cells: R.Cells) -> R.Cells:
 
 # The screen of a mode: the title alone; the fight's panel under the
 # win, the loss or the pause.
-def Hud.screen(title: Bool, won: Bool, lost: Bool, paused: Bool, +g: Game, cells: R.Cells) -> R.Cells:
+def Hud.screen(title: Bool, won: Bool, lost: Bool, paused: Bool, g: Game, cells: R.Cells) -> R.Cells:
   match title won lost paused:
     case True{} _ _ _:
       Hud.title(cells)
@@ -1998,13 +1998,13 @@ type Sky is Data:
 
 # A mountain ridge (layer 1 or 2) as a screen height over the column
 # xf: the original's over 1024 x 640, scaled by 1.875.
-def Sky.ridge(+l: F32, +xf: F32) -> F32:
+def Sky.ridge(+l: F32, xf: F32) -> F32:
   +f = (xf / 120.0 : F32)
   (497.0 + 165.0 * l - 79.0 * F32.sin((0.7 * f + 2.0 * l : F32))
     - 52.0 * F32.sin((1.9 * f + 4.0 * l : F32)) - 30.0 * F32.cos((3.7 * f : F32)) : F32)
 
 # The gradient in bands of 16 rows: (16, 26, 36) to (49, 61, 72).
-def Sky.band(+y: U32) -> U32:
+def Sky.band(y: U32) -> U32:
   +u = (U32.to_f32((y >> 4n : U32)) / 75.0 : F32)
   R.pack((0.063 + 0.129 * u : F32), (0.102 + 0.137 * u : F32),
     (0.141 + 0.141 * u : F32))
@@ -2028,7 +2028,7 @@ def Sky.star(n: Nat, +i: F32, +x: F32, +y: F32, +h: F32, +sky: Sky) -> Sky:
         R.word(hit, R.word(U32.is_eq((ii .&. 1 : U32), 0), 10989229, 6253955), sc),
         band})
 
-def Sky.stars(low: Bool, +x: F32, +y: F32, +h: F32, +sky: Sky) -> Sky:
+def Sky.stars(low: Bool, x: F32, y: F32, h: F32, sky: Sky) -> Sky:
   match low:
     case True{}:
       sky
@@ -2055,7 +2055,7 @@ def Sky.mixed(+sky: Sky, +x: U32, +y: U32, +h: U32) -> Bool:
       && (sy - ss * 2.0 < yf + hf)) : F32)
 
 # The colour under the ridges (layer 2 in front), a star or the band.
-def Sky.layer(m2: Bool, m1: Bool, star: Bool, +sc: U32, +band: U32) -> U32:
+def Sky.layer(m2: Bool, m1: Bool, star: Bool, sc: U32, band: U32) -> U32:
   match m2 m1 star:
     case True{} _ _:
       2042676
@@ -2068,7 +2068,7 @@ def Sky.layer(m2: Bool, m1: Bool, star: Bool, +sc: U32, +band: U32) -> U32:
 
 def Sky.at(+x: U32, +y: U32, +sky: Sky) -> U32:
   Sky{r2, r1, sx, sy, ss, sc, band} = sky
-  +xf = (U32.to_f32(x) + 0.5 : F32)
+  xf = (U32.to_f32(x) + 0.5 : F32)
   +yf = (U32.to_f32(y) + 0.5 : F32)
   Sky.layer((yf > r2 : F32), (yf > r1 : F32),
     ((ss > 0.0) && ((F32.abs((xf - sx : F32)) * 2.0 + F32.abs((yf - sy : F32)) : F32)
@@ -2141,8 +2141,8 @@ def Synth.noise(+i: U32) -> F32:
 def Synth.sample(+kind: U32, +i: U32) -> F32:
   +u = (U32.to_f32(i) / 65536.0 : F32)
   +t = (U32.to_f32(i) / 48000.0 : F32)
-  +attack = R.min(1.0, (t * 240.0 : F32))
-  +tail = ((1.0 - u) * (1.0 - u) : F32)
+  attack = R.min(1.0, (t * 240.0 : F32))
+  tail = ((1.0 - u) * (1.0 - u) : F32)
   +hiss = (Synth.noise(i) * 0.65 + Synth.noise((i / 3 : U32)) * 0.35 : F32)
   +swish = ((hiss * F32.exp((0.0 - t * 18.0 : F32)) * 0.32)
     + (F32.sin((t * (11000.0 - t * 6500.0) : F32)) * F32.exp((0.0 - t * 27.0 : F32)) * 0.08) : F32)
@@ -2150,15 +2150,15 @@ def Synth.sample(+kind: U32, +i: U32) -> F32:
     + (hiss * F32.exp((0.0 - t * 48.0 : F32)) * 0.28) : F32)
   +bell = ((F32.sin((t * 6911.5 : F32)) + (F32.sin((t * 10361.3 : F32)) * 0.45)
     + (F32.sin((t * 15742.1 : F32)) * 0.22)) * F32.exp((0.0 - t * 4.0 : F32)) * 0.17 : F32)
-  +chirp = (F32.sin((t * (1900.0 + t * 14000.0) : F32)) * F32.exp((0.0 - t * 10.0 : F32)) * 0.18 : F32)
-  +hop = (F32.sin((t * (2100.0 + t * 6200.0) : F32)) * F32.exp((0.0 - t * 26.0 : F32)) * 0.14 : F32)
-  +boom = (((F32.sin((t * (540.0 - t * 190.0) : F32)) * 0.32) + (hiss * 0.25))
+  chirp = (F32.sin((t * (1900.0 + t * 14000.0) : F32)) * F32.exp((0.0 - t * 10.0 : F32)) * 0.18 : F32)
+  hop = (F32.sin((t * (2100.0 + t * 6200.0) : F32)) * F32.exp((0.0 - t * 26.0 : F32)) * 0.14 : F32)
+  boom = (((F32.sin((t * (540.0 - t * 190.0) : F32)) * 0.32) + (hiss * 0.25))
     * F32.exp((0.0 - t * 2.8 : F32)) + (bell * 0.6) : F32)
-  +voice = (((F32.sin((t * 410.0 + F32.sin((t * 720.0 : F32)) * 3.0 : F32)) * 0.20) + (hiss * 0.1))
+  voice = (((F32.sin((t * 410.0 + F32.sin((t * 720.0 : F32)) * 3.0 : F32)) * 0.20) + (hiss * 0.1))
     * F32.sin((u * 3.1415927 : F32)) : F32)
-  +drone = ((F32.sin((u * 1884.9556 : F32)) + (F32.sin((u * 2827.4334 : F32)) * 0.4)
+  drone = ((F32.sin((u * 1884.9556 : F32)) + (F32.sin((u * 2827.4334 : F32)) * 0.4)
     + (F32.sin((u * 3769.9111 : F32)) * 0.18)) * 0.075 : F32)
-  +value = R.pick(U32.is_eq(kind, 0), swish,
+  value = R.pick(U32.is_eq(kind, 0), swish,
     R.pick(U32.is_eq(kind, 1), (swish * 0.7 + bell * 0.35 : F32),
     R.pick(U32.is_eq(kind, 2), (swish * 1.2 + thud * 0.4 : F32),
     R.pick(U32.is_eq(kind, 3), (chirp + swish * 0.5 : F32),
@@ -2215,7 +2215,7 @@ def Wav.skip(n: Nat, b: List<&2, U32>) -> List<&2, U32>:
 # A float from its bits (a denormal keeps its scale).
 def Wav.float(+w: U32) -> F32:
   +e = ((w >> 23n) .&. 255 : U32)
-  +m = ((w .&. 8388607 : U32) .|. R.word(U32.is_eq(e, 0), 0, 8388608) : U32)
+  m = ((w .&. 8388607 : U32) .|. R.word(U32.is_eq(e, 0), 0, 8388608) : U32)
   +v = (U32.to_f32(m) * F32.pow(2.0, R.pick(U32.is_eq(e, 0), (0.0 - 149.0 : F32),
     (U32.to_f32(e) - 150.0 : F32))) : F32)
   R.pick((w >= 2147483648 : U32), (0.0 - v : F32), v)
@@ -2237,10 +2237,10 @@ def Wav.samples(short: Bool, n: Nat, b: List<&2, U32>, +at: U32, pcm: Array<F32>
 
 # The data chunk of `size` bytes decoded into the store at `at` (PCM16
 # or float32); the clip.
-def Wav.data(+f: Wave, +size: U32, b: List<&2, U32>, +at: U32, pcm: Array<F32>) -> Array<F32> & Clip:
+def Wav.data(+f: Wave, size: U32, b: List<&2, U32>, +at: U32, pcm: Array<F32>) -> Array<F32> & Clip:
   Wave{kind, ch, rate, bits} = f
   +short = U32.is_eq(kind, 1)
-  +ok = ((short && U32.is_eq(bits, 16)) || (U32.is_eq(kind, 3) && U32.is_eq(bits, 32)))
+  ok = ((short && U32.is_eq(bits, 16)) || (U32.is_eq(kind, 3) && U32.is_eq(bits, 32)))
   +n = R.word(ok, (size / (bits / 8) : U32), 0)
   (Wav.samples(short, U32.to_nat(n), b, at, pcm),
     Clip{at, (n / R.word((ch > 0 : U32), ch, 1) : U32), rate, R.word((ch > 0 : U32), ch, 1)})
@@ -2266,7 +2266,7 @@ def Wav.tag(+w: U32) -> Tag:
 # The chunks walked on a fuel: fmt gives the format, data is decoded
 # and ends the walk, any other is skipped (padded to even).
 def Wav.walk(
-  fuel: Nat, tag: Tag, +size: U32, +b: List<&2, U32>, +f: Wave, +at: U32, pcm: Array<F32>
+  fuel: Nat, tag: Tag, +size: U32, +b: List<&2, U32>, f: Wave, at: U32, pcm: Array<F32>
 ) -> Array<F32> & Clip:
   match fuel tag b:
     case 0n _ _:
@@ -2332,7 +2332,7 @@ def Clip.frames(+c: Clip) -> U32:
 # after the last clip (the chunks walked on a fuel); the clips, last
 # first.
 def Asset.each(
-  names: List<String>, +at: U32, clips: List<&2, Clip>, r: Array<F32> & Clip
+  names: List<String>, at: U32, clips: List<&2, Clip>, r: Array<F32> & Clip
 ) -> IO(Array<F32> & List<&2, Clip>):
   match names:
     case Nil{}:
@@ -2377,7 +2377,7 @@ def Bank.at(n: Nat, +bank: List<&2, Clip>) -> Clip:
 
 # A voice of a clip: its step a frame is the clip's rate over the
 # device's times the rate asked; the pan keeps the centre's level.
-def Voice.of(+clip: Clip, +gain: F32, +pan: F32, +rate: F32, loop: Bool) -> Voice:
+def Voice.of(+clip: Clip, +gain: F32, +pan: F32, rate: F32, loop: Bool) -> Voice:
   Clip{_, _, crate, _} = clip
   Voice{clip, 0.0, (U32.to_f32(crate) / 48000.0 * rate : F32), (gain * R.min(1.0, (1.0 - pan : F32)) : F32),
     (gain * R.min(1.0, (1.0 + pan : F32)) : F32), loop}
@@ -2448,27 +2448,27 @@ def Mix.next(loop: Bool, +i1: U32, +frames: U32) -> U32:
       R.word((i1 >= frames : U32), (frames - 1 : U32), i1)
 
 # A sample v added to the block at k.
-def Mix.ch3(+k: U32, +v: F32, pcm: Array<F32>, r: Array<F32> & F32) -> Array<F32> & Array<F32>:
+def Mix.ch3(k: U32, v: F32, pcm: Array<F32>, r: Array<F32> & F32) -> Array<F32> & Array<F32>:
   (out, o) = r
   (pcm, Array.set(F32, out, k, (o + v : F32)))
 
 # A channel's sample at the cursor (s0 at the frame, s1 at the next,
 # interpolated by f; silent past the end) into the block at k.
 def Mix.ch2(
-  +k: U32, +f: F32, +live: F32, +g: F32, +s0: F32, out: Array<F32>, r: Array<F32> & F32
+  +k: U32, f: F32, live: F32, g: F32, +s0: F32, out: Array<F32>, r: Array<F32> & F32
 ) -> Array<F32> & Array<F32>:
   (pcm, s1) = r
   Mix.ch3(k, ((s0 + (s1 - s0) * f) * live * g : F32), pcm, Array.get(F32, out, k))
 
 def Mix.ch(
-  +k: U32, +f: F32, +live: F32, +g: F32, +a1: U32, out: Array<F32>, r: Array<F32> & F32
+  k: U32, f: F32, live: F32, g: F32, a1: U32, out: Array<F32>, r: Array<F32> & F32
 ) -> Array<F32> & Array<F32>:
   (pcm, s0) = r
   Mix.ch2(k, f, live, g, s0, out, Array.get(F32, pcm, a1))
 
 # The right channel after the left: its samples at a0 and a1.
 def Mix.t1(
-  +k: U32, +f: F32, +live: F32, +g: F32, +a0: U32, +a1: U32, ro: Array<F32> & Array<F32>
+  k: U32, f: F32, live: F32, g: F32, a0: U32, a1: U32, ro: Array<F32> & Array<F32>
 ) -> Array<F32> & Array<F32>:
   (pcm, out) = ro
   Mix.ch(k, f, live, g, a1, out, Array.get(F32, pcm, a0))
@@ -2477,7 +2477,7 @@ def Mix.t1(
 # the block, the left channel then the right (a mono clip reads its
 # channel twice).
 def Mix.t0(
-  +i: U32, +c: F32, +start: U32, +frames: U32, loop: Bool, +gl: F32, +gr: F32, +ch: U32,
+  +i: U32, +c: F32, +start: U32, +frames: U32, loop: Bool, gl: F32, gr: F32, +ch: U32,
   ro: Array<F32> & Array<F32>
 ) -> Array<F32> & Array<F32>:
   (pcm, out) = ro
@@ -2526,7 +2526,7 @@ def Mix.list(k: Nat, +i: U32, acc: List<&2, F32>, r: Array<F32> & F32) -> List<&
         Array.get(F32, out, (i - 1 : U32)))
 
 def Mix.fin(
-  dev: Maybe<Audio>, +bank: List<&2, Clip>, +voices: List<&2, Voice>, +queued: U32, +stamp: Nat,
+  dev: Maybe<Audio>, bank: List<&2, Clip>, +voices: List<&2, Voice>, queued: U32, stamp: Nat,
   ro: Array<F32> & Array<F32>
 ) -> Sound:
   (pcm, out) = ro
@@ -2558,14 +2558,14 @@ def Sound.cues(cues: List<&2, Cue>, s: Sound) -> Sound:
 # The write's answer: the frames queued now, at this clock; a dropped
 # block (the queue was full) leaves the voices where they were.
 def Sound.after(
-  old: Maybe<Audio>, pcm: Array<F32>, +bank: List<&2, Clip>, +voices: List<&2, Voice>,
-  +prev: List<&2, Voice>, +now: Nat, r: Audio & U32
+  old: Maybe<Audio>, pcm: Array<F32>, bank: List<&2, Clip>, voices: List<&2, Voice>,
+  +prev: List<&2, Voice>, now: Nat, r: Audio & U32
 ) -> Sound & Audio:
   (dev, +q) = r
   (Sound{old, pcm, bank, Bool.pick(List<&2, Voice>, (q > 3584 : U32), prev, voices), prev, Nil{},
     q, now}, dev)
 
-def Sound.write(dev: Audio, s: Sound, +now: Nat) -> IO(Sound & Audio):
+def Sound.write(dev: Audio, s: Sound, now: Nat) -> IO(Sound & Audio):
   Sound{old, pcm, bank, voices, prev, block, _, _} = s
   do IO<Sound & Audio>:
     r : Audio & U32 <- Audio.write(dev, block)
@@ -2595,7 +2595,7 @@ def Sound.serve(s: Sound, +now: Nat, paused: Bool) -> IO(Sound):
       +drained = (U32.from_nat(Nat.sub(now, stamp)) * 48 : U32)
       +est = R.word((drained < queued : U32), (queued - drained : U32), 0)
       +want = ((1024 - est + 511) / 512 : U32)
-      +n = R.word((paused || (est >= 1024 : U32)), 0, R.word((want < 8 : U32), want, 8))
+      n = R.word((paused || (est >= 1024 : U32)), 0, R.word((want < 8 : U32), want, 8))
       Sound.feed(U32.to_nat(n), now, (Sound{None{}, pcm, bank, voices, prev, block, queued, stamp}, a))
 
 def Sound.close(s: Sound) -> IO(Unit):
@@ -2633,7 +2633,7 @@ def Sound.open() -> IO(Sound):
     IO.pure(Sound, Sound.made(dev, loaded))
 
 def Cue.add(
-  on: Bool, +kind: U32, +gain: F32, +pan: F32, +rate: F32, acc: List<&2, Cue>
+  on: Bool, kind: U32, gain: F32, pan: F32, rate: F32, acc: List<&2, Cue>
 ) -> List<&2, Cue>:
   match on:
     case True{}:
@@ -2658,11 +2658,11 @@ def Cue.list(+a: Game, +b: Game, acc: List<&2, Cue>) -> List<&2, Cue>:
   +side = (U32.is_eq(action, 20) || U32.is_eq(action, 24))
   +new_hit = (changed && (flash > f0 : U32))
   +death = (stocks < stocks1 : U32)
-  +land = ((Vec.y(v1) < (0.0 - 0.03 : F32) : F32) && Bool.not(Fighter.air(p, v)))
-  +jump = ((Vec.y(v) > 0.3 : F32) && (Vec.y(v1) <= 0.0 : F32))
+  land = ((Vec.y(v1) < (0.0 - 0.03 : F32) : F32) && Bool.not(Fighter.air(p, v)))
+  jump = ((Vec.y(v) > 0.3 : F32) && (Vec.y(v1) <= 0.0 : F32))
   +pan = R.clamp((Vec.x(p) / 15.0 : F32), (0.0 - 0.7 : F32), 0.7)
   +bpan = R.clamp((Vec.x(q) / 15.0 : F32), (0.0 - 0.7 : F32), 0.7)
-  +kind = R.word((charge > 2 : U32), 6, R.word(special, 0, R.word(Act.up(action), 3,
+  kind = R.word((charge > 2 : U32), 6, R.word(special, 0, R.word(Act.up(action), 3,
     R.word(side, 2, 1))))
   +parried = (new_hit && U32.is_eq(action, 3) && (stun > 0 : U32))
   +bfresh = (changed && U32.is_eq(bage, 0) && U32.is_ne(state, state1))
@@ -2720,7 +2720,7 @@ def Game.events(events: List<Event>, g: Game) -> Maybe<Game>:
 
 # n ticks, the last two kept, their cues gathered.
 def Live.steps(
-  n: Nat, prev: Game, +g: Game, now: Nat, +debt: U32, begin: Nat, +frames: U32, cues: List<&2, Cue>
+  n: Nat, prev: Game, +g: Game, now: Nat, debt: U32, begin: Nat, frames: U32, cues: List<&2, Cue>
 ) -> Live:
   match n:
     case 0n:
@@ -2732,7 +2732,7 @@ def Live.steps(
 # The ticks a frame owes: 60 a second of the elapsed time (at most 100
 # ms of it), the rest kept as debt.
 def Live.after(
-  m: Maybe<Game>, prev: Game, +stamp: Nat, +debt: U32, +now: Nat, begin: Nat, frames: U32,
+  m: Maybe<Game>, prev: Game, stamp: Nat, debt: U32, +now: Nat, begin: Nat, frames: U32,
   cues: List<&2, Cue>
 ) -> Maybe<Live>:
   match m:
@@ -2755,7 +2755,7 @@ def Live.view(+s: Live, used: R.Cells) -> R.Cells:
 # The frames counted: past half a second the title shows their rate
 # and a new count begins at now.
 def Play.pace(
-  ready: Bool, window: Window, +ms: U32, +count: U32, now: Nat, begin: Nat,
+  ready: Bool, window: Window, +ms: U32, count: U32, now: Nat, begin: Nat,
   k: Window -> Nat -> U32 -> IO(Unit)
 ) -> IO(Unit):
   match ready:
@@ -2768,7 +2768,7 @@ def Play.pace(
 # The frame's cues into the sound and the device fed (silent in a
 # pause), then the next turn.
 def Play.serve(
-  window: Window, +live: Live, snd: Sound, +now: Nat, rest: Window -> Live -> Sound -> IO(Unit)
+  window: Window, +live: Live, snd: Sound, now: Nat, rest: Window -> Live -> Sound -> IO(Unit)
 ) -> IO(Unit):
   Live{game, prev, stamp, debt, begin, frames, cues} = live
   Game{_, _, _, mode, _, _, _, _, _, _, _} = game
@@ -2778,7 +2778,7 @@ def Play.serve(
 
 # The end closes the sound and the window.
 def Play.go(
-  window: Window, snd: Sound, +now: Nat, rest: Window -> Live -> Sound -> IO(Unit), next: Maybe<Live>
+  window: Window, snd: Sound, now: Nat, rest: Window -> Live -> Sound -> IO(Unit), next: Maybe<Live>
 ) -> IO(Unit):
   match next:
     case None{}:
@@ -2791,7 +2791,7 @@ def Play.go(
 # The title paced, the events into the game, then the ticks owed.
 def Play.next(
   window: Window, events: List<Event>, game: Game, prev: Game, stamp: Nat, debt: U32,
-  +begin: Nat, +frames: U32, +now: Nat, cues: List<&2, Cue>, snd: Sound,
+  +begin: Nat, frames: U32, +now: Nat, cues: List<&2, Cue>, snd: Sound,
   rest: Window -> Live -> Sound -> IO(Unit)
 ) -> IO(Unit):
   +ms = U32.from_nat(Nat.sub(now, begin))
@@ -2845,7 +2845,7 @@ def Play.run() -> IO(Unit):
 # Probe
 # -----
 
-def Script.at(+t: U32, +a: U32, +b: U32, +m: U32) -> U32:
+def Script.at(+t: U32, a: U32, b: U32, m: U32) -> U32:
   R.word(((t >= a) && (t < b) : U32), m, 0)
 
 # The keys held at a tick of the script: a run, hops, every attack, a
@@ -2886,7 +2886,7 @@ def Script.tick(+g: Game, +t: U32) -> Game:
   Game.step(Script.hp(Game{time, h, (taps .|. (h .&. U32.not(Script.held(Sim.dec(t)))) : U32), mode,
     hero, boss, flash, cloth, garb, lens, blast}, t))
 
-def Game.walk(n: Nat, +g: Game, +t: U32) -> Game:
+def Game.walk(n: Nat, g: Game, +t: U32) -> Game:
   match n:
     case 0n:
       g
@@ -2912,10 +2912,10 @@ type Sums is Data:
   Sums{n: U32, build: U32, draw: U32, tick: U32, mix: U32, whole: U32}
 
 
-def Probe.ms(+a: Nat, +b: Nat) -> U32:
+def Probe.ms(a: Nat, b: Nat) -> U32:
   U32.from_nat(Nat.sub(b, a))
 
-def Sums.add(warm: Bool, +s: Sums, +b: U32, +d: U32, +k: U32, +m: U32, +w: U32) -> Sums:
+def Sums.add(warm: Bool, +s: Sums, b: U32, d: U32, k: U32, m: U32, w: U32) -> Sums:
   match warm:
     case True{}:
       s
@@ -2927,14 +2927,14 @@ def Sums.add(warm: Bool, +s: Sums, +b: U32, +d: U32, +k: U32, +m: U32, +w: U32) 
 # The sums after a frame (the clocks after its scene and its bang),
 # beside its image and its scene (the next bang and build drop them).
 def Sums.next(
-  ti: Nat & Nat & Image & R.Cells, warm: Bool, +s: Sums, +t0: Nat, +t5: Nat, +t6: Nat, +t7: Nat
+  ti: Nat & Nat & Image & R.Cells, warm: Bool, s: Sums, +t0: Nat, t5: Nat, +t6: Nat, +t7: Nat
 ) -> Sums & Image & R.Cells:
   (+t1, t2, img, used) = ti
   (Sums.add(warm, s, Probe.ms(t0, t1), Probe.ms(t1, t2), Probe.ms(t5, t6), Probe.ms(t6, t7),
     Probe.ms(t0, t7)), img, used)
 
 # Microseconds a frame.
-def Probe.us(+sum: U32, +n: U32) -> String:
+def Probe.us(sum: U32, n: U32) -> String:
   U32.show((sum * 1000 / n : U32))
 
 def Probe.report(+s: Sums) -> IO(Unit):
@@ -3037,7 +3037,7 @@ def Probe.close(f: Maybe<File>) -> IO(Unit):
 # A tick's cues into the sound and n blocks rendered: the game after,
 # the sound, the cues, the blocks.
 def Probe.mix(
-  +a: Game, +g2: Game, snd: Sound, n: Nat
+  a: Game, +g2: Game, snd: Sound, n: Nat
 ) -> Game & Sound & List<&2, Cue> & List<&2, List<&2, F32>>:
   +cues = Cue.list(a, g2, Nil{})
   Probe.render(n, Sound.cues(cues, snd), Nil{}, g2, cues)
@@ -3060,7 +3060,7 @@ def Sound.told(s: Sound, on: Bool) -> IO(Sound):
 
 # The device fed as in the game (no dump asked), its queue told every
 # 60 ticks.
-def Probe.serve(feed: Bool, s: Sound, +now: Nat, +t: U32) -> IO(Sound):
+def Probe.serve(feed: Bool, s: Sound, now: Nat, t: U32) -> IO(Sound):
   match feed:
     case False{}:
       IO.pure(Sound, s)
@@ -3072,7 +3072,7 @@ def Probe.serve(feed: Bool, s: Sound, +now: Nat, +t: U32) -> IO(Sound):
 # The summary every 60 ticks; the state on a dodge's first tick, on
 # the boss's first tick of a state or a stun, on the hero's first hurt
 # tick.
-def Probe.watch(+g: Game, +t: U32) -> IO(Game):
+def Probe.watch(+g: Game, t: U32) -> IO(Game):
   Game{_, _, _, mode, hero, boss, _, _, _, _, _} = g
   Fighter{_, _, _, _, _, _, action, age, _, _, _, _, _} = hero
   Boss{_, _, _, _, stun, _, state, bage, _, _, _} = boss
@@ -3088,7 +3088,7 @@ def Probe.watch(+g: Game, +t: U32) -> IO(Game):
 # mix (800 frames a tick in blocks of 512), each timed; the first 8
 # warm up.
 def Probe.loop(
-  left: Nat, gs: Game & Sound & List<&2, Cue> & List<&2, List<&2, F32>>, +prev: Game, +t: U32,
+  left: Nat, gs: Game & Sound & List<&2, Cue> & List<&2, List<&2, F32>>, prev: Game, +t: U32,
   si: Sums & Image & R.Cells, +seen: Nat, +rig: U32, +due: U32, file: Maybe<File>, +feed: Bool
 ) -> IO(Unit):
   match left:
@@ -3149,14 +3149,14 @@ def Env.u32(m: Maybe<&2, U32>, default: U32) -> U32:
     case Some{v}:
       v
 
-def Env.num(r: Result<&1, &1, U32 & String, String>, +default: U32) -> U32:
+def Env.num(r: Result<&1, &1, U32 & String, String>, default: U32) -> U32:
   match r:
     case Fail{_}:
       default
     case Done{text}:
       Env.u32(U32.read(text), default)
 
-def Probe.dump(dump: Result<&1, &1, U32 & String, String>, +rig: U32) -> IO(Unit):
+def Probe.dump(dump: Result<&1, &1, U32 & String, String>, rig: U32) -> IO(Unit):
   match dump:
     case Fail{_}:
       IO.pure(Unit, Unit{})

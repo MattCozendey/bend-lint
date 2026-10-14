@@ -116,7 +116,7 @@ def Vec.normalize(+v: Vec) -> Vec:
 def Vec.reflect(+v: Vec, +n: Vec) -> Vec:
   Vec.sub(v, Vec.scale(n, (Vec.dot(v, n) * 2.0 : F32)))
 
-def Ray.at(+ray: Ray, +t: F32) -> Vec:
+def Ray.at(+ray: Ray, t: F32) -> Vec:
   Ray{a, b} = ray
   Vec.add(a, Vec.scale(b, t))
 
@@ -137,17 +137,17 @@ def Rng.next(+s: U32) -> U32:
   +b = U32.xor(a, U32.shrn(a, 17n))
   U32.xor(b, U32.shln(b, 5n))
 
-def Rng.next2(+s: U32) -> U32:
+def Rng.next2(s: U32) -> U32:
   Rng.next(Rng.next(s))
 
-def Rng.next3(+s: U32) -> U32:
+def Rng.next3(s: U32) -> U32:
   Rng.next(Rng.next(Rng.next(s)))
 
 # rand(1f): the float in [0, 1) of a state
-def Rng.u(+s: U32) -> F32:
+def Rng.u(s: U32) -> F32:
   (U32.to_f32(U32.shrn(s, 8n)) / 16777216.0 : F32)
 
-def Rng.at(+h: U32, +j: U32) -> F32:
+def Rng.at(h: U32, j: U32) -> F32:
   Rng.u(Rng.hash((h + j : U32)))
 
 # the point in [-1, 1]^3 drawn from s, next(s) and next2(s)
@@ -164,7 +164,7 @@ def Rng.vec2(+s: U32) -> Vec:
 # it with vec3 / vec2, then step past it with next3 / next2). As in
 # v3.nim, a point is accepted when it lies outside the unit ball; kept so
 # the image matches the original.
-def Rng.in_sphere(fuel: Nat, done: Bool, +s: U32) -> U32:
+def Rng.in_sphere(fuel: Nat, done: Bool, s: U32) -> U32:
   match fuel done:
     case _ True{}:
       s
@@ -174,7 +174,7 @@ def Rng.in_sphere(fuel: Nat, done: Bool, +s: U32) -> U32:
       +c = Rng.next3(s)
       Rng.in_sphere(k, (Vec.sqlen(Rng.vec3(c)) >= 1.0 : F32), c)
 
-def Rng.in_disk(fuel: Nat, done: Bool, +s: U32) -> U32:
+def Rng.in_disk(fuel: Nat, done: Bool, s: U32) -> U32:
   match fuel done:
     case _ True{}:
       s
@@ -197,8 +197,8 @@ type Cam is Data:
   Cam{origin: Vec, corner: Vec, hor: Vec, vert: Vec, u: Vec, v: Vec,
     lens: F32}
 
-def Cam.new(+from: Vec, +at: Vec) -> Cam:
-  +vup = {Vec{0.0, 1.0, 0.0} : Vec}
+def Cam.new(+from: Vec, at: Vec) -> Cam:
+  vup = {Vec{0.0, 1.0, 0.0} : Vec}
   +dist = Vec.sub(from, at)
   +w = Vec.normalize(dist)
   +u = Vec.normalize(Vec.cross(vup, w))
@@ -208,19 +208,19 @@ def Cam.new(+from: Vec, +at: Vec) -> Cam:
   +hw = (2.0 * hh : F32)
   # v points up; rows go top to bottom, so the corner is the top left
   # and the vertical span points down
-  +corner = Vec.sub(Vec.add(Vec.sub(from, Vec.scale(u, (hw * fd : F32))),
+  corner = Vec.sub(Vec.add(Vec.sub(from, Vec.scale(u, (hw * fd : F32))),
     Vec.scale(v, (hh * fd : F32))), Vec.scale(w, fd))
   Cam{from, corner, Vec.scale(u, (hw * fd * 2.0 : F32)),
     Vec.scale(v, (0.0 - hh * fd * 2.0 : F32)), u, v, (0.005 / 2.0 : F32)}
 
 # d: the randInDisk() point for the lens
-def Cam.ray(+cam: Cam, +pu: F32, +pv: F32, d: Vec) -> Ray:
+def Cam.ray(+cam: Cam, pu: F32, pv: F32, d: Vec) -> Ray:
   Cam{origin, corner, hor, vert, u, v, lens} = cam
   Vec{dx, dy, dz} = d
   +offset = Vec.add(Vec.scale(u, (dx * lens : F32)),
     Vec.scale(v, (dy * lens : F32)))
-  +uh = Vec.scale(hor, pu)
-  +vv = Vec.sub(Vec.sub(Vec.scale(vert, pv), origin), offset)
+  uh = Vec.scale(hor, pu)
+  vv = Vec.sub(Vec.sub(Vec.scale(vert, pv), origin), offset)
   Ray{Vec.sub(origin, offset), Vec.add(corner, Vec.add(uh, vv))}
 
 # Scene
@@ -271,13 +271,13 @@ def Scene.random(n: Nat, +k: U32, acc: Scene) -> Scene:
       +cx = (U32.to_f32((k / 22 : U32)) - 11.0 + 0.9 + Rng.at(h, 1) : F32)
       +cz = (U32.to_f32((k % 22 : U32)) - 11.0 + 0.9 + Rng.at(h, 2) : F32)
       +c = {Vec{cx, 0.2, cz} : Vec}
-      +far = (Vec.len(Vec.sub(c, Vec{4.0, 0.2, 0.0})) > 0.9 : F32)
-      +cy = (0.2 - 0.2 / 45.0 * Vec.len(c) : F32)
+      far = (Vec.len(Vec.sub(c, Vec{4.0, 0.2, 0.0})) > 0.9 : F32)
+      cy = (0.2 - 0.2 / 45.0 * Vec.len(c) : F32)
       Scene.random(m, (k + 1 : U32), Scene.add(far, Sphere{Vec{cx, cy, cz},
         0.2, Mat.pick((mp < 0.8 : F32), (mp < 0.95 : F32), h)}, acc))
 
 def Scene.new() -> Scene:
-  +big = {Ball{Sphere{Vec{0.0, 1.0, 0.0}, 1.0, Dielectric{1.5}},
+  big = {Ball{Sphere{Vec{0.0, 1.0, 0.0}, 1.0, Dielectric{1.5}},
     Ball{Sphere{Vec{(0.0 - 4.0 : F32), 1.0, 0.0}, 1.0,
       Lambertian{Vec{0.4, 0.2, 0.1}}},
     Ball{Sphere{Vec{4.0, 1.0, 0.0}, 1.0, Metalic{Vec{0.7, 0.6, 0.5}, 0.01}},
@@ -291,12 +291,12 @@ def Scene.new() -> Scene:
 
 # the nearest t of the sphere in (0.01, hi), or hi on a miss
 def Sphere.hit(s: Sphere, +ray: Ray, +hi: F32) -> F32:
-  Sphere{+o, +r, mat} = s
-  Ray{+a, +b} = ray
+  Sphere{o, +r, mat} = s
+  Ray{a, +b} = ray
   +oc = Vec.sub(a, o)
   +qa = Vec.dot(b, b)
   +qb = Vec.dot(oc, b)
-  +qc = (Vec.dot(oc, oc) - r * r : F32)
+  qc = (Vec.dot(oc, oc) - r * r : F32)
   +disc = (qb * qb - qa * qc : F32)
   +sq = F32.sqrt(disc)
   +tm = ((0.0 - qb - sq) / qa : F32)
@@ -308,7 +308,7 @@ type Hit is Data:
   Hit{t: F32, idx: U32}
 
 # one flat loop over the scene: the nearest t and the index of its sphere
-def Scene.hit(scene: Scene, +i: U32, +ray: Ray, +closest: F32, +best: U32) ->
+def Scene.hit(scene: Scene, +i: U32, +ray: Ray, +closest: F32, best: U32) ->
   Hit:
   match scene:
     case Void{}:
@@ -331,17 +331,17 @@ def Mat.keep(ok: Bool, ray: Ray, acc: Vec, s: U32) -> St:
     case False{}:
       Stop{Vec.zero(), s}
 
-def schlick(+cosine: F32, +ri: F32) -> F32:
+def schlick(cosine: F32, +ri: F32) -> F32:
   +r0 = ((1.0 - ri) / (1.0 + ri) : F32)
   +r = (r0 * r0 : F32)
   (r + (1.0 - r) * F32.pow((1.0 - cosine : F32), 5.0) : F32)
 
-def Mat.scatter(mat: Mat, +ray: Ray, +p: Vec, +n: Vec, +acc: Vec, s: U32) ->
+def Mat.scatter(mat: Mat, +ray: Ray, +p: Vec, +n: Vec, acc: Vec, s: U32) ->
   St:
   match mat:
     case Lambertian{albedo}:
       +c = Rng.sphere(s)
-      +target = Vec.add(Vec.add(p, n), Rng.vec3(c))
+      target = Vec.add(Vec.add(p, n), Rng.vec3(c))
       Bounce{Ray{p, Vec.sub(target, p)}, Vec.mul(acc, albedo), Rng.next3(c)}
     case Metalic{albedo, fuzzy}:
       Ray{a, b} = ray
@@ -357,25 +357,25 @@ def Mat.scatter(mat: Mat, +ray: Ray, +p: Vec, +n: Vec, +acc: Vec, s: U32) ->
       +out = vpick(inside, Vec.neg(n), n)
       +ni = pick(inside, refraction, (1.0 / refraction : F32))
       +cos0 = (0.0 - bn / Vec.len(b) : F32)
-      +cosine = pick(inside, (0.0 - cos0 * refraction : F32), cos0)
+      cosine = pick(inside, (0.0 - cos0 * refraction : F32), cos0)
       +nv = Vec.normalize(b)
       +dt = Vec.dot(nv, out)
       +disc = (1.0 - ni * ni * (1.0 - dt * dt) : F32)
-      +refr = Vec.sub(Vec.scale(Vec.sub(nv, Vec.scale(out, dt)), ni),
+      refr = Vec.sub(Vec.scale(Vec.sub(nv, Vec.scale(out, dt)), ni),
         Vec.scale(out, F32.sqrt(disc)))
       +s1 = s
-      +through = ((disc > 0.0) && (Rng.u(s1) > schlick(cosine, refraction))
+      through = ((disc > 0.0) && (Rng.u(s1) > schlick(cosine, refraction))
         : F32)
       Bounce{Ray{p, vpick(through, refr, Vec.reflect(b, n))}, acc, Rng.next(s1)}
 
-def Sphere.scatter(sp: Sphere, +t: F32, +ray: Ray, +acc: Vec, s: U32) -> St:
+def Sphere.scatter(sp: Sphere, t: F32, +ray: Ray, acc: Vec, s: U32) -> St:
   Sphere{o, r, mat} = sp
   +p = Ray.at(ray, t)
   Mat.scatter(mat, ray, p, Vec.div(Vec.sub(p, o), r), acc, s)
 
 # walks to the sphere at idx and scatters the ray off it
 def Scene.scatter(
-  scene: Scene, here: Bool, +idx: U32, +t: F32, +ray: Ray, +acc: Vec, s: U32
+  scene: Scene, here: Bool, +idx: U32, t: F32, ray: Ray, acc: Vec, s: U32
 ) -> St:
   match scene here:
     case Ball{sp, next} True{}:
@@ -394,11 +394,11 @@ def sky.of(v: Vec) -> Vec:
   Vec.add(Vec.scale(Vec.unit(), (1.0 - t : F32)),
     Vec.scale(Vec{0.5, 0.7, 1.0}, t))
 
-def sky(+d: Vec) -> Vec:
+def sky(d: Vec) -> Vec:
   sky.of(Vec.normalize(d))
 
 def step.go(
-  miss: Bool, +scene: Scene, +idx: U32, +t: F32, +ray: Ray, +acc: Vec, s: U32
+  miss: Bool, scene: Scene, +idx: U32, t: F32, +ray: Ray, acc: Vec, s: U32
 ) -> St:
   match miss:
     case True{}:
@@ -407,14 +407,14 @@ def step.go(
     case False{}:
       Scene.scatter(scene, U32.is_eq(idx, 0), idx, t, ray, acc, s)
 
-def step.hit(h: Hit, +scene: Scene, +ray: Ray, +acc: Vec, s: U32) -> St:
+def step.hit(h: Hit, scene: Scene, ray: Ray, acc: Vec, s: U32) -> St:
   Hit{t, +idx} = h
   step.go(U32.is_eq(idx, None()), scene, idx, t, ray, acc, s)
 
-def step(+scene: Scene, +ray: Ray, +acc: Vec, s: U32) -> St:
+def step(+scene: Scene, +ray: Ray, acc: Vec, s: U32) -> St:
   step.hit(Scene.hit(scene, 0, ray, Far(), None()), scene, ray, acc, s)
 
-def last.go(miss: Bool, +ray: Ray, +acc: Vec) -> Vec:
+def last.go(miss: Bool, +ray: Ray, acc: Vec) -> Vec:
   match miss:
     case True{}:
       Ray{a, b} = ray
@@ -422,7 +422,7 @@ def last.go(miss: Bool, +ray: Ray, +acc: Vec) -> Vec:
     case False{}:
       Vec.zero()
 
-def last(h: Hit, +ray: Ray, +acc: Vec) -> Vec:
+def last(h: Hit, ray: Ray, acc: Vec) -> Vec:
   Hit{t, idx} = h
   last.go(U32.is_eq(idx, None()), ray, acc)
 
@@ -432,7 +432,7 @@ type Col is Data:
 
 # color() of main.nim, added to sum: n bounces left; the hit after the
 # last one is black
-def trace(n: Nat, st: St, +sum: Vec, +scene: Scene) -> Col:
+def trace(n: Nat, st: St, sum: Vec, +scene: Scene) -> Col:
   match n st:
     case _ Stop{c, s}:
       Col{Vec.add(sum, c), s}
@@ -442,10 +442,10 @@ def trace(n: Nat, st: St, +sum: Vec, +scene: Scene) -> Col:
     case 1n+k Bounce{ray, acc, s}:
       trace(k, step(scene, ray, acc, s), sum, scene)
 
-def sample(+x: U32, +y: U32, col: Col, +cam: Cam, +scene: Scene) -> Col:
+def sample(x: U32, y: U32, col: Col, cam: Cam, scene: Scene) -> Col:
   Col{sum, +s} = col
   +d = Rng.disk(Rng.next2(s))
-  +ray = Cam.ray(cam,
+  ray = Cam.ray(cam,
     ((U32.to_f32(x) + Rng.u(s)) / U32.to_f32(W()) : F32),
     ((U32.to_f32(y) + Rng.u(Rng.next(s))) / U32.to_f32(H()) : F32),
     Rng.vec2(d))
@@ -465,13 +465,13 @@ def pack(v: Vec) -> U32:
     .|. F32.to_u32((255.99 * F32.sqrt(g) : F32)) << 8n
     .|. F32.to_u32((255.99 * F32.sqrt(b) : F32)) : U32)
 
-def Col.mean(col: Col, +ns: U32) -> Vec:
+def Col.mean(col: Col, ns: U32) -> Vec:
   Col{sum, s} = col
   Vec.div(sum, U32.to_f32(ns))
 
 # the averaged, gamma-2 color of a pixel as 0xRRGGBB
-def pixel(+x: U32, +y: U32, +ns: U32, +cam: Cam, +scene: Scene) -> U32:
-  +seed = Rng.hash((y * W() + x + 1 : U32))
+def pixel(+x: U32, +y: U32, +ns: U32, cam: Cam, scene: Scene) -> U32:
+  seed = Rng.hash((y * W() + x + 1 : U32))
   pack(Col.mean(samples(U32.to_nat(ns), x, y, Col{Vec.zero(), seed}, cam,
     scene), ns))
 
@@ -490,7 +490,7 @@ type Rows is Data:
 
 # a row, right to left onto acc: one flat loop
 def row(
-  n: Nat, +x: U32, +y: U32, +ns: U32, +cam: Cam, +scene: Scene,
+  n: Nat, x: U32, +y: U32, +ns: U32, +cam: Cam, +scene: Scene,
   acc: List<&2, U32>
 ) -> List<&2, U32>:
   match n:
@@ -502,7 +502,7 @@ def row(
 
 # the image line y: its first w pixels (w is W() at run time; the laws
 # keep it abstract, so the checker never unrolls a line)
-def line(+w: U32, +y: U32, +ns: U32, +cam: Cam, +scene: Scene) ->
+def line(+w: U32, y: U32, ns: U32, cam: Cam, scene: Scene) ->
   List<&2, U32>:
   row(U32.to_nat(w), w, y, ns, cam, scene, [])
 
@@ -559,7 +559,7 @@ def render(
       interleave(a, b)
 
 # the row indices y - n, .., y - 1 onto acc
-def indices(n: Nat, +y: U32, acc: List<&2, U32>) -> List<&2, U32>:
+def indices(n: Nat, y: U32, acc: List<&2, U32>) -> List<&2, U32>:
   match n:
     case 0n:
       acc
@@ -672,9 +672,9 @@ def save.all(ppm: Bool, t0: Nat, +rs: Rows) -> IO(Unit):
 
 def run(opts: Opts) -> IO(Unit):
   Opts{+ns, ppm} = opts
-  +cam = Cam.new(Vec{(0.0 - 1.0 : F32), 1.0, 18.0},
+  cam = Cam.new(Vec{(0.0 - 1.0 : F32), 1.0, 18.0},
     Vec{0.0, 1.0, (0.0 - 1.0 : F32)})
-  +scene = Scene.new()
+  scene = Scene.new()
   do IO<Unit>:
     IO.print("rendering " ++ U32.show(W()) ++ "x" ++ U32.show(H()) ++ " at "
       ++ U32.show(ns) ++ " samples per pixel")

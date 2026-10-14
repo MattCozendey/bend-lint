@@ -47,7 +47,7 @@ type QuotRem is Data:
 # ---- greatest common divisor, least common multiple ----
 
 # Euclid's algorithm; b <= fuel throughout (every step lowers b).
-def gcd_go(fuel: Nat, +a: Nat, +b: Nat) -> Nat:
+def gcd_go(fuel: Nat, a: Nat, +b: Nat) -> Nat:
   match fuel b:
     case 0n _:
       a
@@ -56,7 +56,7 @@ def gcd_go(fuel: Nat, +a: Nat, +b: Nat) -> Nat:
     case 1n+f 1n+ +bp:
       gcd_go(f, 1n+bp, Nat.mod(a, 1n+bp))
 
-def gcd(+a: Nat, +b: Nat) -> Nat:
+def gcd(a: Nat, +b: Nat) -> Nat:
   gcd_go(b, a, b)
 
 def lcm(+a: Nat, +b: Nat) -> Nat:
@@ -68,21 +68,21 @@ def lcm(+a: Nat, +b: Nat) -> Nat:
     case 1n+ +ap 1n+ +bp:
       Nat.mul(Nat.div(1n+ap, gcd(1n+ap, 1n+bp)), 1n+bp)
 
-def gcd_all_go(xs: List<&2, Nat>, +acc: Nat) -> Nat:
+def gcd_all_go(xs: List<&2, Nat>, acc: Nat) -> Nat:
   match xs:
     case Nil{}:
       acc
-    case Con{+x, rest}:
+    case Con{x, rest}:
       gcd_all_go(rest, gcd(acc, x))
 
 def gcd_all(xs: List<&2, Nat>) -> Nat:
   gcd_all_go(xs, 0n)
 
-def lcm_all_go(xs: List<&2, Nat>, +acc: Nat) -> Nat:
+def lcm_all_go(xs: List<&2, Nat>, acc: Nat) -> Nat:
   match xs:
     case Nil{}:
       acc
-    case Con{+x, rest}:
+    case Con{x, rest}:
       lcm_all_go(rest, lcm(acc, x))
 
 def lcm_all(xs: List<&2, Nat>) -> Nat:
@@ -90,21 +90,21 @@ def lcm_all(xs: List<&2, Nat>) -> Nat:
 
 # ---- sums and products ----
 
-def sum_go(xs: List<&2, Nat>, +acc: Nat) -> Nat:
+def sum_go(xs: List<&2, Nat>, acc: Nat) -> Nat:
   match xs:
     case Nil{}:
       acc
-    case Con{+x, rest}:
+    case Con{x, rest}:
       sum_go(rest, Nat.add(acc, x))
 
 def sum(xs: List<&2, Nat>) -> Nat:
   sum_go(xs, 0n)
 
-def prod_go(xs: List<&2, Nat>, +acc: Nat) -> Nat:
+def prod_go(xs: List<&2, Nat>, acc: Nat) -> Nat:
   match xs:
     case Nil{}:
       acc
-    case Con{+x, rest}:
+    case Con{x, rest}:
       prod_go(rest, Nat.mul(acc, x))
 
 def prod(xs: List<&2, Nat>) -> Nat:
@@ -112,34 +112,34 @@ def prod(xs: List<&2, Nat>) -> Nat:
 
 # ---- factorial, permutations, combinations ----
 
-def factorial_go(n: Nat, +acc: Nat) -> Nat:
+def factorial_go(n: Nat, acc: Nat) -> Nat:
   match n:
     case 0n:
       acc
     case 1n+ +p:
       factorial_go(p, Nat.mul(1n+p, acc))
 
-def factorial(+n: Nat) -> Nat:
+def factorial(n: Nat) -> Nat:
   factorial_go(n, 1n)
 
 # n * (n - 1) * ... * (n - k + 1)
-def perm_go(k: Nat, +m: Nat, +acc: Nat) -> Nat:
+def perm_go(k: Nat, +m: Nat, acc: Nat) -> Nat:
   match k:
     case 0n:
       acc
     case 1n+j:
       perm_go(j, Nat.sub(m, 1n), Nat.mul(acc, m))
 
-def perm(+n: Nat, +k: Nat) -> Nat:
+def perm(n: Nat, k: Nat) -> Nat:
   perm_go(k, n, 1n)
 
 # r_{i+1} = r_i * (n - i) / (i + 1): every r_i is C(n, i), so the division
 # is exact (reference section 8.6).
-def comb_go(j: Nat, +n: Nat, +i: Nat, +r: Nat) -> Nat:
+def comb_go(j: Nat, +n: Nat, +i: Nat, r: Nat) -> Nat:
   match j:
     case 0n:
       r
-    case 1n+ +jp:
+    case 1n+ jp:
       comb_go(jp, n, 1n+i, Nat.div(Nat.mul(r, Nat.sub(n, i)), 1n+i))
 
 def comb_small(+n: Nat, +k: Nat, +big: Bool) -> Nat:
@@ -154,13 +154,13 @@ def comb(+n: Nat, +k: Nat) -> Nat:
 
 # ---- bits ----
 
-def bit_length_go(fuel: Nat, +n: Nat, +k: Nat) -> Nat:
+def bit_length_go(fuel: Nat, +n: Nat, k: Nat) -> Nat:
   match fuel n:
     case 0n _:
       k
     case 1n+f 0n:
       k
-    case 1n+f 1n+ +np:
+    case 1n+f 1n+ np:
       bit_length_go(f, Nat.div(1n+np, 2n), 1n+k)
 
 def bit_length(+n: Nat) -> Nat:
@@ -172,7 +172,7 @@ def bit_length(+n: Nat) -> Nat:
 # holds at lo and fails at hi (reference section 8.5 notes the float-sqrt
 # shortcut is wrong above 2^52; this search is exact). `more` is lo + 1 < hi
 # and `ok` is the test at the midpoint; the fuel bounds the halvings.
-def mid(+lo: Nat, +hi: Nat) -> Nat:
+def mid(lo: Nat, hi: Nat) -> Nat:
   Nat.div(Nat.add(lo, hi), 2n)
 
 # r^k <= n without forming a product above n: `ok` is acc * r <= n, asked
@@ -214,10 +214,10 @@ def search(+n: Nat, +k: Nat, +lo: Nat, +hi: Nat) -> Nat:
 # Mathlib's Nat.sqrt: g := (g + n / g) / 2 while that decreases g. Started
 # from 2^(b/2 + 1) >= sqrt(n) (n < 2^b, b = bit_length(n)) it converges in
 # O(log b) steps; the fuel g bounds the (strictly decreasing) steps.
-def sqrt_next(+n: Nat, +g: Nat) -> Nat:
+def sqrt_next(n: Nat, +g: Nat) -> Nat:
   Nat.div(Nat.add(g, Nat.div(n, g)), 2n)
 
-def sqrt_iter(fuel: Nat, +n: Nat, +g: Nat, +m: Nat, +down: Bool) -> Nat:
+def sqrt_iter(fuel: Nat, +n: Nat, g: Nat, +m: Nat, +down: Bool) -> Nat:
   match fuel down:
     case 0n _:
       g
@@ -242,16 +242,16 @@ def iroot_k(+n: Nat, +k: Nat) -> Nat:
     case 2n+ +kp:
       search(n, 2n+kp, 0n, P2.pow2t(1n+Nat.div(bit_length(n), 2n+kp)))
 
-def iroot(+n: Nat, +k: Nat) -> Result<&2, &2, MathError, Nat>:
+def iroot(n: Nat, +k: Nat) -> Result<&2, &2, MathError, Nat>:
   match k:
     case 0n:
       Fail{Domain{}}
-    case 1n+ +kp:
+    case 1n+ kp:
       Done{iroot_k(n, 1n+kp)}
 
 # the largest k with b^k <= n: p is b^k, `up` is p * b <= n, asked as
 # p <= n / b so no product above n is formed
-def ilog_go(fuel: Nat, +n: Nat, +b: Nat, +k: Nat, +p: Nat, +up: Bool) -> Nat:
+def ilog_go(fuel: Nat, +n: Nat, +b: Nat, k: Nat, +p: Nat, +up: Bool) -> Nat:
   match fuel up:
     case 0n _:
       k
@@ -274,14 +274,14 @@ def ilog(+n: Nat, +b: Nat) -> Result<&2, &2, MathError, Nat>:
 
 # right-to-left binary exponentiation, reducing mod m after every product:
 # acc * base^e == b^e0 (mod m) throughout
-def pow_mod_odd(+m: Nat, +bit: Nat, +base: Nat, +acc: Nat) -> Nat:
+def pow_mod_odd(m: Nat, +bit: Nat, base: Nat, acc: Nat) -> Nat:
   match bit:
     case 0n:
       acc
     case 1n+z:
       Nat.mod(Nat.mul(acc, base), m)
 
-def pow_mod_go(fuel: Nat, +m: Nat, +e: Nat, +base: Nat, +acc: Nat) -> Nat:
+def pow_mod_go(fuel: Nat, +m: Nat, +e: Nat, +base: Nat, acc: Nat) -> Nat:
   match fuel e:
     case 0n _:
       acc
@@ -290,7 +290,7 @@ def pow_mod_go(fuel: Nat, +m: Nat, +e: Nat, +base: Nat, +acc: Nat) -> Nat:
     case 1n+f 1n+ +ep:
       pow_mod_go(f, m, Nat.div(1n+ep, 2n), Nat.mod(Nat.mul(base, base), m), pow_mod_odd(m, Nat.mod(1n+ep, 2n), base, acc))
 
-def pow_mod(+b: Nat, +e: Nat, +m: Nat) -> Result<&2, &2, MathError, Nat>:
+def pow_mod(b: Nat, +e: Nat, +m: Nat) -> Result<&2, &2, MathError, Nat>:
   match m:
     case 0n:
       Fail{ZeroDivision{}}
@@ -299,10 +299,10 @@ def pow_mod(+b: Nat, +e: Nat, +m: Nat) -> Result<&2, &2, MathError, Nat>:
 
 # Extended Euclid on (m, a mod m) keeping only the coefficient of a, mod m:
 # a * s0 == r0 and a * s1 == r1 (mod m). The remainders are gcd's.
-def inv_step(+m: Nat, +q: Nat, +s0: Nat, +s1: Nat) -> Nat:
+def inv_step(+m: Nat, q: Nat, s0: Nat, s1: Nat) -> Nat:
   Nat.mod(Nat.add(s0, Nat.sub(m, Nat.mod(Nat.mul(q, s1), m))), m)
 
-def inv_go(fuel: Nat, +m: Nat, +r0: Nat, +s0: Nat, +r1: Nat, +s1: Nat) -> Bezout:
+def inv_go(fuel: Nat, +m: Nat, +r0: Nat, s0: Nat, +r1: Nat, +s1: Nat) -> Bezout:
   match fuel r1:
     case 0n _:
       BZ{r0, s0}
@@ -311,7 +311,7 @@ def inv_go(fuel: Nat, +m: Nat, +r0: Nat, +s0: Nat, +r1: Nat, +s1: Nat) -> Bezout
     case 1n+f 1n+ +rp:
       inv_go(f, m, 1n+rp, s1, Nat.mod(r0, 1n+rp), inv_step(m, Nat.div(r0, 1n+rp), s0, s1))
 
-def inv_fin(+m: Nat, bz: Bezout) -> Result<&2, &2, MathError, Nat>:
+def inv_fin(m: Nat, bz: Bezout) -> Result<&2, &2, MathError, Nat>:
   match bz:
     case BZ{1n, s}:
       Done{Nat.mod(s, m)}
@@ -321,7 +321,7 @@ def inv_fin(+m: Nat, bz: Bezout) -> Result<&2, &2, MathError, Nat>:
       Fail{NotInvertible{}}
 
 # pow(a, -1, m): the x < m with a * x == 1 (mod m)
-def mod_inverse(+a: Nat, +m: Nat) -> Result<&2, &2, MathError, Nat>:
+def mod_inverse(a: Nat, +m: Nat) -> Result<&2, &2, MathError, Nat>:
   match m:
     case 0n:
       Fail{ZeroDivision{}}
@@ -337,12 +337,12 @@ def divmod(+a: Nat, +b: Nat) -> Result<&2, &2, MathError, QuotRem>:
     case 1n+ +bp:
       Done{QR{Nat.div(a, 1n+bp), Nat.mod(a, 1n+bp)}}
 
-def clamp_ok(+x: Nat, +lo: Nat, +hi: Nat, +bad: Bool) -> Result<&2, &2, MathError, Nat>:
+def clamp_ok(x: Nat, lo: Nat, hi: Nat, +bad: Bool) -> Result<&2, &2, MathError, Nat>:
   match bad:
     case True{}:
       Fail{Domain{}}
     case False{}:
       Done{Nat.min(Nat.max(x, lo), hi)}
 
-def clamp(+x: Nat, +lo: Nat, +hi: Nat) -> Result<&2, &2, MathError, Nat>:
+def clamp(x: Nat, +lo: Nat, +hi: Nat) -> Result<&2, &2, MathError, Nat>:
   clamp_ok(x, lo, hi, Nat.is_lt(hi, lo))
