@@ -68,7 +68,7 @@ def merge(+a: Tk, +b: Tk, +c: Tk, +xs: List<&2, Tk>) -> List<&2, Tk>:
 
 # applies the rules from the oldest to the newest; `done` keeps the ones already applied
 # (newest first), which is exactly the table that decode needs.
-def encode.go(todo: List<&2, Rule>, done: List<&2, Rule>, xs: List<&2, Tk>) -> List<&2, Tk>:
+def encode.go(todo: List<&2, Rule>, -done: List<&2, Rule>, xs: List<&2, Tk>) -> List<&2, Tk>:
   match todo:
     case Nil{}:
       xs
