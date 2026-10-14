@@ -12,6 +12,7 @@
     "no-unused/imports": {},
     "performance/append-in-loop": {},
     "performance/bang-after-fork": {},
+    "performance/dead-accumulator": {},
     "performance/deep-call-in-fork": {},
     "performance/drop-in-bang": {},
     "performance/eager-branch": {},
