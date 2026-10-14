@@ -36,7 +36,7 @@ setDefaultTimeout(120_000);
         START + "def f(+xs: List<&2, U32>) -> Nat:\n  Nat.add(count(xs, 0n), count(xs, 0n))\n",
       ),
     ).toEqual([
-      "18:26 performance/repeated-call: count is called again here, with the same arguments, on this path of f: Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. Confidence: high that it repeats; the gain is what the call costs. Bind its value once, with `+` if it is used twice, and use that name.",
+      "18:26 performance/repeated-call: count is called again here, with the same arguments, on this path of f: Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. In eldergrove-faire (list lengths, twice per tick) and in llama.bend's tokenizer it changed nothing measurable: those calls walk short lists. Confidence: high that it repeats; the gain is what the call costs, so expect this finding for a call over a short list. Bind its value once, with `+` if it is used twice, and use that name.",
     ]);
   });
 

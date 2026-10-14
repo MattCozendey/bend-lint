@@ -63,7 +63,7 @@ def message(callee: String, loop: String) -> String:
   callee
     ++ " is called again here, with the same arguments, on this path of "
     ++ loop
-    ++ ": Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. Confidence: high that it repeats; the gain is what the call costs. Bind its value once, with `+` if it is used twice, and use that name."
+    ++ ": Bend computes it twice, as clang does not merge calls of a definition that loops. Every lane: pow2(30) written `Nat.add(pow2(q), pow2(q))` took 3.4 s; computed once (`+h = pow2(q)`), 0.1 s. In eldergrove-faire (list lengths, twice per tick) and in llama.bend's tokenizer it changed nothing measurable: those calls walk short lists. Confidence: high that it repeats; the gain is what the call costs, so expect this finding for a call over a short list. Bind its value once, with `+` if it is used twice, and use that name."
 
 # Whether a node below `path` may not run on the path of its branch, or runs as a copy made on purpose: under a lambda,
 # a value of a choice (Bool.pick, Bool.and, Bool.or), or a value of a parallel let.
