@@ -713,13 +713,13 @@ def head_att(+hd: Nat, +t: Nat, +scale: F32, k: Array<F32>, v: Array<F32>, +q: L
   head_sr(hd, t, scale, v, scores(hd, t, k, q))
 
 # the query heads of one group over its key/value head, in order; the arrays are threaded through
-def group_att(hs: List<&2, Head>, +hd: Nat, +t: Nat, +scale: F32, k: Array<F32>, v: Array<F32>, +pieces: List<&2, List<&2, F32>>) -> HO:
+def group_att(hs: List<&2, Head>, +hd: Nat, +t: Nat, +scale: F32, k: Array<F32>, v: Array<F32>, +acc: List<&2, F32>) -> HO:
   match hs:
     case Nil{}:
-      HO{k, v, List.concat(&2, F32, List.reverse(&2, List<&2, F32>, pieces))}
+      HO{k, v, acc}
     case Con{h, rest}:
       HO.then(HO, head_att(hd, t, scale, k, v, join(h)), k2 => v2 => +o =>
-        group_att(rest, hd, t, scale, k2, v2, o <> pieces))
+        group_att(rest, hd, t, scale, k2, v2, List.append(&2, F32, acc, o)))
 
 # every group, in order: the outputs of query heads 0, 1, ..., and the caches handed back
 type AT is Type:
@@ -742,16 +742,15 @@ def gws(gs: List<&2, List<&2, Head>>, ks: List<&1, Array<F32>>, vs: List<&1, Arr
       Nil{}
 
 # some groups one after another, in order
-def seq_att(ws: List<&1, GW>, last: Maybe<&1, HO>, +hd: Nat, +t: Nat, +scale: F32, aks: List<&1, Array<F32>>, avs: List<&1, Array<F32>>, +pieces: List<&2, List<&2, F32>>) -> AT:
-  match ws last:
-    case Con{GW{g, k, v}, wt} None{}:
-      seq_att(wt, Some{group_att(g, hd, t, scale, k, v, Nil{})}, hd, t, scale, aks, avs, pieces)
-    case Con{GW{g, k, v}, wt} Some{HO{k2, v2, o}}:
-      seq_att(wt, Some{group_att(g, hd, t, scale, k, v, Nil{})}, hd, t, scale, k2 <> aks, v2 <> avs, o <> pieces)
-    case Nil{} None{}:
-      AT{List.reverse(&1, Array<F32>, aks), List.reverse(&1, Array<F32>, avs), List.concat(&2, F32, List.reverse(&2, List<&2, F32>, pieces))}
-    case Nil{} Some{HO{k2, v2, o}}:
-      AT{List.reverse(&1, Array<F32>, k2 <> aks), List.reverse(&1, Array<F32>, v2 <> avs), List.concat(&2, F32, List.reverse(&2, List<&2, F32>, o <> pieces))}
+def seq_att(ws: List<&1, GW>, +hd: Nat, +t: Nat, +scale: F32, aks: List<&1, Array<F32>>, avs: List<&1, Array<F32>>, +acc: List<&2, F32>) -> AT:
+  match ws:
+    case Con{w, wt}:
+      match w:
+        case GW{g, k, v}:
+          HO.then(AT, group_att(g, hd, t, scale, k, v, Nil{}), k2 => v2 => +o =>
+            seq_att(wt, hd, t, scale, k2 <> aks, v2 <> avs, List.append(&2, F32, acc, o)))
+    case Nil{}:
+      AT{List.reverse(&1, Array<F32>, aks), List.reverse(&1, Array<F32>, avs), acc}
 
 # a list of groups cut after its first n (a tail loop: a helper in the fork tree must not hold the stack)
 type GS is Type:
@@ -785,7 +784,7 @@ def halvings(fuel: Nat, +n: Nat) -> Nat:
 def par_att(d: Nat, gs: GS, +n: Nat, +hd: Nat, +t: Nat, +scale: F32) -> AT:
   match d gs:
     case 0n GS{l, r}:
-      p q = seq_att(l, None{}, hd, t, scale, Nil{}, Nil{}, Nil{}) seq_att(r, None{}, hd, t, scale, Nil{}, Nil{}, Nil{})
+      p q = seq_att(l, hd, t, scale, Nil{}, Nil{}, Nil{}) seq_att(r, hd, t, scale, Nil{}, Nil{}, Nil{})
       at_join(p, q)
     case 1n++e GS{l, r}:
       p q = par_att(e, cut(TA.half(TA.half(n)), l, Nil{}), TA.half(n), hd, t, scale) par_att(e, cut(TA.half(Nat.sub(n, TA.half(n))), r, Nil{}), Nat.sub(n, TA.half(n)), hd, t, scale)
@@ -812,7 +811,7 @@ def KA.then(-R: Type, -cap: Nat, -t: Nat, ka: KA<cap, t>, then: KV<cap, t> -> Li
 def attention(+c: Cfg, +d: Nat, -cap: Nat, +t: Nat, qs: List<&2, Head>, kv: KV<cap, 1n+t>) -> KA<cap, 1n+t>:
   match d kv:
     case 0n KV{ks, vs}:
-      ka_of(cap, 1n+t, seq_att(gws(groups(Cfg.kv(c), Cfg.g(c), qs), ks, vs), None{}, Cfg.head(c), t, (1.0 / F32.sqrt(F32.from_nat(Cfg.head(c))) : F32), Nil{}, Nil{}, Nil{}))
+      ka_of(cap, 1n+t, seq_att(gws(groups(Cfg.kv(c), Cfg.g(c), qs), ks, vs), Cfg.head(c), t, (1.0 / F32.sqrt(F32.from_nat(Cfg.head(c))) : F32), Nil{}, Nil{}, Nil{}))
     case 1n+e KV{ks, vs}:
       ka_of(cap, 1n+t, par_att(Nat.sub(halvings(Cfg.kv(c), Cfg.kv(c)), 1n), cut(TA.half(Cfg.kv(c)), gws(groups(Cfg.kv(c), Cfg.g(c), qs), ks, vs), Nil{}), Cfg.kv(c), Cfg.head(c), t, (1.0 / F32.sqrt(F32.from_nat(Cfg.head(c))) : F32)))
 
