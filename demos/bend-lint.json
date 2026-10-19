@@ -11,6 +11,7 @@
     "performance/loop_invariant_call": {},
     "performance/missed_fork": {},
     "performance/repeated_call": {},
+    "performance/template_value_field": {},
     "performance/unused_result": {}
   }
 }
