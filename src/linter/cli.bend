@@ -67,7 +67,7 @@ def Parsed.value(value: Json.Json) -> Maybe<&2, Lint.Value>:
     case Json.JFalse{}:
       Some{Lint.Flag{False{}}}
     case Json.JString{text}:
-      Some{Lint.Text{text}}
+      Some{Lint.Chars{text}}
     case _:
       None{}
 
@@ -1071,9 +1071,9 @@ def Spec.accepts(spec: Lint.Spec, value: Lint.Value) -> Bool:
       U32.is_le(min, n) && U32.is_le(n, max)
     case Lint.FlagOption{} Lint.Flag{on}:
       True{}
-    case Lint.TextOption{Nil{}} Lint.Text{text}:
+    case Lint.TextOption{Nil{}} Lint.Chars{text}:
       True{}
-    case Lint.TextOption{choices} Lint.Text{text}:
+    case Lint.TextOption{choices} Lint.Chars{text}:
       List.contains(~String, ~String.eq, choices, text)
     case _ _:
       False{}

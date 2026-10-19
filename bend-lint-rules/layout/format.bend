@@ -2447,7 +2447,7 @@ def options() -> List<&2, Lint.Declared>:
       Lint.Num{100},
       Lint.AnyOption{[Lint.NumberOption{1, 4294967295}, Lint.TextOption{["never"]}]}
     },
-    Lint.Declared{"endOfLine", Lint.Text{"lf"}, Lint.TextOption{["lf", "crlf", "preserve"]}}
+    Lint.Declared{"endOfLine", Lint.Chars{"lf"}, Lint.TextOption{["lf", "crlf", "preserve"]}}
   ]
 
 def rule() -> Lint.Rule:

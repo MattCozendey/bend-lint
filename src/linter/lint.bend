@@ -519,7 +519,7 @@ def finding(
 type Value is Data:
   Num{n: U32}
   Flag{on: Bool}
-  Text{text: String}
+  Chars{text: String}
 
 # What an option accepts: a whole number in a range, a flag, text (one of `choices`, unless there are none), or what
 # one of `specs` accepts.
@@ -551,7 +551,7 @@ def Value.flag(value: Maybe<&2, Value>) -> Bool:
 
 def Value.text(value: Maybe<&2, Value>) -> String:
   match value:
-    case Some{Text{text}}:
+    case Some{Chars{text}}:
       text
     case _:
       ""
