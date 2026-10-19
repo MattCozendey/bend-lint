@@ -727,16 +727,80 @@ def write.done(path: String, written: Bool) -> IO(Unit):
     case False{}:
       IO.die(Unit, 2, "bend-lint: could not write " ++ path)
 
+# Check both prefixes because the pinned String.eq uses the JavaScript stack for each character.
+def write.read(
+  +path: String,
+  +text: String,
+  edits: List<&2, Text.Edit>,
+  read: File & Result<&1, &1, U32 & String, String>
+) -> IO(Unit):
+  match read:
+    case Tuple{file, Done{+current}}:
+      do IO<Unit>:
+        File.close(file)
+        Bool.pick(
+          IO(Unit),
+          Bool.and(String.starts_with(text, current), String.starts_with(current, text)),
+          IO.pure(Unit, Unit{}),
+          IO.die(
+            Unit,
+            2,
+            "bend-lint: " ++ path ++ ": file changed during lint; run the command again"
+          )
+        )
+        IO.bind(Bool, Unit, Files.write(path, Text.apply(edits, text)), w => write.done(path, w))
+    case Tuple{file, Fail{Tuple{code, why}}}:
+      do IO<Unit>:
+        File.close(file)
+        IO.die(Unit, 2, "bend-lint: could not read " ++ path ++ ": " ++ why)
+
+# Read one block to keep UTF-8 characters whole, with one extra byte to detect growth.
+def write.sized(
+  path: String,
+  text: String,
+  edits: List<&2, Text.Edit>,
+  sized: File & Result<&1, &1, U32 & String, U32>
+) -> IO(Unit):
+  match sized:
+    case Tuple{file, Done{+size}}:
+      IO.bind(
+        File & Result<&1, &1, U32 & String, String>,
+        Unit,
+        File.read(file, U32.max(size, (size + 1: U32))),
+        read => write.read(path, text, edits, read)
+      )
+    case Tuple{file, Fail{Tuple{code, why}}}:
+      do IO<Unit>:
+        File.close(file)
+        IO.die(Unit, 2, "bend-lint: could not read " ++ path ++ ": " ++ why)
+
+def write.opened(
+  path: String,
+  text: String,
+  edits: List<&2, Text.Edit>,
+  opened: Result<&1, &1, U32 & String, File>
+) -> IO(Unit):
+  match opened:
+    case Done{file}:
+      IO.bind(
+        File & Result<&1, &1, U32 & String, U32>,
+        Unit,
+        File.size(file),
+        sized => write.sized(path, text, edits, sized)
+      )
+    case Fail{Tuple{code, why}}:
+      IO.die(Unit, 2, "bend-lint: could not read " ++ path ++ ": " ++ why)
+
 def write.edited(+path: String, text: String, edits: List<&2, Text.Edit>) -> IO(Unit):
   match edits:
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Con{e, rest}:
       IO.bind(
-        Bool,
+        Result<&1, &1, U32 & String, File>,
         Unit,
-        Files.write(path, Text.apply(Con{e, rest}, text)),
-        w => write.done(path, w)
+        File.open(path, "r"),
+        opened => write.opened(path, text, Con{e, rest}, opened)
       )
 
 def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Text.Edit>>) -> IO(Unit):
