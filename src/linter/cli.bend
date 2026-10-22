@@ -2947,8 +2947,10 @@ def Worker.flag(on: Bool, flag: String) -> List<String>:
 def Worker.args(options: Options, path: String, threads: String) -> List<String>:
   match options:
     case Options{inputs, fixing, shown, json, worker, jobs}:
-      "--threads"
+      "+RTS"
+        <> "--threads"
         <> threads
+        <> "-RTS"
         <> "--worker"
         <> List.append(
           &1,
