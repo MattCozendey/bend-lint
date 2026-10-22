@@ -454,7 +454,7 @@ def Wire.receive(
         Socket.close(s)
         IO.die(List<&2, String>, 1, "bend-lint: the checker's answer is too long")
 
-def Wire.sent(r: Socket & Result<&1, &1, (U32 & String) & String, Unit>) -> IO(List<&2, String>):
+def Wire.sent(r: Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit>) -> IO(List<&2, String>):
   match r:
     case Tuple{s, Done{u}}:
       IO.bind(
@@ -497,7 +497,7 @@ def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
     p: U32 <- Wire.port()
     sock: Socket <- IO.try(Socket, TCP.connect("127.0.0.1", p))
     s: Socket
-      & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(sock, Wire.line(request, ""))
+      & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit> <- TCP.send(sock, Wire.line(request, ""))
     got: List<&2, String> <- Wire.sent(s)
     Wire.answered(Wire.records(List.reverse(&2, String, got), Reading{False{}, "", [], []}))
 
