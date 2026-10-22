@@ -28,9 +28,9 @@
     "typescript": "7.0.2"
   },
   "engines": {
-    "bun": "1.4.3"
+    "bun": "1.4.4"
   },
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "bendRelease": "bendlang/bend/v2.0.38",
   "bendWindows": "MattCozendey/bend/ab939bdeecdf7628c77dcda2ea3ab9899941a58d"
 }
