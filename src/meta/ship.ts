@@ -97,11 +97,13 @@ export const getApiPackage = (): Map<string, string> =>
     [["linter/LICENSE", LICENSE]],
   );
 
+// bend-lint's own rules: the .bend files git tracks in bend-lint-rules/.
+const getDefaultRules = (): string[] =>
+  getTrackedFiles().filter((file) => file.startsWith(RULES + path.sep) && file.endsWith(".bend"));
+
 // bend-lint's own rules.
 export const getDefaultsPackage = (): Map<string, string> => {
-  const rules = getTrackedFiles().filter(
-    (file) => file.startsWith(RULES + path.sep) && file.endsWith(".bend"),
-  );
+  const rules = getDefaultRules();
   const seen = new Set(API_FILES);
   const at = new Map(
     rules
@@ -122,7 +124,8 @@ export const getDefaultsPackage = (): Map<string, string> => {
   ]);
 };
 
-// The npm package. A project that trusts it runs its postinstall (see seam.ts).
+// The npm package, with the ids of bend-lint's own rules in src/linter/defaults.json (see
+// getBuiltRules in seam.ts). A project that trusts it runs its postinstall (see seam.ts).
 export const getNpmPackage = (): Map<string, string> => {
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as object;
   const kept = Object.entries(config).filter(([key]) => !DEV_ONLY.has(key));
@@ -134,7 +137,15 @@ export const getNpmPackage = (): Map<string, string> => {
         .map((file): [string, string] => [file, getPathFrom(ROOT, file)])
         .filter(([, p]) => SHIPPED.test(p) && !LEFT_OUT.test(p)),
     ),
-    [["package.json", JSON.stringify({ ...Object.fromEntries(kept), scripts }, null, 2) + "\n"]],
+    [
+      ["package.json", JSON.stringify({ ...Object.fromEntries(kept), scripts }, null, 2) + "\n"],
+      [
+        "src/linter/defaults.json",
+        JSON.stringify(
+          getDefaultRules().map((rule) => getPathFrom(RULES, rule).replace(/\.bend$/, "")),
+        ) + "\n",
+      ],
+    ],
   );
 };
 

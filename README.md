@@ -10,8 +10,8 @@ Install bend-lint in each project, never globally:
 bun add -D --trust bend-lint
 ```
 
-The install writes `bend-lint.json` and `bend-lint-rules/format.bend`, which turns on the formatter,
-and downloads Bend. Without `--trust`, Bun skips that: run `bunx bend-lint init`.
+The install writes a `bend-lint.json` that turns on the formatter, downloads Bend, and builds your
+rules. Without `--trust`, Bun skips that: run `bunx bend-lint init`, then `bunx bend-lint prepare`.
 
 > **Why per project:** a Bend limitation. Bend imports a file only by a relative path of plain names
 > (or from BendHub), so bend-lint can reach your rules only inside your project. bend-lint refuses
@@ -48,7 +48,9 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
   file imports it, and the file need not be on disk; name such a file to lint it. An editor gives
   its unsaved buffers so. It does not go with `--fix-dangerously`, which writes files on disk.
 - bend-lint builds your rules on its first run (about 40 s), and keeps the build until a rule or
-  Bend changes.
+  Bend changes. `bunx bend-lint prepare` builds them, and lints nothing: an editor runs it at start.
+  If each rule you turn on is one of bend-lint's own, from `bend-lint-rules`, the build holds all of
+  them, so you can turn them on and off without a new build.
 - A fix that touches an earlier fix's edits waits for the next run.
 - bend-lint runs at low priority: a long run slows down, not your computer.
 - bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a

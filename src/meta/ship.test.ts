@@ -51,7 +51,7 @@ const host = (lib: string, named: string, files: Map<string, string>): void => {
 setDefaultTimeout(600_000);
 
 (BUILDS ? test : test.skip)(
-  "a project that installs the npm package lints: init's formatter, and a rule of a package on BendHub",
+  "a project that installs the npm package lints: init's formatter, and a rule of a package on BendHub; configs of bend-lint's own rules share one build",
   async () => {
     const dir = getFreshFolder();
     const lib = path.join(dir, "lib");
@@ -66,40 +66,60 @@ setDefaultTimeout(600_000);
     const tgz = path.join(npm, fs.readdirSync(npm).find((name) => name.endsWith(".tgz")) ?? "");
     writeFiles(project, new Map([["package.json", '{ "name": "demo", "private": true }\n']]));
     const added = await getCommandOutcome(["bun", "add", "-D", "--trust", tgz], project, env);
-    const inited = ["bend-lint.json", "bend-lint-rules/format.bend"].map((name) =>
-      fs.existsSync(path.join(project, name)),
+    const inited = fs.readFileSync(path.join(project, "bend-lint.json"), "utf8");
+    const own = DEFAULTS.split("@")[0];
+    const version = DEFAULTS.split("@")[1];
+    // Runs `args` in the project with a bend-lint.json of `rules` and `packages`.
+    const getRun = async (args: string[], rules: object, packages: object = {}) => {
+      writeFiles(
+        project,
+        new Map([
+          ["bend-lint.json", JSON.stringify({ packages: { [own]: version, ...packages }, rules })],
+          ["main.bend", "import Base\n\n\n\ndef One() -> U32:\n  1\n"],
+        ]),
+      );
+      return getCommandOutcome(["bunx", "bend-lint", ...args], project, env);
+    };
+    const getLines = (text: string): string[] =>
+      text
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, ""));
+    const getPrepared = (text: string): string | undefined =>
+      /^bend-lint: prepared (.*)$/m.exec(text)?.[1];
+    const format = { [own + "/layout/format"]: "warning" };
+    const formatted = await getRun(["prepare"], format);
+    const cased = await getRun(["prepare"], { ...format, [own + "/layout/case"]: "warning" });
+    const alone = await getRun(["main.bend"], format);
+    const mixed = await getRun(
+      ["main.bend"],
+      { ...format, "demo-rules/no-one": "warning" },
+      { "demo-rules": "1.0.0.0" },
     );
-    writeFiles(
-      project,
-      new Map([
-        [
-          "bend-lint.json",
-          JSON.stringify({
-            packages: { "demo-rules": "1.0.0.0" },
-            rules: { format: "warning", "demo-rules/no-one": "warning" },
-          }),
-        ],
-        ["main.bend", "import Base\n\n\n\ndef one() -> U32:\n  1\n"],
-      ]),
-    );
-    const ran = await getCommandOutcome(["bunx", "bend-lint", "main.bend"], project, env);
     expect([
       packed.code,
       added.code,
-      inited,
-      ran.code,
-      ran.out
-        .trim()
-        .split("\n")
-        .map((line) => line.replace(/^.*\/(?=[\w.]+:\d)/, "")),
+      JSON.parse(inited),
+      fs.existsSync(path.join(project, "bend-lint-rules")),
+      getPrepared(formatted.err) !== undefined &&
+        getPrepared(formatted.err) === getPrepared(cased.err),
+      getLines(alone.out),
+      mixed.code,
+      getLines(mixed.out),
     ]).toEqual([
       0,
       0,
-      [true, true],
+      { packages: { [own]: version }, rules: format },
+      false,
+      true,
+      [
+        `main.bend:3:1: warning ${own}/layout/format: Apply canonical formatting.`,
+        "bend-lint: 1 finding(s)",
+      ],
       0,
       [
         "main.bend:1:1: warning demo-rules/no-one: demo",
-        "main.bend:3:1: warning format: Apply canonical formatting.",
+        `main.bend:3:1: warning ${own}/layout/format: Apply canonical formatting.`,
         "bend-lint: 2 finding(s)",
       ],
     ]);

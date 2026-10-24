@@ -223,13 +223,23 @@ export const BUILD = url.fileURLToPath(new URL("build/", import.meta.url));
 const CONFIG = "bend-lint.json";
 const RULES = "bend-lint-rules";
 
+// bend-lint's version, as its BendHub packages have it: with `.0` added.
+const HUB_VERSION = `${pkg.version}.0`;
+
 // The rule API, as rules import it from BendHub: src/linter/lint.bend and the files it imports, at
 // their paths from src/, in the package bend-lint-api, at bend-lint's version (see ship.ts).
-export const API = `bend-lint-api@${pkg.version}.0`;
+export const API = `bend-lint-api@${HUB_VERSION}`;
 
 // bend-lint's own rules, as projects get them from BendHub, at bend-lint's version: each at its
 // path from bend-lint-rules/ (see ship.ts).
-export const DEFAULTS = `bend-lint-rules@${pkg.version}.0`;
+const DEFAULTS_NAME = "bend-lint-rules";
+export const DEFAULTS = `${DEFAULTS_NAME}@${HUB_VERSION}`;
+
+// The ids of bend-lint's own rules in DEFAULTS, as the npm package lists them (see ship.ts); none
+// in this repo, which runs them from bend-lint-rules/.
+const DEFAULT_IDS = tryGetJson(url.fileURLToPath(new URL("defaults.json", import.meta.url))) as
+  | string[]
+  | undefined;
 
 // A path Bend imports: up, then names (letters, digits, _ and -).
 const PLAIN = /^(\.\.\/)*([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/;
@@ -238,17 +248,20 @@ const PLAIN = /^(\.\.\/)*([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/;
 const PER_PROJECT =
   "install bend-lint in this project (bun add -D bend-lint): Bend imports files only by relative paths of plain names, so bend-lint cannot reach your rules from elsewhere";
 
-// What `bend-lint init` writes: a config that turns on the formatter, and the formatter's rule,
-// which uses bend-lint's own.
-const INIT_CONFIG = `{\n  "rules": {\n    "format": "warning"\n  }\n}\n`;
-const INIT_FORMAT =
-  "# format: bend-lint's formatter (layout/format). Its options go in bend-lint.json; see\n" +
-  "# bend-lint's README.\n" +
-  "import Base\n" +
-  `import ${API}/linter/lint.bend as Lint\n` +
-  `import ${DEFAULTS}/layout/format.bend as Format\n\n` +
-  "def rule() -> Lint.Rule:\n" +
-  "  Format.rule()\n";
+// What a run that prepares says first (see `prepare`).
+const PREPARING =
+  "bend-lint: preparing Bend and the build of the rules; a build takes about a minute";
+
+// What `bend-lint init` writes: a config that turns on bend-lint's formatter.
+const INIT_CONFIG =
+  JSON.stringify(
+    {
+      packages: { [DEFAULTS_NAME]: HUB_VERSION },
+      rules: { [DEFAULTS_NAME + "/layout/format"]: "warning" },
+    },
+    null,
+    2,
+  ) + "\n";
 
 // An import by a relative path: of a .bend file, or, quoted, of an effect's.
 export const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
@@ -2004,13 +2017,28 @@ export const getRulesProgram = (project: string, { ids, packages }: Rules): stri
   return source;
 };
 
-// Makes bend-lint.json and bend-lint-rules/format.bend in `dir`, those that are not there; gives
-// those it wrote, and those it kept.
+// The rules a run of a config of `rules` builds: those it turns on; but if each is one of
+// bend-lint's own (DEFAULT_IDS) from DEFAULTS, all of bend-lint's own. That program is the same for
+// each such config, so one build serves them all, made once (see `prepare`): the runner runs only
+// the rules its config turns on.
+const getBuiltRules = (rules: Rules): Rules => {
+  const isDefault = (id: string): boolean =>
+    id.startsWith(DEFAULTS_NAME + "/") &&
+    (DEFAULT_IDS?.includes(id.slice(DEFAULTS_NAME.length + 1)) ?? false);
+  return DEFAULT_IDS !== undefined &&
+    rules.packages.get(DEFAULTS_NAME) === HUB_VERSION &&
+    rules.ids.every(isDefault)
+    ? { ids: DEFAULT_IDS.map((id) => DEFAULTS_NAME + "/" + id), packages: rules.packages }
+    : rules;
+};
+
+// The program of the rules a run in `project` builds.
+const getProjectProgram = (project: string): string =>
+  getRulesProgram(project, getBuiltRules(getRules(project)));
+
+// Makes bend-lint.json in `dir`, if it is not there; gives the files it wrote, and those it kept.
 const getInitFiles = (dir: string): { wrote: string[]; kept: string[] } => {
-  const files: Array<[string, string]> = [
-    [nodePath.join(dir, CONFIG), INIT_CONFIG],
-    [nodePath.join(dir, RULES, "format.bend"), INIT_FORMAT],
-  ];
+  const files: Array<[string, string]> = [[nodePath.join(dir, CONFIG), INIT_CONFIG]];
   const kept = files.filter(([file]) => nodeFs.existsSync(file)).map(([file]) => file);
   const wrote = files
     .filter(([file]) => !kept.includes(file))
@@ -2042,8 +2070,9 @@ if (import.meta.main) {
     }
     process.exit(0);
   }
-  // An install of bend-lint: the project that installs it in its node_modules gets what init
-  // makes, and bend-lint downloads its Bend now, not on its first run. It never fails the install.
+  // An install of bend-lint: bend-lint downloads its Bend now, not on its first run; and the project
+  // that installs it in its node_modules gets what init makes, and the build of its rules (see
+  // `prepare`). It never fails the install.
   if (args[0] === "postinstall") {
     try {
       const project = process.env.INIT_CWD ?? "";
@@ -2052,10 +2081,12 @@ if (import.meta.main) {
         modules === undefined
           ? ".."
           : nodePath.relative(modules, url.fileURLToPath(new URL("../../", import.meta.url)));
+      unwrap(await tryGetBend2SourceUrl());
       if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
         getInitFiles(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
+        console.log(PREPARING);
+        await getRunSetup(getProjectProgram(project));
       }
-      unwrap(await tryGetBend2SourceUrl());
     } catch (e) {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e) + "; its first run tries again");
     }
@@ -2082,13 +2113,23 @@ if (import.meta.main) {
     process.exit(2);
   }
 
+  // `bend-lint prepare` makes what a run needs, Bend and the build of its rules, and lints nothing:
+  // an editor runs it at start, so that its first check builds nothing.
+  const preparing = args[0] === "prepare";
+  if (preparing) {
+    console.error(PREPARING);
+  }
   const [checker, program, notes] = await Promise.resolve()
-    .then(() => getRunSetup(getRulesProgram(project, getRules(project))))
+    .then(() => getRunSetup(getProjectProgram(project)))
     .catch((e: unknown) => {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e));
       return process.exit(2);
     });
   notes.forEach((note) => console.error(note));
+  if (preparing) {
+    console.error("bend-lint: prepared " + program);
+    process.exit(0);
+  }
 
   const inTurn = getSerialRunner();
   const server = net.createServer((socket) => void serve(checker, inTurn, socket));

@@ -960,12 +960,14 @@ def About.needs_every(about: About) -> Bool:
     case _:
       False{}
 
+# Whether a rule of this setting runs: one the config does not name is off, as the runner can hold more rules than the
+# config turns on (see getBuiltRules in seam.ts).
 def Setting.is_on(setting: Maybe<&2, Setting>) -> Bool:
   match setting:
-    case Some{RuleOff{}}:
-      False{}
-    case _:
+    case Some{RuleOn{severity, options}}:
       True{}
+    case _:
+      False{}
 
 def Setting.severity(setting: Maybe<&2, Setting>) -> Maybe<&2, Lint.Severity>:
   match setting:
@@ -1203,7 +1205,7 @@ def About.settle.of(about: About, setting: Maybe<&2, Setting>) -> Names.Named<Se
     case About{id, needs, options, every} Some{RuleOn{severity, given}}:
       Names.Named{id, RuleOn{severity, Option.values(options, given, [])}}
     case About{id, needs, options, every} None{}:
-      Names.Named{id, RuleOn{None{}, Option.values(options, [], [])}}
+      Names.Named{id, RuleOff{}}
 
 # Each rule's setting, its option values settled: off, or on with its severity, if any, and every option it declares.
 def About.settle(
