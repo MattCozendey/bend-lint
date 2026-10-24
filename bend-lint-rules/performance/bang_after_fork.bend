@@ -21,10 +21,10 @@ import ./gpu_fit.bend as GpuFit
 # Types
 # =====
 
-# What judging a file's calls reads: the program's definitions, by the name the check gives them, and where the file
-# writes `!(`.
+# What judging a file's calls reads: the program's definitions, by the name the check gives them; those under which a
+# parallel let runs (see GpuFit.program.under); and where the file writes `!(`.
 type Program is Data:
-  Program{defs: Map<&2, Maybe<&2, GpuFit.Def>>, bangs: List<&2, U32>}
+  Program{defs: Map<&2, Maybe<&2, GpuFit.Def>>, under: Set(), bangs: List<&2, U32>}
 
 # Functions
 # =========
@@ -52,21 +52,26 @@ def host.visit(
       []
 
 # Whether `nodes` fork on the host when they run: a call among them or under them, made without `!`, is of a
-# definition under which a parallel let runs. Past the steps the walk takes, it answers no.
+# definition under which a parallel let runs.
 def forks(nodes: List<&2, Lint.Node>, program: Program) -> Bool:
   match program:
-    case Program{defs, bangs}:
-      GpuFit.reaches(
-        4096n,
-        Some{Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes)},
-        [],
-        defs,
-        False{}
-      )
+    case Program{defs, under, bangs}:
+      GpuFit.reaches(Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes), under, False{})
 
 # The nodes of a let (`kids`) that run before the rest of its block, its last node: its binders and values.
 def let.values(+kids: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
   List.take(&2, Lint.Node, kids, Nat.sub(Lists.length(&2, Lint.Node, kids), 1n))
+
+# Whether the let of `kids` forks before the rest of its block, if the node is in it (`last`): it is a parallel let
+# (`parallel`), or a value of it forks.
+def let.forks(last: Bool, parallel: Bool, kids: List<&2, Lint.Node>, program: Program) -> Bool:
+  match last parallel:
+    case False{} _:
+      False{}
+    case True{} True{}:
+      True{}
+    case True{} False{}:
+      forks(let.values(kids), program)
 
 # Whether a fork runs before the node below `path`, in the same evaluation, or `found`: a let above it, whose rest of
 # block it is in, forks (a parallel let, or a value that forks), and no lambda (the rest of an IO step) comes between.
@@ -84,16 +89,26 @@ def after(path: List<&2, Lint.Above>, +program: Program, found: Bool) -> Bool:
       after(
         rest,
         program,
-        Deep.is_last(
-          kids,
-          at
-        )
-          && (Nat.is_gt(Deep.binders(kids, 0n), 1n) || forks(let.values(kids), program))
+        let.forks(Deep.is_last(kids, at), Nat.is_gt(Deep.binders(kids, 0n), 1n), kids, program)
       )
     case Con{Lint.Above{Lint.Node{Lint.Let{}, n, s, +kids, f}, at}, rest} False{}:
-      after(rest, program, Deep.is_last(kids, at) && forks(let.values(kids), program))
+      after(rest, program, let.forks(Deep.is_last(kids, at), False{}, kids, program))
     case Con{a, rest} False{}:
       after(rest, program, False{})
+
+# Whether a fork runs before a call with `args` below `path`, in the same evaluation, if it is `asked`: an argument
+# forks, or a let above it does.
+def after.if(
+  asked: Bool,
+  args: List<&2, Lint.Node>,
+  path: List<&2, Lint.Above>,
+  +program: Program
+) -> Bool:
+  match asked:
+    case True{}:
+      after(path, program, forks(args, program))
+    case False{}:
+      False{}
 
 # The finding about an application below `path`, if it is a `!` call of a definition that forks, made after a fork.
 def visit(
@@ -104,6 +119,7 @@ def visit(
   match program node:
     case Program{
       +defs,
+      +under,
       +bangs
     } Lint.Node{
       Lint.Application{},
@@ -114,34 +130,45 @@ def visit(
     }:
       Lint.finding(
         Lint.Warning{},
-        List.contains(
-          ~U32,
-          ~U32.is_eq,
-          bangs,
-          end
-        )
-          && GpuFit.reaches(4096n, Some{[t]}, [], defs, True{})
-          && Bool.not(GpuFit.is_drop(Names.find(GpuFit.Def, defs, t), t))
-          && (forks(args, Program{defs, bangs}) || after(path, Program{defs, bangs}, False{})),
+        after.if(
+          List.contains(
+            ~U32,
+            ~U32.is_eq,
+            bangs,
+            end
+          )
+            && GpuFit.is_under(under, t)
+            && Bool.not(GpuFit.is_drop(Names.find(GpuFit.Def, defs, t), t)),
+          args,
+          path,
+          Program{defs, under, bangs}
+        ),
         span,
         message(callee)
       )
     case _ _:
       []
 
+# The findings in the file of `here`, which writes `!(` where `bangs` say: none, if it writes none.
+def scanned(+here: Lint.Here, bangs: List<&2, U32>) -> Lint.Ask(List<&2, Lint.Finding>):
+  match bangs:
+    case Nil{}:
+      Lint.done([])
+    case Con{b, rest}:
+      +sources = Lint.Here.sources(here)
+      +defs = GpuFit.program.defs(sources, Map.new(&2, Maybe<&2, GpuFit.Def>))
+      Lint.done(
+        Lint.visit(
+          ~Program,
+          ~Lint.Finding,
+          ~visit,
+          Program{defs, GpuFit.program.under(sources, defs), Con{b, rest}},
+          Lint.Here.nodes(here)
+        )
+      )
+
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(
-    Lint.visit(
-      ~Program,
-      ~Lint.Finding,
-      ~visit,
-      Program{
-        GpuFit.program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, GpuFit.Def>)),
-        GpuFit.bangs(Lint.Here.text(here), 0, [])
-      },
-      Lint.Here.nodes(here)
-    )
-  )
+  scanned(here, GpuFit.bangs(Lint.Here.text(here), 0, []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}
