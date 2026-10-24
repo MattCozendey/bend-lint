@@ -234,8 +234,92 @@ setDefaultTimeout(120_000);
         ok: true,
         findings: [getMarkFinding("main.bend", ["main.bend", "util.bend"])],
         suppressed: [getMarkFinding("util.bend", ["util.bend"])],
+        skipped: [],
       },
       "bend-lint: 1 finding(s), 1 suppressed",
+    ]);
+  });
+
+  test("--json gives each file that rules did not run on, and why", async () => {
+    const broken = ENTRIES["b.bend"].replace("(U.u() + C.c() : U32)", '"no"');
+    const ran = await getRunOutcome(
+      FILE,
+      { ...ENTRIES, "b.bend": broken, "bad.bend": "import Base\n\ndef bad(\n" },
+      "util.bend",
+      ["bad.bend", "--json"],
+    );
+    const getWithoutFolder = (key: string, value: unknown): unknown =>
+      (key === "path" || key === "entry") && typeof value === "string"
+        ? value.replace(/^.*\//, "")
+        : value;
+    expect([
+      ran.code,
+      (JSON.parse(ran.out, getWithoutFolder) as { skipped: unknown }).skipped,
+    ]).toEqual([
+      0,
+      [
+        {
+          path: "util.bend",
+          reason: "unentered",
+          entry: "b.bend",
+          rules: [],
+          message: expect.stringMatching(
+            /^bend-lint: Bend's check of the entry \S*b\.bend fails, so /,
+          ),
+        },
+        {
+          path: "bad.bend",
+          reason: "unloaded",
+          message: expect.stringMatching(
+            /^bend-lint: Bend does not load \S*bad\.bend, so no rule ran/,
+          ),
+        },
+      ],
+    ]);
+  });
+
+  test("--json gives an error that ends the run as its one object, with the file it is about", async () => {
+    const runner = await getRunOutcome(
+      FILE,
+      {
+        "util.bend": ENTRIES["util.bend"],
+        "bend-lint.json": JSON.stringify({ entries: ["nope.bend"] }),
+      },
+      "util.bend",
+      ["--json"],
+    );
+    const server = await getRunOutcome(
+      FILE,
+      {
+        "util.bend": ENTRIES["util.bend"],
+        "bend-lint.json": JSON.stringify({ rules: { "no/such": "warning" } }),
+      },
+      "util.bend",
+      ["--json"],
+    );
+    expect([runner.code, JSON.parse(runner.out), server.code, JSON.parse(server.out)]).toEqual([
+      2,
+      {
+        ok: false,
+        errors: [
+          {
+            path: expect.stringMatching(/bend-lint\.json$/),
+            message: expect.stringMatching(
+              /^bend-lint: \S*bend-lint\.json: the entry \S*nope\.bend is not a file$/,
+            ),
+          },
+        ],
+      },
+      2,
+      {
+        ok: false,
+        errors: [
+          {
+            path: expect.stringMatching(/bend-lint\.json$/),
+            message: expect.stringMatching(/^bend-lint: there is no rule no\/such: /),
+          },
+        ],
+      },
     ]);
   });
 

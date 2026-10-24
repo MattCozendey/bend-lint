@@ -10,6 +10,45 @@ import ./directives.bend as Directives
 import ./fixes.bend as Fixes
 import ./lint.bend as Lint
 
+# Errors
+# ======
+
+# What a JSON run prints when an error ends it: `ok` false, and the error: what it says, and the file it is about, if
+# one (seam.ts prints the same for the errors it finds).
+def Error.json(+path: String, text: String) -> Json.Json:
+  Json.JObject{
+    [
+      Json.JField{"ok", Json.JFalse{}},
+      Json.JField{
+        "errors",
+        Json.JArray{
+          [
+            Json.JObject{
+              Lists.push(
+                Json.JField,
+                Lists.when(
+                  Json.JField,
+                  Bool.not(String.is_empty(path)),
+                  Json.JField{"path", Json.JString{path}}
+                ),
+                [Json.JField{"message", Json.JString{text}}]
+              )
+            }
+          ]
+        }
+      }
+    ]
+  }
+
+# Ends the run with `status`, as `text` says on stderr, about the file at `path` ("" for none); a JSON run (`json`)
+# first prints the error (see Error.json).
+def Error.end(-A: Type, json: Bool, status: U32, path: String, +text: String) -> IO(A):
+  match json:
+    case True{}:
+      IO.bind(Unit, A, IO.print(Json.show(Error.json(path, text))), u => IO.die(A, status, text))
+    case False{}:
+      IO.die(A, status, text)
+
 # Config
 # ======
 # bend-lint.json. Its format is in the README.
@@ -262,59 +301,91 @@ def Parsed.of(folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, Stri
       Fail{"not a JSON object"}
 
 # The config at `path`, if each of its entries is a file (`missing` lists those that are not); else the run ends.
-def Config.entered(missing: List<&2, String>, path: String, config: Project) -> IO(Project):
+def Config.entered(
+  json: Bool,
+  missing: List<&2, String>,
+  +path: String,
+  config: Project
+) -> IO(Project):
   match missing:
     case Nil{}:
       IO.pure(Project, config)
     case Con{entry, rest}:
-      IO.die(Project, 2, "bend-lint: " ++ path ++ ": the entry " ++ entry ++ " is not a file")
+      Error.end(
+        Project,
+        json,
+        2,
+        path,
+        "bend-lint: " ++ path ++ ": the entry " ++ entry ++ " is not a file"
+      )
 
-def Config.parsed(path: String, parsed: Result<&2, &2, String, Project>) -> IO(Project):
+def Config.parsed(
+  json: Bool,
+  +path: String,
+  parsed: Result<&2, &2, String, Project>
+) -> IO(Project):
   match parsed:
     case Done{Project{+entries, imports, rules}}:
       IO.bind(
         List<&2, String>,
         Project,
         Files.missing(entries, []),
-        missing => Config.entered(missing, path, Project{entries, imports, rules})
+        missing => Config.entered(json, missing, path, Project{entries, imports, rules})
       )
     case Fail{why}:
-      IO.die(Project, 2, "bend-lint: " ++ path ++ ": " ++ why)
+      Error.end(Project, json, 2, path, "bend-lint: " ++ path ++ ": " ++ why)
 
-def Config.read(+folder: String, text: Result<&2, &2, String, String>) -> IO(Project):
+def Config.read(json: Bool, +folder: String, text: Result<&2, &2, String, String>) -> IO(Project):
   match text:
     case Done{t}:
-      Config.parsed(folder ++ "/bend-lint.json", Parsed.of(folder, Json.read(t)))
+      Config.parsed(json, folder ++ "/bend-lint.json", Parsed.of(folder, Json.read(t)))
     case Fail{why}:
-      IO.die(Project, 2, "bend-lint: reading a config failed: " ++ why)
+      Error.end(
+        Project,
+        json,
+        2,
+        folder ++ "/bend-lint.json",
+        "bend-lint: reading a config failed: " ++ why
+      )
 
-def Config.opened(folder: String, opened: Result<&1, &1, U32 & String, File>) -> IO(Project):
+def Config.opened(
+  json: Bool,
+  +folder: String,
+  opened: Result<&1, &1, U32 & String, File>
+) -> IO(Project):
   match opened:
     case Done{file}:
       IO.bind(
         Result<&2, &2, String, String>,
         Project,
         Files.read(file),
-        text => Config.read(folder, text)
+        text => Config.read(json, folder, text)
       )
     case Fail{Tuple{code, why}}:
-      IO.die(Project, 2, "bend-lint: reading " ++ folder ++ "/bend-lint.json failed: " ++ why)
+      Error.end(
+        Project,
+        json,
+        2,
+        folder ++ "/bend-lint.json",
+        "bend-lint: reading " ++ folder ++ "/bend-lint.json failed: " ++ why
+      )
 
-def Config.at(+folder: String) -> IO(Project):
+def Config.at(json: Bool, +folder: String) -> IO(Project):
   IO.bind(
     Result<&1, &1, U32 & String, File>,
     Project,
     File.open(folder ++ "/bend-lint.json", "r"),
-    opened => Config.opened(folder, opened)
+    opened => Config.opened(json, folder, opened)
   )
 
-# The run's config: the bend-lint.json the server found, in the folder it names in BEND_LINT_PROJECT.
-def Config.load() -> IO(Project):
+# The run's config: the bend-lint.json the server found, in the folder it names in BEND_LINT_PROJECT. Its errors end
+# the run, in JSON if `json`.
+def Config.load(json: Bool) -> IO(Project):
   IO.bind(
     String,
     Project,
     IO.try(String, IO.get_env("BEND_LINT_PROJECT")),
-    folder => Config.at(folder)
+    folder => Config.at(json, folder)
   )
 
 # Seam
@@ -455,7 +526,9 @@ def Wire.receive(
         Socket.close(s)
         IO.die(List<&2, String>, 1, "bend-lint: the checker's answer is too long")
 
-def Wire.sent(r: Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit>) -> IO(List<&2, String>):
+def Wire.sent(
+  r: Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit>
+) -> IO(List<&2, String>):
   match r:
     case Tuple{s, Done{u}}:
       IO.bind(
@@ -498,7 +571,11 @@ def Wire.ask(request: List<&2, String>) -> IO(List<&2, List<&2, String>>):
     p: U32 <- Wire.port()
     sock: Socket <- IO.try(Socket, TCP.connect("127.0.0.1", p))
     s: Socket
-      & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit> <- TCP.send(sock, Wire.line(request, ""))
+      & Result<
+        &1,
+        &1,
+        (U32 & String) & List<&2, U32>,
+        Unit> <- TCP.send(sock, Wire.line(request, ""))
     got: List<&2, String> <- Wire.sent(s)
     Wire.answered(Wire.records(List.reverse(&2, String, got), Reading{False{}, "", [], []}))
 
@@ -2045,25 +2122,28 @@ def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint
 # ------
 
 # What linting named files gave: how many findings stay; those to show at the end, and those directives suppressed
-# (both last first); whether a file fails the run; and how many fixes the run made.
+# (both last first); whether a file fails the run; how many fixes the run made; and why rules did not run on some
+# files, in order, as JSON (see Skipped).
 type Outcome is Data:
   Outcome{
     count: Nat,
     findings: List<&2, Shown>,
     suppressed: List<&2, Shown>,
     failed: Bool,
-    fixed: U32
+    fixed: U32,
+    skipped: List<&2, Json.Json>
   }
 
 def Outcome.add(a: Outcome, b: Outcome) -> Outcome:
   match a b:
-    case Outcome{n, f, s, e, x} Outcome{m, g, t, d, y}:
+    case Outcome{n, f, s, e, x, w} Outcome{m, g, t, d, y, z}:
       Outcome{
         Nat.add(n, m),
         Lists.append(&2, Shown, g, f),
         Lists.append(&2, Shown, t, s),
         e || d,
-        (x + y: U32)
+        (x + y: U32),
+        Lists.append(&2, Json.Json, w, z)
       }
 
 def summary.fixed(fixing: Bool, fixed: U32) -> String:
@@ -2123,15 +2203,15 @@ def end.json(failed: Bool, summary: String) -> IO(Unit):
 
 def end(json: Bool, total: Outcome, show: Bool, fixing: Bool) -> IO(Unit):
   match json total:
-    case False{} Outcome{n, f, s, True{}, x}:
+    case False{} Outcome{n, f, s, True{}, x, w}:
       do IO<Unit>:
         say(suppressed.lines(show, s))
         IO.die(Unit, 1, "bend-lint: FAIL")
-    case False{} Outcome{n, f, +s, False{}, x}:
+    case False{} Outcome{n, f, +s, False{}, x, w}:
       do IO<Unit>:
         say(suppressed.lines(show, s))
         IO.print(summary(n, Lists.length(&2, Shown, s), summary.fixed(fixing, x)))
-    case True{} Outcome{n, f, +s, +failed, x}:
+    case True{} Outcome{n, f, +s, +failed, x, w}:
       do IO<Unit>:
         IO.print(
           Json.show(
@@ -2139,7 +2219,8 @@ def end(json: Bool, total: Outcome, show: Bool, fixing: Bool) -> IO(Unit):
               [
                 Json.JField{"ok", Bool.pick(Json.Json, failed, Json.JFalse{}, Json.JTrue{})},
                 Json.JField{"findings", Json.JArray{Shown.values(f, [])}},
-                Json.JField{"suppressed", Json.JArray{Shown.values(s, [])}}
+                Json.JField{"suppressed", Json.JArray{Shown.values(s, [])}},
+                Json.JField{"skipped", Json.JArray{w}}
               ]
             }
           )
@@ -2150,14 +2231,15 @@ def end(json: Bool, total: Outcome, show: Bool, fixing: Bool) -> IO(Unit):
 # (first first; a line as a JSON string, an object as itself).
 def Outcome.json(total: Outcome) -> Json.Json:
   match total:
-    case Outcome{n, f, s, failed, x}:
+    case Outcome{n, f, s, failed, x, w}:
       Json.JArray{
         [
           Json.JNumber{Nat.show(n)},
           Json.JNumber{U32.show(x)},
           Bool.pick(Json.Json, failed, Json.JTrue{}, Json.JFalse{}),
           Json.JArray{Shown.values(f, [])},
-          Json.JArray{Shown.values(s, [])}
+          Json.JArray{Shown.values(s, [])},
+          Json.JArray{w}
         ]
       }
 
@@ -2175,11 +2257,12 @@ def Outcome.of(
   n: Maybe<&2, U32>,
   x: Maybe<&2, U32>,
   f: List<&2, Json.Json>,
-  s: List<&2, Json.Json>
+  s: List<&2, Json.Json>,
+  w: List<&2, Json.Json>
 ) -> Maybe<&2, Outcome>:
   match n x:
     case Some{n} Some{x}:
-      Some{Outcome{U32.to_nat(n), Shown.back(f, []), Shown.back(s, []), failed, x}}
+      Some{Outcome{U32.to_nat(n), Shown.back(f, []), Shown.back(s, []), failed, x, w}}
     case _ _:
       None{}
 
@@ -2190,20 +2273,26 @@ def Outcome.read(answer: Maybe<&2, Json.Json>) -> Maybe<&2, Outcome>:
       Json.JArray{
         Con{
           Json.JNumber{n},
-          Con{Json.JNumber{x}, Con{Json.JTrue{}, Con{Json.JArray{f}, Con{Json.JArray{s}, Nil{}}}}}
+          Con{
+            Json.JNumber{x},
+            Con{Json.JTrue{}, Con{Json.JArray{f}, Con{Json.JArray{s}, Con{Json.JArray{w}, Nil{}}}}}
+          }
         }
       }
     }:
-      Outcome.of(True{}, U32.read(n), U32.read(x), f, s)
+      Outcome.of(True{}, U32.read(n), U32.read(x), f, s, w)
     case Some{
       Json.JArray{
         Con{
           Json.JNumber{n},
-          Con{Json.JNumber{x}, Con{Json.JFalse{}, Con{Json.JArray{f}, Con{Json.JArray{s}, Nil{}}}}}
+          Con{
+            Json.JNumber{x},
+            Con{Json.JFalse{}, Con{Json.JArray{f}, Con{Json.JArray{s}, Con{Json.JArray{w}, Nil{}}}}}
+          }
         }
       }
     }:
-      Outcome.of(False{}, U32.read(n), U32.read(x), f, s)
+      Outcome.of(False{}, U32.read(n), U32.read(x), f, s, w)
     case _:
       None{}
 
@@ -2251,7 +2340,8 @@ def outcome(report: Report, +json: Bool, +fixing: Bool, program: Lint.Program) -
           List.reverse(&2, Shown, Shown.kept(json, List.take(&2, Shown, shown, n))),
           List.reverse(&2, Shown, List.drop(&2, Shown, shown, n)),
           Lists.any(~Lint.Found, ~Found.is_error, founds),
-          fixed
+          fixed,
+          []
         }
 
 # CLI
@@ -2408,19 +2498,25 @@ def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<
         []
       )
 
-# Says, if the named file's check failed, which rules on did not run on it, as they need its facts (`skipped`), if any.
-def unchecked(failed: Bool, skipped: List<&2, String>, path: String) -> IO(Unit):
-  match failed skipped:
+# Why rules did not run on a file: Bend does not load it, so none ran (`Unloaded`); its check fails, so those that
+# need its facts did not (`Unchecked`); or an entry that reads it fails its check, so it was linted without it, and the
+# rules whose findings every entry must find report nothing on it (`Unentered`).
+type Skip is Data:
+  Unloaded{}
+  Unchecked{rules: List<&2, String>}
+  Unentered{entry: String, rules: List<&2, String>}
+
+# Why rules did not run on the file at `path`.
+type Skipped is Data:
+  Skipped{path: String, skip: Skip}
+
+# The skip, if the named file's check failed (`failed`), of the rules on that need its facts (`facts`), if any.
+def unchecked(failed: Bool, facts: List<&2, String>, path: String) -> List<&2, Skipped>:
+  match failed facts:
     case True{} Con{id, rest}:
-      IO.print_err(
-        "bend-lint: Bend's check of "
-          ++ path
-          ++ " fails, so the rules that need its facts did not run on it: "
-          ++ String.join(Con{id, rest}, ", ")
-          ++ "; `bend <file> --check-only` says why"
-      )
+      [Skipped{path, Unchecked{Con{id, rest}}}]
     case _ _:
-      IO.pure(Unit, Unit{})
+      []
 
 # What a note on a failed entry adds of the rules on whose findings every entry must find (`every`): they report
 # nothing.
@@ -2432,30 +2528,99 @@ def silenced(every: List<&2, String>) -> String:
       ", and the rules whose findings every entry must find report nothing on it: "
         ++ String.join(Con{id, rest}, ", ")
 
-# Says, for each entry of `failing` that reads the named file and failed its check, that the file was linted without
-# it, and which rules report nothing on it (`every`). If the file's own check failed too (`failed`), `unchecked` says
-# so instead.
+# The skips, for each entry of `failing` that reads the named file and failed its check, of the rules whose findings
+# every entry must find (`every`), onto `out` (last first). If the file's own check failed too (`failed`), `unchecked`
+# gives its skip instead.
 def unentered(
   failed: Bool,
   failing: List<&2, String>,
   +every: List<&2, String>,
-  +path: String
-) -> IO(Unit):
+  +path: String,
+  out: List<&2, Skipped>
+) -> List<&2, Skipped>:
   match failed failing:
     case False{} Con{entry, rest}:
-      do IO<Unit>:
-        IO.print_err(
-          "bend-lint: Bend's check of the entry "
-            ++ entry
-            ++ " fails, so "
-            ++ path
-            ++ " was linted without it"
-            ++ silenced(every)
-            ++ "; `bend <file> --check-only` says why"
-        )
-        unentered(False{}, rest, every, path)
+      unentered(False{}, rest, every, path, Skipped{path, Unentered{entry, every}} <> out)
     case _ _:
-      IO.pure(Unit, Unit{})
+      out
+
+def Skipped.text(skipped: Skipped) -> String:
+  match skipped:
+    case Skipped{path, Unloaded{}}:
+      "bend-lint: Bend does not load "
+        ++ path
+        ++ ", so no rule ran on it; `bend <file> --check-only` says why"
+    case Skipped{path, Unchecked{rules}}:
+      "bend-lint: Bend's check of "
+        ++ path
+        ++ " fails, so the rules that need its facts did not run on it: "
+        ++ String.join(rules, ", ")
+        ++ "; `bend <file> --check-only` says why"
+    case Skipped{path, Unentered{entry, rules}}:
+      "bend-lint: Bend's check of the entry "
+        ++ entry
+        ++ " fails, so "
+        ++ path
+        ++ " was linted without it"
+        ++ silenced(rules)
+        ++ "; `bend <file> --check-only` says why"
+
+def Skipped.strings(texts: List<&2, String>, out: List<&2, Json.Json>) -> Json.Json:
+  match texts:
+    case Nil{}:
+      Json.JArray{List.reverse(&2, Json.Json, out)}
+    case Con{t, rest}:
+      Skipped.strings(rest, Json.JString{t} <> out)
+
+# A skip as a JSON run gives it: the file, why (`reason`), the rules it is about, the entry, if Unentered, and what the
+# text run says.
+def Skipped.json(+skipped: Skipped) -> Json.Json:
+  match skipped:
+    case Skipped{+path, Unloaded{}}:
+      Json.JObject{
+        [
+          Json.JField{"path", Json.JString{path}},
+          Json.JField{"reason", Json.JString{"unloaded"}},
+          Json.JField{"message", Json.JString{Skipped.text(skipped)}}
+        ]
+      }
+    case Skipped{+path, Unchecked{+rules}}:
+      Json.JObject{
+        [
+          Json.JField{"path", Json.JString{path}},
+          Json.JField{"reason", Json.JString{"unchecked"}},
+          Json.JField{"rules", Skipped.strings(rules, [])},
+          Json.JField{"message", Json.JString{Skipped.text(skipped)}}
+        ]
+      }
+    case Skipped{+path, Unentered{+entry, +rules}}:
+      Json.JObject{
+        [
+          Json.JField{"path", Json.JString{path}},
+          Json.JField{"reason", Json.JString{"unentered"}},
+          Json.JField{"entry", Json.JString{entry}},
+          Json.JField{"rules", Skipped.strings(rules, [])},
+          Json.JField{"message", Json.JString{Skipped.text(skipped)}}
+        ]
+      }
+
+# Says each of `skips` on stderr; gives them, in order, as JSON.
+def Skipped.said(skips: List<&2, Skipped>, out: List<&2, Json.Json>) -> IO(List<&2, Json.Json>):
+  match skips:
+    case Nil{}:
+      IO.pure(List<&2, Json.Json>, List.reverse(&2, Json.Json, out))
+    case Con{+s, rest}:
+      IO.bind(
+        Unit,
+        List<&2, Json.Json>,
+        IO.print_err(Skipped.text(s)),
+        u => Skipped.said(rest, Skipped.json(s) <> out)
+      )
+
+def Outcome.skip(outcome: Outcome, skipped: List<&2, Json.Json>) -> Outcome:
+  match outcome:
+    case Outcome{n, f, s, e, x, w}:
+      Outcome{n, f, s, e, x, Lists.append(&2, Json.Json, skipped, w)}
 
 def checked(
   ~rules: List<&1, Rule>,
@@ -2469,9 +2634,24 @@ def checked(
   match checks:
     case Checks{Con{Lint.Program{+sources}, rest}, +failing, +failed, forget}:
       +on = About.on(About.all(rules, []), settings, [])
+      skips = Lists.append(
+        &2,
+        Skipped,
+        unchecked(failed, About.ids(List.filter(~About, ~About.needs_facts, on), []), path),
+        List.reverse(
+          &2,
+          Skipped,
+          unentered(
+            failed,
+            failing,
+            About.ids(List.filter(~About, ~About.needs_every, on), []),
+            path,
+            []
+          )
+        )
+      )
       do IO<Outcome>:
-        unchecked(failed, About.ids(List.filter(~About, ~About.needs_facts, on), []), path)
-        unentered(failed, failing, About.ids(List.filter(~About, ~About.needs_every, on), []), path)
+        skipped: List<&2, Json.Json> <- Skipped.said(skips, [])
         o: Outcome <- lint(
           ~rules,
           linted(imports, path, sources),
@@ -2482,15 +2662,11 @@ def checked(
           json,
           fixing
         )
-        forgotten(forget, o)
+        forgotten(forget, Outcome.skip(o, skipped))
     case Checks{Nil{}, failing, failed, forget}:
       do IO<Outcome>:
-        IO.print_err(
-          "bend-lint: Bend does not load "
-            ++ path
-            ++ ", so no rule ran on it; `bend <file> --check-only` says why"
-        )
-        return Outcome{0n, [], [], False{}, 0}
+        skipped: List<&2, Json.Json> <- Skipped.said([Skipped{path, Unloaded{}}], [])
+        return Outcome{0n, [], [], False{}, 0, skipped}
 
 # The named file's own check, as the checks to lint it in, after the entries that read it and failed (`failing`). If
 # it fails, the rules that need no facts run on what it parsed, if it parsed the files.
@@ -2604,10 +2780,10 @@ def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bo
         c => IO.pure(Checks, Check.own([], c))
       )
 
-def Options.checked(problem: Maybe<&2, String>) -> IO(Unit):
+def Options.checked(json: Bool, problem: Maybe<&2, String>) -> IO(Unit):
   match problem:
     case Some{why}:
-      IO.die(Unit, 2, "bend-lint config: " ++ why)
+      Error.end(Unit, json, 2, "", "bend-lint config: " ++ why)
     case None{}:
       IO.pure(Unit, Unit{})
 
@@ -2629,6 +2805,11 @@ type Options is Data:
     jobs: Jobs
   }
 
+def Options.is_json(options: Options) -> Bool:
+  match options:
+    case Options{inputs, fixing, shown, json, worker, jobs}:
+      json
+
 # Whether a run with the fix flag `fixing` makes its fixes: `--fix-dangerously` does. `--fix` makes none until Bend's
 # checker in Bend can prove that a fix keeps the program, and says so (`Options.note`).
 def Options.fixes(fixing: Maybe<&2, Bool>) -> Bool:
@@ -2644,10 +2825,10 @@ def Options.note(fixing: Maybe<&2, Bool>) -> IO(Unit):
       IO.pure(Unit, Unit{})
 
 # Stops the run if it lints the imports of more than one file: a run with imports has one root.
-def Options.single(imports: Bool, many: Bool) -> IO(Unit):
+def Options.single(json: Bool, imports: Bool, many: Bool) -> IO(Unit):
   match imports many:
     case True{} True{}:
-      IO.die(Unit, 2, "bend-lint: a config with \"imports\" lints one file at a time")
+      Error.end(Unit, json, 2, "", "bend-lint: a config with \"imports\" lints one file at a time")
     case _ _:
       IO.pure(Unit, Unit{})
 
@@ -2681,11 +2862,11 @@ def configured(
   project: Project
 ) -> IO(Outcome):
   match options project:
-    case Options{inputs, fixing, shown, json, worker, jobs} Project{entries, from, +settings}:
+    case Options{inputs, fixing, shown, +json, worker, jobs} Project{entries, from, +settings}:
       +on = Maybe.default(&2, Bool, from, False{})
       do IO<Outcome>:
-        Options.checked(About.problem(About.all(rules, []), settings))
-        Options.single(on, many)
+        Options.checked(json, About.problem(About.all(rules, []), settings))
+        Options.single(json, on, many)
         settled(
           ~rules,
           path,
@@ -2791,11 +2972,11 @@ def Options.read(args: List<String>, options: Maybe<&2, Options>, jobs: Bool) ->
         String.eq(a, "--jobs")
       )
 
-def File.lint(~rules: List<&1, Rule>, path: String, options: Options, many: Bool) -> IO(Outcome):
+def File.lint(~rules: List<&1, Rule>, path: String, +options: Options, many: Bool) -> IO(Outcome):
   IO.bind(
     Project,
     Outcome,
-    Config.load(),
+    Config.load(Options.is_json(options)),
     project => configured(~rules, path, options, many, project)
   )
 
@@ -2837,19 +3018,29 @@ def Overlays.of(given: Result<&1, &1, U32 & String, String>) -> List<&2, String>
       []
 
 # Stops a run that makes fixes (`fixes`) to files with overlays: a fix writes the file on disk, not the text it linted.
-def Overlays.fixing(fixes: Bool, overlays: List<&2, String>) -> IO(Unit):
+def Overlays.fixing(json: Bool, fixes: Bool, overlays: List<&2, String>) -> IO(Unit):
   match fixes overlays:
     case True{} Con{o, rest}:
-      IO.die(Unit, 2, "bend-lint: --fix-dangerously does not go with --overlays: a fix writes the file on disk")
+      Error.end(
+        Unit,
+        json,
+        2,
+        "",
+        "bend-lint: --fix-dangerously does not go with --overlays: a fix writes the file on disk"
+      )
     case _ _:
       IO.pure(Unit, Unit{})
 
-def files.of(kept: List<&2, String>, found: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
+def files.of(
+  json: Bool,
+  kept: List<&2, String>,
+  found: Result<&2, &2, String, List<&2, String>>
+) -> IO(List<&2, String>):
   match found:
     case Done{paths}:
       IO.pure(List<&2, String>, Lists.append(&2, String, kept, paths))
     case Fail{why}:
-      IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
+      Error.end(List<&2, String>, json, 2, "", "bend-lint: " ++ why)
 
 # The inputs that name a file with an overlay (`overlays`), onto `kept`, and the others, onto `rest` (both last first).
 def files.sort(
@@ -2857,7 +3048,8 @@ def files.sort(
   +overlays: List<&2, String>,
   kept: List<&2, String>,
   rest: List<&2, String>
-) -> List<&2, String> & List<&2, String>:
+) -> List<&2, String>
+  & List<&2, String>:
   match inputs:
     case Nil{}:
       (kept, rest)
@@ -2871,7 +3063,7 @@ def files.sort(
       )
 
 # The files of `sorted` (see files.sort): those with an overlay, which need not be on disk, then those the others name.
-def files.named(sorted: List<&2, String> & List<&2, String>) -> IO(List<&2, String>):
+def files.named(json: Bool, sorted: List<&2, String> & List<&2, String>) -> IO(List<&2, String>):
   match sorted:
     case Tuple{kept, Nil{}}:
       IO.pure(List<&2, String>, List.reverse(&2, String, kept))
@@ -2880,18 +3072,18 @@ def files.named(sorted: List<&2, String> & List<&2, String>) -> IO(List<&2, Stri
         Result<&2, &2, String, List<&2, String>>,
         List<&2, String>,
         Files.named(List.reverse(&2, String, Con{r, rest})),
-        found => files.of(List.reverse(&2, String, kept), found)
+        found => files.of(json, List.reverse(&2, String, kept), found)
       )
 
 # The files the inputs name; with none, the .bend files under the current folder (see Files.listed). An input that
-# names none ends the run with a usage error; one that names a file with an overlay (in `overlays`) names it, on disk
+# names none ends the run with a usage error (in JSON if `json`); one that names a file with an overlay (in `overlays`) names it, on disk
 # or not.
-def files(inputs: List<&2, String>, overlays: List<&2, String>) -> IO(List<&2, String>):
+def files(json: Bool, inputs: List<&2, String>, overlays: List<&2, String>) -> IO(List<&2, String>):
   match inputs:
     case Nil{}:
       Files.listed("*.bend")
     case Con{first, more}:
-      files.named(files.sort(Con{first, more}, overlays, [], []))
+      files.named(json, files.sort(Con{first, more}, overlays, [], []))
 
 # Workers
 # -------
@@ -3102,7 +3294,7 @@ def Workers.run(
           paths,
           []
         )
-        total: Outcome <- Workers.collect(workers, Outcome{0n, [], [], False{}, 0})
+        total: Outcome <- Workers.collect(workers, Outcome{0n, [], [], False{}, 0, []})
         ended(options, total)
 
 # Lints `paths` in workers of `program`, as `options` say.
@@ -3157,7 +3349,7 @@ def Paths.go(
         paths,
         options,
         Options.is_many(options, paths),
-        Outcome{0n, [], [], False{}, 0}
+        Outcome{0n, [], [], False{}, 0, []}
       )
 
 # Lints `paths` as `options` say: in workers, if the run can (see Workers), else here.
@@ -3171,16 +3363,16 @@ def Paths.run(
 
 def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options>) -> IO(Unit):
   match options:
-    case Some{Options{+inputs, +fixing, shown, json, worker, jobs}}:
+    case Some{Options{+inputs, +fixing, shown, +json, worker, jobs}}:
       do IO<Unit>:
         Options.note(fixing)
-        given : Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_LINT_OVERLAYS")
-        +overlays : List<&2, String> = Overlays.of(given)
-        Overlays.fixing(Options.fixes(fixing), overlays)
+        given: Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_LINT_OVERLAYS")
+        +overlays: List<&2, String> = Overlays.of(given)
+        Overlays.fixing(json, Options.fixes(fixing), overlays)
         IO.bind(
           List<&2, String>,
           Unit,
-          files(inputs, overlays),
+          files(json, inputs, overlays),
           +paths => Paths.run(
             ~rules,
             program,

@@ -1937,6 +1937,18 @@ const getObjectEntries = (value: unknown): Array<[string, unknown]> | undefined 
     ? Object.entries(value)
     : undefined;
 
+// Ends the run with status 2, as `message` says on stderr, about `file` if one; a JSON run first
+// prints the error on stdout, as the runner does (Error.json in cli.bend).
+const endWithError = (json: boolean, message: string, file?: string): never => {
+  const text = "bend-lint: " + message;
+  if (json) {
+    const about = file === undefined ? {} : { path: getPathWithForwardSlashes(file) };
+    console.log(JSON.stringify({ ok: false, errors: [{ ...about, message: text }] }));
+  }
+  console.error(text);
+  return process.exit(2);
+};
+
 // Keeps the overlays of `text`, which `--overlays` reads on stdin: a JSON object of paths to texts.
 const readOverlays = (text: string): void => {
   const entries = getObjectEntries(tryGet(() => JSON.parse(text) as unknown));
@@ -2094,24 +2106,23 @@ if (import.meta.main) {
   }
   // The runner never sees `--overlays`: it gets the files that have one in BEND_LINT_OVERLAYS, and
   // each argument that names one as its key.
+  const json = args.includes("--json");
   if (args.includes("--overlays")) {
     try {
       readOverlays(nodeFs.readFileSync(0, "utf8"));
     } catch (e) {
-      console.error("bend-lint: " + getErrorMessageFromUnknown(e));
-      process.exit(2);
+      endWithError(json, getErrorMessageFromUnknown(e));
     }
   }
   const runArgs = args
     .filter((a) => a !== "--overlays")
     .map((a) => (getOverlay(a) === undefined ? a : getOverlayKey(a)));
-  const project = getProject(process.cwd());
-  if (project === undefined) {
-    console.error(
-      "bend-lint: no " + CONFIG + " in this folder or above it; `bunx bend-lint init` makes one",
+  const project =
+    getProject(process.cwd()) ??
+    endWithError(
+      json,
+      "no " + CONFIG + " in this folder or above it; `bunx bend-lint init` makes one",
     );
-    process.exit(2);
-  }
 
   // `bend-lint prepare` makes what a run needs, Bend and the build of its rules, and lints nothing:
   // an editor runs it at start, so that its first check builds nothing.
@@ -2119,12 +2130,14 @@ if (import.meta.main) {
   if (preparing) {
     console.error(PREPARING);
   }
-  const [checker, program, notes] = await Promise.resolve()
-    .then(() => getRunSetup(getProjectProgram(project)))
-    .catch((e: unknown) => {
-      console.error("bend-lint: " + getErrorMessageFromUnknown(e));
-      return process.exit(2);
-    });
+  const named = await Promise.resolve()
+    .then(() => getProjectProgram(project))
+    .catch((e: unknown) =>
+      endWithError(json, getErrorMessageFromUnknown(e), nodePath.join(project, CONFIG)),
+    );
+  const [checker, program, notes] = await getRunSetup(named).catch((e: unknown) =>
+    endWithError(json, getErrorMessageFromUnknown(e)),
+  );
   notes.forEach((note) => console.error(note));
   if (preparing) {
     console.error("bend-lint: prepared " + program);
