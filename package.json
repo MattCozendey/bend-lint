@@ -20,10 +20,10 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "1.89.0",
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
-    "oxlint-tsgolint": "7.0.2004",
+    "oxlint-tsgolint": "7.0.2005",
     "typebox": "1.4.3",
     "typescript": "7.0.2"
   },
@@ -31,6 +31,6 @@
     "bun": "1.4.4"
   },
   "packageManager": "bun@1.4.4",
-  "bendRelease": "bendlang/bend/v2.0.38",
-  "bendWindows": "MattCozendey/bend/ab939bdeecdf7628c77dcda2ea3ab9899941a58d"
+  "bendRelease": "bendlang/bend/v2.0.39",
+  "bendWindows": "MattCozendey/bend/126afd6cbded7e392302b41d2504083ad26b40c1"
 }
