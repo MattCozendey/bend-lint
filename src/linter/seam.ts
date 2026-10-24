@@ -398,6 +398,10 @@ ${TRACED.map(
 // The text of each file bend.ts read while the check that runs read it, by the path it read.
 const READS = new Map<string, string>();
 
+// The texts that `--overlays` gives on stdin, by their files' keys (see `getOverlayKey`): a check
+// reads each in place of its file, which need not be on disk.
+const OVERLAYS = new Map<string, string>();
+
 // How many syntax nodes the server made: the next one's number.
 const MADE = { nodes: 0 };
 
@@ -481,6 +485,24 @@ const getPatchedCopy = (dir: URL): URL => {
 const getRealPath = (p: nodeFs.PathLike): string =>
   getPathWithForwardSlashes(nodeFs.realpathSync(p));
 
+// The path of a file as Bend names it once it loads it: its folder's real path, with `/`, then its
+// name; or, if its folder is not on disk, its absolute path.
+const getOverlayKey = (p: string): string => {
+  const absolute = nodePath.resolve(p);
+  const folder = nodePath.dirname(absolute);
+  return (
+    (tryGet(() => getRealPath(folder)) ?? getPathWithForwardSlashes(folder)).replace(/\/$/, "") +
+    "/" +
+    nodePath.basename(absolute)
+  );
+};
+
+const getOverlay = (p: nodeFs.PathOrFileDescriptor): string | undefined =>
+  OVERLAYS.size === 0 || typeof p === "number" ? undefined : OVERLAYS.get(getOverlayKey(String(p)));
+
+// The text of the file at `p`, as the run sees it: its overlay, or what is on disk.
+const getViewText = (p: string): string => getOverlay(p) ?? nodeFs.readFileSync(p, "utf8");
+
 // path.posix.resolve, where a drive letter is a root.
 const getResolvedPosixPath = (...ps: string[]): string => {
   const all = [process.cwd(), ...ps].map(getPathWithForwardSlashes);
@@ -498,9 +520,10 @@ const getRelativePosixPath = (from: string, to: string): string =>
     getPathWithForwardSlashes(to).replace(DRIVE, ""),
   );
 
-// Node's readFileSync, which keeps in READS each text it reads.
+// Node's readFileSync, which reads a file's overlay in its place, and keeps in READS each text it
+// reads.
 const getKeptRead = ((p: nodeFs.PathOrFileDescriptor, options?: unknown) => {
-  const read = nodeFs.readFileSync(p, options as BufferEncoding);
+  const read = getOverlay(p) ?? nodeFs.readFileSync(p, options as BufferEncoding);
   if (typeof read === "string") {
     READS.set(String(p), read);
   }
@@ -508,10 +531,17 @@ const getKeptRead = ((p: nodeFs.PathOrFileDescriptor, options?: unknown) => {
 }) as typeof nodeFs.readFileSync;
 
 // What the server Shares with its copy of bend.ts: Node's fs and path, with each path they give
-// real and with `/`, as Bend resolves imports with path.posix, where a drive letter is a root; and
-// each text Bend reads kept.
+// real and with `/`, as Bend resolves imports with path.posix, where a drive letter is a root; each
+// text Bend reads kept; and each file with an overlay there, as its key.
 const getShared = (): Shared => ({
-  fs: { ...nodeFs, realpathSync: getRealPath, readFileSync: getKeptRead },
+  fs: {
+    ...nodeFs,
+    existsSync: (p: nodeFs.PathLike): boolean =>
+      getOverlay(String(p)) !== undefined || nodeFs.existsSync(p),
+    realpathSync: (p: nodeFs.PathLike): string =>
+      getOverlay(String(p)) === undefined ? getRealPath(p) : getOverlayKey(String(p)),
+    readFileSync: getKeptRead,
+  },
   path: {
     ...nodePath,
     join: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.join(...ps)),
@@ -1462,9 +1492,12 @@ const getUntemplated = (x: unknown, bok: Book): unknown => {
   );
 };
 
-// The path Bend loads a file at, as `seen` keeps it: real, with `/`.
+// The path Bend loads a file at, as `seen` keeps it: real, with `/`; a file with an overlay, at its
+// key.
 const getLoadPath = (path: string): string =>
-  tryGet(() => getRealPath(path)) ?? getPathWithForwardSlashes(nodePath.resolve(path));
+  getOverlay(path) === undefined
+    ? (tryGet(() => getRealPath(path)) ?? getPathWithForwardSlashes(nodePath.resolve(path)))
+    : getOverlayKey(path);
 
 // Checks the file at `path`, as `check <path> <facts|syntax> <paths...>` asks. Its answer: `check`
 // and the check's number, here 0 (see `getNumberedAnswer`), or `failed` and each file it read;
@@ -1600,12 +1633,12 @@ const getCachePath = ({ version }: Checker, path: string, facts: Wanted): string
     ) + ".json",
   );
 
-// The cached answer at `file`, if each file it read still has the text it read. A hit marks the
-// entry used now.
+// The cached answer at `file`, if each file it read still has the text it read (its overlay's, if
+// it has one). A hit marks the entry used now.
 const getCachedEntry = (file: string): Entry | undefined =>
   tryGet(() => {
     const entry = JSON.parse(nodeFs.readFileSync(file, "utf8")) as Entry;
-    if (!entry.files.every(([p, d]) => getSha256Hex(nodeFs.readFileSync(p, "utf8")) === d)) {
+    if (!entry.files.every(([p, d]) => getSha256Hex(getViewText(p)) === d)) {
       return undefined;
     }
     nodeFs.utimesSync(file, new Date(), new Date());
@@ -1891,6 +1924,15 @@ const getObjectEntries = (value: unknown): Array<[string, unknown]> | undefined 
     ? Object.entries(value)
     : undefined;
 
+// Keeps the overlays of `text`, which `--overlays` reads on stdin: a JSON object of paths to texts.
+const readOverlays = (text: string): void => {
+  const entries = getObjectEntries(tryGet(() => JSON.parse(text) as unknown));
+  if (entries === undefined || entries.some(([, t]) => typeof t !== "string")) {
+    throw new Error("--overlays reads a JSON object of paths to texts on stdin");
+  }
+  entries.forEach(([p, t]) => OVERLAYS.set(getOverlayKey(p), t as string));
+};
+
 // What the bend-lint.json in `project` says of its rules: those of "rules" but those "off", and
 // "packages". Bend checks the packages' names and versions; the runner, the rest of the config.
 export const getRules = (project: string): Rules => {
@@ -2019,6 +2061,19 @@ if (import.meta.main) {
     }
     process.exit(0);
   }
+  // The runner never sees `--overlays`: it gets the files that have one in BEND_LINT_OVERLAYS, and
+  // each argument that names one as its key.
+  if (args.includes("--overlays")) {
+    try {
+      readOverlays(nodeFs.readFileSync(0, "utf8"));
+    } catch (e) {
+      console.error("bend-lint: " + getErrorMessageFromUnknown(e));
+      process.exit(2);
+    }
+  }
+  const runArgs = args
+    .filter((a) => a !== "--overlays")
+    .map((a) => (getOverlay(a) === undefined ? a : getOverlayKey(a)));
   const project = getProject(process.cwd());
   if (project === undefined) {
     console.error(
@@ -2042,13 +2097,14 @@ if (import.meta.main) {
 
   // A JS build of the program runs on this runtime; a native one, as itself.
   const [command, commandArgs] = /\.m?js$/.test(program)
-    ? [process.execPath, [program, ...args]]
-    : [program, args];
+    ? [process.execPath, [program, ...runArgs]]
+    : [program, runArgs];
   const child = spawn(command, commandArgs, {
     env: {
       ...process.env,
       BEND_LINT_PORT: String((server.address() as net.AddressInfo).port),
       BEND_LINT_PROJECT: getPathWithForwardSlashes(project),
+      BEND_LINT_OVERLAYS: [...OVERLAYS.keys()].join("\n"),
     },
     stdio: "inherit",
   });

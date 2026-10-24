@@ -29,7 +29,7 @@ and says so on each run.
 
 ```sh
 bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json]
-               [--jobs <number or max>]
+               [--jobs <number or max>] [--overlays]
 ```
 
 | Flag                | Does                                                                               |
@@ -39,10 +39,14 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
 | `--show-suppressed` | also prints the findings that a directive covers                                   |
 | `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr       |
 | `--jobs`            | how many files to lint at once: a number, or `max` (default: half the CPU threads) |
+| `--overlays`        | reads a JSON object of paths to texts on stdin, which stand for those files        |
 
 - With no files, it lints the `.bend` files in the folder you run it in: those git lists (so none
   that `.gitignore` lists), and none in `node_modules` or a hidden folder.
 - Quote globs, and use `/` in paths.
+- With `--overlays`, the checker and the rules read each overlay in place of its file, also when a
+  file imports it, and the file need not be on disk; name such a file to lint it. An editor gives
+  its unsaved buffers so. It does not go with `--fix-dangerously`, which writes files on disk.
 - bend-lint builds your rules on its first run (about 40 s), and keeps the build until a rule or
   Bend changes.
 - A fix that touches an earlier fix's edits waits for the next run.

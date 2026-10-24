@@ -69,6 +69,15 @@ export const buildRule = async (id: string): Promise<void> => {
   );
 };
 
+// The findings a run printed.
+export const getFoundOf = (ran: Ran): Found[] =>
+  ran.out.split("\n").flatMap((line) => {
+    const m = LINE.exec(line);
+    return m === null
+      ? []
+      : [{ file: path.basename(m[1]), at: m[2], severity: m[3], code: m[4], message: m[5] }];
+  });
+
 // A fresh folder for a case.
 export const getFreshFolder = (): string =>
   fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bend-lint-case-")));
@@ -78,14 +87,15 @@ export const getFreshFolder = (): string =>
 // globs), after it writes `files` (names to text) into `dir`, a fresh folder
 // unless given. It runs in that folder, whose bend-lint.json turns `id` on,
 // with what a bend-lint.json among `files` says, and whose bend-lint-rules
-// links the folder that holds `id`. Its stderr leaves out what bend-lint says
-// of how this machine runs it.
+// links the folder that holds `id`; `input` goes to its stdin. Its stderr
+// leaves out what bend-lint says of how this machine runs it.
 export const getRunOutcome = async (
   id: string,
   files: Record<string, string>,
   named: string | undefined,
   args: string[] = [],
   dir: string = getFreshFolder(),
+  input?: string,
 ): Promise<Ran> => {
   Object.entries(files).forEach(([name, text]) => writeFileAtomically(path.join(dir, name), text));
   const config = path.join(dir, "bend-lint.json");
@@ -99,7 +109,7 @@ export const getRunOutcome = async (
     fs.symlinkSync(path.join(getRuleProject(id), "bend-lint-rules"), rules, "junction");
   }
   const inputs = named === undefined ? [] : [path.join(dir, named)];
-  const ran = await getCommandOutcome(["bun", SERVER, ...inputs, ...args], dir);
+  const ran = await getCommandOutcome(["bun", SERVER, ...inputs, ...args], dir, {}, input);
   return {
     ...ran,
     err: ran.err
@@ -119,13 +129,7 @@ export const getFindings = async (
   id: string,
   files: Record<string, string>,
   named: string,
-): Promise<Found[]> =>
-  (await getRunOutcome(id, files, named)).out.split("\n").flatMap((line) => {
-    const m = LINE.exec(line);
-    return m === null
-      ? []
-      : [{ file: path.basename(m[1]), at: m[2], severity: m[3], code: m[4], message: m[5] }];
-  });
+): Promise<Found[]> => getFoundOf(await getRunOutcome(id, files, named));
 
 // What the rule `id` finds in a main.bend of `text`: each finding as where it
 // is, its rule and what it says.

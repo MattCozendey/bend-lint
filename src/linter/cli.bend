@@ -2824,26 +2824,72 @@ def Paths.lint(
         o => Paths.lint(~rules, rest, options, many, Outcome.add(total, o))
       )
 
-def files.of(found: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
+# The paths the server holds an overlay for (`--overlays`, see seam.ts), one a line in BEND_LINT_OVERLAYS: none, if it
+# gives none.
+def Overlays.of(given: Result<&1, &1, U32 & String, String>) -> List<&2, String>:
+  match given:
+    case Done{text}:
+      List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, '
+'))
+    case Fail{why}:
+      []
+
+# Stops a run that makes fixes (`fixes`) to files with overlays: a fix writes the file on disk, not the text it linted.
+def Overlays.fixing(fixes: Bool, overlays: List<&2, String>) -> IO(Unit):
+  match fixes overlays:
+    case True{} Con{o, rest}:
+      IO.die(Unit, 2, "bend-lint: --fix-dangerously does not go with --overlays: a fix writes the file on disk")
+    case _ _:
+      IO.pure(Unit, Unit{})
+
+def files.of(kept: List<&2, String>, found: Result<&2, &2, String, List<&2, String>>) -> IO(List<&2, String>):
   match found:
     case Done{paths}:
-      IO.pure(List<&2, String>, paths)
+      IO.pure(List<&2, String>, Lists.append(&2, String, kept, paths))
     case Fail{why}:
       IO.die(List<&2, String>, 2, "bend-lint: " ++ why)
 
+# The inputs that name a file with an overlay (`overlays`), onto `kept`, and the others, onto `rest` (both last first).
+def files.sort(
+  inputs: List<&2, String>,
+  +overlays: List<&2, String>,
+  kept: List<&2, String>,
+  rest: List<&2, String>
+) -> List<&2, String> & List<&2, String>:
+  match inputs:
+    case Nil{}:
+      (kept, rest)
+    case Con{+input, more}:
+      +hit = List.contains(~String, ~String.eq, overlays, input)
+      files.sort(
+        more,
+        overlays,
+        Lists.push(String, Lists.when(String, hit, input), kept),
+        Lists.push(String, Lists.when(String, Bool.not(hit), input), rest)
+      )
+
+# The files of `sorted` (see files.sort): those with an overlay, which need not be on disk, then those the others name.
+def files.named(sorted: List<&2, String> & List<&2, String>) -> IO(List<&2, String>):
+  match sorted:
+    case Tuple{kept, Nil{}}:
+      IO.pure(List<&2, String>, List.reverse(&2, String, kept))
+    case Tuple{kept, Con{r, rest}}:
+      IO.bind(
+        Result<&2, &2, String, List<&2, String>>,
+        List<&2, String>,
+        Files.named(List.reverse(&2, String, Con{r, rest})),
+        found => files.of(List.reverse(&2, String, kept), found)
+      )
+
 # The files the inputs name; with none, the .bend files under the current folder (see Files.listed). An input that
-# names none ends the run with a usage error.
-def files(inputs: List<&2, String>) -> IO(List<&2, String>):
+# names none ends the run with a usage error; one that names a file with an overlay (in `overlays`) names it, on disk
+# or not.
+def files(inputs: List<&2, String>, overlays: List<&2, String>) -> IO(List<&2, String>):
   match inputs:
     case Nil{}:
       Files.listed("*.bend")
     case Con{first, more}:
-      IO.bind(
-        Result<&2, &2, String, List<&2, String>>,
-        List<&2, String>,
-        Files.named(Con{first, more}),
-        found => files.of(found)
-      )
+      files.named(files.sort(Con{first, more}, overlays, [], []))
 
 # Workers
 # -------
@@ -3126,10 +3172,13 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
     case Some{Options{+inputs, +fixing, shown, json, worker, jobs}}:
       do IO<Unit>:
         Options.note(fixing)
+        given : Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_LINT_OVERLAYS")
+        +overlays : List<&2, String> = Overlays.of(given)
+        Overlays.fixing(Options.fixes(fixing), overlays)
         IO.bind(
           List<&2, String>,
           Unit,
-          files(inputs),
+          files(inputs, overlays),
           +paths => Paths.run(
             ~rules,
             program,
@@ -3141,7 +3190,7 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
       IO.die(
         Unit,
         2,
-        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>]"
+        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>] [--overlays]"
       )
 
 # Runs the command line `args`: the program as invoked, then its arguments.

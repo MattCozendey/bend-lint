@@ -2,9 +2,17 @@
 // =======
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import * as path from "node:path";
 
 import { getCommandOutcome } from "../shared/utils.ts";
-import { buildRule, BUILDS, getFindings, getFreshFolder, getRunOutcome } from "./testing.ts";
+import {
+  buildRule,
+  BUILDS,
+  getFindings,
+  getFoundOf,
+  getFreshFolder,
+  getRunOutcome,
+} from "./testing.ts";
 
 // Constants
 // =========
@@ -257,6 +265,75 @@ setDefaultTimeout(120_000);
         "util.bend": "# fixed\n" + ENTRIES["util.bend"],
       },
       "bend-lint: 1 finding(s), 1 fixed",
+    ]);
+  });
+
+  test("--overlays lints each overlay's text in place of its file, which need not be on disk", async () => {
+    const dir = getFreshFolder();
+    const ran = await getRunOutcome(
+      WRITTEN,
+      { "main.bend": "import Base\n\ndef one() -> U32:\n  1\n" },
+      "main.bend",
+      ["--overlays", path.join(dir, "new.bend")],
+      dir,
+      JSON.stringify({
+        [path.join(dir, "main.bend")]: "import Base\n\ndef two() -> Nat:\n  2n\n",
+        [path.join(dir, "new.bend")]: "import Base\n\ndef three() -> F32:\n  3.0\n",
+      }),
+    );
+    expect(getFoundOf(ran).map(({ file, at, message }) => `${file}:${at} ${message}`)).toEqual([
+      "main.bend:3:14 reference Nat",
+      "new.bend:3:16 reference F32",
+    ]);
+  });
+
+  test("--overlays gives an import's overlay to the check of each file that imports it", async () => {
+    const dir = getFreshFolder();
+    const ran = await getRunOutcome(
+      WRITTEN,
+      {
+        "main.bend": "import Base\nimport ./util.bend as U\n\ndef m() -> U32:\n  U.v()\n",
+        "util.bend": "import Base\n\ndef u() -> U32:\n  1\n",
+      },
+      "main.bend",
+      ["--overlays"],
+      dir,
+      JSON.stringify({ [path.join(dir, "util.bend")]: "import Base\n\ndef v() -> U32:\n  2\n" }),
+    );
+    expect([ran.code, getFoundOf(ran).map(({ at, message }) => `${at} ${message}`)]).toEqual([
+      0,
+      ["4:12 reference U32", "5:3 reference U.v"],
+    ]);
+  });
+
+  test("--overlays reads a JSON object of paths to texts, or the run ends", async () => {
+    const ran = await getRunOutcome(
+      FILE,
+      { "main.bend": SUGARED },
+      "main.bend",
+      ["--overlays"],
+      getFreshFolder(),
+      "[]",
+    );
+    expect([ran.code, ran.err.trim()]).toEqual([
+      2,
+      "bend-lint: --overlays reads a JSON object of paths to texts on stdin",
+    ]);
+  });
+
+  test("--fix-dangerously with --overlays ends the run: a fix writes the file on disk", async () => {
+    const dir = getFreshFolder();
+    const ran = await getRunOutcome(
+      FILE,
+      { "main.bend": SUGARED },
+      "main.bend",
+      ["--overlays", "--fix-dangerously"],
+      dir,
+      JSON.stringify({ [path.join(dir, "main.bend")]: SUGARED }),
+    );
+    expect([ran.code, ran.err.trim()]).toEqual([
+      2,
+      "bend-lint: --fix-dangerously does not go with --overlays: a fix writes the file on disk",
     ]);
   });
 });

@@ -23,10 +23,12 @@ export const getCommandOutcome = async (
   cmd: string[],
   cwd: string,
   env: Record<string, string> = {},
+  input?: string,
 ): Promise<Outcome> => {
   const child = Bun.spawn(cmd, {
     cwd,
     env: { ...process.env, ...env },
+    stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
     stdout: "pipe",
     stderr: "pipe",
   });
