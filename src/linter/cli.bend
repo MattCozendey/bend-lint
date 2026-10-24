@@ -2047,21 +2047,43 @@ def Object.fixes(
     case _ _:
       List.reverse(&2, Json.Json, out)
 
+# Where a rule of bend-lint's own, from the package bend-lint-rules, is explained: its file, whose header says what it
+# reports, what its fix does, and its options. Its id is its path in bend-lint's repo.
+def Docs.of(+rule: String) -> Maybe<&2, String>:
+  Lists.when(
+    String,
+    String.starts_with(rule, "bend-lint-rules/"),
+    "https://github.com/MattCozendey/bend-lint/blob/main/" ++ rule ++ ".bend"
+  )
+
 def Object.finding(resolved: Resolved, +places: Map<&2, Text.Position>) -> Json.Json:
   match resolved:
     case Resolved{
-      Lint.Found{rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}},
+      Lint.Found{+rule, Lint.Finding{severity, Lint.Span{+path, beg, end}, message, fixes}},
       edits
     }:
       Json.JObject{
-        [
-          Json.JField{"code", Json.JString{rule}},
-          Json.JField{"severity", Json.JString{Lint.Severity.show(severity)}},
-          Json.JField{"message", Json.JString{message}},
-          Json.JField{"path", Json.JString{path}},
-          Json.JField{"range", Object.range(places, path, beg, end)},
-          Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, [])}}
-        ]
+        Json.JField{
+          "code",
+          Json.JString{rule}
+        }
+          <> Lists.push(
+            Json.JField,
+            Maybe.map(
+              &2,
+              String,
+              Json.JField,
+              d => Json.JField{"docs", Json.JString{d}},
+              Docs.of(rule)
+            ),
+            [
+              Json.JField{"severity", Json.JString{Lint.Severity.show(severity)}},
+              Json.JField{"message", Json.JString{message}},
+              Json.JField{"path", Json.JString{path}},
+              Json.JField{"range", Object.range(places, path, beg, end)},
+              Json.JField{"fixes", Json.JArray{Object.fixes(fixes, edits, places, [])}}
+            ]
+          )
       }
 
 def Shown.one(json: Bool, resolved: Resolved, places: Map<&2, Text.Position>) -> Shown:

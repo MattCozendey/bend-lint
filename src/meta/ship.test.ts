@@ -91,6 +91,7 @@ setDefaultTimeout(600_000);
     const formatted = await getRun(["prepare"], format);
     const cased = await getRun(["prepare"], { ...format, [own + "/layout/case"]: "warning" });
     const alone = await getRun(["main.bend"], format);
+    const linked = await getRun(["main.bend", "--json"], format);
     const mixed = await getRun(
       ["main.bend"],
       { ...format, "demo-rules/no-one": "warning" },
@@ -104,6 +105,9 @@ setDefaultTimeout(600_000);
       getPrepared(formatted.err) !== undefined &&
         getPrepared(formatted.err) === getPrepared(cased.err),
       getLines(alone.out),
+      (JSON.parse(linked.out) as { findings: Array<{ docs?: string }> }).findings.map(
+        (f) => f.docs,
+      ),
       mixed.code,
       getLines(mixed.out),
     ]).toEqual([
@@ -116,6 +120,7 @@ setDefaultTimeout(600_000);
         `main.bend:3:1: warning ${own}/layout/format: Apply canonical formatting.`,
         "bend-lint: 1 finding(s)",
       ],
+      [`https://github.com/MattCozendey/bend-lint/blob/main/${own}/layout/format.bend`],
       0,
       [
         "main.bend:1:1: warning demo-rules/no-one: demo",

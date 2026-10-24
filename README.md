@@ -55,6 +55,8 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
 - bend-lint runs at low priority: a long run slows down, not your computer.
 - bend-lint does not report Bend's own errors: `bend <file> --check-only` does. If Bend's check of a
   file fails, the rules that need its types do not run on it, and bend-lint names them on stderr.
+- With `--json`, a finding of one of bend-lint's own rules has `docs`: the link to its rule's file,
+  whose header explains it.
 - With `--json`, `skipped` gives each file that rules did not run on: its `path`, the `reason`
   (`unloaded`, `unchecked` or `unentered`), the `rules`, the `entry` (for `unentered`), and the
   `message` stderr gets. An error that ends the run prints `{"ok": false, "errors": [...]}` instead,
