@@ -29,7 +29,7 @@ and says so on each run.
 
 ```sh
 bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json]
-               [--jobs <number or max>] [--overlays]
+               [--jobs <number or max>] [--overlays] [--report <file>]
 ```
 
 | Flag                | Does                                                                               |
@@ -40,6 +40,7 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
 | `--json`            | prints one JSON object on stdout, with every fix. The summary goes to stderr       |
 | `--jobs`            | how many files to lint at once: a number, or `max` (default: half the CPU threads) |
 | `--overlays`        | reads a JSON object of paths to texts on stdin, which stand for those files        |
+| `--report`          | writes a JSON report to the file: versions, backend, build, caches and timings     |
 
 - With no files, it lints the `.bend` files in the folder you run it in: those git lists (so none
   that `.gitignore` lists), and none in `node_modules` or a hidden folder.

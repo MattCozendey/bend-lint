@@ -415,6 +415,10 @@ const READS = new Map<string, string>();
 // reads each in place of its file, which need not be on disk.
 const OVERLAYS = new Map<string, string>();
 
+// What a run's report counts (see `--report`): whether the run built its rules; its checks, from
+// the cache and not; and how long Bend's checker took.
+const COUNTS = { built: false, cached: 0, checked: 0, checkerMs: 0 };
+
 // How many syntax nodes the server made: the next one's number.
 const MADE = { nodes: 0 };
 
@@ -1518,6 +1522,7 @@ const getLoadPath = (path: string): string =>
 // `getTreeRecords`). A passed check gives the facts of the files at `facts.paths` (all, if none).
 // The hooks are global, so checks must not overlap.
 const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<Made> => {
+  const start = performance.now();
   const { Bend, base } = await checker.getLoaded();
   const book = getSeededBook(Bend, base);
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
@@ -1568,6 +1573,7 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
     ),
   );
   const read = [...READS];
+  COUNTS.checkerMs += performance.now() - start;
   return passed
     ? { answer: [getRecord(["check", "0"]), ...program].join(""), read, held }
     : {
@@ -1748,6 +1754,7 @@ export const getBuiltProgram = async (source: string, dir: URL): Promise<string>
     }
     return exe;
   }
+  COUNTS.built = true;
   nodeFs.mkdirSync(PROGRAMS_DIR, { recursive: true });
   const part = nodeFs.mkdtempSync(nodePath.join(PROGRAMS_DIR, ".part-"));
   try {
@@ -1777,6 +1784,7 @@ export const getBuiltProgram = async (source: string, dir: URL): Promise<string>
 const getCheckAnswer = async (checker: Checker, path: string, facts: Wanted): Promise<string> => {
   const file = getCachePath(checker, path, facts);
   let entry = getCachedEntry(file);
+  COUNTS[entry === undefined ? "checked" : "cached"] += 1;
   if (entry === undefined) {
     const made = await getCheck(checker, path, facts);
     if (made.held === undefined) {
@@ -1949,6 +1957,35 @@ const endWithError = (json: boolean, message: string, file?: string): never => {
   return process.exit(2);
 };
 
+// What `--report` writes as a run ends, for a bug report: the versions, the backend, the run's
+// build and caches, the times (in ms) of its setup, of Bend's checker and of the whole run, and its
+// exit code. No text of a source.
+const getReport = (
+  program: string,
+  notes: string[],
+  times: { setupMs: number; runMs: number },
+  code: number,
+): object => ({
+  bendLint: pkg.version,
+  notes,
+  runtime:
+    process.versions.bun === undefined ? "node " + process.version : "bun " + process.versions.bun,
+  platform: process.platform + " " + process.arch,
+  backend: program.endsWith(".js") ? "javascript" : "native",
+  program: getPathWithForwardSlashes(program),
+  cache: {
+    dir: getPathWithForwardSlashes(url.fileURLToPath(SERVER_CACHE_DIR)),
+    built: COUNTS.built,
+    checks: { cached: COUNTS.cached, checked: COUNTS.checked },
+  },
+  timings: {
+    setupMs: Math.round(times.setupMs),
+    checkerMs: Math.round(COUNTS.checkerMs),
+    runMs: Math.round(times.runMs),
+  },
+  exitCode: code,
+});
+
 // Keeps the overlays of `text`, which `--overlays` reads on stdin: a JSON object of paths to texts.
 const readOverlays = (text: string): void => {
   const entries = getObjectEntries(tryGet(() => JSON.parse(text) as unknown));
@@ -2106,7 +2143,14 @@ if (import.meta.main) {
   }
   // The runner never sees `--overlays`: it gets the files that have one in BEND_LINT_OVERLAYS, and
   // each argument that names one as its key.
+  const started = performance.now();
   const json = args.includes("--json");
+  // `--report <file>` writes the run's report there (see `getReport`); the runner never sees it.
+  const reportAt = args.indexOf("--report");
+  const report = reportAt === -1 ? undefined : args[reportAt + 1];
+  if (reportAt !== -1 && (report === undefined || report.startsWith("--"))) {
+    endWithError(json, "--report names the file to write the report to");
+  }
   if (args.includes("--overlays")) {
     try {
       readOverlays(nodeFs.readFileSync(0, "utf8"));
@@ -2115,7 +2159,9 @@ if (import.meta.main) {
     }
   }
   const runArgs = args
-    .filter((a) => a !== "--overlays")
+    .filter(
+      (a, n) => a !== "--overlays" && (reportAt === -1 || (n !== reportAt && n !== reportAt + 1)),
+    )
     .map((a) => (getOverlay(a) === undefined ? a : getOverlayKey(a)));
   const project =
     getProject(process.cwd()) ??
@@ -2138,9 +2184,21 @@ if (import.meta.main) {
   const [checker, program, notes] = await getRunSetup(named).catch((e: unknown) =>
     endWithError(json, getErrorMessageFromUnknown(e)),
   );
+  const setupMs = performance.now() - started;
   notes.forEach((note) => console.error(note));
+  // Writes the report, if the run asks for one, as it ends with `code`.
+  const writeReport = (code: number): void => {
+    if (report !== undefined) {
+      const times = { setupMs, runMs: performance.now() - started };
+      writeFileAtomically(
+        report,
+        JSON.stringify(getReport(program, notes, times, code), null, 2) + "\n",
+      );
+    }
+  };
   if (preparing) {
     console.error("bend-lint: prepared " + program);
+    writeReport(0);
     process.exit(0);
   }
 
@@ -2164,6 +2222,7 @@ if (import.meta.main) {
   });
   const [code] = (await once(child, "exit")) as [number | null];
   server.close();
+  writeReport(code ?? 1);
   prune(CHECKS_DIR);
   prune(PROGRAMS_DIR);
   process.exit(code ?? 1);

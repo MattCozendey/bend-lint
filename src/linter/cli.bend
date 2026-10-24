@@ -3406,7 +3406,7 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
       IO.die(
         Unit,
         2,
-        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>] [--overlays]"
+        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>] [--overlays] [--report <file>]"
       )
 
 # Runs the command line `args`: the program as invoked, then its arguments.
