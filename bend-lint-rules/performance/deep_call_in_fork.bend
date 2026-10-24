@@ -13,7 +13,6 @@
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
-import ./gpu_fit.bend as GpuFit
 
 # Types
 # =====
@@ -62,6 +61,17 @@ def deep.of(recursive: Bool, path: List<&2, Lint.Above>) -> List<&2, Bool>:
 def deep.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Bool>:
   deep.of(Lint.is_recursive(path, node), path)
 
+# Whether a definition with the nodes `k` counts, if it calls itself outside a tail position (`found`): each does if
+# `forking`, else one without a parallel let.
+def deep.if(found: Bool, forking: Bool, k: List<&2, Lint.Node>) -> Bool:
+  match found forking:
+    case False{} _:
+      False{}
+    case True{} True{}:
+      True{}
+    case True{} False{}:
+      Bool.not(Lint.forks(k, False{}))
+
 # The definitions among `nodes` that call themselves outside a tail position, as the check names them, onto `out`;
 # with `forking` false, not those with a parallel let, whose such calls are the values of their forks.
 def deep(nodes: List<&2, Lint.Node>, +forking: Bool, out: List<&2, String>) -> List<&2, String>:
@@ -76,19 +86,22 @@ def deep(nodes: List<&2, Lint.Node>, +forking: Bool, out: List<&2, String>) -> L
           String,
           Lists.when(
             String,
-            List.contains(
-              ~Bool,
-              ~Bool.and,
-              Lint.visit(
-                ~Unit,
+            deep.if(
+              List.contains(
                 ~Bool,
-                ~deep.visit,
-                Unit{},
-                [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+                ~Bool.and,
+                Lint.visit(
+                  ~Unit,
+                  ~Bool,
+                  ~deep.visit,
+                  Unit{},
+                  [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
+                ),
+                True{}
               ),
-              True{}
-            )
-              && (forking || Bool.not(GpuFit.forks(k, False{}))),
+              forking,
+              k
+            ),
             t
           ),
           out

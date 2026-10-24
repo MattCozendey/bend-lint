@@ -34,7 +34,7 @@ type Call is Data:
 # definitions of the file that call themselves (as the check names them), and the program's definitions, by the name
 # the check gives them.
 type Scope is Data:
-  Scope{owner: Invariant.Owner, defs: Map<&2, Maybe<&2, GpuFit.Def>>}
+  Scope{owner: Invariant.Owner, defs: Map<&2, Maybe<&2, Lint.Def>>}
 
 # Functions
 # =========
@@ -107,9 +107,9 @@ def branch.at(b: Maybe<&2, Lint.Node>) -> U32:
       0
 
 # Whether a definition of the program says it returns a number.
-def returns_number(info: Maybe<&2, GpuFit.Def>) -> Bool:
+def returns_number(info: Maybe<&2, Lint.Def>) -> Bool:
   match info:
-    case Some{GpuFit.Def{t, ps, fk, cs, r}}:
+    case Some{Lint.Def{t, ps, fk, cs, r}}:
       GpuFit.is_scalar(r)
     case None{}:
       False{}
@@ -144,7 +144,7 @@ def visit(+scope: Scope, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
             loops,
             t
           )
-            && returns_number(Names.find(GpuFit.Def, defs, t))
+            && returns_number(Names.find(Lint.Def, defs, t))
             && Lint.is_live(path)
             && Bool.not(is_guarded(path, False{})),
           Invariant.Owner{loops, target, name, fixed},
@@ -246,7 +246,7 @@ def judged(
 def calls.of(
   proof: Bool,
   loops: List<&2, String>,
-  defs: Map<&2, Maybe<&2, GpuFit.Def>>,
+  defs: Map<&2, Maybe<&2, Lint.Def>>,
   +node: Lint.Node
 ) -> List<&2, Call>:
   match proof:
@@ -258,7 +258,7 @@ def calls.of(
 def defs(
   nodes: List<&2, Lint.Node>,
   +loops: List<&2, String>,
-  +program: Map<&2, Maybe<&2, GpuFit.Def>>,
+  +program: Map<&2, Maybe<&2, Lint.Def>>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -290,7 +290,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
     defs(
       nodes,
       Invariant.loops(nodes, []),
-      GpuFit.program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, GpuFit.Def>)),
+      Lint.Program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, Lint.Def>)),
       []
     )
   )

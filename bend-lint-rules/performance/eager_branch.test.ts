@@ -3,7 +3,7 @@
 
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { buildRule, BUILDS, getFindingTexts } from "../../src/linter/testing.ts";
+import { buildRule, BUILDS, getFindings, getFindingTexts } from "../../src/linter/testing.ts";
 
 // Constants
 // =========
@@ -67,6 +67,50 @@ setDefaultTimeout(120_000);
       ).map((f) => f.split(". CPU and GPU")[0]),
     ).toEqual([
       "8:26 performance/eager_branch: || computes its right side even when its left side decides the result (True), so this call of has runs even then: it is the loop's own call, so the loop walks to its end instead of stopping where the condition decides",
+    ]);
+  });
+
+  test("a deep loop of another file of the program is reported", async () => {
+    expect(
+      (
+        await getFindings(
+          RULE,
+          {
+            "loops.bend": "import Base\n\n" + DEEP,
+            "main.bend":
+              "import Base\nimport ./loops.bend as L\n\ndef f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, L.deep(9n))\n",
+          },
+          "main.bend",
+        )
+      ).map(({ file, at, message }) => `${file}:${at} ${message.split(" runs even")[0]}`),
+    ).toEqual([
+      "main.bend:5:24 Bool.pick computes both of its values before it picks one, so this call of L.deep",
+    ]);
+  });
+
+  test("a call of a definition that calls a deep loop is reported", async () => {
+    expect(
+      (
+        await getReports(
+          getFile(
+            "def g(n: Nat) -> U32:\n  (deep(n) + 1 : U32)\n\ndef f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, g(9n))\n",
+          ),
+        )
+      ).map((f) => f.split(" runs even")[0]),
+    ).toEqual([
+      "14:24 performance/eager_branch: Bool.pick computes both of its values before it picks one, so this call of g",
+    ]);
+  });
+
+  test("a tail loop that applies a closure at each step is reported", async () => {
+    expect(
+      (
+        await getReports(
+          "import Base\n\ndef apply(f: U32 -> U32, x: U32) -> U32:\n  f(x)\n\ndef walk(n: Nat, acc: U32) -> U32:\n  match n:\n    case 0n:\n      acc\n    case 1n+p:\n      walk(p, apply(x => (x + 1 : U32), acc))\n\ndef f(c: Bool) -> U32:\n  Bool.pick(U32, c, 7, walk(9n, 0))\n",
+        )
+      ).map((f) => f.split(" runs even")[0]),
+    ).toEqual([
+      "14:24 performance/eager_branch: Bool.pick computes both of its values before it picks one, so this call of walk",
     ]);
   });
 

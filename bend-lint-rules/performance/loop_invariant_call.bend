@@ -199,6 +199,14 @@ def repeats(b: Maybe<&2, Lint.Node>, target: String) -> Bool:
     case None{}:
       False{}
 
+# Whether the branch a node below `path` is in calls `target` again, if `found`.
+def repeats.if(found: Bool, path: List<&2, Lint.Above>, target: String) -> Bool:
+  match found:
+    case True{}:
+      repeats(branch(path, None{}), target)
+    case False{}:
+      False{}
+
 def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match owner node:
     case Owner{
@@ -215,14 +223,17 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
     }:
       Lint.finding(
         Lint.Information{},
-        invariant(
-          64n,
-          args,
-          fixed,
-          Bool.not(String.eq(t, target)) && List.contains(~String, ~String.eq, loops, t)
-        )
-          && Lint.is_live(path)
-          && repeats(branch(path, None{}), target),
+        repeats.if(
+          invariant(
+            64n,
+            args,
+            fixed,
+            Bool.not(String.eq(t, target)) && List.contains(~String, ~String.eq, loops, t)
+          )
+            && Lint.is_live(path),
+          path,
+          target
+        ),
         span,
         message(callee, name)
       )
@@ -245,6 +256,14 @@ def is_proof(nodes: List<&2, Lint.Node>) -> Bool:
     case Con{node, rest}:
       is_proof(rest)
 
+# The findings in the definition `owner`, unless it is `skipped`.
+def defs.if(skipped: Bool, loops: List<&2, String>, +owner: Lint.Node) -> List<&2, Lint.Finding>:
+  match skipped:
+    case True{}:
+      []
+    case False{}:
+      Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner.of(loops, owner), [owner])
+
 def defs(
   nodes: List<&2, Lint.Node>,
   +loops: List<&2, String>,
@@ -254,18 +273,17 @@ def defs(
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
     case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +k, f}, rest}:
-      +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
+      owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       defs(
         rest,
         loops,
         Lists.onto(
           &2,
           Lint.Finding,
-          Bool.pick(
-            List<&2, Lint.Finding>,
+          defs.if(
             Bool.not(List.contains(~String, ~String.eq, loops, t)) || is_proof(k),
-            [],
-            Lint.visit(~Owner, ~Lint.Finding, ~visit, Owner.of(loops, owner), [owner])
+            loops,
+            owner
           ),
           out
         )

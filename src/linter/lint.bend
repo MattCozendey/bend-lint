@@ -14,6 +14,7 @@
 import Base
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
+import ../shared/sets.bend as Sets
 import ../shared/strings.bend as Strings
 import ../shared/tables.bend as Tables
 
@@ -630,7 +631,7 @@ def Imported.own(nodes: List<&2, Node>, out: Set()) -> Set():
 def Imported.is_base(own: Set(), used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
-      String.is_empty(Name.namespace(name)) && Bool.not(Pair.snd(Set(), Bool, Set.has(own, name)))
+      String.is_empty(Name.namespace(name)) && Bool.not(Sets.has(own, name))
     case None{}:
       False{}
 
@@ -838,6 +839,213 @@ def Source.is_own(source: Source) -> Bool:
 # The program's own files: not hub packages.
 def Program.own(sources: List<&2, Source>) -> List<&2, Source>:
   List.filter(~Source, ~Source.is_own, sources)
+
+# Definitions
+# ===========
+
+# A runtime parameter of a definition: its name, and its type as one name ("" if it is not one name).
+type Param is Data:
+  Param{name: String, ty: String}
+
+# A definition of the program: its name as the check names it, its runtime parameters, whether it forks, the
+# definitions it calls by name, and the type it returns, as one name ("" if it is not one name).
+type Def is Data:
+  Def{
+    target: String,
+    params: List<&2, Param>,
+    forks: Bool,
+    calls: List<&2, String>,
+    returns: String
+  }
+
+# The type the first of `nodes` writes, as one name, or "" for another form (an application, a list).
+def type_name(nodes: List<&2, Node>) -> String:
+  match nodes:
+    case Con{Node{Reference{t}, n, s, k, f}, rest}:
+      t
+    case _:
+      ""
+
+# Whether a parameter of this quantity is there at run time.
+def Quantity.is_runtime(quantity: Quantity) -> Bool:
+  match quantity:
+    case Erased{}:
+      False{}
+    case Template{}:
+      False{}
+    case _:
+      True{}
+
+# The runtime parameters among a definition's nodes, in order, onto `out`.
+def Def.params(nodes: List<&2, Node>, out: List<&2, Param>) -> List<&2, Param>:
+  match nodes:
+    case Nil{}:
+      List.reverse(&2, Param, out)
+    case Con{Node{Parameter{b, q}, n, s, kids, f}, rest}:
+      Def.params(
+        rest,
+        Lists.push(Param, Lists.when(Param, Quantity.is_runtime(q), Param{n, type_name(kids)}), out)
+      )
+    case Con{node, rest}:
+      Def.params(rest, out)
+
+# Whether a parallel let (two binders, at least) is among `nodes` or under them, or `found`.
+def forks(nodes: List<&2, Node>, found: Bool) -> Bool:
+  match nodes found:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{
+      Node{
+        Destructure{q},
+        n,
+        s,
+        Con{
+          Node{PatternVariable{a, aq}, an, as, ak, af},
+          Con{Node{PatternVariable{b, bq}, bn, bs, bk, bf}, more}
+        },
+        f
+      },
+      rest
+    } False{}:
+      True{}
+    case Con{Node{syntax, n, s, kids, f}, rest} False{}:
+      forks(rest, forks(kids, False{}))
+
+# The definition an application below `path` calls by name.
+def Def.called.visit(+u: Unit, +path: List<&2, Above>, +node: Node) -> List<&2, String>:
+  match node:
+    case Node{Application{}, n, s, Con{Node{Reference{t}, rn, rs, rk, rf}, args}, f}:
+      [t]
+    case _:
+      []
+
+# The type a definition's nodes say it returns, as one name, or "".
+def Def.returned(nodes: List<&2, Node>) -> String:
+  match nodes:
+    case Nil{}:
+      ""
+    case Con{Node{Returns{}, n, s, kids, f}, rest}:
+      type_name(kids)
+    case Con{node, rest}:
+      Def.returned(rest)
+
+def Def.forks(info: Maybe<&2, Def>) -> Bool:
+  match info:
+    case Some{Def{t, params, forks, calls, r}}:
+      forks
+    case None{}:
+      False{}
+
+# The definitions among a file's nodes, by the name the check gives them, onto `out`.
+def Program.defs.file(
+  nodes: List<&2, Node>,
+  out: Map<&2, Maybe<&2, Def>>
+) -> Map<&2, Maybe<&2, Def>>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Node{Definition{+t, u}, n, s, +kids, f}, rest}:
+      Program.defs.file(
+        rest,
+        Map.set(
+          &2,
+          Maybe<&2, Def>,
+          out,
+          t,
+          Some{
+            Def{
+              t,
+              Def.params(kids, []),
+              forks(kids, False{}),
+              visit(~Unit, ~String, ~Def.called.visit, Unit{}, kids),
+              Def.returned(kids)
+            }
+          }
+        )
+      )
+    case Con{node, rest}:
+      Program.defs.file(rest, out)
+
+# The definitions of the program's files, by the name the check gives them, onto `out`: read one with `Names.find`.
+def Program.defs(
+  sources: List<&2, Source>,
+  out: Map<&2, Maybe<&2, Def>>
+) -> Map<&2, Maybe<&2, Def>>:
+  match sources:
+    case Nil{}:
+      out
+    case Con{Source{path, namespace, text, nodes}, rest}:
+      Program.defs(rest, Program.defs.file(nodes, out))
+
+def Program.callers.if(found: Bool, t: String, callers: Set()) -> Set():
+  match found:
+    case True{}:
+      Set.add(callers, t)
+    case False{}:
+      callers
+
+# `callers` with the definition `info`, if it calls one of them.
+def Program.callers.step(info: Maybe<&2, Def>, +callers: Set()) -> Set():
+  match info:
+    case Some{Def{+t, ps, forks, calls, r}}:
+      Program.callers.if(Sets.has_any(calls, callers, Sets.has(callers, t)), t, callers)
+    case None{}:
+      callers
+
+# `callers` after a step for each definition among a file's nodes, in order.
+def Program.callers.file(
+  nodes: List<&2, Node>,
+  +defs: Map<&2, Maybe<&2, Def>>,
+  callers: Set()
+) -> Set():
+  match nodes:
+    case Nil{}:
+      callers
+    case Con{Node{Definition{t, u}, n, s, k, f}, rest}:
+      Program.callers.file(rest, defs, Program.callers.step(Names.find(Def, defs, t), callers))
+    case Con{node, rest}:
+      Program.callers.file(rest, defs, callers)
+
+def Program.callers.pass(
+  sources: List<&2, Source>,
+  +defs: Map<&2, Maybe<&2, Def>>,
+  callers: Set()
+) -> Set():
+  match sources:
+    case Nil{}:
+      callers
+    case Con{Source{path, namespace, text, nodes}, rest}:
+      Program.callers.pass(rest, defs, Program.callers.file(nodes, defs, callers))
+
+# Passes over the program until one adds nothing (`same`), or `fuel` runs out.
+def Program.callers.go(
+  fuel: Nat,
+  same: Bool,
+  +sources: List<&2, Source>,
+  +defs: Map<&2, Maybe<&2, Def>>,
+  +callers: Set()
+) -> Set():
+  match fuel same:
+    case _ True{}:
+      callers
+    case 0n False{}:
+      callers
+    case 1n+f False{}:
+      +next = Program.callers.pass(sources, defs, callers)
+      Program.callers.go(f, Nat.is_eq(Set.size(callers), Set.size(next)), sources, defs, next)
+
+# `seeds`, and the definitions of the program (`defs`, of `sources`) that call one of them, directly or through others.
+# A definition calls only those above it, unless it is @unsafe, and the check gives a file's imports before it, so the
+# first pass, in order, finds nearly all. Each pass but the last adds one at least, so as many passes as there are
+# definitions find them all.
+def Program.callers(
+  sources: List<&2, Source>,
+  +defs: Map<&2, Maybe<&2, Def>>,
+  seeds: Set()
+) -> Set():
+  Program.callers.go(Map.size(&2, Maybe<&2, Def>, defs), False{}, sources, defs, seeds)
 
 # What a file rule sees: the program, from one of its files; that file's declarations, with their uses in it, if a rule
 # needs them; and the rule's options, each declared one with its value.

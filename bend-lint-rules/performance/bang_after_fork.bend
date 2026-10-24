@@ -15,6 +15,7 @@ import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
 import ../../src/shared/names.bend as Names
+import ../../src/shared/sets.bend as Sets
 import ./deep_call_in_fork.bend as Deep
 import ./gpu_fit.bend as GpuFit
 
@@ -24,7 +25,7 @@ import ./gpu_fit.bend as GpuFit
 # What judging a file's calls reads: the program's definitions, by the name the check gives them; those under which a
 # parallel let runs (see GpuFit.program.under); and where the file writes `!(`.
 type Program is Data:
-  Program{defs: Map<&2, Maybe<&2, GpuFit.Def>>, under: Set(), bangs: List<&2, U32>}
+  Program{defs: Map<&2, Maybe<&2, Lint.Def>>, under: Set(), bangs: List<&2, U32>}
 
 # Functions
 # =========
@@ -56,7 +57,7 @@ def host.visit(
 def forks(nodes: List<&2, Lint.Node>, program: Program) -> Bool:
   match program:
     case Program{defs, under, bangs}:
-      GpuFit.reaches(Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes), under, False{})
+      Sets.has_any(Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes), under, False{})
 
 # The nodes of a let (`kids`) that run before the rest of its block, its last node: its binders and values.
 def let.values(+kids: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
@@ -137,8 +138,8 @@ def visit(
             bangs,
             end
           )
-            && GpuFit.is_under(under, t)
-            && Bool.not(GpuFit.is_drop(Names.find(GpuFit.Def, defs, t), t)),
+            && Sets.has(under, t)
+            && Bool.not(GpuFit.is_drop(Names.find(Lint.Def, defs, t), t)),
           args,
           path,
           Program{defs, under, bangs}
@@ -156,7 +157,7 @@ def scanned(+here: Lint.Here, bangs: List<&2, U32>) -> Lint.Ask(List<&2, Lint.Fi
       Lint.done([])
     case Con{b, rest}:
       +sources = Lint.Here.sources(here)
-      +defs = GpuFit.program.defs(sources, Map.new(&2, Maybe<&2, GpuFit.Def>))
+      +defs = Lint.Program.defs(sources, Map.new(&2, Maybe<&2, Lint.Def>))
       Lint.done(
         Lint.visit(
           ~Program,

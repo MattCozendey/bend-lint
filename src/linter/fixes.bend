@@ -3,6 +3,7 @@ import Base
 import ../files/main.bend as Files
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
+import ../shared/sets.bend as Sets
 import ../shared/strings.bend as Strings
 import ../text/main.bend as Text
 import ./lint.bend as Lint
@@ -149,7 +150,7 @@ def Rename.is_allowed(
     case True{} True{} _:
       False{}
     case True{} False{} Some{Lint.Span{path, beg, end}}:
-      Bool.not(Pair.snd(Set(), Bool, Set.has(taken, Taken.key(path, alias, to))))
+      Bool.not(Sets.has(taken, Taken.key(path, alias, to)))
     case True{} False{} None{}:
       False{}
 

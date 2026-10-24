@@ -260,17 +260,17 @@ def call(+loop: Loop, path: List<&2, Lint.Above>, node: Lint.Node) -> List<&2, L
 def calls(
   recursive: Bool,
   loop: Loop,
-  +path: List<&2, Lint.Above>,
+  path: List<&2, Lint.Above>,
   node: Lint.Node
 ) -> List<&2, Lint.Finding>:
   match recursive:
     case True{}:
-      Bool.pick(List<&2, Lint.Finding>, Lint.is_live(path), call(loop, path, node), [])
+      call(loop, path, node)
     case False{}:
       []
 
 def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
-  calls(Lint.is_recursive(path, node), loop, path, node)
+  calls(Lint.is_recursive(path, node) && Lint.is_live(path), loop, path, node)
 
 # The binders the lets of a definition bind, below `path`.
 def let(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:

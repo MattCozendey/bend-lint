@@ -1,17 +1,23 @@
-# performance/eager_branch: a value that Bend computes even when it is not needed, and that calls a
-# definition of the file that calls itself outside a tail position: a value of `Bool.pick`, or the right
-# side of `&&` or `||`. These are functions, so their arguments are computed before they choose; a
-# `match` runs only its chosen case.
+# performance/eager_branch: a value that Bend computes even when it is not needed, and that runs a loop
+# of the program to its end: a value of `Bool.pick`, or the right side of `&&` or `||`. These are
+# functions, so their arguments are computed before they choose; a `match` runs only its chosen case.
 # Heuristics: measured on the CPU, a Bool.pick whose unused value called a doubly recursive fib took 0.28
-# s, against 0.055 s for a match. A loop whose calls of itself are all tail calls is not reported: clang
-# drops it when its value is unused (under Bool.pick, a 2G-step loop cost nothing measurable), though the
-# JS lane still runs it. A loop's own call in `&&` or `||` is never a tail call. A call of a definition
-# that does not call itself, or of Base, is cheap and not reported. A value in a lambda, a type or an
-# equation does not run, and is skipped; an erased argument (a proof's) is not told from a live one. A
-# loop that is short in practice makes a finding that costs little to ignore.
+# s, against 0.055 s for a match. clang drops an unused loop that compiles to one native loop: under
+# Bool.pick, a 2G-step tail loop cost nothing measurable, and under `&&`, a 400M-step one; the JS lane
+# still runs it. A tail loop that called Base's List.contains, which applies a closure, at each step did
+# not drop: 0.86 s for 40M steps, against 0.09 s for a match. So a call is reported when it is of a loop
+# that calls itself outside a tail position, or of one under which a parallel let, a closure's
+# application (not a `~` parameter's) or such a loop runs, or of a definition that calls such a loop,
+# through the program's files. A loop's own call in `&&` or `||` is never a tail call. Base's
+# definitions are not seen: a call of one counts as one native loop, so a loop slow only through Base is
+# not reported. A call under a lambda counts, though it runs only when the lambda does. A value in a
+# lambda, a type or an equation does not run, and is skipped; an erased argument (a proof's) is not told
+# from a live one. A loop that is short in practice makes a finding that costs little to ignore.
 import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
+import ../../src/shared/names.bend as Names
+import ../../src/shared/sets.bend as Sets
 import ./deep_call_in_fork.bend as Deep
 
 # Types
@@ -21,10 +27,10 @@ import ./deep_call_in_fork.bend as Deep
 type Eager is Data:
   Eager{kind: String, value: Maybe<&2, Lint.Node>}
 
-# What judging the calls in one definition reads: the definitions of the file that call themselves outside a tail
-# position (as the check names them), and the definition, as the check names it.
+# What judging the calls in one definition reads: the definitions of the program a call of which runs a loop to its end
+# (see costly), and the definition, as the check names them.
 type Owner is Data:
-  Owner{deeps: List<&2, String>, target: String}
+  Owner{costly: Set(), target: String}
 
 # Functions
 # =========
@@ -126,7 +132,7 @@ def looping(
 def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match owner node:
     case Owner{
-      deeps,
+      costly,
       target
     } Lint.Node{
       Lint.Application{},
@@ -136,7 +142,7 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
       f
     }:
       looping(
-        List.contains(~String, ~String.eq, deeps, called) && Lint.is_live(path),
+        Sets.has(costly, called) && Lint.is_live(path),
         path,
         callee,
         String.eq(called, target)
@@ -146,7 +152,7 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
 
 def defs(
   nodes: List<&2, Lint.Node>,
-  +deeps: List<&2, String>,
+  +costly: Set(),
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -155,7 +161,7 @@ def defs(
     case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
       defs(
         rest,
-        deeps,
+        costly,
         Lists.onto(
           &2,
           Lint.Finding,
@@ -163,18 +169,139 @@ def defs(
             ~Owner,
             ~Lint.Finding,
             ~visit,
-            Owner{deeps, t},
+            Owner{costly, t},
             [Lint.Node{Lint.Definition{t, u}, n, s, k, f}]
           ),
           out
         )
       )
     case Con{node, rest}:
-      defs(rest, deeps, out)
+      defs(rest, costly, out)
+
+# The binders of the `~` parameters among a definition's nodes, onto `out`: a call of one is inlined, not a closure's.
+def templates(nodes: List<&2, Lint.Node>, out: List<&2, U32>) -> List<&2, U32>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{Lint.Parameter{b, Lint.Template{}}, n, s, k, f}, rest}:
+      templates(rest, b <> out)
+    case Con{node, rest}:
+      templates(rest, out)
+
+# A closure's application: of a variable that no `~` parameter (`templates`) binds.
+def applies.visit(
+  +templates: List<&2, U32>,
+  +path: List<&2, Lint.Above>,
+  +node: Lint.Node
+) -> List<&2, Unit>:
+  match node:
+    case Lint.Node{
+      Lint.Application{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}, args},
+      f
+    }:
+      Lists.push(
+        Unit,
+        Lists.when(Unit, Bool.not(List.contains(~U32, ~U32.is_eq, templates, b)), Unit{}),
+        []
+      )
+    case _:
+      []
+
+# Whether a definition's nodes apply a closure, or `found`.
+def applies(+kids: List<&2, Lint.Node>, found: Bool) -> Bool:
+  match found:
+    case True{}:
+      True{}
+    case False{}:
+      Bool.not(
+        List.is_empty(
+          &2,
+          Unit,
+          Lint.visit(~List<&2, U32>, ~Unit, ~applies.visit, templates(kids, []), kids)
+        )
+      )
+
+# The definitions among a file's `nodes` whose own body keeps them from compiling to a native loop, onto `out`: a
+# parallel let is in them, or a closure's application.
+def unflat(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{Lint.Definition{t, u}, n, s, +kids, f}, rest}:
+      unflat(
+        rest,
+        Lists.push(String, Lists.when(String, applies(kids, Lint.forks(kids, False{})), t), out)
+      )
+    case Con{node, rest}:
+      unflat(rest, out)
+
+# The definitions of the program whose own body keeps them from compiling to a native loop, onto `out`: those of
+# `unflat`, and those that call themselves outside a tail position.
+def program.unflat(sources: List<&2, Lint.Source>, out: List<&2, String>) -> List<&2, String>:
+  match sources:
+    case Nil{}:
+      out
+    case Con{Lint.Source{path, ns, text, +nodes}, rest}:
+      program.unflat(rest, unflat(nodes, Deep.deep(nodes, True{}, out)))
+
+def calls_itself(info: Maybe<&2, Lint.Def>) -> Bool:
+  match info:
+    case Some{Lint.Def{t, ps, forks, calls, r}}:
+      List.contains(~String, ~String.eq, calls, t)
+    case None{}:
+      False{}
+
+# The definitions among `names` that call themselves and are in `unflat`, onto `out`.
+def loops(
+  names: List<&2, String>,
+  +defs: Map<&2, Maybe<&2, Lint.Def>>,
+  +unflat: Set(),
+  out: List<&2, String>
+) -> List<&2, String>:
+  match names:
+    case Nil{}:
+      out
+    case Con{+t, rest}:
+      loops(
+        rest,
+        defs,
+        unflat,
+        Lists.push(
+          String,
+          Lists.when(String, Sets.has(unflat, t) && calls_itself(Names.find(Lint.Def, defs, t)), t),
+          out
+        )
+      )
+
+# The definitions of the program a call of which runs a loop to its end, even when its value is unused: a loop that does
+# not compile to a native loop, as its body, or one it calls, keeps it from that (see program.unflat); or a definition
+# that calls such a loop.
+def costly(+sources: List<&2, Lint.Source>, +defs: Map<&2, Maybe<&2, Lint.Def>>) -> Set():
+  Lint.Program.callers(
+    sources,
+    defs,
+    Set.from_list(
+      loops(
+        Map.keys(&2, Maybe<&2, Lint.Def>, defs),
+        defs,
+        Lint.Program.callers(sources, defs, Set.from_list(program.unflat(sources, []))),
+        []
+      )
+    )
+  )
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  +nodes = Lint.Here.nodes(here)
-  Lint.done(defs(nodes, Deep.deep(nodes, True{}, []), []))
+  +sources = Lint.Here.sources(here)
+  Lint.done(
+    defs(
+      Lint.Here.nodes(here),
+      costly(sources, Lint.Program.defs(sources, Map.new(&2, Maybe<&2, Lint.Def>))),
+      []
+    )
+  )
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}

@@ -4,6 +4,7 @@ import ../files/main.bend as Files
 import ../json/main.bend as Json
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
+import ../shared/sets.bend as Sets
 import ../text/main.bend as Text
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
@@ -1591,7 +1592,7 @@ def Found.keys(founds: List<&2, Lint.Found>, keys: Set()) -> Set():
       Found.keys(rest, Set.add(keys, Found.key(f)))
 
 def Found.is_among(keys: Set(), found: Lint.Found) -> Bool:
-  Pair.snd(Set(), Bool, Set.has(keys, Found.key(found)))
+  Sets.has(keys, Found.key(found))
 
 def Found.keep(hit: Bool, found: Lint.Found, out: List<&2, Lint.Found>) -> List<&2, Lint.Found>:
   match hit:

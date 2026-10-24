@@ -22,6 +22,7 @@ import Base
 import ../../src/linter/lint.bend as Lint
 import ../../src/shared/lists.bend as Lists
 import ../../src/shared/names.bend as Names
+import ../../src/shared/sets.bend as Sets
 
 # Types
 # =====
@@ -30,36 +31,18 @@ import ../../src/shared/names.bend as Names
 type Slot is Data:
   Slot{owner: String, ty: String}
 
-# A runtime parameter of a definition: its name, and its type as one name ("" if it is not one name).
-type Param is Data:
-  Param{name: String, ty: String}
-
-# A definition of the program: its name as the check names it, its runtime parameters, whether it forks, the
-# definitions it calls by name, and the type it returns, as one name ("" if it is not one name).
-type Def is Data:
-  Def{
-    target: String,
-    params: List<&2, Param>,
-    forks: Bool,
-    calls: List<&2, String>,
-    returns: String
-  }
-
 # What judging a file's calls reads: the program's definitions, by the name the check gives them; those under which a
 # parallel let runs (see program.under); the fields of its datatypes; and where the file writes `!(`.
 type Program is Data:
-  Program{defs: Map<&2, Maybe<&2, Def>>, under: Set(), slots: List<&2, Slot>, bangs: List<&2, U32>}
+  Program{
+    defs: Map<&2, Maybe<&2, Lint.Def>>,
+    under: Set(),
+    slots: List<&2, Slot>,
+    bangs: List<&2, U32>
+  }
 
 # Functions
 # =========
-
-# The type the first of `nodes` writes, as one name, or "" for another form (an application, a list).
-def plain(nodes: List<&2, Lint.Node>) -> String:
-  match nodes:
-    case Con{Lint.Node{Lint.Reference{t}, n, s, k, f}, rest}:
-      t
-    case _:
-      ""
 
 # The fields of the datatypes among `nodes` and under them (of `current`, the datatype they are under), onto `out`.
 def slots(nodes: List<&2, Lint.Node>, +current: String, out: List<&2, Slot>) -> List<&2, Slot>:
@@ -71,196 +54,18 @@ def slots(nodes: List<&2, Lint.Node>, +current: String, out: List<&2, Slot>) -> 
     case Con{Lint.Node{Lint.Constructor{t}, n, s, kids, f}, rest}:
       slots(rest, current, slots(kids, current, out))
     case Con{Lint.Node{Lint.Field{b, q}, n, s, kids, f}, rest}:
-      slots(rest, current, Slot{current, plain(kids)} <> out)
+      slots(rest, current, Slot{current, Lint.type_name(kids)} <> out)
     case Con{node, rest}:
       slots(rest, current, out)
 
-# Whether a parameter of this quantity is there at run time.
-def is_runtime(quantity: Lint.Quantity) -> Bool:
-  match quantity:
-    case Lint.Erased{}:
-      False{}
-    case Lint.Template{}:
-      False{}
-    case _:
-      True{}
-
-# The runtime parameters among a definition's nodes, in order, onto `out`.
-def params(nodes: List<&2, Lint.Node>, out: List<&2, Param>) -> List<&2, Param>:
-  match nodes:
-    case Nil{}:
-      List.reverse(&2, Param, out)
-    case Con{Lint.Node{Lint.Parameter{b, q}, n, s, kids, f}, rest}:
-      params(rest, Lists.push(Param, Lists.when(Param, is_runtime(q), Param{n, plain(kids)}), out))
-    case Con{node, rest}:
-      params(rest, out)
-
-# Whether a parallel let (two binders, at least) is among `nodes` or under them, or `found`.
-def forks(nodes: List<&2, Lint.Node>, found: Bool) -> Bool:
-  match nodes found:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
-      False{}
-    case Con{
-      Lint.Node{
-        Lint.Destructure{q},
-        n,
-        s,
-        Con{
-          Lint.Node{Lint.PatternVariable{a, aq}, an, as, ak, af},
-          Con{Lint.Node{Lint.PatternVariable{b, bq}, bn, bs, bk, bf}, more}
-        },
-        f
-      },
-      rest
-    } False{}:
-      True{}
-    case Con{Lint.Node{syntax, n, s, kids, f}, rest} False{}:
-      forks(rest, forks(kids, False{}))
-
-# The definition an application below `path` calls by name.
-def called.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, String>:
-  match node:
-    case Lint.Node{
-      Lint.Application{},
-      n,
-      s,
-      Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args},
-      f
-    }:
-      [t]
-    case _:
-      []
-
-# The type a definition's nodes say it returns, as one name, or "".
-def returned(nodes: List<&2, Lint.Node>) -> String:
-  match nodes:
-    case Nil{}:
-      ""
-    case Con{Lint.Node{Lint.Returns{}, n, s, kids, f}, rest}:
-      plain(kids)
-    case Con{node, rest}:
-      returned(rest)
-
-# The definitions among a file's nodes, by the name the check gives them, onto `out`.
-def defs(nodes: List<&2, Lint.Node>, out: Map<&2, Maybe<&2, Def>>) -> Map<&2, Maybe<&2, Def>>:
-  match nodes:
-    case Nil{}:
-      out
-    case Con{Lint.Node{Lint.Definition{+t, u}, n, s, +kids, f}, rest}:
-      defs(
-        rest,
-        Map.set(
-          &2,
-          Maybe<&2, Def>,
-          out,
-          t,
-          Some{
-            Def{
-              t,
-              params(kids, []),
-              forks(kids, False{}),
-              Lint.visit(~Unit, ~String, ~called.visit, Unit{}, kids),
-              returned(kids)
-            }
-          }
-        )
-      )
-    case Con{node, rest}:
-      defs(rest, out)
-
 # Whether a call of `t` (`info`, if the program defines it) only frees its inputs: it returns Unit, as Base's
 # Image.drop, Image.free and Image.sink do.
-def is_drop(info: Maybe<&2, Def>, t: String) -> Bool:
+def is_drop(info: Maybe<&2, Lint.Def>, t: String) -> Bool:
   match info:
-    case Some{Def{d, ps, fs, cs, r}}:
+    case Some{Lint.Def{d, ps, fs, cs, r}}:
       String.eq(r, "Unit")
     case None{}:
       List.contains(~String, ~String.eq, ["Image.drop", "Image.free", "Image.sink"], t)
-
-# Whether Base's definition `t` forks: Image.free does, and Image.drop, through it.
-def is_base_fork(t: String) -> Bool:
-  List.contains(~String, ~String.eq, ["Image.free", "Image.drop"], t)
-
-# Whether a parallel let runs under a call of `t`: `under` holds the definitions of the program under which one runs
-# (so far, while program.under makes it), and a definition outside the program is Base's.
-def is_under(under: Set(), +t: String) -> Bool:
-  Pair.snd(Set(), Bool, Set.has(under, t)) || is_base_fork(t)
-
-# Whether a parallel let runs under one of `calls`, as `under` says, or `found`.
-def reaches(calls: List<&2, String>, +under: Set(), found: Bool) -> Bool:
-  match calls found:
-    case _ True{}:
-      True{}
-    case Nil{} False{}:
-      False{}
-    case Con{t, rest} False{}:
-      reaches(rest, under, is_under(under, t))
-
-def program.under.if(found: Bool, t: String, under: Set()) -> Set():
-  match found:
-    case True{}:
-      Set.add(under, t)
-    case False{}:
-      under
-
-# `under` with the definition `info`, if a parallel let runs in it or under one of its calls.
-def program.under.step(info: Maybe<&2, Def>, +under: Set()) -> Set():
-  match info:
-    case Some{Def{+t, ps, forks, calls, r}}:
-      program.under.if(reaches(calls, under, forks || is_under(under, t)), t, under)
-    case None{}:
-      under
-
-# `under` after a step for each definition among a file's nodes, in order.
-def program.under.file(
-  nodes: List<&2, Lint.Node>,
-  +defs: Map<&2, Maybe<&2, Def>>,
-  under: Set()
-) -> Set():
-  match nodes:
-    case Nil{}:
-      under
-    case Con{Lint.Node{Lint.Definition{t, u}, n, s, k, f}, rest}:
-      program.under.file(rest, defs, program.under.step(Names.find(Def, defs, t), under))
-    case Con{node, rest}:
-      program.under.file(rest, defs, under)
-
-def program.under.pass(
-  sources: List<&2, Lint.Source>,
-  +defs: Map<&2, Maybe<&2, Def>>,
-  under: Set()
-) -> Set():
-  match sources:
-    case Nil{}:
-      under
-    case Con{Lint.Source{path, ns, text, nodes}, rest}:
-      program.under.pass(rest, defs, program.under.file(nodes, defs, under))
-
-# Passes over the program until one adds nothing (`same`), or `fuel` runs out.
-def program.under.go(
-  fuel: Nat,
-  same: Bool,
-  +sources: List<&2, Lint.Source>,
-  +defs: Map<&2, Maybe<&2, Def>>,
-  +under: Set()
-) -> Set():
-  match fuel same:
-    case _ True{}:
-      under
-    case 0n False{}:
-      under
-    case 1n+f False{}:
-      +next = program.under.pass(sources, defs, under)
-      program.under.go(f, Nat.is_eq(Set.size(under), Set.size(next)), sources, defs, next)
-
-# The definitions of the program under which a parallel let runs: in them, or under what they call. A definition calls
-# only those above it, unless it is @unsafe, and the check gives a file's imports before it, so the first pass, in
-# order, finds nearly all. Each pass but the last adds one at least, so as many passes as there are definitions find
-# them all.
-def program.under(sources: List<&2, Lint.Source>, +defs: Map<&2, Maybe<&2, Def>>) -> Set():
-  program.under.go(Map.size(&2, Maybe<&2, Def>, defs), False{}, sources, defs, Set.new())
 
 def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&2, Slot>:
   match sources:
@@ -268,16 +73,6 @@ def program.slots(sources: List<&2, Lint.Source>, out: List<&2, Slot>) -> List<&
       out
     case Con{Lint.Source{path, ns, text, nodes}, rest}:
       program.slots(rest, slots(nodes, "", out))
-
-def program.defs(
-  sources: List<&2, Lint.Source>,
-  out: Map<&2, Maybe<&2, Def>>
-) -> Map<&2, Maybe<&2, Def>>:
-  match sources:
-    case Nil{}:
-      out
-    case Con{Lint.Source{path, ns, text, nodes}, rest}:
-      program.defs(rest, defs(nodes, out))
 
 def is_scalar(t: String) -> Bool:
   List.contains(
@@ -344,24 +139,52 @@ def is_flat(fuel: Nat, todo: Maybe<&2, List<&2, String>>, +slots: List<&2, Slot>
 
 # The first parameter of `params` that is data, if one is.
 def data(
-  params: List<&2, Param>,
-  found: Maybe<&2, Param>,
+  params: List<&2, Lint.Param>,
+  found: Maybe<&2, Lint.Param>,
   +slots: List<&2, Slot>
-) -> Maybe<&2, Param>:
+) -> Maybe<&2, Lint.Param>:
   match params found:
     case _ Some{param}:
       Some{param}
     case Nil{} None{}:
       None{}
-    case Con{Param{n, +ty}, rest} None{}:
-      data(rest, Lists.when(Param, Bool.not(is_flat(64n, Some{[ty]}, slots)), Param{n, ty}), slots)
+    case Con{Lint.Param{n, +ty}, rest} None{}:
+      data(
+        rest,
+        Lists.when(Lint.Param, Bool.not(is_flat(64n, Some{[ty]}, slots)), Lint.Param{n, ty}),
+        slots
+      )
 
-def Def.forks(info: Maybe<&2, Def>) -> Bool:
-  match info:
-    case Some{Def{t, params, forks, calls, r}}:
-      forks
-    case None{}:
-      False{}
+# The definitions among `names` that a parallel let is in, onto `out`.
+def forking(
+  names: List<&2, String>,
+  +defs: Map<&2, Maybe<&2, Lint.Def>>,
+  out: List<&2, String>
+) -> List<&2, String>:
+  match names:
+    case Nil{}:
+      out
+    case Con{+t, rest}:
+      forking(
+        rest,
+        defs,
+        Lists.push(
+          String,
+          Lists.when(String, Lint.Def.forks(Names.find(Lint.Def, defs, t)), t),
+          out
+        )
+      )
+
+# The definitions under which a parallel let runs: in them, or under what they call. Of Base's, Image.free forks, and
+# Image.drop, through it.
+def program.under(sources: List<&2, Lint.Source>, +defs: Map<&2, Maybe<&2, Lint.Def>>) -> Set():
+  Lint.Program.callers(
+    sources,
+    defs,
+    Set.from_list(
+      forking(Map.keys(&2, Maybe<&2, Lint.Def>, defs), defs, ["Image.free", "Image.drop"])
+    )
+  )
 
 # Where `text` writes `!(`, from offset `at`: the end of each bang's name.
 def bangs(s: String, +at: U32, out: List<&2, U32>) -> List<&2, U32>:
@@ -381,9 +204,9 @@ def alone(+callee: String) -> String:
     ++ callee
     ++ " with a parallel let. If a timing shows the `!` faster here, expect this finding."
 
-def slower(callee: String, param: Param) -> String:
+def slower(callee: String, param: Lint.Param) -> String:
   match param:
-    case Param{name, +ty}:
+    case Lint.Param{name, +ty}:
       callee
         ++ "! receives data ("
         ++ name
@@ -396,9 +219,9 @@ def faster(+callee: String) -> String:
     ++ callee
     ++ "!(..)` can run faster on the GPU, if the call is long: a discrete GPU costs a fixed 0.3 to 0.8 s to start, then numeric work is nearly free. GPU: measured 3.8x faster for a fork tree that took 3.6 s on the CPU, and 8x slower for one that took 0.06 s. CPU (`--gpu off`): not measured. JS: no GPU, so no change. Confidence: low, as it depends on how long this call runs, and on the machine. Add the `!` if this call takes over a second on the CPU, and time both; a fork before it in the same evaluation keeps it on the CPU (performance/bang_after_fork). If the call is short, or already runs under a `!` of a caller (a `!` in a `!` measured up to 4.6x slower), expect this finding."
 
-def Def.target(info: Maybe<&2, Def>) -> String:
+def Def.target(info: Maybe<&2, Lint.Def>) -> String:
   match info:
-    case Some{Def{t, params, forks, calls, r}}:
+    case Some{Lint.Def{t, params, forks, calls, r}}:
       t
     case None{}:
       ""
@@ -406,20 +229,20 @@ def Def.target(info: Maybe<&2, Def>) -> String:
 # The finding about a call of `info` without `!`, if it forks over numbers only and the caller does not
 # fork.
 def unbanged(
-  info: Maybe<&2, Def>,
+  info: Maybe<&2, Lint.Def>,
   callee: String,
-  +caller: Maybe<&2, Def>,
+  +caller: Maybe<&2, Lint.Def>,
   slots: List<&2, Slot>,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match info:
-    case Some{Def{t, params, True{}, calls, r}}:
+    case Some{Lint.Def{t, params, True{}, calls, r}}:
       Lint.finding(
         Lint.Hint{},
         Bool.not(
-          Maybe.is_some(&2, Param, data(params, None{}, slots))
+          Maybe.is_some(&2, Lint.Param, data(params, None{}, slots))
         )
-          && Bool.not(Def.forks(caller))
+          && Bool.not(Lint.Def.forks(caller))
           && Bool.not(String.eq(t, Def.target(caller))),
         span,
         faster(callee)
@@ -431,7 +254,7 @@ def unbanged(
 # forks and receives data (`param`).
 def banged.of(
   forks: Bool,
-  param: Maybe<&2, Param>,
+  param: Maybe<&2, Lint.Param>,
   callee: String,
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
@@ -446,7 +269,7 @@ def banged.of(
 # The finding about a `!` call of a definition of the program (`info`), unless the call only frees (`drop`):
 # performance/drop_in_bang reports that.
 def banged(
-  info: Maybe<&2, Def>,
+  info: Maybe<&2, Lint.Def>,
   drop: Bool,
   callee: String,
   under: Set(),
@@ -454,17 +277,17 @@ def banged(
   span: Maybe<&2, Lint.Span>
 ) -> List<&2, Lint.Finding>:
   match info drop:
-    case Some{Def{t, params, forks, calls, r}} False{}:
-      banged.of(is_under(under, t), data(params, None{}, slots), callee, span)
+    case Some{Lint.Def{t, params, forks, calls, r}} False{}:
+      banged.of(Sets.has(under, t), data(params, None{}, slots), callee, span)
     case _ _:
       []
 
 def judged(
   bang: Bool,
-  info: Maybe<&2, Def>,
+  info: Maybe<&2, Lint.Def>,
   drop: Bool,
   callee: String,
-  caller: Maybe<&2, Def>,
+  caller: Maybe<&2, Lint.Def>,
   under: Set(),
   slots: List<&2, Slot>,
   span: Maybe<&2, Lint.Span>
@@ -496,10 +319,10 @@ def visit(
     }:
       judged(
         List.contains(~U32, ~U32.is_eq, bangs, end),
-        Names.find(Def, defs, t),
-        is_drop(Names.find(Def, defs, t), t),
+        Names.find(Lint.Def, defs, t),
+        is_drop(Names.find(Lint.Def, defs, t), t),
         callee,
-        Names.find(Def, defs, Lint.Node.target(Lint.top(path, node))),
+        Names.find(Lint.Def, defs, Lint.Node.target(Lint.top(path, node))),
         under,
         slots,
         span
@@ -509,7 +332,7 @@ def visit(
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   +sources = Lint.Here.sources(here)
-  +defs = program.defs(sources, Map.new(&2, Maybe<&2, Def>))
+  +defs = Lint.Program.defs(sources, Map.new(&2, Maybe<&2, Lint.Def>))
   Lint.done(
     Lint.visit(
       ~Program,

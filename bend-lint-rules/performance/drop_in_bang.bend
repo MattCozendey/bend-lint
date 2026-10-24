@@ -17,7 +17,7 @@ import ./gpu_fit.bend as GpuFit
 # What judging a file's calls reads: the program's definitions, by the name the check gives them, and where the file
 # writes `!(`.
 type Program is Data:
-  Program{defs: Map<&2, Maybe<&2, GpuFit.Def>>, bangs: List<&2, U32>}
+  Program{defs: Map<&2, Maybe<&2, Lint.Def>>, bangs: List<&2, U32>}
 
 # Functions
 # =========
@@ -50,7 +50,7 @@ def visit(
           bangs,
           end
         )
-          && GpuFit.is_drop(Names.find(GpuFit.Def, defs, t), t),
+          && GpuFit.is_drop(Names.find(Lint.Def, defs, t), t),
         span,
         message(callee)
       )
@@ -64,7 +64,7 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
       ~Lint.Finding,
       ~visit,
       Program{
-        GpuFit.program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, GpuFit.Def>)),
+        Lint.Program.defs(Lint.Here.sources(here), Map.new(&2, Maybe<&2, Lint.Def>)),
         GpuFit.bangs(Lint.Here.text(here), 0, [])
       },
       Lint.Here.nodes(here)
