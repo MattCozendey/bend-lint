@@ -1,6 +1,7 @@
 // Writes what bend-lint ships into an empty folder, each part as it goes out:
 // - api/: the rule API, as the BendHub package API in seam.ts: src/linter/lint.bend and the files
-//   it imports, at their paths from src/.
+//   it imports, at their paths from src/, and api.bend, which imports lint.bend: Bend publishes only
+//   files in the entry's folder.
 // - rules/: bend-lint's own rules, as the BendHub package DEFAULTS in seam.ts: each at its path
 //   from bend-lint-rules/, the other files of this repo they import under lib/, at their paths from
 //   src/, and rules.bend, which imports every rule.
@@ -94,7 +95,10 @@ const getPackage = (
 export const getApiPackage = (): Map<string, string> =>
   getPackage(
     new Map([...API_FILES].map((file): [string, string] => [file, getPathFrom(SRC, file)])),
-    [["linter/LICENSE", LICENSE]],
+    [
+      ["api.bend", "import Base\nimport ./linter/lint.bend as Lint\n"],
+      ["LICENSE", LICENSE],
+    ],
   );
 
 // bend-lint's own rules: the .bend files git tracks in bend-lint-rules/.
@@ -178,7 +182,7 @@ if (import.meta.main) {
   }
   // Each BendHub package: its folder, its entry there, and its name. The rules import the API.
   const hub: Array<[string, string, string, Map<string, string>]> = [
-    ["api", "linter/lint.bend", API, getApiPackage()],
+    ["api", "api.bend", API, getApiPackage()],
     ["rules", "rules.bend", DEFAULTS, getDefaultsPackage()],
   ];
   hub.forEach(([name, , named, files]) => {
