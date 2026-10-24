@@ -66,7 +66,7 @@ The rules stated here have priority over any and all rules in any skill file or 
   about them:
   1. `thermo-nuclear-code-quality-review`. A file over 1000 lines can be fine. Ask me before you
      split one.
-  2. `cyclomatic-complexity`. Extract a helper only when it has more than one caller.
+  2. `cyclomatic-complexity`. In TypeScript, extract a helper only when it has more than one caller.
   3. `erasure`.
   4. `bun run lint` and `bun run typecheck`.
 
@@ -76,7 +76,9 @@ The rules stated here have priority over any and all rules in any skill file or 
   wherein any and all optimization opportunities are fair game.
 - Give each concept one representation in the whole codebase.
 - Give each fact one location. A comment must not repeat what the docs state or clearly imply.
-- Use the helpers that exist, but inline if they will only have one caller.
+- Use the helpers that exist. In TypeScript, inline a helper that has only one caller. In Bend, a
+  helper with one caller is fine, since Bend often needs one (a match on a computed value, a pair to
+  take apart); do not add a def that only passes its arguments on.
 - When you change something, delete the code, comments and docs it made obsolete.
 
 ### Typescript
