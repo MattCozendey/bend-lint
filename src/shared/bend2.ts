@@ -18,9 +18,7 @@ import type { Result } from "./result.ts";
 import {
   getErrorMessageFromUnknown,
   tryGet,
-  tryGetJson,
   tryGetUrlFromFolderPathOrUrl,
-  tryWriteJsonAtomically,
   writeNewFileAtomically,
 } from "./utils.ts";
 
@@ -100,33 +98,19 @@ export const getClang = (): string | undefined => {
 // The line bend-lint prints when the `bend` on PATH is another version than
 // the Bend in the bend2 folder `dir`, which bend-lint checks and builds with;
 // undefined if it is the same, or if none is installed or `bend version` names
-// no version. `bend version` takes a third of a second, so its answer is kept
-// by the path, size and time of the `bend` that gave it. It runs by name:
-// Windows runs a bend.cmd only that way.
+// no version. It asks `bend version` on each run, as the `bend` on PATH can be
+// a script that runs a checkout, whose version changes while the script does
+// not. It runs by name: Windows runs a bend.cmd only that way.
 export const getBendVersionNote = async (dir: URL): Promise<string | undefined> => {
-  const bend = Bun.which("bend");
-  const stat = bend === null ? undefined : nodeFs.statSync(bend, { throwIfNoEntry: false });
-  if (bend === null || stat === undefined) {
-    return undefined;
-  }
-  const key = [bend, stat.size, stat.mtimeMs].join(" ");
-  const file = url.fileURLToPath(new URL("installed-bend.json", getBendLintCacheDir()));
-  const kept = tryGetJson(file) as { key?: string; version?: string } | undefined;
-  const version =
-    kept?.key === key
-      ? kept.version
-      : await new Promise<string | undefined>((resolve) => {
-          const resolveVersion = (e: Error | null, stdout: string): void =>
-            resolve(/^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(e === null ? stdout : "")?.[1]);
-          try {
-            execFile("bend", ["version"], { encoding: "utf8", timeout: 10_000 }, resolveVersion);
-          } catch (e) {
-            resolveVersion(e as Error, "");
-          }
-        });
-  if (kept?.key !== key) {
-    tryWriteJsonAtomically(file, { key, version });
-  }
+  const version = await new Promise<string | undefined>((resolve) => {
+    const resolveVersion = (e: Error | null, stdout: string): void =>
+      resolve(/^bend (\d+\.\d+\.\d+)(?:\r?\n|$)/.exec(e === null ? stdout : "")?.[1]);
+    try {
+      execFile("bend", ["version"], { encoding: "utf8", timeout: 10_000 }, resolveVersion);
+    } catch (e) {
+      resolveVersion(e as Error, "");
+    }
+  });
   const pinned = /^const VERSION = "([^"]+)";$/m.exec(
     nodeFs.readFileSync(new URL("main.ts", dir), "utf8"),
   )?.[1];
