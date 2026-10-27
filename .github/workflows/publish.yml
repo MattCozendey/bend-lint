@@ -1,0 +1,33 @@
+# A pushed tag v<version> publishes the npm package of that version, by npm's
+# trusted publishing: npm trusts this workflow, so no token or one-time password
+# is needed. The BendHub packages are published by hand (bun run ship <folder>
+# --publish), as `bend login` lets it.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Trusted publishing needs npm 11.5.1 or newer
+        run: npm install -g npm@^11.5.1
+      - run: bun install --frozen-lockfile
+      - name: The tag names package.json's version
+        run: test "${GITHUB_REF_NAME#v}" = "$(jq -r .version package.json)"
+      - run: bun run ship "$RUNNER_TEMP/ship"
+      - run: npm publish
+        working-directory: ${{ runner.temp }}/ship/npm

@@ -4,6 +4,10 @@
   "private": true,
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MattCozendey/bend-lint.git"
+  },
   "bin": {
     "bend-lint": "src/linter/seam.ts"
   },
