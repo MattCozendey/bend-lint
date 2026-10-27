@@ -1,6 +1,6 @@
 {
   "name": "bend-lint",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Diagnostics for Bend 2 from rules outside the language: source text, and the checker's types",
   "license": "MIT",
@@ -36,5 +36,5 @@
   },
   "packageManager": "bun@1.4.4",
   "bendRelease": "bendlang/bend/v2.0.39",
-  "bendWindows": "MattCozendey/bend/676492b71a3020e2be5630b6ed3afbe0ccc06da8"
+  "bendWindows": "MattCozendey/bend/61750a3ae7d8a9acdd80ef40254cc30649d9d2ac"
 }
