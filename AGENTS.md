@@ -146,7 +146,8 @@ The rules stated here have priority over any and all rules in any skill file or 
   imports it by relative paths. bend-lint's own rules go to BendHub as `bend-lint-rules`, at the
   same version. `bun run ship <folder>` writes both packages, and the npm package, whose Bend files
   import the API from BendHub, and whose install runs init and downloads Bend; `--publish` publishes
-  both packages. A change to the API's files changes its hash, so users' rules must move to the new
+  both packages. A pushed tag `v<version>` publishes the npm package, by npm's trusted publishing
+  (`.github/workflows/publish.yml`). A change to the API's files changes its hash, so users' rules must move to the new
   version.
 - A default rule lives in `bend-lint-rules/<namespace>/<name>.bend`, and its id is
   `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:`, `Options:`
