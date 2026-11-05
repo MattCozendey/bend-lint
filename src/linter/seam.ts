@@ -2075,6 +2075,17 @@ export const getRulesProgram = (project: string, { ids, packages }: Rules): stri
   return source;
 };
 
+// The rules among `files`, paths in a rules folder with "/" between their parts: its .bend files,
+// but those in a folder with a config of its own, which is a case of a rule (see `bend-lint test`).
+export const getRuleFiles = (files: string[]): string[] => {
+  const cases = files
+    .filter((file) => file.endsWith("/" + CONFIG))
+    .map((file) => file.slice(0, -CONFIG.length));
+  return files.filter(
+    (file) => file.endsWith(".bend") && !cases.some((folder) => file.startsWith(folder)),
+  );
+};
+
 // The rules a run in `project` of a config of `rules` builds: those it turns on; but if each is one
 // of bend-lint's own (DEFAULT_IDS) from DEFAULTS, all of bend-lint's own; and if it takes no package
 // and its rules folder is in OWN (this repo's rules, or the tests' fixtures), all the rules there.
@@ -2096,10 +2107,11 @@ export const getBuiltRules = (project: string, rules: Rules): Rules => {
     return rules;
   }
   // a turned-on id that is not there stays, so that getRulesProgram says so
-  const there = nodeFs
-    .readdirSync(folder, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".bend"))
-    .map((file) => getPathWithForwardSlashes(file).slice(0, -".bend".length));
+  const there = getRuleFiles(
+    nodeFs
+      .readdirSync(folder, { recursive: true, encoding: "utf8" })
+      .map((file) => getPathWithForwardSlashes(file)),
+  ).map((file) => file.slice(0, -".bend".length));
   return { ids: [...new Set([...there, ...rules.ids])].sort(), packages: rules.packages };
 };
 

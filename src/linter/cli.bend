@@ -3406,18 +3406,310 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
       IO.die(
         Unit,
         2,
-        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>] [--overlays] [--report <file>]"
+        "usage: bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppressed] [--json] [--jobs <number or max>] [--overlays] [--report <file>]\n       bend-lint test <folder>..."
       )
 
-# Runs the command line `args`: the program as invoked, then its arguments.
-def started(~rules: List<&1, Rule>, args: List<String>) -> IO(Unit):
-  match args:
-    case Con{program, rest}:
+# Tests
+# =====
+# `bend-lint test <folder>...` runs the cases under each folder. A case is a folder with its own bend-lint.json, which
+# turns its rules on, and .bend files whose expect directives say what the rules find: it passes when no finding stays,
+# as each expect met a finding and each finding an expect, and the rules ran on each file. Beside an x.bend, an
+# x.fixed.bend is the text that all its fixes must give, once its lines of expect directives are gone: the case fixes
+# such a copy, x.fixing.bend, which stays, as Base cannot remove a file.
+
+# Whether `line` stays in the copy a case fixes: whether it is not an expect directive.
+def Case.is_kept(line: String) -> Bool:
+  Bool.not(String.starts_with(String.trim(line), "# bend-lint: expect-"))
+
+# Whether a case lints `path`: a .bend file, but neither the text a fix must give nor the copy it fixes.
+def Case.lints(+path: String) -> Bool:
+  String.ends_with(
+    path,
+    ".bend"
+  )
+    && Bool.not(String.ends_with(path, ".fixed.bend") || String.ends_with(path, ".fixing.bend"))
+
+def Case.paths.if(lints: Bool, path: String, out: List<&2, String>) -> List<&2, String>:
+  match lints:
+    case True{}:
+      path <> out
+    case False{}:
+      out
+
+# The files of `found` that a case lints, onto `out` (last first), in order.
+def Case.paths(found: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+  match found:
+    case Nil{}:
+      List.reverse(&2, String, out)
+    case Con{+path, rest}:
+      Case.paths(rest, Case.paths.if(Case.lints(path), path, out))
+
+# What linting `paths` as `project` says gives, after `total`; with every fix if `fixing`, and then silent (in JSON
+# mode, which prints only at the end), as the findings of a fixed copy are not the case's.
+def Case.lint(
+  ~rules: List<&1, Rule>,
+  paths: List<&2, String>,
+  +fixing: Bool,
+  +project: Project,
+  total: Outcome
+) -> IO(Outcome):
+  match paths:
+    case Nil{}:
+      IO.pure(Outcome, total)
+    case Con{path, rest}:
+      IO.bind(
+        Outcome,
+        Outcome,
+        configured(
+          ~rules,
+          path,
+          Options{
+            [],
+            Bool.pick(Maybe<&2, Bool>, fixing, Some{True{}}, None{}),
+            False{},
+            fixing,
+            False{},
+            Half{}
+          },
+          False{},
+          project
+        ),
+        o => Case.lint(~rules, rest, fixing, project, Outcome.add(total, o))
+      )
+
+# What is wrong with the fixes of `stem`.bend: nothing if its fixed copy has the text of `stem`.fixed.bend.
+def Case.compared(
+  +stem: String,
+  got: Result<&2, &2, String, String>,
+  want: Result<&2, &2, String, String>
+) -> List<&2, String>:
+  match got want:
+    case Done{+g} Done{+w}:
+      Bool.pick(
+        List<&2, String>,
+        Bool.and(String.starts_with(g, w), String.starts_with(w, g)),
+        [],
+        [stem ++ ".bend: its fixes give other text than " ++ stem ++ ".fixed.bend"]
+      )
+    case Fail{why} _:
+      [stem ++ ".fixing.bend: " ++ why]
+    case Done{g} Fail{why}:
+      [stem ++ ".fixed.bend: " ++ why]
+
+def Case.copied(
+  ~rules: List<&1, Rule>,
+  +stem: String,
+  project: Project,
+  copied: Bool
+) -> IO(List<&2, String>):
+  match copied:
+    case True{}:
+      do IO<List<&2, String>>:
+        fixed: Outcome <- Case.lint(
+          ~rules,
+          [stem ++ ".fixing.bend"],
+          True{},
+          project,
+          Outcome{0n, [], [], False{}, 0, []}
+        )
+        got: Result<&2, &2, String, String> <- Files.text(stem ++ ".fixing.bend")
+        want: Result<&2, &2, String, String> <- Files.text(stem ++ ".fixed.bend")
+        return Case.compared(stem, got, want)
+    case False{}:
+      IO.pure(List<&2, String>, ["could not write " ++ stem ++ ".fixing.bend"])
+
+def Case.read(
+  ~rules: List<&1, Rule>,
+  +stem: String,
+  project: Project,
+  read: Result<&2, &2, String, String>
+) -> IO(List<&2, String>):
+  match read:
+    case Done{text}:
+      IO.bind(
+        Bool,
+        List<&2, String>,
+        Files.write(
+          stem ++ ".fixing.bend",
+          String.join(List.filter(~String, ~Case.is_kept, String.split(text, '\n')), "\n")
+        ),
+        copied => Case.copied(~rules, stem, project, copied)
+      )
+    case Fail{why}:
+      IO.pure(List<&2, String>, [stem ++ ".bend: " ++ why])
+
+def Case.fix.if(
+  ~rules: List<&1, Rule>,
+  has: Bool,
+  +stem: String,
+  project: Project
+) -> IO(List<&2, String>):
+  match has:
+    case True{}:
+      IO.bind(
+        Result<&2, &2, String, String>,
+        List<&2, String>,
+        Files.text(stem ++ ".bend"),
+        read => Case.read(~rules, stem, project, read)
+      )
+    case False{}:
+      IO.pure(List<&2, String>, [])
+
+# What is wrong with the fixes of each of `paths` that has a .fixed.bend beside it, onto `out`.
+def Case.fixes(
+  ~rules: List<&1, Rule>,
+  paths: List<&2, String>,
+  +project: Project,
+  out: List<&2, String>
+) -> IO(List<&2, String>):
+  match paths:
+    case Nil{}:
+      IO.pure(List<&2, String>, out)
+    case Con{+path, rest}:
+      +stem = String.take(path, Nat.sub(String.length(path), 5n))
+      IO.bind(
+        U32,
+        List<&2, String>,
+        Files.kind(stem ++ ".fixed.bend"),
+        kind => IO.bind(
+          List<&2, String>,
+          List<&2, String>,
+          Case.fix.if(~rules, U32.is_eq(kind, 1), stem, project),
+          wrong => Case.fixes(~rules, rest, project, Lists.append(&2, String, out, wrong))
+        )
+      )
+
+# Says what is wrong with the case in `folder`, and whether it passed.
+def Case.done(folder: String, total: Outcome, wrong: List<&2, String>) -> IO(Bool):
+  match total wrong:
+    case Outcome{0n, f, s, False{}, x, Nil{}} Nil{}:
+      do IO<Bool>:
+        IO.print("ok " ++ folder)
+        return True{}
+    case Outcome{n, f, s, e, x, w} rest:
+      do IO<Bool>:
+        say(rest)
+        IO.print("FAIL " ++ folder)
+        return False{}
+
+# Runs the case in `folder`, whose config is `project`, on its .bend files, `found`; whether it passed.
+def Case.found(
+  ~rules: List<&1, Rule>,
+  folder: String,
+  +project: Project,
+  found: List<&2, String>
+) -> IO(Bool):
+  +paths = Case.paths(found, [])
+  do IO<Bool>:
+    total: Outcome <- Case.lint(
+      ~rules,
+      paths,
+      False{},
+      project,
+      Outcome{0n, [], [], False{}, 0, []}
+    )
+    wrong: List<&2, String> <- Case.fixes(~rules, paths, project, [])
+    Case.done(folder, total, wrong)
+
+# Runs the case in `folder`; whether it passed.
+def Case.run(~rules: List<&1, Rule>, +folder: String) -> IO(Bool):
+  IO.bind(
+    Project,
+    Bool,
+    Config.at(False{}, folder),
+    +project => IO.bind(
+      List<&2, String>,
+      Bool,
+      files(False{}, [folder ++ "/*.bend"], []),
+      found => Case.found(~rules, folder, project, found)
+    )
+  )
+
+# The folders of the configs `configs` (paths that end in /bend-lint.json), onto `out` (last first).
+def Cases.folders(configs: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+  match configs:
+    case Nil{}:
+      out
+    case Con{+config, rest}:
+      Cases.folders(rest, String.take(config, Nat.sub(String.length(config), 15n)) <> out)
+
+# The cases under each of `inputs`, in order, onto `out` (last first).
+def Cases.found(inputs: List<String>, out: List<&2, String>) -> IO(List<&2, String>):
+  match inputs:
+    case Nil{}:
+      IO.pure(List<&2, String>, List.reverse(&2, String, out))
+    case Con{input, rest}:
+      IO.bind(
+        List<&2, String>,
+        List<&2, String>,
+        Files.glob(input ++ "/**/bend-lint.json"),
+        configs => Cases.found(rest, Cases.folders(configs, out))
+      )
+
+def Cases.done(passed: Nat, +failed: Nat) -> IO(Unit):
+  match failed:
+    case 0n:
+      IO.print("bend-lint: " ++ Nat.show(passed) ++ " case(s) pass")
+    case _:
+      IO.die(
+        Unit,
+        1,
+        "bend-lint: "
+          ++ Nat.show(failed)
+          ++ " of "
+          ++ Nat.show(Nat.add(passed, failed))
+          ++ " case(s) fail"
+      )
+
+# Runs the cases in `folders`, after `passed` passed and `failed` failed; the run fails if one did.
+def Cases.go(
+  ~rules: List<&1, Rule>,
+  folders: List<&2, String>,
+  passed: Nat,
+  failed: Nat
+) -> IO(Unit):
+  match folders:
+    case Nil{}:
+      Cases.done(passed, failed)
+    case Con{folder, rest}:
+      IO.bind(
+        Bool,
+        Unit,
+        Case.run(~rules, folder),
+        +ok => Cases.go(
+          ~rules,
+          rest,
+          Nat.add(passed, Bool.pick(Nat, ok, 1n, 0n)),
+          Nat.add(failed, Bool.pick(Nat, ok, 0n, 1n))
+        )
+      )
+
+def tested(~rules: List<&1, Rule>, inputs: List<String>) -> IO(Unit):
+  IO.bind(
+    List<&2, String>,
+    Unit,
+    Cases.found(inputs, []),
+    folders => Cases.go(~rules, folders, 0n, 0n)
+  )
+
+def started.if(~rules: List<&1, Rule>, test: Bool, program: String, args: List<String>) -> IO(Unit):
+  match test args:
+    case True{} Con{word, inputs}:
+      tested(~rules, inputs)
+    case _ rest:
       checking(
         ~rules,
         program,
         Options.read(rest, Some{Options{[], None{}, False{}, False{}, False{}, Half{}}}, False{})
       )
+
+# Runs the command line `args`: the program as invoked, then its arguments.
+def started(~rules: List<&1, Rule>, args: List<String>) -> IO(Unit):
+  match args:
+    case Con{program, Con{+first, rest}}:
+      started.if(~rules, String.eq(first, "test"), program, first <> rest)
+    case Con{program, Nil{}}:
+      started.if(~rules, False{}, program, [])
     case Nil{}:
       checking(~rules, "", None{})
 

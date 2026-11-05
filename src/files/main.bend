@@ -176,6 +176,22 @@ def write(path: String, text: String) -> IO(Bool):
     opened => write.opened(text, opened)
   )
 
+def text.opened(opened: Result<&1, &1, U32 & String, File>) -> IO(Result<&2, &2, String, String>):
+  match opened:
+    case Done{f}:
+      read(f)
+    case Fail{Tuple{code, why}}:
+      IO.pure(Result<&2, &2, String, String>, Fail{why})
+
+# The whole text of the file at `path`; or why it could not be read.
+def text(path: String) -> IO(Result<&2, &2, String, String>):
+  IO.bind(
+    Result<&1, &1, U32 & String, File>,
+    Result<&2, &2, String, String>,
+    File.open(path, "r"),
+    opened => text.opened(opened)
+  )
+
 # Globs
 # =====
 def Glyph.of(+c: Char) -> Glyph:

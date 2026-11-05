@@ -11,3 +11,6 @@ C-CPU.*
 demos/llama.bend/data/
 demos/bend-lint-rules
 __pycache__/
+
+# what `bend-lint test` fixes: a copy of a case file
+*.fixing.bend

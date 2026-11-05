@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { API, DEFAULTS, getClosure, IMPORT } from "../linter/seam.ts";
+import { API, DEFAULTS, getClosure, getRuleFiles, IMPORT } from "../linter/seam.ts";
 import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 import { getPathWithForwardSlashes, getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
@@ -101,9 +101,13 @@ export const getApiPackage = (): Map<string, string> =>
     ],
   );
 
-// bend-lint's own rules: the .bend files git tracks in bend-lint-rules/.
+// bend-lint's own rules: the rule files git tracks in bend-lint-rules/.
 const getDefaultRules = (): string[] =>
-  getTrackedFiles().filter((file) => file.startsWith(RULES + path.sep) && file.endsWith(".bend"));
+  getRuleFiles(
+    getTrackedFiles()
+      .filter((file) => file.startsWith(RULES + path.sep))
+      .map((file) => getPathFrom(RULES, file)),
+  ).map((file) => path.join(RULES, file));
 
 // bend-lint's own rules.
 export const getDefaultsPackage = (): Map<string, string> => {
