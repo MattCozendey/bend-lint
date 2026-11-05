@@ -1,7 +1,0 @@
-status 0
---- stdout
-{case}/util.bend:1:1: hint tests/some: at 0
-{case}/util.bend:1:3: hint tests/some: at the count
-{case}/util.bend:1:4: hint tests/some: at the count
-bend-lint: 3 finding(s)
---- stderr

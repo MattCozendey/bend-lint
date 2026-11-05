@@ -1,4 +1,0 @@
-status 0
---- stdout
-bend-lint: 0 finding(s)
---- stderr

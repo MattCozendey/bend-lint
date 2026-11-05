@@ -1,5 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:8:26: information performance/eager_branch: || computes its right side even when its left side decides the result (True), so this call of has runs even then: it is the loop's own call, so the loop walks to its end instead of stopping where the condition decides. CPU and GPU: measured 5x slower than a match, for an unused call that calls itself outside a tail position. JS: computes both values too. Confidence: medium, as the cost is what the unneeded call computes. Choose with a match: pass the condition to a helper whose match runs only the needed value; inside a loop, where that helper would call the loop back (Bend refuses mutual recursion), pass the condition to the next call, and match on it there. If has runs only a few steps here, expect this finding.
-bend-lint: 1 finding(s)
---- stderr

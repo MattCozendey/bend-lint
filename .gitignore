@@ -11,6 +11,3 @@ C-CPU.*
 demos/llama.bend/data/
 demos/bend-lint-rules
 __pycache__/
-
-# what a run case of `bend-lint test` got, when it fails
-got.txt

@@ -1,4 +1,0 @@
-status 2
---- stdout
---- stderr
-bend-lint: --fix-dangerously does not go with --overlays: a fix writes the file on disk

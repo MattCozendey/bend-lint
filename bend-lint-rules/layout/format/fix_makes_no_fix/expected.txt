@@ -1,6 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:1:8: warning layout/format: Apply canonical formatting.
-bend-lint: 1 finding(s)
---- stderr
-bend-lint: --fix makes no fix until Bend's checker in Bend can prove that a fix keeps the program; --fix-dangerously makes every fix

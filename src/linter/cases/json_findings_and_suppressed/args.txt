@@ -1,3 +1,0 @@
-{case}/main.bend
-{case}/util.bend
---json

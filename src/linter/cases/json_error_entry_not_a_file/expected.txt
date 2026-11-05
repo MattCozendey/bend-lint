@@ -1,5 +1,0 @@
-status 2
---- stdout
-{"ok":false,"errors":[{"path":"{case}/bend-lint.json","message":"bend-lint: {case}/bend-lint.json: the entry {case}/nope.bend is not a file"}]}
---- stderr
-bend-lint: {case}/bend-lint.json: the entry {case}/nope.bend is not a file

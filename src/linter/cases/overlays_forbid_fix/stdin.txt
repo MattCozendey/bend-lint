@@ -1,1 +1,0 @@
-{"src/linter/cases/overlays_forbid_fix/main.bend":"import Base\n\ndef say(m: IO(Unit)) -> IO(U32):\n  do IO<U32>:\n    m\n    n : U32 <- IO.pure(U32, 3)\n    return n\n\ndef both(-A: Type, -B: Type) -> Type:\n  A & B\n\ndef twice(+k: U32) -> U32:\n  (k * k : U32)\n"}

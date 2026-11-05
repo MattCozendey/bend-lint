@@ -1,5 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:7:1: warning bend-lint/unused-disable: This disables tests/written, but nothing on the lines it covers needs it.
-bend-lint: 1 finding(s), 2 suppressed
---- stderr

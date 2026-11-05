@@ -28,7 +28,7 @@ import {
 // The Bend bend-lint uses, as `<owner>/<repo>/<ref>` on GitHub: Bend's newest
 // release this repo's checks passed with (src/meta/sync-bend.ts moves it), or,
 // on Windows, a commit of a fork that runs there.
-export const PINNED_BEND: string = process.platform === "win32" ? pkg.bendWindows : pkg.bendRelease;
+const PINNED_BEND: string = process.platform === "win32" ? pkg.bendWindows : pkg.bendRelease;
 
 // What bend-lint says on each run on Windows, where it uses the fork.
 export const PINNED_BEND_NOTE: string | undefined =
@@ -59,12 +59,6 @@ const VERSION_NOTE = "bend-lint: your bend is ";
 
 // Functions
 // =========
-
-// Whether a line is one bend-lint prints about how this machine runs it: on
-// Windows, that it uses the fork; that the installed bend is another version;
-// or that the rules run as JavaScript.
-export const isMachineNote = (line: string): boolean =>
-  line === PINNED_BEND_NOTE || line === JAVASCRIPT_NOTE || line.startsWith(VERSION_NOTE);
 
 // The clang Bend builds native programs with, if there is one, as Bend's
 // cc_find picks it (main.ts): the first of $CC, clang, each clang-NN on PATH

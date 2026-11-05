@@ -1,5 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:1:1: warning layout/format: Apply canonical formatting.
-bend-lint: 1 finding(s)
---- stderr

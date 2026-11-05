@@ -1,3 +1,0 @@
-import Base
-
-def bad(

@@ -1,1 +1,0 @@
-{ "rules": { "performance/loop_invariant_call": {} } }

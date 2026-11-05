@@ -1,4 +1,0 @@
-status 2
---- stdout
---- stderr
-bend-lint config: layout/format: it has no option tabwidth

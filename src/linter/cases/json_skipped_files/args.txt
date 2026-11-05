@@ -1,3 +1,0 @@
-{case}/util.bend
-{case}/bad.bend
---json

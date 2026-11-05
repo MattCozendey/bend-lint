@@ -85,21 +85,6 @@ def real(path: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./effs/files.c"
   import "./effs/files.js"
 
-# Removes the file, or the empty folder, at `path`.
-def remove(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
-  import "./effs/files.c"
-  import "./effs/files.js"
-
-# Makes a folder at `path`, whose parent is there.
-def make_folder(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
-  import "./effs/files.c"
-  import "./effs/files.js"
-
-# Makes the folder at `path` the one the run is in: relative paths, and the processes the run starts, start there.
-def enter(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
-  import "./effs/files.c"
-  import "./effs/files.js"
-
 # The names in `text`, each ended by a NUL.
 def names(text: String) -> List<&2, String>:
   List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, Chr{0}))
@@ -189,22 +174,6 @@ def write(path: String, text: String) -> IO(Bool):
     Bool,
     File.open(path, "w"),
     opened => write.opened(text, opened)
-  )
-
-def text.opened(opened: Result<&1, &1, U32 & String, File>) -> IO(Result<&2, &2, String, String>):
-  match opened:
-    case Done{f}:
-      read(f)
-    case Fail{Tuple{code, why}}:
-      IO.pure(Result<&2, &2, String, String>, Fail{why})
-
-# The whole text of the file at `path`; or why it could not be read.
-def text(path: String) -> IO(Result<&2, &2, String, String>):
-  IO.bind(
-    Result<&1, &1, U32 & String, File>,
-    Result<&2, &2, String, String>,
-    File.open(path, "r"),
-    opened => text.opened(opened)
   )
 
 # Globs

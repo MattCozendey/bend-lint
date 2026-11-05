@@ -1,5 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:12:7: hint performance/missed_fork: f calls itself 2 times in this expression (`f(p, i)`, `f(p, U32.inc(i))`), and these calls run one after the other. Bend runs calls in parallel only as the values of a parallel let. CPU, and GPU under a `!`: measured 2.5x faster for a few calls over a 1M-leaf tree, but 3.9x slower for 100,000 calls over 1k-leaf trees, and 230x slower for a small tree walked once per data point. JS: one thread, so no gain. Confidence: low, as it depends on how much work each call does. To run them in parallel, bind them first with one parallel let of fresh names, such as `a b = f(p, i) f(p, U32.inc(i))`, and use those names here. If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding.
-bend-lint: 1 finding(s)
---- stderr

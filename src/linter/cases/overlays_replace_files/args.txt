@@ -1,3 +1,0 @@
-{case}/main.bend
---overlays
-{case}/new.bend

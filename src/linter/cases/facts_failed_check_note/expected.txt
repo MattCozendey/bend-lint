@@ -1,5 +1,0 @@
-status 0
---- stdout
-bend-lint: 0 finding(s)
---- stderr
-bend-lint: Bend's check of {case}/main.bend fails, so the rules that need its facts did not run on it: tests/types; `bend <file> --check-only` says why

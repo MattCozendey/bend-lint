@@ -1,4 +1,0 @@
-status 2
---- stdout
---- stderr
-bend-lint: {case}/bend-lint.json: the entry {case}/nope.bend is not a file

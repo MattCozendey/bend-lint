@@ -1,1 +1,0 @@
-{"{case}/util.bend":"import Base\n\ndef v() -> U32:\n  2\n"}

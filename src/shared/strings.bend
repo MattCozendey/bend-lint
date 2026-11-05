@@ -85,30 +85,3 @@ def onto(chunks: List<&2, String>, out: String) -> String:
       out
     case Con{c, rest}:
       onto(rest, c ++ out)
-
-# Whether `text` starts with `from`, which is not empty.
-def replace.hits(text: String, +from: String) -> Bool:
-  String.starts_with(text, from) && Bool.not(String.is_empty(from))
-
-# `text`, after `out` (the text so far, reversed), with each `from` in it, from the left, as `to`; `hit` says whether
-# `text` starts with `from`. `fuel` is at least the length of `text`, as each step takes one character at least.
-def replace.go(
-  fuel: Nat,
-  hit: Bool,
-  text: String,
-  +from: String,
-  +to: String,
-  out: String
-) -> String:
-  match fuel hit text:
-    case 1n+k True{} t:
-      +next = String.drop(t, String.length(from))
-      replace.go(k, replace.hits(next, from), next, from, to, String.reverse(to) ++ out)
-    case 1n+k False{} SCon{c, +rest}:
-      replace.go(k, replace.hits(rest, from), rest, from, to, SCon{c, out})
-    case _ _ rest:
-      String.reverse(out) ++ rest
-
-# `text` with each `from` in it, from the left, as `to`: none if `from` is empty.
-def replace(+text: String, +from: String, to: String) -> String:
-  replace.go(String.length(text), replace.hits(text, from), text, from, to, "")

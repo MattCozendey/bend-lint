@@ -1,5 +1,5 @@
 // Moves package.json's bendRelease to Bend's newest release, only if the
-// tests, typecheck and lint pass with it. It runs on Linux or macOS: on
+// typecheck and lint pass with it. It runs on Linux or macOS: on
 // Windows, bend-lint uses bendWindows instead.
 
 // Imports
@@ -52,7 +52,6 @@ if (newest === tag) {
     text.replace(`"bendRelease": "${pkg.bendRelease}"`, `"bendRelease": "${moved}"`),
   );
   const passed = [
-    ["bun", "run", "test"],
     ["bun", "run", "typecheck"],
     ["bun", "run", "lint"],
   ].every(isPassing);

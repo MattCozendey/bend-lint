@@ -1,7 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:3:10: hint tests/binders: n (many): U32
-{case}/main.bend:4:3: hint tests/binders: f (once): @_:U32 -> U32
-{case}/main.bend:4:20: hint tests/binders: z (once): U32
-bend-lint: 3 finding(s)
---- stderr

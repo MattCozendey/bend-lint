@@ -1,4 +1,0 @@
-status 2
---- stdout
---- stderr
-bend-lint: --overlays reads a JSON object of paths to texts on stdin

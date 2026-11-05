@@ -1,6 +1,1 @@
 * text=auto eol=lf
-# cases of layout/format whose line ends are what they check
-bend-lint-rules/layout/format/end_of_line_crlf/** -text
-bend-lint-rules/layout/format/end_of_line_preserve_passes/** -text
-bend-lint-rules/layout/format/fix_writes_formatted/** -text
-bend-lint-rules/layout/format/unformatted_reported/** -text

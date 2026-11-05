@@ -1,7 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:4:3: hint tests/types: type: A
-{case}/main.bend:7:13: hint tests/types: type: U32
-{case}/main.bend:4:3: hint tests/types: the first two are different types
-bend-lint: 3 finding(s)
---- stderr

@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { API, DEFAULTS, getClosure, getRuleFiles, IMPORT } from "../linter/seam.ts";
+import { API, DEFAULTS, getClosure, IMPORT } from "../linter/seam.ts";
 import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { unwrap } from "../shared/result.ts";
 import { getPathWithForwardSlashes, getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
@@ -35,10 +35,10 @@ const LICENSE = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8");
 // The rule API's files.
 const API_FILES = new Set(getClosure(path.join(SRC, "linter", "lint.bend")));
 
-// The npm package holds these files of this repo, but those it leaves out: tests, these scripts,
-// the test rules, and the rule API.
+// The npm package holds these files of this repo, but those it leaves out: these scripts, and the
+// rule API.
 const SHIPPED = /^(src\/|README\.md$|LICENSE$)/;
-const LEFT_OUT = /(\.test\.ts$|^src\/meta\/|^src\/linter\/(testing\.ts|tests\.bend|cases\/))/;
+const LEFT_OUT = /^src\/meta\//;
 
 // What the npm package's package.json leaves out of this repo's: what only this repo uses.
 const DEV_ONLY = new Set(["private", "scripts", "devDependencies", "packageManager"]);
@@ -92,7 +92,7 @@ const getPackage = (
   ]);
 
 // The rule API.
-export const getApiPackage = (): Map<string, string> =>
+const getApiPackage = (): Map<string, string> =>
   getPackage(
     new Map([...API_FILES].map((file): [string, string] => [file, getPathFrom(SRC, file)])),
     [
@@ -101,16 +101,12 @@ export const getApiPackage = (): Map<string, string> =>
     ],
   );
 
-// bend-lint's own rules: the rule files git tracks in bend-lint-rules/.
+// bend-lint's own rules: the .bend files git tracks in bend-lint-rules/.
 const getDefaultRules = (): string[] =>
-  getRuleFiles(
-    getTrackedFiles()
-      .filter((file) => file.startsWith(RULES + path.sep))
-      .map((file) => getPathFrom(RULES, file)),
-  ).map((file) => path.join(RULES, file));
+  getTrackedFiles().filter((file) => file.startsWith(RULES + path.sep) && file.endsWith(".bend"));
 
 // bend-lint's own rules.
-export const getDefaultsPackage = (): Map<string, string> => {
+const getDefaultsPackage = (): Map<string, string> => {
   const rules = getDefaultRules();
   const seen = new Set(API_FILES);
   const at = new Map(
@@ -134,7 +130,7 @@ export const getDefaultsPackage = (): Map<string, string> => {
 
 // The npm package, with the ids of bend-lint's own rules in src/linter/defaults.json (see
 // getBuiltRules in seam.ts). A project that trusts it runs its postinstall (see seam.ts).
-export const getNpmPackage = (): Map<string, string> => {
+const getNpmPackage = (): Map<string, string> => {
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as object;
   const kept = Object.entries(config).filter(([key]) => !DEV_ONLY.has(key));
   const scripts = { postinstall: "bun ./src/linter/seam.ts postinstall" };
@@ -158,7 +154,7 @@ export const getNpmPackage = (): Map<string, string> => {
 };
 
 // The hash of the package of `files` (paths to texts), as `bend --publish` makes it.
-export const getPackageHash = (files: Map<string, string>): string =>
+const getPackageHash = (files: Map<string, string>): string =>
   "0x" +
   getSha256Hex(
     [...files]
@@ -168,7 +164,7 @@ export const getPackageHash = (files: Map<string, string>): string =>
   ).slice(0, 32);
 
 // Writes `files` (paths to texts) into `dir`.
-export const writeFiles = (dir: string, files: Map<string, string>): void =>
+const writeFiles = (dir: string, files: Map<string, string>): void =>
   files.forEach((text, at) => writeFileAtomically(path.join(dir, at), text));
 
 // Side effects

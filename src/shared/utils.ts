@@ -13,7 +13,7 @@ import type { Result } from "./result.ts";
 // =====
 
 // How a command ended: its exit code, and what it printed.
-export type Outcome = { code: number; out: string; err: string };
+type Outcome = { code: number; out: string; err: string };
 
 // Functions
 // =========

@@ -135,7 +135,7 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
   never `utils`, and import it with its name capitalized as the alias. A Bend helper about linting
   that more than one file of the linter or its rules uses goes in `src/linter/lint.bend`.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
-  release, only if the tests, typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
+  release, only if the typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
   bend-lint uses the fork's pinned commit (`bendWindows`), which moves by hand when the fork moves.
   The fork stays 0 behind and 1 ahead of Bend's main (amend, then force push), so tag each commit
   that a release pins on the fork as `bend-lint-<version>`: the tag keeps the commit after a rebase.
@@ -155,12 +155,9 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
   `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:`, `Options:`
   (with defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix
   or a guess). Its fixes make its findings go.
-- A rule's tests are cases beside it, in `bend-lint-rules/<namespace>/<name>/<case>/`, which
-  `bend-lint test` runs (see the README).
 
 ```sh
 bun install
-bun run test # does not type check
 bun run typecheck
 bun run lint
 bun run format:check

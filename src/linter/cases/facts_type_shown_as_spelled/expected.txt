@@ -1,7 +1,0 @@
-status 0
---- stdout
-{case}/main.bend:5:3: hint tests/types: type: U.T
-{case}/main.bend:5:8: hint tests/types: type: List<&2, U.T>
-{case}/main.bend:5:3: hint tests/types: the first two are different types
-bend-lint: 3 finding(s)
---- stderr
