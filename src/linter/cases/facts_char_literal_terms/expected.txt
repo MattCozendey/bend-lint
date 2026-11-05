@@ -1,0 +1,6 @@
+status 0
+--- stdout
+{case}/main.bend:4:3: hint tests/terms: construction: Char
+{case}/main.bend:4:3: hint tests/terms: literal: U32
+bend-lint: 2 finding(s)
+--- stderr

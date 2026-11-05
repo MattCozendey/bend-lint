@@ -1,0 +1,5 @@
+status 1
+--- stdout
+{case}/main.bend:1:1: error bend-lint/rule-crash: The rule tests/budget asked the checker more rounds than its budget.
+--- stderr
+bend-lint: FAIL

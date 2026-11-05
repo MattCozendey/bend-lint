@@ -1,0 +1,5 @@
+status 0
+--- stdout
+{case}/util.bend:1:1: hint tests/every: at 0
+bend-lint: 1 finding(s)
+--- stderr

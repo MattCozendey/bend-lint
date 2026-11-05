@@ -1,0 +1,5 @@
+status 0
+--- stdout
+bend-lint: 0 finding(s)
+--- stderr
+bend-lint: Bend does not load {case}/main.bend, so no rule ran on it; `bend <file> --check-only` says why

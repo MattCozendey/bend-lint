@@ -1,0 +1,11 @@
+status 0
+--- stdout
+{case}/main.bend:4:10: hint tests/binders: r (once): U32
+{case}/main.bend:5:8: hint tests/binders: w (once): U32
+{case}/main.bend:5:16: hint tests/binders: h (once): String
+{case}/main.bend:7:11: hint tests/binders: x (once): Shape
+{case}/main.bend:9:17: hint tests/binders: r (once): U32
+{case}/main.bend:11:15: hint tests/binders: w (once): U32
+{case}/main.bend:11:18: hint tests/binders: h (once): String
+bend-lint: 7 finding(s)
+--- stderr

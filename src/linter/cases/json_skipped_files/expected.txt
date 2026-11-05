@@ -1,0 +1,7 @@
+status 0
+--- stdout
+{"ok":true,"findings":[{"code":"tests/file","severity":"hint","message":"linted","path":"{case}/util.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"fixes":[]}],"suppressed":[],"skipped":[{"path":"{case}/util.bend","reason":"unentered","entry":"{case}/b.bend","rules":[],"message":"bend-lint: Bend's check of the entry {case}/b.bend fails, so {case}/util.bend was linted without it; `bend <file> --check-only` says why"},{"path":"{case}/bad.bend","reason":"unloaded","message":"bend-lint: Bend does not load {case}/bad.bend, so no rule ran on it; `bend <file> --check-only` says why"}]}
+--- stderr
+bend-lint: Bend's check of the entry {case}/b.bend fails, so {case}/util.bend was linted without it; `bend <file> --check-only` says why
+bend-lint: Bend does not load {case}/bad.bend, so no rule ran on it; `bend <file> --check-only` says why
+bend-lint: 1 finding(s)

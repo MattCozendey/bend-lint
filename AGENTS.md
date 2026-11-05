@@ -155,7 +155,8 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
   `<namespace>/<name>`. Its header, in this order: `# <id>: <what it reports>.`, `Fix:`, `Options:`
   (with defaults), `Heuristics:` (how it decides and when it is wrong; required for a dangerous fix
   or a guess). Its fixes make its findings go.
-- A rule's tests go beside it, in `<name>.test.ts`, through `src/linter/testing.ts`.
+- A rule's tests are cases beside it, in `bend-lint-rules/<namespace>/<name>/<case>/`, which
+  `bend-lint test` runs (see the README).
 
 ```sh
 bun install

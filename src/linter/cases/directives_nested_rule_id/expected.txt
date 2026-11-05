@@ -1,0 +1,5 @@
+status 1
+--- stdout
+{case}/main.bend:2:1: error bend-lint/directive: There is no rule a/b/c.
+--- stderr
+bend-lint: FAIL

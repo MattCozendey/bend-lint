@@ -1,0 +1,4 @@
+status 2
+--- stdout
+--- stderr
+bend-lint config: layout/format: tabWidth does not take that value

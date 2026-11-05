@@ -1,0 +1,6 @@
+status 0
+--- stdout
+{case}/util.bend:1:1: hint tests/file: linted
+bend-lint: 1 finding(s)
+--- stderr
+bend-lint: Bend's check of the entry {case}/b.bend fails, so {case}/util.bend was linted without it; `bend <file> --check-only` says why

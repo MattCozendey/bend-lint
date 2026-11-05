@@ -1,0 +1,5 @@
+status 0
+--- stdout
+{case}/main.bend:4:3: hint tests/types: type: Data
+bend-lint: 1 finding(s)
+--- stderr

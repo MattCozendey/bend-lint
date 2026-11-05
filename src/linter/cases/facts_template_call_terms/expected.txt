@@ -1,0 +1,5 @@
+status 0
+--- stdout
+{case}/main.bend:7:3: hint tests/terms: call: U32
+bend-lint: 1 finding(s)
+--- stderr

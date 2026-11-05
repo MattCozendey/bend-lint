@@ -1,0 +1,5 @@
+status 0
+--- stdout
+{case}/main.bend:4:15: hint tests/binders: e (once): U32
+bend-lint: 1 finding(s)
+--- stderr

@@ -1,0 +1,6 @@
+status 1
+--- stdout
+{case}/main.bend:6:12: warning tests/written: reference U32
+{case}/main.bend:5:1: error bend-lint/unmet-expectation: Expected a tests/written@error finding on the lines this covers; none.
+--- stderr
+bend-lint: FAIL

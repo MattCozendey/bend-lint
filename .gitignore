@@ -12,5 +12,7 @@ demos/llama.bend/data/
 demos/bend-lint-rules
 __pycache__/
 
-# what `bend-lint test` fixes: a copy of a case file
-*.fixing.bend
+# what a run case of `bend-lint test` got, when it fails
+got.txt
+# the copy a run case of `bend-lint test` runs in
+*.work/

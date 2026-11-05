@@ -1,0 +1,22 @@
+status 0
+--- stdout
+{case}/main.bend:3:12: hint tests/written: call
+{case}/main.bend:3:12: hint tests/written: reference IO
+{case}/main.bend:3:15: hint tests/written: reference Unit
+{case}/main.bend:3:25: hint tests/written: call
+{case}/main.bend:3:25: hint tests/written: reference IO
+{case}/main.bend:3:28: hint tests/written: reference U32
+{case}/main.bend:4:9: hint tests/written: reference U32
+{case}/main.bend:6:9: hint tests/written: reference U32
+{case}/main.bend:6:16: hint tests/written: call
+{case}/main.bend:6:16: hint tests/written: reference IO.pure
+{case}/main.bend:6:24: hint tests/written: reference U32
+{case}/main.bend:6:5: hint tests/written: lambda n
+{case}/main.bend:7:5: hint tests/written: call
+{case}/main.bend:10:3: hint tests/written: call
+{case}/main.bend:12:15: hint tests/written: reference U32
+{case}/main.bend:12:23: hint tests/written: reference U32
+{case}/main.bend:13:4: hint tests/written: call
+{case}/main.bend:13:6: hint tests/written: reference *
+bend-lint: 18 finding(s)
+--- stderr

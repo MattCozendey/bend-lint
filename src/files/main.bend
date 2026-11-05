@@ -85,6 +85,21 @@ def real(path: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./effs/files.c"
   import "./effs/files.js"
 
+# Removes the file, or the empty folder, at `path`.
+def remove(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
+  import "./effs/files.c"
+  import "./effs/files.js"
+
+# Makes a folder at `path`, whose parent is there.
+def make_folder(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
+  import "./effs/files.c"
+  import "./effs/files.js"
+
+# Makes the folder at `path` the one the run is in: relative paths, and the processes the run starts, start there.
+def enter(path: String) -> IO(Result<&1, &1, U32 & String, Unit>):
+  import "./effs/files.c"
+  import "./effs/files.js"
+
 # The names in `text`, each ended by a NUL.
 def names(text: String) -> List<&2, String>:
   List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, Chr{0}))

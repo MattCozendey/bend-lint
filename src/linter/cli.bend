@@ -5,6 +5,7 @@ import ../json/main.bend as Json
 import ../shared/lists.bend as Lists
 import ../shared/names.bend as Names
 import ../shared/sets.bend as Sets
+import ../shared/strings.bend as Strings
 import ../text/main.bend as Text
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
@@ -3415,7 +3416,7 @@ def checking(~rules: List<&1, Rule>, program: String, options: Maybe<&2, Options
 # turns its rules on, and .bend files whose expect directives say what the rules find: it passes when no finding stays,
 # as each expect met a finding and each finding an expect, and the rules ran on each file. Beside an x.bend, an
 # x.fixed.bend is the text that all its fixes must give, once its lines of expect directives are gone: the case fixes
-# such a copy, x.fixing.bend, which stays, as Base cannot remove a file.
+# such a copy, x.fixing.bend, which goes after.
 
 # Whether `line` stays in the copy a case fixes: whether it is not an expect directive.
 def Case.is_kept(line: String) -> Bool:
@@ -3514,6 +3515,7 @@ def Case.copied(
         )
         got: Result<&2, &2, String, String> <- Files.text(stem ++ ".fixing.bend")
         want: Result<&2, &2, String, String> <- Files.text(stem ++ ".fixed.bend")
+        gone: Result<&1, &1, U32 & String, Unit> <- Files.remove(stem ++ ".fixing.bend")
         return Case.compared(stem, got, want)
     case False{}:
       IO.pure(List<&2, String>, ["could not write " ++ stem ++ ".fixing.bend"])
@@ -3611,8 +3613,8 @@ def Case.found(
     wrong: List<&2, String> <- Case.fixes(~rules, paths, project, [])
     Case.done(folder, total, wrong)
 
-# Runs the case in `folder`; whether it passed.
-def Case.run(~rules: List<&1, Rule>, +folder: String) -> IO(Bool):
+# Runs the case in `folder`, on its .bend files; whether it passed.
+def Case.checked(~rules: List<&1, Rule>, +folder: String) -> IO(Bool):
   IO.bind(
     Project,
     Bool,
@@ -3625,13 +3627,337 @@ def Case.run(~rules: List<&1, Rule>, +folder: String) -> IO(Bool):
     )
   )
 
-# The folders of the configs `configs` (paths that end in /bend-lint.json), onto `out` (last first).
-def Cases.folders(configs: List<&2, String>, out: List<&2, String>) -> List<&2, String>:
+# A run case: a case with an args.txt runs bend-lint in a copy of its folder, `<folder>.work`, which goes after it:
+# through the command BEND_LINT_COMMAND names (seam.ts sets it), from that copy, with the lines of args.txt as its
+# arguments ({case} is the copy's folder), and stdin.txt, if there is one, as its input. What it gives, its paths as
+# {case}, must be the text of expected.txt: `status <n>`, then `--- stdout`, its output, `--- stderr`, its errors, and,
+# for each file the run made or changed, `--- file <path>` and its text. A case that fails writes what it got to
+# got.txt.
+
+# The arguments of the lines `lines`, with {case} as `folder`.
+def Run.arguments(lines: List<&2, String>, +folder: String) -> List<String>:
+  match lines:
+    case Nil{}:
+      []
+    case Con{line, rest}:
+      Strings.replace(line, "{case}", folder) <> Run.arguments(rest, folder)
+
+# Whether a run case's file at `path` is about the run (its arguments, input and output), not for it.
+def Run.is_own(+path: String) -> Bool:
+  String.eq(
+    path,
+    "args.txt"
+  )
+    || String.eq(path, "stdin.txt")
+    || String.eq(path, "expected.txt")
+    || String.eq(path, "got.txt")
+
+def Work.put(target: String, text: Result<&2, &2, String, String>) -> IO(Unit):
+  match text:
+    case Done{t}:
+      IO.bind(Bool, Unit, Files.write(target, t), written => IO.pure(Unit, Unit{}))
+    case Fail{why}:
+      IO.pure(Unit, Unit{})
+
+# Copies the entries `names` of the folder `from` into the folder `to`; `fuel` bounds how deep it goes.
+def Work.copy(+fuel: Nat, names: List<&2, String>, +from: String, +to: String) -> IO(Unit):
+  match fuel names:
+    case 1n+k Con{+name, rest}:
+      +source = from ++ "/" ++ name
+      +target = to ++ "/" ++ name
+      do IO<Unit>:
+        kind: U32 <- Files.kind(source)
+        # bend-lint: expect-begin performance/eager_branch@information -- an IO value runs nothing as it is built; a match helper would recurse into this def
+        Bool.pick(
+          IO(Unit),
+          U32.is_eq(kind, 2),
+          IO.bind(
+            Result<&1, &1, U32 & String, Unit>,
+            Unit,
+            Files.make_folder(target),
+            made => IO.bind(
+              List<&2, String>,
+              Unit,
+              Files.list(source),
+              inner => Work.copy(k, inner, source, target)
+            )
+          ),
+          IO.bind(
+            Result<&2, &2, String, String>,
+            Unit,
+            Files.text(source),
+            text => Work.put(target, text)
+          )
+        )
+        # bend-lint: expect-end performance/eager_branch@information
+        Work.copy(fuel, rest, from, to)
+    case _ _:
+      IO.pure(Unit, Unit{})
+
+# Removes the entries `names` of the folder `at`, then the folder; `fuel` bounds how deep it goes.
+def Work.remove(+fuel: Nat, names: List<&2, String>, +at: String) -> IO(Unit):
+  match fuel names:
+    case 1n+k Con{name, rest}:
+      +path = at ++ "/" ++ name
+      do IO<Unit>:
+        kind: U32 <- Files.kind(path)
+        Bool.pick(
+          IO(Unit),
+          U32.is_eq(kind, 2),
+          IO.bind(List<&2, String>, Unit, Files.list(path), inner => Work.remove(k, inner, path)),
+          IO.bind(
+            Result<&1, &1, U32 & String, Unit>,
+            Unit,
+            Files.remove(path),
+            gone => IO.pure(Unit, Unit{})
+          )
+        )
+        Work.remove(fuel, rest, at)
+    case _ Nil{}:
+      IO.bind(
+        Result<&1, &1, U32 & String, Unit>,
+        Unit,
+        Files.remove(at),
+        gone => IO.pure(Unit, Unit{})
+      )
+    case 0n _:
+      IO.pure(Unit, Unit{})
+
+# `out`, then, if the file at `path` is `now` in the copy and not `was` in the case, `--- file <path>` and its text.
+def Work.diff(
+  path: String,
+  now: Result<&2, &2, String, String>,
+  was: Result<&2, &2, String, String>,
+  +out: String
+) -> String:
+  match now was:
+    case Done{+n} Done{+w}:
+      Bool.pick(
+        String,
+        Bool.and(String.starts_with(n, w), String.starts_with(w, n)),
+        out,
+        out ++ "--- file " ++ path ++ "\n" ++ n
+      )
+    case Done{n} Fail{why}:
+      out ++ "--- file " ++ path ++ "\n" ++ n
+    case Fail{why} _:
+      out
+
+def Work.changed(own: Bool, +path: String, work: String, folder: String, out: String) -> IO(String):
+  match own:
+    case True{}:
+      IO.pure(String, out)
+    case False{}:
+      do IO<String>:
+        now: Result<&2, &2, String, String> <- Files.text(work ++ "/" ++ path)
+        was: Result<&2, &2, String, String> <- Files.text(folder ++ "/" ++ path)
+        return Work.diff(path, now, was, out)
+
+# `out`, then what the run changed in the copy `work` of the case `folder`, among the entries `names` of the folder
+# `at` (a path from both): each file it made, or whose text is not the case's, as `--- file <path>` and its text.
+def Work.changes(
+  +fuel: Nat,
+  names: List<&2, String>,
+  +work: String,
+  +folder: String,
+  +at: String,
+  +out: String
+) -> IO(String):
+  match fuel names:
+    case 1n+k Con{+name, rest}:
+      +path = Bool.pick(String, String.is_empty(at), name, at ++ "/" ++ name)
+      do IO<String>:
+        kind: U32 <- Files.kind(work ++ "/" ++ path)
+        # bend-lint: expect-begin performance/eager_branch@information -- an IO value runs nothing as it is built; a match helper would recurse into this def
+        now: String <- Bool.pick(
+          IO(String),
+          U32.is_eq(kind, 2),
+          IO.bind(
+            List<&2, String>,
+            String,
+            Files.list(work ++ "/" ++ path),
+            inner => Work.changes(
+              k,
+              Lists.sort(~String, ~String.is_le, inner),
+              work,
+              folder,
+              path,
+              out
+            )
+          ),
+          Work.changed(Run.is_own(path), path, work, folder, out)
+        )
+        # bend-lint: expect-end performance/eager_branch@information
+        Work.changes(fuel, rest, work, folder, at, now)
+    case _ _:
+      IO.pure(String, out)
+
+def Run.started(command: List<&2, String>, args: List<String>, input: String) -> IO(Ran()):
+  match command:
+    case Con{program, Con{script, rest}}:
+      Process.run(program, script <> args, input, 4294967295, 4294967295)
+    case _:
+      IO.die(Ran(), 2, "bend-lint: BEND_LINT_COMMAND does not say how to start bend-lint")
+
+# What a run case got: what the run `ran` gave, then the files it `changed`, with the copy's folder `real` as {case}.
+def Run.got(ran: Ran(), real: String, changed: String) -> String:
+  match ran:
+    case Done{Tuple{status, Tuple{out, err}}}:
+      Strings.replace(
+        "status "
+          ++ U32.show(status)
+          ++ "\n--- stdout\n"
+          ++ out
+          ++ "--- stderr\n"
+          ++ err
+          ++ changed,
+        real,
+        "{case}"
+      )
+    case Fail{Tuple{code, why}}:
+      "bend-lint did not run: " ++ why
+
+def Run.judged(+folder: String, got: String, same: Bool) -> IO(Bool):
+  match same:
+    case True{}:
+      do IO<Bool>:
+        IO.print("ok " ++ folder)
+        return True{}
+    case False{}:
+      do IO<Bool>:
+        written: Bool <- Files.write(folder ++ "/got.txt", got)
+        IO.print("FAIL " ++ folder ++ ": what it gives is not expected.txt; got.txt has it")
+        return False{}
+
+def Run.compared(
+  folder: String,
+  +got: String,
+  expected: Result<&2, &2, String, String>
+) -> IO(Bool):
+  match expected:
+    case Done{+want}:
+      Run.judged(
+        folder,
+        got,
+        Bool.and(String.starts_with(got, want), String.starts_with(want, got))
+      )
+    case Fail{why}:
+      Run.judged(folder, got, False{})
+
+def Run.input(given: Result<&2, &2, String, String>) -> String:
+  match given:
+    case Done{text}:
+      text
+    case Fail{why}:
+      ""
+
+# Runs the run case in `folder` in its copy `work`, whose real path is `real`, then goes back to the folder `here`;
+# whether it passed.
+def Run.at(
+  +folder: String,
+  +work: String,
+  command: String,
+  here: String,
+  +real: String
+) -> IO(Bool):
+  do IO<Bool>:
+    args: Result<&2, &2, String, String> <- Files.text(folder ++ "/args.txt")
+    input: Result<&2, &2, String, String> <- Files.text(folder ++ "/stdin.txt")
+    entered: Result<&1, &1, U32 & String, Unit> <- Files.enter(work)
+    ran: Ran() <- Run.started(
+      String.split(command, '\n'),
+      Run.arguments(
+        List.filter(
+          ~String,
+          ~(l => Bool.not(String.is_empty(l))),
+          String.split(Run.input(args), '\n')
+        ),
+        real
+      ),
+      Strings.replace(Run.input(input), "{case}", real)
+    )
+    back: Result<&1, &1, U32 & String, Unit> <- Files.enter(here)
+    after: List<&2, String> <- Files.list(work)
+    changed: String <- Work.changes(
+      64n,
+      Lists.sort(~String, ~String.is_le, after),
+      work,
+      folder,
+      "",
+      ""
+    )
+    expected: Result<&2, &2, String, String> <- Files.text(folder ++ "/expected.txt")
+    gone: List<&2, String> <- Files.list(work)
+    Work.remove(64n, gone, work)
+    Run.compared(folder, Run.got(ran, real, changed), expected)
+
+# Runs the run case in `folder`; whether it passed.
+def Run.run(+folder: String) -> IO(Bool):
+  +work = folder ++ ".work"
+  do IO<Bool>:
+    command: String <- IO.try(String, IO.get_env("BEND_LINT_COMMAND"))
+    here: String <- IO.try(String, Files.real("."))
+    left: List<&2, String> <- Files.list(work)
+    Work.remove(64n, left, work)
+    made: Result<&1, &1, U32 & String, Unit> <- Files.make_folder(work)
+    names: List<&2, String> <- Files.list(folder)
+    Work.copy(64n, names, folder, work)
+    IO.bind(
+      String,
+      Bool,
+      IO.try(String, Files.real(work)),
+      +real => Run.at(folder, work, command, here, real)
+    )
+
+def Case.of(
+  ~rules: List<&1, Rule>,
+  folder: String,
+  run: Bool,
+  project: Bool
+) -> IO(Maybe<&2, Bool>):
+  match run project:
+    case True{} _:
+      IO.bind(Bool, Maybe<&2, Bool>, Run.run(folder), ok => IO.pure(Maybe<&2, Bool>, Some{ok}))
+    case False{} False{}:
+      IO.bind(
+        Bool,
+        Maybe<&2, Bool>,
+        Case.checked(~rules, folder),
+        ok => IO.pure(Maybe<&2, Bool>, Some{ok})
+      )
+    case False{} True{}:
+      IO.pure(Maybe<&2, Bool>, None{})
+
+# Runs the case in `folder`: a run case if it has an args.txt; none if it has a bend-lint-rules folder, as it is then
+# the project of cases; else a case of its .bend files. Whether it passed.
+def Case.run(~rules: List<&1, Rule>, +folder: String) -> IO(Maybe<&2, Bool>):
+  do IO<Maybe<&2, Bool>>:
+    args: U32 <- Files.kind(folder ++ "/args.txt")
+    held: U32 <- Files.kind(folder ++ "/bend-lint-rules")
+    Case.of(~rules, folder, U32.is_eq(args, 1), U32.is_eq(held, 2))
+
+# How many cases of `ran` passed (`ok`), or failed.
+def Case.count(ran: Maybe<&2, Bool>, ok: Bool) -> Nat:
+  match ran ok:
+    case Some{True{}} True{}:
+      1n
+    case Some{False{}} False{}:
+      1n
+    case _ _:
+      0n
+
+# The folders of the configs `configs` (paths that end in /bend-lint.json), onto `out` (last first): but the copies
+# that run cases run in.
+def Cases.folders(configs: List<&2, String>, +out: List<&2, String>) -> List<&2, String>:
   match configs:
     case Nil{}:
       out
     case Con{+config, rest}:
-      Cases.folders(rest, String.take(config, Nat.sub(String.length(config), 15n)) <> out)
+      +folder = String.take(config, Nat.sub(String.length(config), 15n))
+      Cases.folders(
+        rest,
+        Bool.pick(List<&2, String>, String.ends_with(folder, ".work"), out, folder <> out)
+      )
 
 # The cases under each of `inputs`, in order, onto `out` (last first).
 def Cases.found(inputs: List<String>, out: List<&2, String>) -> IO(List<&2, String>):
@@ -3673,14 +3999,14 @@ def Cases.go(
       Cases.done(passed, failed)
     case Con{folder, rest}:
       IO.bind(
-        Bool,
+        Maybe<&2, Bool>,
         Unit,
         Case.run(~rules, folder),
-        +ok => Cases.go(
+        +ran => Cases.go(
           ~rules,
           rest,
-          Nat.add(passed, Bool.pick(Nat, ok, 1n, 0n)),
-          Nat.add(failed, Bool.pick(Nat, ok, 0n, 1n))
+          Nat.add(passed, Case.count(ran, True{})),
+          Nat.add(failed, Case.count(ran, False{}))
         )
       )
 

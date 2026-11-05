@@ -38,7 +38,7 @@ const API_FILES = new Set(getClosure(path.join(SRC, "linter", "lint.bend")));
 // The npm package holds these files of this repo, but those it leaves out: tests, these scripts,
 // the test rules, and the rule API.
 const SHIPPED = /^(src\/|README\.md$|LICENSE$)/;
-const LEFT_OUT = /(\.test\.ts$|^src\/meta\/|^src\/linter\/(testing\.ts|tests\.bend)$)/;
+const LEFT_OUT = /(\.test\.ts$|^src\/meta\/|^src\/linter\/(testing\.ts|tests\.bend|cases\/))/;
 
 // What the npm package's package.json leaves out of this repo's: what only this repo uses.
 const DEV_ONLY = new Set(["private", "scripts", "devDependencies", "packageManager"]);

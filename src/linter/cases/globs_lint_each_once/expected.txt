@@ -1,0 +1,6 @@
+status 0
+--- stdout
+{case}/util.bend:1:1: hint tests/file: linted
+{case}/a.bend:1:1: hint tests/file: linted
+bend-lint: 2 finding(s)
+--- stderr

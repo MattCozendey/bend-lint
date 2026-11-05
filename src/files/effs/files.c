@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <dirent.h>
+#include <unistd.h>
 #endif
 
 // The names a folder listing collects, each ended by a NUL.
@@ -21,6 +22,8 @@ static int files_errno(DWORD code) {
   return code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND ? ENOENT
     : code == ERROR_ACCESS_DENIED ? EACCES
     : code == ERROR_DIRECTORY ? ENOTDIR
+    : code == ERROR_ALREADY_EXISTS ? EEXIST
+    : code == ERROR_DIR_NOT_EMPTY ? ENOTEMPTY
     : EIO;
 }
 #endif
@@ -143,8 +146,93 @@ Term files_real_run(Env e, Term* f, IoWork* w) {
 #endif
 }
 
+// The answer of a call that changes the file system and gives nothing: `ok`, else the errno of the
+// failure (on Windows, of GetLastError()).
+static Term files_done(Env e, int ok) {
+#ifdef _WIN32
+  int code = ok ? 0 : files_errno(GetLastError());
+#else
+  int code = ok ? 0 : errno;
+#endif
+  return ok ? io_done(e, term_pak(CID(Unit), 0)) : io_fail(e, code, NULL);
+}
+
+// Removes the file, or the empty folder, at a path.
+Term files_remove_run(Env e, Term* f, IoWork* w) {
+  u64         n    = 0;
+  char*       path = io_cstr(e, f[0], &n);
+  struct stat st;
+  int         bad = io_nul(path, n);
+  if (bad || stat(path, &st) != 0) {
+    int code = bad ? EINVAL : errno;
+    free(path);
+    return io_fail(e, code, NULL);
+  }
+  int folder = (st.st_mode & S_IFMT) == S_IFDIR;
+#ifdef _WIN32
+  int ok = folder ? RemoveDirectoryA(path) != 0 : DeleteFileA(path) != 0;
+#else
+  int ok = folder ? rmdir(path) == 0 : unlink(path) == 0;
+#endif
+  Term r = files_done(e, ok);
+  free(path);
+  return r;
+}
+
+// Makes a folder at a path, whose parent is there.
+Term files_make_folder_run(Env e, Term* f, IoWork* w) {
+  u64   n    = 0;
+  char* path = io_cstr(e, f[0], &n);
+  if (io_nul(path, n)) {
+    free(path);
+    return io_fail(e, EINVAL, NULL);
+  }
+#ifdef _WIN32
+  int ok = CreateDirectoryA(path, NULL) != 0;
+#else
+  int ok = mkdir(path, 0777) == 0;
+#endif
+  Term r = files_done(e, ok);
+  free(path);
+  return r;
+}
+
+// Makes a folder the one the run is in: relative paths, and the processes it starts, start there.
+Term files_enter_run(Env e, Term* f, IoWork* w) {
+  u64   n    = 0;
+  char* path = io_cstr(e, f[0], &n);
+  if (io_nul(path, n)) {
+    free(path);
+    return io_fail(e, EINVAL, NULL);
+  }
+#ifdef _WIN32
+  int ok = SetCurrentDirectoryA(path) != 0;
+#else
+  int ok = chdir(path) == 0;
+#endif
+  Term r = files_done(e, ok);
+  free(path);
+  return r;
+}
+
+// A program that does not use an effect gives it no id.
 static void __attribute__((constructor)) files_use(void) {
+#ifdef CID(list.raw)
   io_eff(CID(list.raw), files_list_run);
+#endif
+#ifdef CID(kind)
   io_eff(CID(kind), files_kind_run);
+#endif
+#ifdef CID(real)
   io_eff(CID(real), files_real_run);
+#endif
+#ifdef CID(remove)
+  io_eff(CID(remove), files_remove_run);
+#endif
+#ifdef CID(make_folder)
+  io_eff(CID(make_folder), files_make_folder_run);
+#endif
+#ifdef CID(enter)
+  io_eff(CID(enter), files_enter_run);
+#endif
 }

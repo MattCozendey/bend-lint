@@ -1,0 +1,1 @@
+{ "rules": { "tests/file": {}, "no/such": "warning" } }

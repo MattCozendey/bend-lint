@@ -1,0 +1,6 @@
+status 0
+--- stdout
+{case}/main.bend:3:14: hint tests/written: reference Nat
+{case}/new.bend:3:16: hint tests/written: reference F32
+bend-lint: 2 finding(s)
+--- stderr

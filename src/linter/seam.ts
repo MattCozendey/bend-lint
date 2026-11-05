@@ -1942,6 +1942,30 @@ export const getProject = (dir: string): string | undefined => {
       : getProject(up);
 };
 
+// The folder a run looks up its config from: that of the first file, glob or folder it names (a
+// folder is its own), past `test` and the value of `--jobs`; else the working folder.
+const getStart = (args: string[]): string => {
+  const named = args.find(
+    (arg, n) => !arg.startsWith("--") && args[n - 1] !== "--jobs" && !(n === 0 && arg === "test"),
+  );
+  const resolved = nodePath.resolve(named ?? ".");
+  return named === undefined ||
+    nodeFs.statSync(resolved, { throwIfNoEntry: false })?.isDirectory() === true
+    ? resolved
+    : nodePath.dirname(resolved);
+};
+
+// The rules folder of the project in `project`: the nearest bend-lint-rules up from it, or, if
+// there is none, the one beside its config.
+const getRulesFolder = (project: string, dir: string = project): string => {
+  const up = nodePath.dirname(dir);
+  return nodeFs.existsSync(nodePath.join(dir, RULES))
+    ? nodePath.join(dir, RULES)
+    : up === dir
+      ? nodePath.join(project, RULES)
+      : getRulesFolder(project, up);
+};
+
 // The entries of `value`, if it is a JSON object.
 const getObjectEntries = (value: unknown): Array<[string, unknown]> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -2049,7 +2073,7 @@ export const getRulesProgram = (project: string, { ids, packages }: Rules): stri
       return `import ${name}@${version}/${rest.join("/")}.bend as Rule${n}`;
     }
     const real = tryGet(() =>
-      nodeFs.realpathSync(nodePath.join(project, RULES, ...id.split("/")) + ".bend"),
+      nodeFs.realpathSync(nodePath.join(getRulesFolder(project), ...id.split("/")) + ".bend"),
     );
     if (real === undefined) {
       throw new Error(`there is no rule ${id}: ${RULES}/${id}.bend does not exist`);
@@ -2102,7 +2126,7 @@ export const getBuiltRules = (project: string, rules: Rules): Rules => {
   ) {
     return { ids: DEFAULT_IDS.map((id) => DEFAULTS_NAME + "/" + id), packages: rules.packages };
   }
-  const folder = tryGet(() => nodeFs.realpathSync(nodePath.join(project, RULES)));
+  const folder = tryGet(() => nodeFs.realpathSync(getRulesFolder(project)));
   if (folder === undefined || !isInside(OWN, folder) || rules.packages.size > 0) {
     return rules;
   }
@@ -2194,10 +2218,12 @@ if (import.meta.main) {
     )
     .map((a) => (getOverlay(a) === undefined ? a : getOverlayKey(a)));
   const project =
-    getProject(process.cwd()) ??
+    getProject(getStart(runArgs)) ??
     endWithError(
       json,
-      "no " + CONFIG + " in this folder or above it; `bunx bend-lint init` makes one",
+      "no " +
+        CONFIG +
+        " in the folder of the first file named, or above it; `bunx bend-lint init` makes one",
     );
 
   // `bend-lint prepare` makes what a run needs, Bend and the build of its rules, and lints nothing:
@@ -2215,7 +2241,10 @@ if (import.meta.main) {
     endWithError(json, getErrorMessageFromUnknown(e)),
   );
   const setupMs = performance.now() - started;
-  notes.forEach((note) => console.error(note));
+  // a run that a run of bend-lint started leaves the notes to that run
+  if (process.env.BEND_LINT_COMMAND === undefined) {
+    notes.forEach((note) => console.error(note));
+  }
   // Writes the report, if the run asks for one, as it ends with `code`.
   const writeReport = (code: number): void => {
     if (report !== undefined) {
@@ -2247,6 +2276,8 @@ if (import.meta.main) {
       BEND_LINT_PORT: String((server.address() as net.AddressInfo).port),
       BEND_LINT_PROJECT: getPathWithForwardSlashes(project),
       BEND_LINT_OVERLAYS: [...OVERLAYS.keys()].join("\n"),
+      // how the program starts bend-lint again (see `bend-lint test`): this runtime, then this file
+      BEND_LINT_COMMAND: process.execPath + "\n" + url.fileURLToPath(import.meta.url),
     },
     stdio: "inherit",
   });

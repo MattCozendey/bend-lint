@@ -1,0 +1,2 @@
+{case}/main.bend
+--show-suppressed

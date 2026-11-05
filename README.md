@@ -69,7 +69,8 @@ bunx bend-lint [<file or glob>...] [--fix | --fix-dangerously] [--show-suppresse
 ## Config
 
 `bend-lint.json` is the only place that picks the rules: a rule runs only if `rules` names it.
-bend-lint reads the nearest `bend-lint.json` above the folder it runs in.
+bend-lint reads the nearest `bend-lint.json` up from the first file or folder it names (or, if it
+names none, from the folder it runs in), and the nearest `bend-lint-rules/` up from that.
 
 ```json
 {
@@ -138,3 +139,30 @@ Then name it in `bend-lint.json`. The version is your bend-lint's, with `.0` add
 bend-lint, change it if Bend's check of your rule fails.
 
 To share rules, publish them to BendHub. A project then names your package in `packages`.
+
+## Test a rule
+
+`bunx bend-lint test <folder>...` runs each case under the folders: a folder with its own
+`bend-lint.json`, which turns the rule on, and `.bend` files. Before each line that must get a
+finding, put an `expect` directive (see [Suppress findings](#suppress-findings)). A case passes when
+each finding meets an expect, each expect meets a finding, and the rule runs on each file.
+
+Beside `x.bend`, an `x.fixed.bend` is the text that every fix of `x.bend` must give, without its
+`expect` lines. The case fixes a copy, `x.fixing.bend`, which goes after.
+
+A case with an `args.txt` runs bend-lint instead: one argument a line, with `{case}` for the case's
+folder, and `stdin.txt`, if there is one, as its input. What the run gives must be the text of
+`expected.txt`, with the case's folder as `{case}`:
+
+```
+status 0
+--- stdout
+{case}/main.bend:3:8: hint my/rule: ...
+bend-lint: 1 finding(s)
+--- stderr
+```
+
+It runs from a copy of the case's folder, `<case>.work`, which goes after the run: after its errors,
+`expected.txt` holds, for each file the run made or changed, `--- file <path>` and the file's text.
+A failing run case writes what it got to `got.txt`: ignore it, and `*.work/`, in git too. A folder
+with a `bend-lint-rules/` in it is not a case: it holds the rules of the cases under it.

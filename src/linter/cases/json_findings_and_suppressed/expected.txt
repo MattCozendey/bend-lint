@@ -1,0 +1,5 @@
+status 0
+--- stdout
+{"ok":true,"findings":[{"code":"tests/across","severity":"hint","message":"at 0","path":"{case}/main.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"fixes":[{"title":"Mark every file","applicability":"dangerous","edits":[{"path":"{case}/main.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"text":"# fixed\n"},{"path":"{case}/util.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"text":"# fixed\n"}]}]}],"suppressed":[{"code":"tests/across","severity":"hint","message":"at 0","path":"{case}/util.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"fixes":[{"title":"Mark every file","applicability":"dangerous","edits":[{"path":"{case}/util.bend","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"text":"# fixed\n"}]}]}],"skipped":[]}
+--- stderr
+bend-lint: 1 finding(s), 1 suppressed

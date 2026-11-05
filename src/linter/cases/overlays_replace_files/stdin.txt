@@ -1,0 +1,1 @@
+{"{case}/main.bend":"import Base\n\ndef two() -> Nat:\n  2n\n","{case}/new.bend":"import Base\n\ndef three() -> F32:\n  3.0\n"}

@@ -1,0 +1,7 @@
+status 0
+--- stdout
+{case}/main.bend:4:4: hint tests/types: type: U32
+{case}/main.bend:4:8: hint tests/types: type: U32
+{case}/main.bend:4:4: hint tests/types: the first two are the same type
+bend-lint: 3 finding(s)
+--- stderr
