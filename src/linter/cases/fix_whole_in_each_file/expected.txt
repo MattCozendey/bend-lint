@@ -1,0 +1,18 @@
+status 0
+--- stdout
+{case}/main.bend:1:1: hint tests/across: at 0
+bend-lint: 1 finding(s), 1 fixed
+--- stderr
+--- file main.bend
+# fixed
+import Base
+import ./util.bend as U
+
+def a() -> U32:
+  U.u()
+--- file util.bend
+# fixed
+import Base
+
+def u() -> U32:
+  1

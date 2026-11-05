@@ -14,5 +14,3 @@ __pycache__/
 
 # what a run case of `bend-lint test` got, when it fails
 got.txt
-# the copy a run case of `bend-lint test` runs in
-*.work/
