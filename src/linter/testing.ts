@@ -149,7 +149,9 @@ export const getFindingTexts = async (id: string, text: string): Promise<string[
 // so test files that load this at once write each only once.
 fs.mkdirSync(FIXTURE_RULES, { recursive: true });
 fs.readdirSync(FIXTURE_RULES)
-  .filter((file) => file.endsWith(".bend") && !FIXTURE_DEFS.includes(file.slice(0, -".bend".length)))
+  .filter(
+    (file) => file.endsWith(".bend") && !FIXTURE_DEFS.includes(file.slice(0, -".bend".length)),
+  )
   .forEach((file) => fs.rmSync(path.join(FIXTURE_RULES, file), { force: true }));
 FIXTURE_DEFS.forEach((def) =>
   writeNewFileAtomically(

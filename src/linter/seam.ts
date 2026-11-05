@@ -1060,7 +1060,7 @@ const getDeclarationTrees = (b: Builder, [head, ...frames]: Frame[]): Tree[] => 
       : [getDeclarationAt(b, "Definition", name, getDeclarationParts(b, head.kids))];
   }
   const syntax: Syntax =
-    head.name === "parse_fresh" && head.args[2] === b.book.ctrs
+    head.name === "parse_fresh" && head.args[2] === "ctrs"
       ? "Constructor"
       : b.book.tlds[head.out as string]?.$ === "ADT"
         ? "Datatype"
@@ -2022,6 +2022,12 @@ export const getRules = (project: string): Rules => {
   };
 };
 
+// Whether `file` is in the folder `folder`, or is it.
+const isInside = (folder: string, file: string): boolean => {
+  const relative = nodePath.relative(folder, file);
+  return !relative.startsWith("..") && !nodePath.isAbsolute(relative);
+};
+
 // `to` as Bend imports it from a file in the folder `from`, if it can: see PLAIN.
 const getImportPath = (from: string, to: string): string | undefined => {
   const relative = getPathWithForwardSlashes(nodePath.relative(from, to));
@@ -2086,13 +2092,7 @@ export const getBuiltRules = (project: string, rules: Rules): Rules => {
     return { ids: DEFAULT_IDS.map((id) => DEFAULTS_NAME + "/" + id), packages: rules.packages };
   }
   const folder = tryGet(() => nodeFs.realpathSync(nodePath.join(project, RULES)));
-  const fromOwn = nodePath.relative(OWN, folder ?? "");
-  if (
-    folder === undefined ||
-    fromOwn.startsWith("..") ||
-    nodePath.isAbsolute(fromOwn) ||
-    rules.packages.size > 0
-  ) {
+  if (folder === undefined || !isInside(OWN, folder) || rules.packages.size > 0) {
     return rules;
   }
   // a turned-on id that is not there stays, so that getRulesProgram says so
@@ -2148,12 +2148,8 @@ if (import.meta.main) {
     try {
       const project = process.env.INIT_CWD ?? "";
       const modules = tryGet(() => nodeFs.realpathSync(nodePath.join(project, "node_modules")));
-      const relative =
-        modules === undefined
-          ? ".."
-          : nodePath.relative(modules, OWN);
       unwrap(await tryGetBend2SourceUrl());
-      if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
+      if (modules !== undefined && isInside(modules, OWN)) {
         getInitFiles(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
         console.log(PREPARING);
         await getRunSetup(getProjectProgram(project));
