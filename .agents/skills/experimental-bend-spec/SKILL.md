@@ -22,8 +22,8 @@ less. A caller bug has one of two causes:
 
 - `shared.bend` (optional, see feature layout): A self-contained module (its laws, proofs and tests
   live in it). It imports only Base and the `shared` of each layer on the path from it up to `src/`.
-- `spec.bend`: the full public interface, and the claims about it. It imports Base only. The user
-  owns it.
+- `spec.bend`: the full public interface, and the claims about it. It imports only Base and the
+  `shared` of each layer on the path from it up to `src/`. The user owns it.
 - `impl.bend`: imports `./spec.bend as Spec`. It has the code, fills each interface law, and proves
   each claim. You can rewrite it.
 - `tests.bend` (optional): the tests that the module earned (see Tests).
