@@ -48,8 +48,9 @@ less. A caller bug has one of two causes:
     Game
   ```
 
-- A law mentions only Base and names of `spec.bend`. If a claim mentions `f`, `spec.bend` declares
-  `f` and specifies it (by claims, or by a reference def in `spec.bend`).
+- A law mentions only Base, the `shared` modules that `spec.bend` imports, and names of `spec.bend`.
+  If a claim mentions `f`, `spec.bend` declares `f` and specifies it (by claims, or by a reference
+  def in `spec.bend`).
 - Keep each type opaque (`Data`). Give each field that a caller reads as a law
   (`law player_x: for g: Game  Nat`). Give each value that a caller makes as a law (`law up: Move`).
 - State each property that a caller relies on. Common misses:
