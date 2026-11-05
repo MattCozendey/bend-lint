@@ -1,9 +1,9 @@
 ---
 name: experimental-bend-spec
 description:
-  "Experimental. Split a Bend module into a self-contained spec (spec.bend), its proof
-  (impl.bend) and the tests it earned (tests.bend). Use with bend2 before you write, review
-  or check a module's laws or tests, or code that calls the module."
+  "Experimental. Split a Bend module into a self-contained spec (spec.bend), its proof (impl.bend)
+  and the tests it earned (tests.bend). Use with bend2 before you write, review or check a module's
+  laws or tests, or code that calls the module."
 ---
 
 # Bend spec (experimental)
@@ -20,13 +20,12 @@ less. A caller bug has one of two causes:
 
 ## Layout
 
-- `shared.bend` (optional, see feature layout): A self-contained module
-  (its laws, proofs and tests live in it). It imports only Base and the `shared` of each layer on
-  the path from it up to `src/`.
+- `shared.bend` (optional, see feature layout): A self-contained module (its laws, proofs and tests
+  live in it). It imports only Base and the `shared` of each layer on the path from it up to `src/`.
 - `spec.bend`: the full public interface, and the claims about it. It imports Base only. The user
   owns it.
-- `impl.bend`: imports `./spec.bend as Spec`. It has the code, fills each interface law, and
-  proves each claim. You can rewrite it.
+- `impl.bend`: imports `./spec.bend as Spec`. It has the code, fills each interface law, and proves
+  each claim. You can rewrite it.
 - `tests.bend` (optional): the tests that the module earned (see Tests).
 - A caller imports `spec.bend` for the names, and `impl.bend` for the code. It uses only the names
   of `spec.bend`.
@@ -70,13 +69,13 @@ less. A caller bug has one of two causes:
 A test is a yellow flag. It must earn its place. Make the module correct by construction:
 
 1. A type that cannot hold a wrong value.
-2. Else, a claim in `spec.bend` that `impl.bend` proves. Prove it by structure (induction,
-   symmetry, a lemma), not by a case for each value, so that the proof stays small. A case split
-   is fine only when the cases are few (two Bools).
+2. Else, a claim in `spec.bend` that `impl.bend` proves. Prove it by structure (induction, symmetry,
+   a lemma), not by a case for each value, so that the proof stays small. A case split is fine only
+   when the cases are few (two Bools).
 3. Only if neither can state the behavior, a test (its kinds: the bend2 skill, Checks).
 
-A test starts with a comment that says why steps 1 and 2 cannot state the behavior. It ends with
-the `#|` lines that its run must print.
+A test starts with a comment that says why steps 1 and 2 cannot state the behavior. It ends with the
+`#|` lines that its run must print.
 
 ## Caller
 
@@ -85,9 +84,13 @@ the `#|` lines that its run must print.
 
 ## Folder structure and shared modules
 
-- Features are onion-like. For each layer(probably in `src` or `features`), there may be a `shared.bend` file XOR a `shared` folder if the utility earns it(file grows too large or has effects, for example). A `shared` folder, being a feature, may too contain `shared.bend` XOR a nested `shared` folder if needed.
+- Features are onion-like. For each layer(probably in `src` or `features`), there may be a
+  `shared.bend` file XOR a `shared` folder if the utility earns it(file grows too large or has
+  effects, for example). A `shared` folder, being a feature, may too contain `shared.bend` XOR a
+  nested `shared` folder if needed.
 - A `shared` module never imports a cousin. When a module that is not a descendant of a helper's
-  layer needs the helper, move the helper to the `shared` of the nearest common ancestor layer,
-  not higher.
-- A module that needs another feature, not one of its helpers, imports that feature's
-  `spec.bend` and `impl.bend` (see Layout), never its `shared`. Do not move a feature into a `shared` module to get around the rule above.
+  layer needs the helper, move the helper to the `shared` of the nearest common ancestor layer, not
+  higher.
+- A module that needs another feature, not one of its helpers, imports that feature's `spec.bend`
+  and `impl.bend` (see Layout), never its `shared`. Do not move a feature into a `shared` module to
+  get around the rule above.

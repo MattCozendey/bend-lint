@@ -9,8 +9,8 @@ description:
 
 ## Setup
 
-1. Run `bend guide` once per session, before you write Bend code. Use the `bend` on PATH, also if
-   it is a fork or a different version.
+1. Run `bend guide` once per session, before you write Bend code. Use the `bend` on PATH, also if it
+   is a fork or a different version.
 2. Before parallel or performance work, run `bend guide shaders`. Before a custom effect, run
    `bend guide effects`.
 3. After a change, run `bend <file> --check-only` on each changed file and on each proof file that
@@ -36,8 +36,7 @@ Use the repo's conventions. Where they say nothing, name defs as Base does:
 
 - `Type.verb`: the type or concept, then the action (`Wire.ask`, `Reader.add`). A def about none of
   its file's types is the verb alone; the import alias gives the prefix (`Lists.append`).
-- Bool: `is_x`, `has_x`, or a verb in the third person (`fits`). Compare: `is_lt`, `is_le`,
-  `is_eq`.
+- Bool: `is_x`, `has_x`, or a verb in the third person (`fits`). Compare: `is_lt`, `is_le`, `is_eq`.
 - Opposites, always in pairs: `to_x`/`from_x` convert; `show` gives a String, `read` parses it back
   to a Maybe; `get`/`set` (and `add`) act on a collection.
 - `T.of` makes a T from its parts.
@@ -51,8 +50,8 @@ Use the repo's conventions. Where they say nothing, name defs as Base does:
 
 ## Checks
 
-Make the bug impossible to write: give it a type that cannot hold a bad value. Use a law only
-when a type cannot rule the bug out. Use a test only when a law cannot state the behavior.
+Make the bug impossible to write: give it a type that cannot hold a bad value. Use a law only when a
+type cannot rule the bug out. Use a test only when a law cannot state the behavior.
 
 | Kind        | It checks                                               | Example                                  |
 | ----------- | ------------------------------------------------------- | ---------------------------------------- |
@@ -76,14 +75,12 @@ that:
 - fixes an implementation detail that no caller uses;
 - repeats a law, or follows from proven laws in one step.
 
-Good laws relate operations: round trip (`read_after_show`), access after update
-(`get_after_set`), frame (`set_keeps_other_keys`), kept measure (`set_preserves_size`), fast def
-equals clear def.
+Good laws relate operations: round trip (`read_after_show`), access after update (`get_after_set`),
+frame (`set_keeps_other_keys`), kept measure (`set_preserves_size`), fast def equals clear def.
 
 ### Proofs
 
-- Trust the checker. Bend is sound: a proof that checks is correct. Do not look for
-  counterexamples.
+- Trust the checker. Bend is sound: a proof that checks is correct. Do not look for counterexamples.
 - A law's statement obeys the code rules. Its proof body does not, unless it is too expensive to
   check.
 - Ask the user before you review a proof body, or code that a proven law covers.
