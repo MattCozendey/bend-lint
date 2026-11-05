@@ -37,6 +37,18 @@ explicitly requested. "Lambda syntax is \x.f now, not λx.f" -- bad: the parser 
 good: the design is re-derived, the cause dies, the `if` never exists. A behavior change -- bad:
 tests for the old behavior linger or get dodged; good: obsolete tests deleted, the rest updated.
 
+The divergence rule: every concept gets ONE representation in the whole codebase, chosen for its
+access pattern first. A second one is a redundant concept unless it EARNS its place: it provably
+beats every existing one for the use cases it serves -- a proven law where the language can state
+one, a measurement or a test otherwise. Before anything uses it, a translation function to an
+existing one must be proven to match, so that everything known about the old one holds for the new
+one. And if it beats them in ALL use cases, it is no longer a divergence but a swap: the swap rule
+applies, the old ones die, and their laws and tests are restated on the new one. A second list type
+-- bad: added because it "felt cleaner", nothing shows it wins, both live on; good: a measurement
+shows it is faster for appends, a proven law maps it to the old one, and the old one keeps the use
+cases it still wins. A new type wins everywhere -- bad: it lands beside the old one "for now"; good:
+the old one, its laws and its tests are gone in the same diff.
+
 Comments are where you (opus) fail hardest. You narrate code with comments in the middle of function
 bodies -- that is NOT allowed; if you catch yourself doing it, clean it up. You also accumulate
 comments and never remove them, clogging files. Be aggressive: keep only what is truly essential. A

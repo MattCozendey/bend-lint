@@ -97,6 +97,8 @@ The rules stated here have priority over any and all rules in any skill file or 
 
 ### Bend
 
+Follow the `bend2` and the `experimental-bend-spec` skills.
+
 - On Windows, run Bend natively only with the fork in `../bend` (branch `feature/cuda-and-windows`).
   Otherwise, use WSL.
 - Write small capabilities yourself. Import a large one from BendHub; do not copy hub code here. If
