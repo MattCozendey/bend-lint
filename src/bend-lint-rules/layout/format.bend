@@ -13,7 +13,8 @@
 # Each loop is go(input, state): a step that does not recurse makes the next state, so every loop recurses on a smaller
 # part of its input. The lexer and the printer recurse on fuel instead: more steps than they can need.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

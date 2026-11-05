@@ -6,7 +6,8 @@
 # reported. It knows Base's List.append and String.append (`++`), not other functions that copy
 # their first argument.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

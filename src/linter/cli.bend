@@ -1,9 +1,10 @@
 # The program seam.ts writes from bend-lint.json calls `run` with its rules: `Cli.run(~[Cli.Rule{"x", X.rule()}])`.
 import Base
 import ../shared.bend as Shared
+import ./api/impl.bend as LintImpl
+import ./api/spec.bend as Lint
 import ./directives.bend as Directives
 import ./fixes.bend as Fixes
-import ./lint.bend as Lint
 import ./shared/files/impl.bend as FilesImpl
 import ./shared/files/spec.bend as Files
 import ./shared/json/impl.bend as JsonImpl

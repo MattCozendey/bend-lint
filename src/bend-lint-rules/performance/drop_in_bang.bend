@@ -7,7 +7,8 @@
 # ms, on an Apple M-series GPU, whose memory is unified: the GPU loses on both kinds of memory. The JS
 # lane has no GPU. A return type written another way (an alias of Unit) is not known.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 import ./gpu_fit.bend as GpuFit
 

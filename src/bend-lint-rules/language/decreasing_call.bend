@@ -8,7 +8,8 @@
 # once. An @unsafe definition (`def f?`) may call itself freely, and a call in a type (a pair type
 # `A & B`, a type's arguments, an equality) is not checked.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

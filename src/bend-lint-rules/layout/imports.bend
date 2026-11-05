@@ -5,7 +5,8 @@
 # one's alias.
 # Heuristics: two imports name one file if the check loads one file for both.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

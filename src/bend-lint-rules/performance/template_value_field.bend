@@ -12,7 +12,8 @@
 # type (a number, a function, a list) builds no record of closures, and is not judged. A use in a type, or under a
 # lambda, does not run when the record is built.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

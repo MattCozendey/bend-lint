@@ -1,6 +1,6 @@
 // Writes what bend-lint ships into an empty folder, each part as it goes out:
-// - api/: the rule API, as the BendHub package API in seam.ts: src/linter/lint.bend and the files
-//   it imports, at their paths from src/, and api.bend, which imports lint.bend: Bend publishes only
+// - api/: the rule API, as the BendHub package API in seam.ts: src/linter/api/ and the files it
+//   imports, at their paths from src/, and api.bend, which imports the API: Bend publishes only
 //   files in the entry's folder.
 // - rules/: bend-lint's own rules, as the BendHub package DEFAULTS in seam.ts: each at its path
 //   from bend-lint-rules/, the other files of this repo they import under lib/, at their paths from
@@ -41,7 +41,7 @@ const RULES = path.join(SRC, "bend-lint-rules");
 const LICENSE = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8");
 
 // The rule API's files.
-const API_FILES = new Set(getClosure(path.join(SRC, "linter", "lint.bend")));
+const API_FILES = new Set(getClosure(path.join(SRC, "linter", "api", "impl.bend")));
 
 // The npm package holds these files of this repo, but those it leaves out: these scripts, bend-lint's
 // own rules (they ship on BendHub) and config, and the rule API.
@@ -104,7 +104,10 @@ const getApiPackage = (): Map<string, string> =>
   getPackage(
     new Map([...API_FILES].map((file): [string, string] => [file, getPathFrom(SRC, file)])),
     [
-      ["api.bend", "import Base\nimport ./linter/lint.bend as Lint\n"],
+      [
+        "api.bend",
+        "import Base\nimport ./linter/api/impl.bend as LintImpl\nimport ./linter/api/spec.bend as Lint\n",
+      ],
       ["LICENSE", LICENSE],
     ],
   );

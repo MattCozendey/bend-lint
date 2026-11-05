@@ -8,7 +8,8 @@
 # definition that fills a law, or returns an equality) does not run, and is skipped. A loop that repeats
 # work on purpose, such as a benchmark's, is the case to expect.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

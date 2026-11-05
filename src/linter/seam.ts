@@ -4,20 +4,20 @@
 // about Bend files over local TCP until the program exits (Seam in cli.bend sends them, and reads
 // the answers). A check's answer is the linter's program, as Bend's parser and checker give it:
 // each file's syntax tree, and, for facts, what the checker found on its nodes (Lint.Source, in
-// lint.bend). When Bend's checker is Bend, glue in Bend makes the same program, and the code here
+// the rule API's spec). When Bend's checker is Bend, glue in Bend makes the same program, and the code here
 // that knows bend.ts goes, so mutation and any optimization are fair here. Node 24.2 or later runs
 // a built program too, but a large program needs --max-old-space-size=8192.
 //
 // It loads a copy of bend.ts in which each TRACED function reports its calls: the parser's give
 // each file's syntax before lowering; the checker's judgments, on each def's elaborated body, give
-// the facts. What a rule sees is lint.bend's contract, not Bend's: when the checker is Bend, its
+// the facts. What a rule sees is the rule API's contract, not Bend's: when the checker is Bend, its
 // glue makes each part from what that checker gives, or bend-lint computes it.
 //
 // | What a rule sees               | Now, from                         | Risk   |
 // | ------------------------------ | --------------------------------- | ------ |
 // | spans, names, binders, targets | the parser                        | low    |
 // | types: show, same, normal      | term_show, term_compare, term_snf | low    |
-// | declarations and their uses    | lint.bend, our own code           | none   |
+// | declarations and their uses    | the rule API, our own code        | none   |
 // | syntax before lowering         | the parser's calls (KEPT)         | medium |
 // | quantity, used                 | the judgments (JUDGED)            | high   |
 // | which node a fact is on        | span values (`isNodeOf`)          | medium |
@@ -267,7 +267,7 @@ const RULES = "bend-lint-rules";
 // bend-lint's version, as its BendHub packages have it: with `.0` added.
 const HUB_VERSION = `${pkg.version}.0`;
 
-// The rule API, as rules import it from BendHub: src/linter/lint.bend and the files it imports, at
+// The rule API, as rules import it from BendHub: src/linter/api/ and the files it imports, at
 // their paths from src/, in the package bend-lint-api, at bend-lint's version (see ship.ts).
 export const API = `bend-lint-api@${HUB_VERSION}`;
 

@@ -8,7 +8,8 @@
 # `match` takes apart is skipped: in a case, it stands for the matched constructor. Bend's checker
 # stops at its first error; this rule reports every such binder at once.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

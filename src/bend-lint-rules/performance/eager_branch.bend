@@ -14,7 +14,8 @@
 # lambda, a type or an equation does not run, and is skipped; an erased argument (a proof's) is not told
 # from a live one. A loop that is short in practice makes a finding that costs little to ignore.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 

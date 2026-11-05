@@ -13,7 +13,8 @@
 # skips a definition that returns IO: its calls build effects, they do not run them. A call inside
 # another call of itself, inside a lambda, or in a type, does not count.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

@@ -1,10 +1,11 @@
 # no_unused/imports: an import that nothing in its file uses.
 # Fix: deletes the import's line.
 # Heuristics: a use is a name written through the import's alias, or, for Base, a name that only Base
-# declares (Imported in lint.bend). An import of an impl.bend whose file also imports the spec.bend beside it is
+# declares (Imported in the rule API). An import of an impl.bend whose file also imports the spec.bend beside it is
 # used: it fills the spec's laws, which the file uses through the spec's names (see the experimental-bend-spec skill).
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # The fix that deletes the import's line.

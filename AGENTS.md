@@ -110,9 +110,8 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
   plugins, and `src/shared.bend` helpers for any program.
 - Code that knows Bend's own shapes (its parser, checker and their data) goes in
   `src/linter/seam.ts`, and nowhere else: it gives the Bend side the linter's own model, the types
-  of `lint.bend`. Where any other Bend helper goes: the `experimental-bend-spec` skill. A helper
-  about linting that more than one file of the linter or its rules uses goes in
-  `src/linter/lint.bend`.
+  of the rule API. Where any other Bend helper goes: the `experimental-bend-spec` skill. A helper
+  about linting that more than one file of the linter or its rules uses goes in the rule API.
 - `bun run sync-bend` moves the pinned Bend (`bendRelease` in package.json) to Bend's newest
   release, only if the typecheck and lint pass on it. Run it on Linux or macOS: on Windows,
   bend-lint uses the fork's pinned commit (`bendWindows`), which moves by hand when the fork moves.
@@ -122,8 +121,8 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
   (`src/linter/build/rules.<hash>.bend`), and a rule's id is its path in `bend-lint-rules/`. This
   repo lints itself so, with every default rule. Users install bend-lint per project, never
   globally: Bend imports only relative paths of plain names.
-- The rule API is `src/linter/lint.bend` and the files it imports. Rules import it from BendHub, as
-  the package `bend-lint-api` at bend-lint's version (`0.1.0` is `bend-lint-api@0.1.0.0`); this repo
+- The rule API is `src/linter/api/` and the files it imports. Rules import it from BendHub, as the
+  package `bend-lint-api` at bend-lint's version (`0.1.0` is `bend-lint-api@0.1.0.0`); this repo
   imports it by relative paths. bend-lint's own rules go to BendHub as `bend-lint-rules`, at the
   same version. `bun run ship <folder>` writes both packages, and the npm package, whose Bend files
   import the API from BendHub, and whose install runs init and downloads Bend; `--publish` publishes

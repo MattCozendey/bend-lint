@@ -9,7 +9,8 @@
 # the loop along the list (a step, or a split in two: bend-ml's tensor-array fills a tree of bands so),
 # and is not reported.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

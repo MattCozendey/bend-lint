@@ -6,7 +6,8 @@
 # The `+` costs no speed: the compiler counts references from the uses, not from the `+`. Removing
 # 1,049 such `+` from Bend's slash boss demo, three-bodies and a raytracer left their C unchanged.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

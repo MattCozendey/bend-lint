@@ -10,7 +10,8 @@
 # an erased parameter (`-acc`), keeps it there. Only the loop's own calls are read; a call of the loop
 # through another definition, or through a template, is not.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

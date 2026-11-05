@@ -1,6 +1,7 @@
 import Base
 import ../shared.bend as Shared
-import ./lint.bend as Lint
+import ./api/impl.bend as LintImpl
+import ./api/spec.bend as Lint
 import ./shared/text/impl.bend as TextImpl
 import ./shared/text/spec.bend as Text
 

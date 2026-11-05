@@ -6,7 +6,8 @@
 # such use at once. A definition used as a type argument of a call is dead too, but the rule cannot
 # tell such an argument from a live one.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

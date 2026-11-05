@@ -14,7 +14,8 @@
 # must be built twice, and sharing it counts references; it is skipped. Numbers are those of
 # performance/gpu_fit, as the callee's return type is written.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 import ./gpu_fit.bend as GpuFit

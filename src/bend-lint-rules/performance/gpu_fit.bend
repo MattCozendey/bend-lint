@@ -19,7 +19,8 @@
 # defined in the program's files; anything else is data. Erased and template parameters do not count. A
 # `!` call of a definition that returns Unit is left to performance/drop_in_bang.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

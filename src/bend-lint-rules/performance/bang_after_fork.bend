@@ -12,7 +12,8 @@
 # no parallel let runs, or of one that returns Unit, is left to performance/gpu_fit and
 # performance/drop_in_bang: they ask to remove the `!`.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 import ./gpu_fit.bend as GpuFit

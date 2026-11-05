@@ -124,12 +124,13 @@ Form: `# bend-lint: <disable|expect>-<scope> <rule>[@severity] -- <reason>`.
 
 ## Write a rule
 
-A rule is a file in `bend-lint-rules/`. It imports bend-lint's rule API from BendHub,
-[lint.bend](src/linter/lint.bend), whose comments are the API, and defines `rule()`:
+A rule is a file in `bend-lint-rules/`. It imports bend-lint's rule API from BendHub, whose
+[spec.bend](src/linter/api/spec.bend) says what a rule sees, and defines `rule()`:
 
 ```
 import Base
-import bend-lint-api@0.2.2.0/linter/lint.bend as Lint
+import bend-lint-api@0.2.2.0/linter/api/impl.bend as LintImpl
+import bend-lint-api@0.2.2.0/linter/api/spec.bend as Lint
 
 def rule() -> Lint.Rule:
   ...

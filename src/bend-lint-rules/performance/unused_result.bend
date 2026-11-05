@@ -8,7 +8,8 @@
 # those of performance/gpu_fit, and cost nothing to drop. An erased binder holds nothing at run time,
 # and a step of a `do` block (`x : T <- m`, a call of a bind) gets its value from the monad, used or not.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 import ./gpu_fit.bend as GpuFit
 

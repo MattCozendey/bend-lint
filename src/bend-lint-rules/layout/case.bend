@@ -18,7 +18,8 @@
 # is declared. `import Base`, and a def that fills a law of another file, are skipped: their names are
 # not this file's to choose.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Types

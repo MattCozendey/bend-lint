@@ -4,7 +4,8 @@
 # Heuristics: it compares real paths, links resolved, so a link to a file is that file. Base and hub
 # imports are not paths: it skips them.
 import Base
-import ../../linter/lint.bend as Lint
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../shared.bend as Shared
 
 # Paths

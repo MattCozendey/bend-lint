@@ -4,8 +4,9 @@
 # Heuristics: it reads the directives as written, and its fix writes the same comments over them, so a
 # fix keeps the program.
 import Base
+import ../../linter/api/impl.bend as LintImpl
+import ../../linter/api/spec.bend as Lint
 import ../../linter/directives.bend as Directives
-import ../../linter/lint.bend as Lint
 import ../../shared.bend as Shared
 
 # Types
