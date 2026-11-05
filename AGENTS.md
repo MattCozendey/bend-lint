@@ -159,7 +159,7 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
 
 ```sh
 bun install
-bun test --parallel # does not type check
+bun run test # does not type check
 bun run typecheck
 bun run lint
 bun run format:check

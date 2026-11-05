@@ -219,6 +219,9 @@ const PROGRAMS_DIR = url.fileURLToPath(new URL("programs/", SERVER_CACHE_DIR));
 // paths of plain names, so they live beside cli.bend, which they import.
 export const BUILD = url.fileURLToPath(new URL("build/", import.meta.url));
 
+// bend-lint's own folder: this repo, or the installed npm package.
+const OWN = url.fileURLToPath(new URL("../../", import.meta.url));
+
 // The config, and the folder of rules beside it.
 const CONFIG = "bend-lint.json";
 const RULES = "bend-lint-rules";
@@ -2066,24 +2069,43 @@ export const getRulesProgram = (project: string, { ids, packages }: Rules): stri
   return source;
 };
 
-// The rules a run of a config of `rules` builds: those it turns on; but if each is one of
-// bend-lint's own (DEFAULT_IDS) from DEFAULTS, all of bend-lint's own. That program is the same for
-// each such config, so one build serves them all, made once (see `prepare`): the runner runs only
-// the rules its config turns on.
-const getBuiltRules = (rules: Rules): Rules => {
+// The rules a run in `project` of a config of `rules` builds: those it turns on; but if each is one
+// of bend-lint's own (DEFAULT_IDS) from DEFAULTS, all of bend-lint's own; and if it takes no package
+// and its rules folder is in OWN (this repo's rules, or the tests' fixtures), all the rules there.
+// Such a program is the same for each such config, so one build serves them all, made once (see
+// `prepare`): the runner runs only the rules its config turns on.
+export const getBuiltRules = (project: string, rules: Rules): Rules => {
   const isDefault = (id: string): boolean =>
     id.startsWith(DEFAULTS_NAME + "/") &&
     (DEFAULT_IDS?.includes(id.slice(DEFAULTS_NAME.length + 1)) ?? false);
-  return DEFAULT_IDS !== undefined &&
+  if (
+    DEFAULT_IDS !== undefined &&
     rules.packages.get(DEFAULTS_NAME) === HUB_VERSION &&
     rules.ids.every(isDefault)
-    ? { ids: DEFAULT_IDS.map((id) => DEFAULTS_NAME + "/" + id), packages: rules.packages }
-    : rules;
+  ) {
+    return { ids: DEFAULT_IDS.map((id) => DEFAULTS_NAME + "/" + id), packages: rules.packages };
+  }
+  const folder = tryGet(() => nodeFs.realpathSync(nodePath.join(project, RULES)));
+  const fromOwn = nodePath.relative(OWN, folder ?? "");
+  if (
+    folder === undefined ||
+    fromOwn.startsWith("..") ||
+    nodePath.isAbsolute(fromOwn) ||
+    rules.packages.size > 0
+  ) {
+    return rules;
+  }
+  // a turned-on id that is not there stays, so that getRulesProgram says so
+  const there = nodeFs
+    .readdirSync(folder, { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".bend"))
+    .map((file) => getPathWithForwardSlashes(file).slice(0, -".bend".length));
+  return { ids: [...new Set([...there, ...rules.ids])].sort(), packages: rules.packages };
 };
 
 // The program of the rules a run in `project` builds.
 const getProjectProgram = (project: string): string =>
-  getRulesProgram(project, getBuiltRules(getRules(project)));
+  getRulesProgram(project, getBuiltRules(project, getRules(project)));
 
 // Makes bend-lint.json in `dir`, if it is not there; gives the files it wrote, and those it kept.
 const getInitFiles = (dir: string): { wrote: string[]; kept: string[] } => {
@@ -2129,7 +2151,7 @@ if (import.meta.main) {
       const relative =
         modules === undefined
           ? ".."
-          : nodePath.relative(modules, url.fileURLToPath(new URL("../../", import.meta.url)));
+          : nodePath.relative(modules, OWN);
       unwrap(await tryGetBend2SourceUrl());
       if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
         getInitFiles(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));

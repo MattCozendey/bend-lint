@@ -33,7 +33,7 @@ jobs:
           'workflow_dispatch')
         run: |
           sed -i 's#"bendRelease": "\([^/"]*/[^/"]*\)/[^"]*"#"bendRelease": "\1/main"#' package.json
-      - run: bun test --parallel
+      - run: bun run test
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check

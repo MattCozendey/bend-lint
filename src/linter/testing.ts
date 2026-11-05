@@ -11,9 +11,9 @@ import { fileURLToPath } from "node:url";
 
 import { isMachineNote, tryGetBend2SourceUrl } from "../shared/bend2.ts";
 import { OK, unwrap } from "../shared/result.ts";
-import { getCommandOutcome, writeFileAtomically } from "../shared/utils.ts";
+import { getCommandOutcome, writeFileAtomically, writeNewFileAtomically } from "../shared/utils.ts";
 import type { Outcome } from "../shared/utils.ts";
-import { BUILD, getBuiltProgram, getRulesProgram } from "./seam.ts";
+import { BUILD, getBuiltProgram, getBuiltRules, getRulesProgram } from "./seam.ts";
 
 // Types
 // =====
@@ -35,6 +35,14 @@ const SERVER = path.join(HERE, "seam.ts");
 // The project of the test rules: tests/<def> is the def <def> of tests.bend,
 // through a rule file in its bend-lint-rules/.
 const FIXTURES = path.join(BUILD, "fixtures");
+const FIXTURE_RULES = path.join(FIXTURES, "bend-lint-rules", "tests");
+
+// The defs of tests.bend that are rules: each is the rule tests/<def>.
+const FIXTURE_DEFS = [
+  ...fs
+    .readFileSync(path.join(HERE, "tests.bend"), "utf8")
+    .matchAll(/^def (\w+)\(\) -> Lint\.Rule:$/gm),
+].map((m) => m[1]);
 
 const LINE = /^(.*):(\d+:\d+): (\w+) (\S+): (.*)$/;
 
@@ -49,22 +57,17 @@ export const BUILDS: boolean = OK in (await tryGetBend2SourceUrl());
 // FIXTURES for tests/<def>.
 const getRuleProject = (id: string): string => (id.startsWith("tests/") ? FIXTURES : ROOT);
 
-// Builds the program of the rule `id` alone, as the server does for a project
-// that turns on only it, if bend-lint has its Bend (BUILDS). A test file builds
-// its rules once, before its tests.
+// Builds the program that runs the rule `id`, as the server does for a project
+// that turns on only it, if bend-lint has its Bend (BUILDS): that of every rule
+// in the project of `id` (see getBuiltRules), so that all tests share one
+// build. A test file builds its rules once, before its tests.
 export const buildRule = async (id: string): Promise<void> => {
   if (!BUILDS) {
     return;
   }
-  if (id.startsWith("tests/")) {
-    writeFileAtomically(
-      path.join(FIXTURES, "bend-lint-rules", ...id.split("/")) + ".bend",
-      "import Base\nimport ../../../../lint.bend as Lint\nimport ../../../../tests.bend as Tests\n\n" +
-        `def rule() -> Lint.Rule:\n  Tests.${id.slice("tests/".length)}()\n`,
-    );
-  }
+  const project = getRuleProject(id);
   await getBuiltProgram(
-    getRulesProgram(getRuleProject(id), { ids: [id], packages: new Map() }),
+    getRulesProgram(project, getBuiltRules(project, { ids: [id], packages: new Map() })),
     unwrap(await tryGetBend2SourceUrl()),
   );
 };
@@ -137,3 +140,21 @@ export const getFindingTexts = async (id: string, text: string): Promise<string[
   (await getFindings(id, { "main.bend": text }, "main.bend")).map(
     ({ at, code, message }) => `${at} ${code}: ${message}`,
   );
+
+// Side effects
+// ============
+
+// Every fixture rule is written before any build, as its program has them all;
+// one that tests.bend no longer has goes. A rule's text follows from its name,
+// so test files that load this at once write each only once.
+fs.mkdirSync(FIXTURE_RULES, { recursive: true });
+fs.readdirSync(FIXTURE_RULES)
+  .filter((file) => file.endsWith(".bend") && !FIXTURE_DEFS.includes(file.slice(0, -".bend".length)))
+  .forEach((file) => fs.rmSync(path.join(FIXTURE_RULES, file), { force: true }));
+FIXTURE_DEFS.forEach((def) =>
+  writeNewFileAtomically(
+    path.join(FIXTURE_RULES, def + ".bend"),
+    "import Base\nimport ../../../../lint.bend as Lint\nimport ../../../../tests.bend as Tests\n\n" +
+      `def rule() -> Lint.Rule:\n  Tests.${def}()\n`,
+  ),
+);

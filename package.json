@@ -19,7 +19,7 @@
     "lint": "bun ./src/meta/link-bend.ts && oxlint . && bun ./src/linter/seam.ts $(git ls-files \"*.bend\" \":!demos\")",
     "ship": "bun ./src/meta/ship.ts",
     "sync-bend": "bun ./src/meta/sync-bend.ts",
-    "test": "bun test --parallel",
+    "test": "bun test --parallel=4 --max-concurrency=4",
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "devDependencies": {
@@ -27,7 +27,7 @@
     "@types/bun": "1.4.4",
     "oxfmt": "0.76.0",
     "oxlint": "1.91.0",
-    "oxlint-tsgolint": "7.0.2005",
+    "oxlint-tsgolint": "7.0.2006",
     "typebox": "1.4.4",
     "typescript": "7.0.2"
   },
@@ -36,5 +36,5 @@
   },
   "packageManager": "bun@1.4.4",
   "bendRelease": "bendlang/bend/v2.0.39",
-  "bendWindows": "MattCozendey/bend/09d9fa28e2f2ed0827801ab1e07101fc19d49dc6"
+  "bendWindows": "MattCozendey/bend/d38038df4c456f5c8421f3630787f6de91d6c724"
 }

@@ -52,7 +52,7 @@ if (newest === tag) {
     text.replace(`"bendRelease": "${pkg.bendRelease}"`, `"bendRelease": "${moved}"`),
   );
   const passed = [
-    ["bun", "test", "--parallel"],
+    ["bun", "run", "test"],
     ["bun", "run", "typecheck"],
     ["bun", "run", "lint"],
   ].every(isPassing);
