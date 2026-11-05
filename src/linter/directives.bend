@@ -1,7 +1,8 @@
 import Base
 import ../shared.bend as Shared
-import ../text/main.bend as Text
 import ./lint.bend as Lint
+import ./shared/text/impl.bend as TextImpl
+import ./shared/text/spec.bend as Text
 
 # Scanning
 # ========

@@ -1,19 +1,9 @@
 import Base
-import ../shared.bend as Shared
+import ../../../shared.bend as Shared
+import ./spec.bend as Spec
 
 # Types
 # =====
-type Json is Data:
-  JNull{}
-  JTrue{}
-  JFalse{}
-  JNumber{text: String}
-  JString{text: String}
-  JArray{items: List<&2, Json>}
-  JObject{fields: List<&2, JField>}
-
-type JField is Data:
-  JField{key: String, value: Json}
 
 # Reading
 # =======
@@ -255,40 +245,40 @@ def Lex.done(lex: Lex) -> List<&2, Token>:
 
 # A list or an object being read: its items, or its fields and the key read for the next one (all last first).
 type Frame is Data:
-  InList{items: List<&2, Json>}
-  InObject{fields: List<&2, JField>, key: Maybe<&2, String>}
+  InList{items: List<&2, Spec.Json>}
+  InObject{fields: List<&2, Spec.JField>, key: Maybe<&2, String>}
 
 # What is read so far: the open lists and objects (innermost first), and the value read whole, if any; None if the
 # text is not JSON.
 type Read is Data:
-  Read{stack: List<&2, Frame>, value: Maybe<&2, Json>}
+  Read{stack: List<&2, Frame>, value: Maybe<&2, Spec.Json>}
   Unreadable{}
 
-def Json.word(+w: String) -> Json:
+def Json.word(+w: String) -> Spec.Json:
   Maybe.default(
     &2,
-    Json,
+    Spec.Json,
     Shared.Names.lookup(
-      Json,
+      Spec.Json,
       w,
       [
-        Shared.Names.Named{"true", JTrue{}},
-        Shared.Names.Named{"false", JFalse{}},
-        Shared.Names.Named{"null", JNull{}}
+        Shared.Names.Named{"true", Spec.JTrue{}},
+        Shared.Names.Named{"false", Spec.JFalse{}},
+        Shared.Names.Named{"null", Spec.JNull{}}
       ]
     ),
-    JNumber{w}
+    Spec.JNumber{w}
   )
 
 # A value read whole: into the innermost list or object, or as the text's value.
-def Read.value(v: Json, stack: List<&2, Frame>, value: Maybe<&2, Json>) -> Read:
+def Read.value(v: Spec.Json, stack: List<&2, Frame>, value: Maybe<&2, Spec.Json>) -> Read:
   match stack value:
     case Nil{} None{}:
       Read{[], Some{v}}
     case Con{InList{items}, rest} _:
       Read{InList{v <> items} <> rest, value}
     case Con{InObject{fields, Some{k}}, rest} _:
-      Read{InObject{JField{k, v} <> fields, None{}} <> rest, value}
+      Read{InObject{Spec.JField{k, v} <> fields, None{}} <> rest, value}
     case _ _:
       Unreadable{}
 
@@ -303,13 +293,13 @@ def Read.step(token: Token, r: Read) -> Read:
     case TList{} Read{stack, value}:
       Read{InList{[]} <> stack, value}
     case TEnd{} Read{Con{InList{items}, rest}, value}:
-      Read.value(JArray{List.reverse(&2, Json, items)}, rest, value)
+      Read.value(Spec.JArray{List.reverse(&2, Spec.Json, items)}, rest, value)
     case TClose{} Read{Con{InObject{fields, None{}}, rest}, value}:
-      Read.value(JObject{List.reverse(&2, JField, fields)}, rest, value)
+      Read.value(Spec.JObject{List.reverse(&2, Spec.JField, fields)}, rest, value)
     case TString{text} Read{Con{InObject{fields, None{}}, rest}, value}:
       Read{InObject{fields, Some{text}} <> rest, value}
     case TString{text} Read{stack, value}:
-      Read.value(JString{text}, stack, value)
+      Read.value(Spec.JString{text}, stack, value)
     case TWord{w} Read{stack, value}:
       Read.value(Json.word(w), stack, value)
     case _ _:
@@ -322,14 +312,14 @@ def Read.go(tokens: List<&2, Token>, r: Read) -> Read:
     case Con{t, rest}:
       Read.go(rest, Read.step(t, r))
 
-def Read.done(r: Read) -> Maybe<&2, Json>:
+def Read.done(r: Read) -> Maybe<&2, Spec.Json>:
   match r:
     case Read{Nil{}, value}:
       value
     case _:
       None{}
 
-def read(text: String) -> Maybe<&2, Json>:
+def Spec.read(text):
   Read.done(Read.go(Lex.done(Lex.go(text, Lex{Between{}, "", []})), Read{[], None{}}))
 
 # Writing
@@ -337,7 +327,7 @@ def read(text: String) -> Maybe<&2, Json>:
 
 # What is left to write: a value, or text as it is.
 type Piece is Data:
-  PValue{value: Json}
+  PValue{value: Spec.Json}
   PText{text: String}
 
 def hex(+n: U32) -> Char:
@@ -372,7 +362,7 @@ def quote(s: String) -> String:
   "\"" ++ quote.go(s, "") ++ "\""
 
 # The pieces of `items` (last first), with a comma between each two, onto `out`.
-def items(reversed: List<&2, Json>, out: List<&2, Piece>) -> List<&2, Piece>:
+def items(reversed: List<&2, Spec.Json>, out: List<&2, Piece>) -> List<&2, Piece>:
   match reversed:
     case Nil{}:
       out
@@ -382,32 +372,32 @@ def items(reversed: List<&2, Json>, out: List<&2, Piece>) -> List<&2, Piece>:
       items(rest, PText{","} <> PValue{v} <> out)
 
 # The pieces of `fields` (last first), with a comma between each two, onto `out`.
-def fields(reversed: List<&2, JField>, out: List<&2, Piece>) -> List<&2, Piece>:
+def fields(reversed: List<&2, Spec.JField>, out: List<&2, Piece>) -> List<&2, Piece>:
   match reversed:
     case Nil{}:
       out
-    case Con{JField{k, v}, Nil{}}:
+    case Con{Spec.JField{k, v}, Nil{}}:
       PText{quote(k) ++ ":"} <> PValue{v} <> out
-    case Con{JField{k, v}, rest}:
+    case Con{Spec.JField{k, v}, rest}:
       fields(rest, PText{","} <> PText{quote(k) ++ ":"} <> PValue{v} <> out)
 
 # A value as pieces, onto `rest`: its lists and objects open one level.
-def pieces(v: Json, rest: List<&2, Piece>) -> List<&2, Piece>:
+def pieces(v: Spec.Json, rest: List<&2, Piece>) -> List<&2, Piece>:
   match v:
-    case JNull{}:
+    case Spec.JNull{}:
       PText{"null"} <> rest
-    case JTrue{}:
+    case Spec.JTrue{}:
       PText{"true"} <> rest
-    case JFalse{}:
+    case Spec.JFalse{}:
       PText{"false"} <> rest
-    case JNumber{text}:
+    case Spec.JNumber{text}:
       PText{text} <> rest
-    case JString{text}:
+    case Spec.JString{text}:
       PText{quote(text)} <> rest
-    case JArray{xs}:
-      PText{"["} <> items(List.reverse(&2, Json, xs), PText{"]"} <> rest)
-    case JObject{fs}:
-      PText{"{"} <> fields(List.reverse(&2, JField, fs), PText{"}"} <> rest)
+    case Spec.JArray{xs}:
+      PText{"["} <> items(List.reverse(&2, Spec.Json, xs), PText{"]"} <> rest)
+    case Spec.JObject{fs}:
+      PText{"{"} <> fields(List.reverse(&2, Spec.JField, fs), PText{"}"} <> rest)
 
 # The text of `todo`, chunk by chunk, onto `out` (last first). `fuel` bounds the pieces.
 def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, String>:
@@ -421,5 +411,5 @@ def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, S
     case 1n+f Con{PValue{v}, rest}:
       write(f, pieces(v, rest), out)
 
-def show(v: Json) -> String:
+def Spec.show(v):
   Shared.Strings.onto(write(4294967295n, [PValue{v}], []), "")

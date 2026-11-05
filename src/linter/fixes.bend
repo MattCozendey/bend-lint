@@ -1,9 +1,11 @@
 # The fixes a run makes with `--fix-dangerously`: no fix is proven to keep the program until Bend's checker is Bend.
 import Base
-import ../files/main.bend as Files
 import ../shared.bend as Shared
-import ../text/main.bend as Text
 import ./lint.bend as Lint
+import ./shared/files/impl.bend as FilesImpl
+import ./shared/files/spec.bend as Files
+import ./shared/text/impl.bend as TextImpl
+import ./shared/text/spec.bend as Text
 
 # Types
 # =====

@@ -100,32 +100,14 @@ Follow the `bend2` and the `experimental-bend-spec` skills.
 
 - On Windows, run Bend natively only with the fork in `../bend` (branch `feature/cuda-and-windows`).
   Otherwise, use WSL.
-- Write small capabilities yourself. Import a large one from BendHub; do not copy hub code here. If
-  the hub does not have it, tell me.
-- Do not keep an old form for compatibility.
-- Choose the representation for its access pattern first.
-- Name defs as Base does, and as `layout/case` checks; where the two disagree, the linter is right.
-  - `Type.verb`: the type, or the concept, that a def works on, then what it does (`Wire.ask`,
-    `Reader.add`). A def about none of its file's types has the verb alone: the file's alias names
-    it where it is imported (`Lists.append`, `Lint.visit`), and a rule's defs are the rule's own.
-  - A Bool is `is_x`, `has_x` or a verb in the third person (`fits`); `is_lt`, `is_le` and `is_eq`
-    compare; `to_x` and `from_x` convert; `show` gives a String, and `read` parses one back (a
-    Maybe); `get`, `set` and `add` act on a collection. `T.of` makes a T from its parts.
-  - A helper of `f` is `f.go` (its loop), `f.step` (one step of it), `f.done` (its result, at the
-    end), `f.if` (a branch on a Bool), `f.of` (`f`, from parts that `f` computed), or another short
-    verb.
-  - A def that goes on after an effect, or after a match on what another def gave, is named by what
-    happened, in the past tense, and takes it: `Config.opened(folder, opened)`.
 - `bun run c-cpu-prof-md` profiles the C lane (see its header).
-- After a change, run `bend <namespace>/PROOF.bend` for each changed namespace, and report it.
 
 ## 3. Project
 
 - README.md is for users and stays short. Internals go here and in code comments.
-- `src/linter/` holds the linter, `src/bend-lint-rules/` its default rules (`src/bend-lint.json`
-  runs them on this repo), `src/files/` files (their text, folders and globs; its effects in
-  `effs/`), `src/json/` JSON, `src/text/` edits to texts and places in them, `src/meta/` this repo's
-  scripts and oxlint plugins, and `src/shared.bend` helpers for any program.
+- `src/linter/` holds the linter (its helpers in `shared/`), `src/bend-lint-rules/` its default
+  rules (`src/bend-lint.json` runs them on this repo), `src/meta/` this repo's scripts and oxlint
+  plugins, and `src/shared.bend` helpers for any program.
 - Code that knows Bend's own shapes (its parser, checker and their data) goes in
   `src/linter/seam.ts`, and nowhere else: it gives the Bend side the linter's own model, the types
   of `lint.bend`. Where any other Bend helper goes: the `experimental-bend-spec` skill. A helper
