@@ -8,8 +8,8 @@
 # those of performance/gpu_fit, and cost nothing to drop. An erased binder holds nothing at run time,
 # and a step of a `do` block (`x : T <- m`, a call of a bind) gets its value from the monad, used or not.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 import ./gpu_fit.bend as GpuFit
 
 # Types
@@ -120,7 +120,7 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Unused>) -> List<&2, Unused>:
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       defs(
         rest,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Unused,
           List.reverse(
@@ -165,7 +165,7 @@ def judged(
         rest,
         more,
         slots,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.finding(

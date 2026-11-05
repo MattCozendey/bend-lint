@@ -5,10 +5,8 @@
 # one's alias.
 # Heuristics: two imports name one file if the check loads one file for both.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
-import ../../src/shared/strings.bend as Strings
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -22,7 +20,7 @@ type Entry is Data:
 # first); and the operations that point a dropped import's uses at the kept one's alias.
 type Deduped is Data:
   Deduped{
-    seen: List<&2, Names.Named<String>>,
+    seen: List<&2, Shared.Names.Named<String>>,
     kept: List<&2, Entry>,
     renames: List<&2, Lint.Operation>
   }
@@ -54,7 +52,7 @@ def kept(+line: String) -> String:
 def comments(s: String, line: String, acc: List<&2, String>) -> String:
   match s:
     case SNil{}:
-      Strings.onto(kept(String.reverse(line)) <> acc, "")
+      Shared.Strings.onto(kept(String.reverse(line)) <> acc, "")
     case SCon{'\n', rest}:
       comments(rest, "", kept(String.reverse(line)) <> acc)
     case SCon{c, rest}:
@@ -80,7 +78,11 @@ def add.line(
 ) -> Block:
   match b:
     case Block{first, last, Nil{}}:
-      Block{beg, end, [Entry{at, base, path, alias, loads, ended(Strings.slice(text, beg, end))}]}
+      Block{
+        beg,
+        end,
+        [Entry{at, base, path, alias, loads, ended(Shared.Strings.slice(text, beg, end))}]
+      }
     case Block{first, last, +entries}:
       Block{
         first,
@@ -91,7 +93,12 @@ def add.line(
           path,
           alias,
           loads,
-          comments(Strings.slice(text, last, beg), "", []) ++ ended(Strings.slice(text, beg, end))
+          comments(
+            Shared.Strings.slice(text, last, beg),
+            "",
+            []
+          )
+            ++ ended(Shared.Strings.slice(text, beg, end))
         }
           <> entries
       }
@@ -108,11 +115,11 @@ def add(
 ) -> Block:
   match at:
     case Lint.Span{p, +a, e}:
-      +beg = Strings.line_start(text, a)
+      +beg = Shared.Strings.line_start(text, a)
       add.line(
         text,
         beg,
-        Strings.line_end(text, beg),
+        Shared.Strings.line_end(text, beg),
         Lint.Span{p, a, e},
         base,
         path,
@@ -153,7 +160,7 @@ def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
   match first e d:
     case None{} Entry{at, base, path, +alias, +loads, text} Deduped{seen, kept, renames}:
       Deduped{
-        Names.Named{loads, alias} <> seen,
+        Shared.Names.Named{loads, alias} <> seen,
         Entry{at, base, path, alias, loads, text} <> kept,
         renames
       }
@@ -165,7 +172,7 @@ def dedupe.kept(first: Maybe<&2, String>, e: Entry, d: Deduped) -> Deduped:
 def dedupe.add(+e: Entry, d: Deduped) -> Deduped:
   match d:
     case Deduped{+seen, kept, renames}:
-      dedupe.kept(Names.lookup(String, loads_of(e), seen), e, Deduped{seen, kept, renames})
+      dedupe.kept(Shared.Names.lookup(String, loads_of(e), seen), e, Deduped{seen, kept, renames})
 
 # The imports of `es`, in order, after those of `d`, each file's first only.
 def dedupe(es: List<&2, Entry>, d: Deduped) -> Deduped:
@@ -189,7 +196,7 @@ def is_before(a: Entry, b: Entry) -> Bool:
 def texts(es: List<&2, Entry>, acc: List<&2, String>) -> String:
   match es:
     case Nil{}:
-      Strings.onto(acc, "")
+      Shared.Strings.onto(acc, "")
     case Con{Entry{at, base, path, alias, loads, text}, rest}:
       texts(rest, text <> acc)
 
@@ -218,7 +225,7 @@ def verdict(
 def judged(span: Lint.Span, written: String, d: Deduped) -> List<&2, Lint.Finding>:
   match d:
     case Deduped{seen, kept, renames}:
-      +ordered = texts(Lists.sort(~Entry, ~is_before, List.reverse(&2, Entry, kept)), [])
+      +ordered = texts(Shared.Lists.sort(~Entry, ~is_before, List.reverse(&2, Entry, kept)), [])
       verdict(String.eq(ordered, written), span, ordered, renames)
 
 def judge(path: String, text: String, b: Block) -> List<&2, Lint.Finding>:
@@ -228,7 +235,7 @@ def judge(path: String, text: String, b: Block) -> List<&2, Lint.Finding>:
     case Block{+beg, +end, entries}:
       judged(
         Lint.Span{path, beg, end},
-        Strings.slice(text, beg, end),
+        Shared.Strings.slice(text, beg, end),
         dedupe(List.reverse(&2, Entry, entries), Deduped{[], [], []})
       )
 

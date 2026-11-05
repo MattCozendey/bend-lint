@@ -9,9 +9,8 @@
 # the loop along the list (a step, or a split in two: bend-ml's tensor-array fills a tree of bands so),
 # and is not reported.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -23,17 +22,17 @@ type Walker is Data:
 
 # What judging the calls in one definition reads: the walkers of the file, and the definition.
 type Loop is Data:
-  Loop{walkers: List<&2, Names.Named<Walker>>, owner: Lint.Node}
+  Loop{walkers: List<&2, Shared.Names.Named<Walker>>, owner: Lint.Node}
 
 # Functions
 # =========
-def bases() -> List<&2, Names.Named<Walker>>:
+def bases() -> List<&2, Shared.Names.Named<Walker>>:
   [
-    Names.Named{"List.get", Walker{2n, "List.get"}},
-    Names.Named{"List.drop", Walker{2n, "List.drop"}},
-    Names.Named{"List.take", Walker{2n, "List.take"}},
-    Names.Named{"List.last", Walker{2n, "List.last"}},
-    Names.Named{"List.length", Walker{2n, "List.length"}}
+    Shared.Names.Named{"List.get", Walker{2n, "List.get"}},
+    Shared.Names.Named{"List.drop", Walker{2n, "List.drop"}},
+    Shared.Names.Named{"List.take", Walker{2n, "List.take"}},
+    Shared.Names.Named{"List.last", Walker{2n, "List.last"}},
+    Shared.Names.Named{"List.length", Walker{2n, "List.length"}}
   ]
 
 # The binder of the variable `node` uses, if it is a variable.
@@ -44,10 +43,14 @@ def binder(node: Maybe<&2, Lint.Node>) -> Maybe<&2, U32>:
     case _:
       None{}
 
-def Walker.at(k: Maybe<&2, Nat>, target: String, through: String) -> List<&2, Names.Named<Walker>>:
+def Walker.at(
+  k: Maybe<&2, Nat>,
+  target: String,
+  through: String
+) -> List<&2, Shared.Names.Named<Walker>>:
   match k:
     case Some{at}:
-      [Names.Named{target, Walker{at, through}}]
+      [Shared.Names.Named{target, Walker{at, through}}]
     case None{}:
       []
 
@@ -55,7 +58,7 @@ def Walker.helped(
   walked: Maybe<&2, U32>,
   through: String,
   owner: Lint.Node
-) -> List<&2, Names.Named<Walker>>:
+) -> List<&2, Shared.Names.Named<Walker>>:
   match walked owner:
     case Some{b} Lint.Node{Lint.Definition{t, u}, n, s, kids, f}:
       Walker.at(Lint.parameter(kids, b), t, through)
@@ -67,7 +70,7 @@ def Walker.helper(
   base: Maybe<&2, Walker>,
   args: List<&2, Lint.Node>,
   owner: Lint.Node
-) -> List<&2, Names.Named<Walker>>:
+) -> List<&2, Shared.Names.Named<Walker>>:
   match base:
     case Some{Walker{at, through}}:
       Walker.helped(binder(List.get(&2, Lint.Node, args, at)), through, owner)
@@ -78,7 +81,7 @@ def Walker.visit(
   +owner: Lint.Node,
   +path: List<&2, Lint.Above>,
   +node: Lint.Node
-) -> List<&2, Names.Named<Walker>>:
+) -> List<&2, Shared.Names.Named<Walker>>:
   match node:
     case Lint.Node{
       Lint.Application{},
@@ -87,15 +90,15 @@ def Walker.visit(
       Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args},
       f
     }:
-      Walker.helper(Names.lookup(Walker, t, bases()), args, owner)
+      Walker.helper(Shared.Names.lookup(Walker, t, bases()), args, owner)
     case _:
       []
 
 # The definitions among `nodes` that give a parameter to a Base walker, as walkers, onto `out`.
 def Walker.helpers(
   nodes: List<&2, Lint.Node>,
-  out: List<&2, Names.Named<Walker>>
-) -> List<&2, Names.Named<Walker>>:
+  out: List<&2, Shared.Names.Named<Walker>>
+) -> List<&2, Shared.Names.Named<Walker>>:
   match nodes:
     case Nil{}:
       out
@@ -103,10 +106,10 @@ def Walker.helpers(
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       Walker.helpers(
         rest,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
-          Names.Named<Walker>,
-          Lint.visit(~Lint.Node, ~Names.Named<Walker>, ~Walker.visit, owner, [owner]),
+          Shared.Names.Named<Walker>,
+          Lint.visit(~Lint.Node, ~Shared.Names.Named<Walker>, ~Walker.visit, owner, [owner]),
           out
         )
       )
@@ -291,7 +294,7 @@ def call(
       Con{Lint.Node{Lint.Reference{t}, callee, rs, rk, rf}, args},
       f
     }:
-      judged(Names.lookup(Walker, t, walkers), args, callee, owner, path, span)
+      judged(Shared.Names.lookup(Walker, t, walkers), args, callee, owner, path, span)
     case _ _ _:
       []
 
@@ -300,7 +303,7 @@ def visit(+loop: Loop, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2
 
 def defs(
   nodes: List<&2, Lint.Node>,
-  +walkers: List<&2, Names.Named<Walker>>,
+  +walkers: List<&2, Shared.Names.Named<Walker>>,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match nodes:
@@ -311,7 +314,7 @@ def defs(
       defs(
         rest,
         walkers,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(~Loop, ~Lint.Finding, ~visit, Loop{walkers, owner}, [owner]),
@@ -326,11 +329,11 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(
     defs(
       nodes,
-      Lists.append(
+      Shared.Lists.append(
         &2,
-        Names.Named<Walker>,
+        Shared.Names.Named<Walker>,
         bases(),
-        List.reverse(&2, Names.Named<Walker>, Walker.helpers(nodes, []))
+        List.reverse(&2, Shared.Names.Named<Walker>, Walker.helpers(nodes, []))
       ),
       []
     )

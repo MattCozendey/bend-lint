@@ -6,9 +6,8 @@
 # such use at once. A definition used as a type argument of a call is dead too, but the rule cannot
 # tell such an argument from a live one.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -83,7 +82,7 @@ def User.places(user: User) -> Map<&2, Maybe<&2, Place>>:
 def use(+user: User, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match node:
     case Lint.Node{Lint.Reference{t}, n, span, k, f}:
-      judged(path, Names.find(Place, User.places(user), t), user, span)
+      judged(path, Shared.Names.find(Place, User.places(user), t), user, span)
     case _:
       []
 
@@ -102,7 +101,7 @@ def users(
         rest,
         places,
         (at + 1: U32),
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

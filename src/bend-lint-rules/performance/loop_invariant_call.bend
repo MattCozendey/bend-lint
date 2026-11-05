@@ -8,8 +8,8 @@
 # definition that fills a law, or returns an equality) does not run, and is skipped. A loop that repeats
 # work on purpose, such as a benchmark's, is the case to expect.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -39,9 +39,9 @@ def loops(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String>
     case Con{Lint.Node{Lint.Definition{+t, u}, n, s, k, f}, rest}:
       loops(
         rest,
-        Lists.push(
+        Shared.Lists.push(
           String,
-          Lists.when(
+          Shared.Lists.when(
             String,
             Bool.not(
               List.is_empty(
@@ -109,7 +109,7 @@ def fixed(
         rest,
         calls,
         1n+at,
-        Lists.push(U32, Lists.when(U32, passed(calls, at, b, True{}), b), out)
+        Shared.Lists.push(U32, Shared.Lists.when(U32, passed(calls, at, b, True{}), b), out)
       )
     case Con{node, rest}:
       fixed(rest, calls, at, out)
@@ -277,7 +277,7 @@ def defs(
       defs(
         rest,
         loops,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           defs.if(

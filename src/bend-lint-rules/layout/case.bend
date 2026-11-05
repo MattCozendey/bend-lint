@@ -18,9 +18,8 @@
 # is declared. `import Base`, and a def that fills a law of another file, are skipped: their names are
 # not this file's to choose.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/strings.bend as Strings
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -185,7 +184,7 @@ def returns(nodes: List<&2, Lint.Node>) -> Case:
 def wanted(+node: Lint.Node, namespace: String) -> Maybe<&2, Case>:
   match node:
     case Lint.Node{Lint.Import{t}, name, s, k, f}:
-      Lists.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
+      Shared.Lists.when(Case, Bool.not(String.eq(name, "Base")), Pascal{})
     case Lint.Node{Lint.Datatype{t}, name, s, k, f}:
       Some{Pascal{}}
     case Lint.Node{Lint.Constructor{t}, name, s, k, f}:
@@ -193,7 +192,7 @@ def wanted(+node: Lint.Node, namespace: String) -> Maybe<&2, Case>:
     case Lint.Node{Lint.Law{t}, name, s, k, f}:
       Some{Snake{}}
     case Lint.Node{Lint.Definition{t, u}, name, s, kids, f}:
-      Lists.when(Case, String.eq(Lint.Name.namespace(t), namespace), returns(kids))
+      Shared.Lists.when(Case, String.eq(Lint.Name.namespace(t), namespace), returns(kids))
     case Lint.Node{Lint.Parameter{b, q}, name, s, kids, f}:
       Some{typed(kids)}
     case Lint.Node{Lint.Field{b, q}, name, s, kids, f}:
@@ -263,7 +262,7 @@ def misfit(
   +name: String,
   +span: Lint.Span
 ) -> List<&2, Lint.Finding>:
-  +seg = Strings.after_last(name, '.')
+  +seg = Shared.Strings.after_last(name, '.')
   +to = String.take(name, Nat.sub(String.length(name), String.length(seg))) ++ recased(want, seg)
   +ok = fits(want, recased(want, seg))
   rename = Bool.pick(String, ok, "Rename " ++ name ++ " to " ++ to, "Rename " ++ name)
@@ -297,7 +296,7 @@ def judged(
 ) -> List<&2, Lint.Finding>:
   match want:
     case Some{+w}:
-      verdict(fits(w, Strings.after_last(name, '.')), syntax, w, name, span)
+      verdict(fits(w, Shared.Strings.after_last(name, '.')), syntax, w, name, span)
     case None{}:
       []
 
@@ -313,7 +312,7 @@ def judge(
       judge(
         namespace,
         rest,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           judged(

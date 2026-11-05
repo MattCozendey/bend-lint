@@ -11,8 +11,8 @@
 # values of its forks, not frames, and it is not reported (Bend's matrix and Merkle benchmarks call such
 # trees in their forks).
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -27,7 +27,7 @@ type Owner is Data:
 
 # Whether `at` is the place of the last of `nodes`.
 def is_last(nodes: List<&2, Lint.Node>, at: U32) -> Bool:
-  U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, nodes)))
+  U32.is_eq((at + 1: U32), U32.from_nat(Shared.Lists.length(&2, Lint.Node, nodes)))
 
 # Whether the node below `path` is in a tail position, if it ends the node above it (`ends`): the body of a definition
 # or a case, or the rest of a block after its lets, through annotations.
@@ -82,9 +82,9 @@ def deep(nodes: List<&2, Lint.Node>, +forking: Bool, out: List<&2, String>) -> L
       deep(
         rest,
         forking,
-        Lists.push(
+        Shared.Lists.push(
           String,
-          Lists.when(
+          Shared.Lists.when(
             String,
             deep.if(
               List.contains(
@@ -233,7 +233,7 @@ def defs(
       defs(
         rest,
         deeps,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

@@ -13,8 +13,8 @@
 # Each loop is go(input, state): a step that does not recurse makes the next state, so every loop recurses on a smaller
 # part of its input. The lexer and the printer recurse on fuel instead: more steps than they can need.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/strings.bend as Strings
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -1262,7 +1262,7 @@ def str.split(whole: Bool, +s: String, width: U32, tail: Maybe<&2, U32>, +keep: 
     case True{}:
       Str{s, "", width, tail}
     case False{}:
-      Str{Strings.take(s, U32.to_nat(keep)), String.drop(s, U32.to_nat(keep)), width, tail}
+      Str{Shared.Strings.take(s, U32.to_nat(keep)), String.drop(s, U32.to_nat(keep)), width, tail}
 
 def str.of(s: String, m: Measure) -> Doc:
   match m:
@@ -2009,9 +2009,9 @@ def print.step(
 def print.go(fuel: Nat, p: Print, +width: Maybe<&2, U32>, +newline: String, +budget: Nat) -> String:
   match fuel p:
     case _ Print{Nil{}, out, pending, col}:
-      Strings.onto(out, "")
+      Shared.Strings.onto(out, "")
     case 0n Print{jobs, out, pending, col}:
-      Strings.onto(out, "")
+      Shared.Strings.onto(out, "")
     case 1n+k Print{jobs, out, pending, col}:
       print.go(
         k,
@@ -2179,7 +2179,7 @@ def import_doc(+head: Token, record: List<&2, Tree>) -> Doc:
   import_doc.of(
     split_hash(
       trim_end(
-        Strings.take(
+        Shared.Strings.take(
           Token.from(head),
           U32.to_nat((record_end(head, record) - Token.beg(head): U32))
         )
@@ -2220,7 +2220,7 @@ def record_doc(
 def joined(xs: List<&2, Tree>, acc: List<&2, String>) -> String:
   match xs:
     case Nil{}:
-      Strings.onto(acc, "")
+      Shared.Strings.onto(acc, "")
     case Con{x, rest}:
       joined(rest, Token.text(first(x)) <> acc)
 

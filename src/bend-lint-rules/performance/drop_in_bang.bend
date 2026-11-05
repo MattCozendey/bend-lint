@@ -7,8 +7,8 @@
 # ms, on an Apple M-series GPU, whose memory is unified: the GPU loses on both kinds of memory. The JS
 # lane has no GPU. A return type written another way (an alias of Unit) is not known.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/names.bend as Names
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 import ./gpu_fit.bend as GpuFit
 
 # Types
@@ -50,7 +50,7 @@ def visit(
           bangs,
           end
         )
-          && GpuFit.is_drop(Names.find(Lint.Def, defs, t), t),
+          && GpuFit.is_drop(Shared.Names.find(Lint.Def, defs, t), t),
         span,
         message(callee)
       )

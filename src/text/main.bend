@@ -1,9 +1,7 @@
 # Edits to texts, and places in them: the edits to make, spans that must not touch, and the lines and columns of
 # offsets.
 import Base
-import ../shared/lists.bend as Lists
-import ../shared/names.bend as Names
-import ../shared/strings.bend as Strings
+import ../shared.bend as Shared
 
 # Edits
 # =====
@@ -27,18 +25,18 @@ def Edit.is_le(a: Edit, b: Edit) -> Bool:
 def apply.go(edits: List<&2, Edit>, +rest: String, +at: U32, out: List<&2, String>) -> String:
   match edits:
     case Nil{}:
-      Strings.onto(rest <> out, "")
+      Shared.Strings.onto(rest <> out, "")
     case Con{Edit{p, beg, +end, text}, more}:
       apply.go(
         more,
         String.drop(rest, U32.to_nat((end - at: U32))),
         end,
-        text <> Strings.take(rest, U32.to_nat((beg - at: U32))) <> out
+        text <> Shared.Strings.take(rest, U32.to_nat((beg - at: U32))) <> out
       )
 
 # `text` with `edits` made. Edits must not overlap.
 def apply(edits: List<&2, Edit>, text: String) -> String:
-  apply.go(Lists.sort(~Edit, ~Edit.is_le, edits), text, 0, [])
+  apply.go(Shared.Lists.sort(~Edit, ~Edit.is_le, edits), text, 0, [])
 
 # Spans
 # =====
@@ -324,10 +322,10 @@ def Walk.locate(+sorted: List<&2, Placed>, text: String) -> List<&2, Located>:
 # Where each offset of `offsets` is in `text`, in order: one pass over the text, whatever the number of offsets.
 def positions(text: String, offsets: List<&2, U32>) -> List<&2, Position>:
   Walk.positions(
-    Lists.sort(
+    Shared.Lists.sort(
       ~Located,
       ~Located.is_le,
-      Walk.locate(Lists.sort(~Placed, ~Placed.is_le, Placed.of(offsets, 0, [])), text)
+      Walk.locate(Shared.Lists.sort(~Placed, ~Placed.is_le, Placed.of(offsets, 0, [])), text)
     ),
     []
   )
@@ -352,7 +350,7 @@ def places.group(
     case Nil{}:
       groups
     case Con{Place{path, +offset}, rest}:
-      places.group(rest, Names.Group.add(Placed, groups, path, Placed{offset, offset}))
+      places.group(rest, Shared.Names.Group.add(Placed, groups, path, Placed{offset, offset}))
 
 # The places found in the file at `path`, by key, onto `out`.
 def places.keep(
@@ -383,7 +381,7 @@ def places.walk(
         texts,
         places.keep(
           Walk.locate(
-            Lists.sort(~Placed, ~Placed.is_le, Names.Group.get(Placed, groups, path)),
+            Shared.Lists.sort(~Placed, ~Placed.is_le, Shared.Names.Group.get(Placed, groups, path)),
             Pair.snd(Map<&2, String>, String, Map.get(String, "", texts, path))
           ),
           path,

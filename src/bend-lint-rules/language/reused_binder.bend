@@ -8,8 +8,8 @@
 # `match` takes apart is skipped: in a case, it stands for the matched constructor. Bend's checker
 # stops at its first error; this rule reports every such binder at once.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -182,7 +182,7 @@ def judge(
         owner,
         rest,
         matched,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           judged(List.contains(~U32, ~U32.is_eq, matched, b), owner, b, name),
@@ -200,7 +200,13 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Li
         rest,
         judge(
           owner,
-          Lint.visit(~Bool, ~Once, ~Once.of, Lists.any(~Lint.Node, ~Lint.Node.is_bare, k), [owner]),
+          Lint.visit(
+            ~Bool,
+            ~Once,
+            ~Once.of,
+            Shared.Lists.any(~Lint.Node, ~Lint.Node.is_bare, k),
+            [owner]
+          ),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
           out
         )

@@ -19,10 +19,8 @@
 # defined in the program's files; anything else is data. Erased and template parameters do not count. A
 # `!` call of a definition that returns Unit is left to performance/drop_in_bang.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
-import ../../src/shared/sets.bend as Sets
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -87,7 +85,11 @@ def fields(slots: List<&2, Slot>, +t: String, out: List<&2, String>) -> List<&2,
     case Nil{}:
       out
     case Con{Slot{o, ty}, rest}:
-      fields(rest, t, Lists.push(String, Lists.when(String, String.eq(o, t), ty), out))
+      fields(
+        rest,
+        t,
+        Shared.Lists.push(String, Shared.Lists.when(String, String.eq(o, t), ty), out)
+      )
 
 def is_known(slots: List<&2, Slot>, hit: Bool, +t: String) -> Bool:
   match slots hit:
@@ -151,7 +153,7 @@ def data(
     case Con{Lint.Param{n, +ty}, rest} None{}:
       data(
         rest,
-        Lists.when(Lint.Param, Bool.not(is_flat(64n, Some{[ty]}, slots)), Lint.Param{n, ty}),
+        Shared.Lists.when(Lint.Param, Bool.not(is_flat(64n, Some{[ty]}, slots)), Lint.Param{n, ty}),
         slots
       )
 
@@ -168,9 +170,9 @@ def forking(
       forking(
         rest,
         defs,
-        Lists.push(
+        Shared.Lists.push(
           String,
-          Lists.when(String, Lint.Def.forks(Names.find(Lint.Def, defs, t)), t),
+          Shared.Lists.when(String, Lint.Def.forks(Shared.Names.find(Lint.Def, defs, t)), t),
           out
         )
       )
@@ -278,7 +280,7 @@ def banged(
 ) -> List<&2, Lint.Finding>:
   match info drop:
     case Some{Lint.Def{t, params, forks, calls, r}} False{}:
-      banged.of(Sets.has(under, t), data(params, None{}, slots), callee, span)
+      banged.of(Shared.Sets.has(under, t), data(params, None{}, slots), callee, span)
     case _ _:
       []
 
@@ -319,10 +321,10 @@ def visit(
     }:
       judged(
         List.contains(~U32, ~U32.is_eq, bangs, end),
-        Names.find(Lint.Def, defs, t),
-        is_drop(Names.find(Lint.Def, defs, t), t),
+        Shared.Names.find(Lint.Def, defs, t),
+        is_drop(Shared.Names.find(Lint.Def, defs, t), t),
         callee,
-        Names.find(Lint.Def, defs, Lint.Node.target(Lint.top(path, node))),
+        Shared.Names.find(Lint.Def, defs, Lint.Node.target(Lint.top(path, node))),
         under,
         slots,
         span

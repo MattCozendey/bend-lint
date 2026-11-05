@@ -4,9 +4,9 @@
 # Heuristics: it reads the directives as written, and its fix writes the same comments over them, so a
 # fix keeps the program.
 import Base
-import ../../src/linter/directives.bend as Directives
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/directives.bend as Directives
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -79,7 +79,7 @@ def Runs.close(
         [
           Lint.Fix{
             "Order the directives",
-            Slot.order(ordered, Lists.sort(~Slot, ~Slot.is_le, ordered), path, [])
+            Slot.order(ordered, Shared.Lists.sort(~Slot, ~Slot.is_le, ordered), path, [])
           }
         ]
       }

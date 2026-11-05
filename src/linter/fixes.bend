@@ -1,10 +1,7 @@
 # The fixes a run makes with `--fix-dangerously`: no fix is proven to keep the program until Bend's checker is Bend.
 import Base
 import ../files/main.bend as Files
-import ../shared/lists.bend as Lists
-import ../shared/names.bend as Names
-import ../shared/sets.bend as Sets
-import ../shared/strings.bend as Strings
+import ../shared.bend as Shared
 import ../text/main.bend as Text
 import ./lint.bend as Lint
 
@@ -55,15 +52,15 @@ def Syntax.is_alias(syntax: Lint.Syntax) -> Bool:
 def Part.of(alias: Bool, +name: String, +old: String) -> Maybe<&2, Part>:
   match alias:
     case True{}:
-      Lists.when(
+      Shared.Lists.when(
         Part,
         String.eq(name, old) || String.starts_with(name, old ++ "."),
         Part{0, U32.from_nat(String.length(old))}
       )
     case False{}:
-      Lists.when(
+      Shared.Lists.when(
         Part,
-        String.eq(Strings.after_last(name, '.'), old),
+        String.eq(Shared.Strings.after_last(name, '.'), old),
         Part{
           U32.from_nat(Nat.sub(String.length(name), String.length(old))),
           U32.from_nat(String.length(name))
@@ -121,10 +118,10 @@ def Taken.node(+path: String, +node: Lint.Node, out: Set()) -> Set():
     case Lint.Node{Lint.Import{t}, name, sp, k, f}:
       Set.add(
         Set.add(out, Taken.key(path, True{}, name)),
-        Taken.key(path, False{}, Strings.after_last(name, '.'))
+        Taken.key(path, False{}, Shared.Strings.after_last(name, '.'))
       )
     case Lint.Node{s, name, sp, k, f}:
-      Set.add(out, Taken.key(path, False{}, Strings.after_last(name, '.')))
+      Set.add(out, Taken.key(path, False{}, Shared.Strings.after_last(name, '.')))
 
 def Taken.files(sources: List<&2, Lint.Source>, out: Set()) -> Set():
   match sources:
@@ -150,7 +147,7 @@ def Rename.is_allowed(
     case True{} True{} _:
       False{}
     case True{} False{} Some{Lint.Span{path, beg, end}}:
-      Bool.not(Sets.has(taken, Taken.key(path, alias, to)))
+      Bool.not(Shared.Sets.has(taken, Taken.key(path, alias, to)))
     case True{} False{} None{}:
       False{}
 
@@ -196,7 +193,7 @@ def Rename.plan(
           Rename.nodes(whole, Lint.Node{s, name, span, k, f}, uses),
           fix,
           alias,
-          Bool.pick(String, alias, name, Strings.after_last(name, '.')),
+          Bool.pick(String, alias, name, Shared.Strings.after_last(name, '.')),
           to,
           Some{[]}
         )
@@ -354,7 +351,7 @@ def Spot.file(
 ) -> List<&2, Spotted>:
   match text:
     case Some{t}:
-      Spot.walk(Lists.sort(~Spot, ~Spot.is_le, spots), t, 0, out)
+      Spot.walk(Shared.Lists.sort(~Spot, ~Spot.is_le, spots), t, 0, out)
     case None{}:
       Spot.missed(spots, out)
 
@@ -383,7 +380,7 @@ def Spot.read_all(
         texts,
         Spot.file(
           Spot.text(Map.has(&2, String, texts, path), path),
-          Names.Group.get(Spot, groups, path),
+          Shared.Names.Group.get(Spot, groups, path),
           out
         )
       )
@@ -416,7 +413,7 @@ def Fix.changes(
         do Maybe<&2, List<&2, Change>>:
           changes: List<&2, Change> <- out
           more: List<&2, Change> <- Operation.changes(op, fix, lookup)
-          return Lists.onto(&2, Change, more, changes))
+          return Shared.Lists.onto(&2, Change, more, changes))
 
 def Plan.firsts(founds: List<&2, Lint.Found>, out: List<&2, Lint.Fix>) -> List<&2, Lint.Fix>:
   match founds:
@@ -462,7 +459,7 @@ def Fix.any(~f: Lint.Operation -> Bool, fixes: List<&2, Lint.Fix>, found: Bool) 
     case Nil{} False{}:
       False{}
     case Con{Lint.Fix{title, ops}, rest} False{}:
-      Fix.any(~f, rest, Lists.any(~Lint.Operation, ~f, ops))
+      Fix.any(~f, rest, Shared.Lists.any(~Lint.Operation, ~f, ops))
 
 def Lookup.index(
   need: Bool,
@@ -620,7 +617,7 @@ def Plan.add(spans: Maybe<&2, Map<&2, Text.Spans>>, edits: List<&2, Text.Edit>, 
     case None{} _:
       plan
     case Some{taken} Plan{kept, n, old}:
-      Plan{Lists.onto(&2, Text.Edit, edits, kept), (n + 1: U32), taken}
+      Plan{Shared.Lists.onto(&2, Text.Edit, edits, kept), (n + 1: U32), taken}
 
 # The plan with a fix's edits, if the linter can make it, and none of its edits touches a planned one or another.
 def Plan.fix(edits: Maybe<&2, List<&2, Text.Edit>>, +plan: Plan) -> Plan:
@@ -684,13 +681,18 @@ def edits(
 ) -> List<&2, Maybe<&2, List<&2, Text.Edit>>>:
   +works = Fix.works(fixes, Lookup.of(fixes, declarations, sources), 0, [])
   +own = texts(Lint.Program.own(sources), Map.new(&2, String))
-  +groups = Names.Group.of(~Spot, ~Spot.path, Fix.spots(works, []), Map.new(&2, List<&2, Spot>))
+  +groups = Shared.Names.Group.of(
+    ~Spot,
+    ~Spot.path,
+    Fix.spots(works, []),
+    Map.new(&2, List<&2, Spot>)
+  )
   Works.go(
     works,
     0,
     own,
     (
-      Lists.sort(
+      Shared.Lists.sort(
         ~Spotted,
         ~Spotted.is_le,
         Spot.read_all(Map.keys(&2, List<&2, Spot>, groups), groups, own, [])
@@ -810,7 +812,7 @@ def write.all(sources: List<&2, Lint.Source>, +groups: Map<&2, List<&2, Text.Edi
       IO.pure(Unit, Unit{})
     case Con{Lint.Source{+path, namespace, text, nodes}, rest}:
       do IO<Unit>:
-        write.edited(path, text, Names.Group.get(Text.Edit, groups, path))
+        write.edited(path, text, Shared.Names.Group.get(Text.Edit, groups, path))
         write.all(rest, groups)
 
 # Fixes
@@ -821,7 +823,12 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
       do IO<U32>:
         write.all(
           sources,
-          Names.Group.of(~Text.Edit, ~Text.Edit.path, edits, Map.new(&2, List<&2, Text.Edit>))
+          Shared.Names.Group.of(
+            ~Text.Edit,
+            ~Text.Edit.path,
+            edits,
+            Map.new(&2, List<&2, Text.Edit>)
+          )
         )
         return n
 

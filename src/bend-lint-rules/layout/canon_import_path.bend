@@ -4,8 +4,8 @@
 # Heuristics: it compares real paths, links resolved, so a link to a file is that file. Base and hub
 # imports are not paths: it skips them.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Paths
 # =====
@@ -110,7 +110,7 @@ def paths(
       },
       rest
     }:
-      paths(rest, file, Lists.onto(&2, Lint.Finding, judge(file, written, loads, span), out))
+      paths(rest, file, Shared.Lists.onto(&2, Lint.Finding, judge(file, written, loads, span), out))
     case Con{Lint.Node{Lint.Import{loads}, n, s, k, f}, rest}:
       paths(rest, file, out)
     case _:

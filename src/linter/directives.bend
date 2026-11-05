@@ -1,7 +1,5 @@
 import Base
-import ../shared/lists.bend as Lists
-import ../shared/names.bend as Names
-import ../shared/strings.bend as Strings
+import ../shared.bend as Shared
 import ../text/main.bend as Text
 import ./lint.bend as Lint
 
@@ -287,11 +285,11 @@ def Scope.show(s: Scope) -> String:
     case SameLine{}:
       "line"
 
-def Action.names() -> List<&2, Names.Named<Action>>:
-  Names.table(~Action, ~Action.show, [Disable{}, Expect{}])
+def Action.names() -> List<&2, Shared.Names.Named<Action>>:
+  Shared.Names.table(~Action, ~Action.show, [Disable{}, Expect{}])
 
-def Scope.names() -> List<&2, Names.Named<Scope>>:
-  Names.table(~Scope, ~Scope.show, [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}])
+def Scope.names() -> List<&2, Shared.Names.Named<Scope>>:
+  Shared.Names.table(~Scope, ~Scope.show, [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}])
 
 def Severity.pinned(severity: Maybe<&2, Lint.Severity>) -> String:
   Maybe.default(&2, String, Maybe.map(&2, Lint.Severity, String, Lint.Severity.show, severity), "")
@@ -333,8 +331,8 @@ def Draft.kind(parts: List<&2, String>) -> Maybe<&2, Keyword>:
   match parts:
     case Con{a, Con{s, Nil{}}}:
       do Maybe<&2, Keyword>:
-        action: Action <- Names.lookup(Action, a, Action.names())
-        scope: Scope <- Names.lookup(Scope, s, Scope.names())
+        action: Action <- Shared.Names.lookup(Action, a, Action.names())
+        scope: Scope <- Shared.Names.lookup(Scope, s, Scope.names())
         return Keyword{action, scope}
     case _:
       None{}
@@ -351,9 +349,9 @@ def Draft.is_rule_id(parts: List<&2, String>) -> Bool:
 def Draft.target(parts: List<&2, String>) -> Maybe<&2, Target>:
   match parts:
     case Con{+rule, Nil{}}:
-      Lists.when(Target, Draft.is_rule_id(String.split(rule, '/')), Target{rule, None{}})
+      Shared.Lists.when(Target, Draft.is_rule_id(String.split(rule, '/')), Target{rule, None{}})
     case Con{+rule, Con{p, rest}}:
-      Lists.when(
+      Shared.Lists.when(
         Target,
         Draft.is_rule_id(String.split(rule, '/')),
         Target{rule, Some{String.join(p <> rest, "@")}}
@@ -398,7 +396,7 @@ def Draft.reason(rest: List<&2, String>) -> Maybe<&2, List<&2, String>>:
     case Nil{}:
       Some{[]}
     case Con{dash, more}:
-      Lists.when(List<&2, String>, String.eq(dash, "--"), Draft.reasons(more, ([], [])))
+      Shared.Lists.when(List<&2, String>, String.eq(dash, "--"), Draft.reasons(more, ([], [])))
 
 # The draft of a directive's words, after `bend-lint:`.
 def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
@@ -415,9 +413,13 @@ def Draft.of(words: List<&2, String>) -> Maybe<&2, Draft>:
 def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
   match pinned:
     case Some{+p}:
-      Lists.when(
+      Shared.Lists.when(
         String,
-        Maybe.is_none(&2, Lint.Severity, Names.lookup(Lint.Severity, p, Lint.Severity.names())),
+        Maybe.is_none(
+          &2,
+          Lint.Severity,
+          Shared.Names.lookup(Lint.Severity, p, Lint.Severity.names())
+        ),
         p ++ " is not a severity."
       )
     case None{}:
@@ -439,7 +441,7 @@ def Problem.reason(scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>
     case End{} _:
       Some{"An end takes no reason; the begin has it."}
     case _ Con{r, more}:
-      Lists.when(String, String.is_empty(r), "A reason is required, after `--`.")
+      Shared.Lists.when(String, String.is_empty(r), "A reason is required, after `--`.")
     case _ Nil{}:
       Some{"A reason is required, after `--`."}
 
@@ -448,7 +450,11 @@ def Problem.because(action: Action, scope: Scope, reasons: List<&2, String>) -> 
     case Disable{} End{} _:
       None{}
     case Disable{} _ Con{r, Con{b, more}}:
-      Lists.when(String, String.is_empty(b), "Say why it is not an expect, after " ++ Draft.label())
+      Shared.Lists.when(
+        String,
+        String.is_empty(b),
+        "Say why it is not an expect, after " ++ Draft.label()
+      )
     case Disable{} _ _:
       Some{
         "A disable says why it is not an expect, after its reason: " ++ Draft.label() ++ " <why>"
@@ -490,7 +496,7 @@ def Said.checked(why: Maybe<&2, String>, draft: Draft, comment: Comment, index: 
             String,
             Lint.Severity,
             pinned,
-            p => Names.lookup(Lint.Severity, p, Lint.Severity.names())
+            p => Shared.Names.lookup(Lint.Severity, p, Lint.Severity.names())
           ),
           comment,
           index
@@ -522,12 +528,12 @@ def Said.of(
             Problem.reason(scope, reasons),
             Problem.because(action, scope, reasons),
             Problem.line(scope, trailing),
-            Lists.when(
+            Shared.Lists.when(
               String,
-              Rule.is_reserved(Strings.before(rule, '/')),
+              Rule.is_reserved(Shared.Strings.before(rule, '/')),
               rule ++ " findings cannot be suppressed."
             ),
-            Lists.when(
+            Shared.Lists.when(
               String,
               Bool.not(List.contains(~String, ~String.eq, known, rule)),
               "There is no rule " ++ rule ++ "."
@@ -578,7 +584,12 @@ def Said.all(
     case Nil{}:
       List.reverse(&2, Said, out)
     case Con{c, rest}:
-      Said.all(rest, known, (index + 1: U32), Lists.push(Said, Said.read(c, known, index), out))
+      Said.all(
+        rest,
+        known,
+        (index + 1: U32),
+        Shared.Lists.push(Said, Said.read(c, known, index), out)
+      )
 
 # Pairing
 # =======
@@ -606,7 +617,7 @@ def Open.latest(
     case Con{Directive{+a, s, +r, sev, c, i}, rest} None{}:
       Open.latest(
         rest,
-        Lists.when(
+        Shared.Lists.when(
           Directive,
           String.eq(Action.show(a), action) && String.eq(r, rule),
           Directive{a, s, r, sev, c, i}
@@ -706,7 +717,12 @@ def Lines.next_code(
     case Nil{} None{}:
       None{}
     case Con{code, rest} None{}:
-      Lines.next_code(rest, Lists.when(U32, code && U32.is_gt(i, after), i), (i + 1: U32), after)
+      Lines.next_code(
+        rest,
+        Shared.Lists.when(U32, code && U32.is_gt(i, after), i),
+        (i + 1: U32),
+        after
+      )
 
 def Closed.find(closed: List<&2, Closed>, found: Maybe<&2, U32>, +index: U32) -> Maybe<&2, U32>:
   match closed found:
@@ -715,7 +731,7 @@ def Closed.find(closed: List<&2, Closed>, found: Maybe<&2, U32>, +index: U32) ->
     case Nil{} None{}:
       None{}
     case Con{Closed{i, line}, rest} None{}:
-      Closed.find(rest, Lists.when(U32, U32.is_eq(i, index), line), index)
+      Closed.find(rest, Shared.Lists.when(U32, U32.is_eq(i, index), line), index)
 
 def Covering.next(d: Directive, found: Maybe<&2, U32>) -> Covering:
   match found:
@@ -770,7 +786,7 @@ def Covering.all(
         lines,
         closed,
         last,
-        Lists.push(Covering, Covering.of(s, lines, closed, last), out)
+        Shared.Lists.push(Covering, Covering.of(s, lines, closed, last), out)
       )
 
 def Covering.pins(
@@ -840,7 +856,7 @@ def Applied.add(hits: List<&2, U32>, found: Lint.Found, a: Applied) -> Applied:
     case Nil{} Applied{kept, suppressed, used}:
       Applied{found <> kept, suppressed, used}
     case Con{h, t} Applied{kept, suppressed, used}:
-      Applied{kept, found <> suppressed, Lists.onto(&2, U32, Con{h, t}, used)}
+      Applied{kept, found <> suppressed, Shared.Lists.onto(&2, U32, Con{h, t}, used)}
 
 # The findings, each with where it starts (`at`, in order), sorted by the directives that cover their lines.
 def Applied.go(
@@ -1019,7 +1035,7 @@ def done(
   match a:
     case Applied{kept, suppressed, used}:
       Suppressed{
-        Lists.concat(
+        Shared.Lists.concat(
           &2,
           Lint.Found,
           [
@@ -1066,7 +1082,7 @@ def paired(
           saids,
           lines,
           closed,
-          (U32.from_nat(Lists.length(&2, Bool, lines)) - 1: U32),
+          (U32.from_nat(Shared.Lists.length(&2, Bool, lines)) - 1: U32),
           []
         ),
         Pairing.unclosed(open, wrong),

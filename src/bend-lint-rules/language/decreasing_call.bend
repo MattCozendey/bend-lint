@@ -8,8 +8,8 @@
 # once. An @unsafe definition (`def f?`) may call itself freely, and a call in a type (a pair type
 # `A & B`, a type's arguments, an equality) is not checked.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -67,7 +67,11 @@ def roots(smaller: List<&2, Smaller>, +binder: U32, out: List<&2, U32>) -> List<
     case Nil{}:
       binder <> out
     case Con{Smaller{r, f}, rest}:
-      roots(rest, binder, Lists.push(U32, Lists.when(U32, U32.is_eq(f, binder), r), out))
+      roots(
+        rest,
+        binder,
+        Shared.Lists.push(U32, Shared.Lists.when(U32, U32.is_eq(f, binder), r), out)
+      )
 
 def pairs.of(+r: U32, fs: List<&2, U32>, out: List<&2, Smaller>) -> List<&2, Smaller>:
   match fs:
@@ -98,7 +102,7 @@ def taken(
       taken(
         more,
         rest,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Smaller,
           pairs(roots(smaller, s, []), Lint.Node.bound(kids, []), []),
@@ -297,7 +301,7 @@ def defs(
       defs(
         rest,
         text,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

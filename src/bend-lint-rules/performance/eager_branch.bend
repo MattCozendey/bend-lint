@@ -14,10 +14,8 @@
 # lambda, a type or an equation does not run, and is skipped; an erased argument (a proof's) is not told
 # from a live one. A loop that is short in practice makes a finding that costs little to ignore.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
-import ../../src/shared/sets.bend as Sets
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 
 # Types
@@ -61,7 +59,7 @@ def eager(kids: List<&2, Lint.Node>, +at: U32) -> String:
       ""
 
 def Eager.of(+kind: String, value: Maybe<&2, Lint.Node>) -> Maybe<&2, Eager>:
-  Lists.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
+  Shared.Lists.when(Eager, Bool.not(String.eq(kind, "")), Eager{kind, value})
 
 # The eager value a call below `path` is in, if one is above it and no lambda comes between. `found` stops the walk
 # once one is found.
@@ -142,7 +140,7 @@ def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
       f
     }:
       looping(
-        Sets.has(costly, called) && Lint.is_live(path),
+        Shared.Sets.has(costly, called) && Lint.is_live(path),
         path,
         callee,
         String.eq(called, target)
@@ -162,7 +160,7 @@ def defs(
       defs(
         rest,
         costly,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(
@@ -202,9 +200,9 @@ def applies.visit(
       Con{Lint.Node{Lint.Variable{b}, vn, vs, vk, vf}, args},
       f
     }:
-      Lists.push(
+      Shared.Lists.push(
         Unit,
-        Lists.when(Unit, Bool.not(List.contains(~U32, ~U32.is_eq, templates, b)), Unit{}),
+        Shared.Lists.when(Unit, Bool.not(List.contains(~U32, ~U32.is_eq, templates, b)), Unit{}),
         []
       )
     case _:
@@ -233,7 +231,11 @@ def unflat(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, String
     case Con{Lint.Node{Lint.Definition{t, u}, n, s, +kids, f}, rest}:
       unflat(
         rest,
-        Lists.push(String, Lists.when(String, applies(kids, Lint.forks(kids, False{})), t), out)
+        Shared.Lists.push(
+          String,
+          Shared.Lists.when(String, applies(kids, Lint.forks(kids, False{})), t),
+          out
+        )
       )
     case Con{node, rest}:
       unflat(rest, out)
@@ -269,9 +271,13 @@ def loops(
         rest,
         defs,
         unflat,
-        Lists.push(
+        Shared.Lists.push(
           String,
-          Lists.when(String, Sets.has(unflat, t) && calls_itself(Names.find(Lint.Def, defs, t)), t),
+          Shared.Lists.when(
+            String,
+            Shared.Sets.has(unflat, t) && calls_itself(Shared.Names.find(Lint.Def, defs, t)),
+            t
+          ),
           out
         )
       )

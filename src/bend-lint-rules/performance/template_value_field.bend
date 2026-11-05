@@ -12,8 +12,8 @@
 # type (a number, a function, a list) builds no record of closures, and is not judged. A use in a type, or under a
 # lambda, does not run when the record is built.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -55,9 +55,13 @@ def records(nodes: List<&2, Lint.Node>, out: List<&2, String>) -> List<&2, Strin
     case Con{Lint.Node{Lint.Datatype{t}, n, s, kids, f}, rest}:
       records(
         rest,
-        Lists.push(
+        Shared.Lists.push(
           String,
-          Lists.when(String, Lint.fold(~Unit, ~Bool, ~records.step, Unit{}, kids, False{}), t),
+          Shared.Lists.when(
+            String,
+            Lint.fold(~Unit, ~Bool, ~records.step, Unit{}, kids, False{}),
+            t
+          ),
           out
         )
       )
@@ -94,9 +98,9 @@ def templates(
       templates(
         rest,
         records,
-        Lists.push(
+        Shared.Lists.push(
           U32,
-          Lists.when(U32, List.contains(~String, ~String.eq, records, written(kids)), b),
+          Shared.Lists.when(U32, List.contains(~String, ~String.eq, records, written(kids)), b),
           out
         )
       )
@@ -119,7 +123,7 @@ def is_built(path: List<&2, Lint.Above>, found: Bool) -> Bool:
     case Con{Lint.Above{Lint.Node{Lint.Lambda{b, q}, n, s, k, f}, at}, rest}:
       False{}
     case Con{Lint.Above{Lint.Node{Lint.Construction{t}, n, s, kids, f}, at}, rest}:
-      is_built(rest, Bool.or(found, Lists.any(~Lint.Node, ~is_lambda, kids)))
+      is_built(rest, Bool.or(found, Shared.Lists.any(~Lint.Node, ~is_lambda, kids)))
     case Con{a, rest}:
       is_built(rest, found)
 
@@ -151,7 +155,7 @@ def defs(
       defs(
         rest,
         records,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

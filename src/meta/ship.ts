@@ -37,16 +37,16 @@ import {
 
 const ROOT = path.resolve(import.meta.dir, "..", "..");
 const SRC = path.join(ROOT, "src");
-const RULES = path.join(ROOT, "bend-lint-rules");
+const RULES = path.join(SRC, "bend-lint-rules");
 const LICENSE = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8");
 
 // The rule API's files.
 const API_FILES = new Set(getClosure(path.join(SRC, "linter", "lint.bend")));
 
-// The npm package holds these files of this repo, but those it leaves out: these scripts, and the
-// rule API.
+// The npm package holds these files of this repo, but those it leaves out: these scripts, bend-lint's
+// own rules (they ship on BendHub) and config, and the rule API.
 const SHIPPED = /^(src\/|README\.md$|LICENSE$)/;
-const LEFT_OUT = /^src\/meta\//;
+const LEFT_OUT = /^src\/(meta\/|bend-lint-rules\/|bend-lint\.json$)/;
 
 // What the npm package's package.json leaves out of this repo's: what only this repo uses.
 const DEV_ONLY = new Set(["private", "scripts", "devDependencies", "packageManager"]);

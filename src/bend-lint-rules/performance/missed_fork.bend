@@ -13,9 +13,8 @@
 # skips a definition that returns IO: its calls build effects, they do not run them. A call inside
 # another call of itself, inside a lambda, or in a type, does not count.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/strings.bend as Strings
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -116,7 +115,7 @@ def called.at(
 ) -> List<&2, Lint.Span>:
   match call:
     case True{}:
-      Lists.push(Lint.Span, span, out)
+      Shared.Lists.push(Lint.Span, span, out)
     case False{}:
       out
 
@@ -187,7 +186,7 @@ def expected() -> String:
   " If this definition runs once per item of a loop, or below a fork that already fills the cores, expect this finding."
 
 def count(texts: List<&2, String>) -> String:
-  U32.show(U32.from_nat(Lists.length(&2, String, texts)))
+  U32.show(U32.from_nat(Shared.Lists.length(&2, String, texts)))
 
 def Call.message(loop: String, +texts: List<&2, String>) -> String:
   loop
@@ -244,7 +243,7 @@ def Call.finding(
   span: Maybe<&2, Lint.Span>,
   owner: Owner
 ) -> List<&2, Lint.Finding>:
-  Call.finding.of(Nat.is_gt(Lists.length(&2, Lint.Span, spans), 1n), spans, span, owner)
+  Call.finding.of(Nat.is_gt(Shared.Lists.length(&2, Lint.Span, spans), 1n), spans, span, owner)
 
 # Whether the node below `path` starts an expression: the node above it ends one, or is a choice.
 def starts(path: List<&2, Lint.Above>) -> Bool:
@@ -260,7 +259,11 @@ def starts(path: List<&2, Lint.Above>) -> Bool:
 def called(value: Lint.Node, target: String) -> Maybe<&2, Lint.Node>:
   match value:
     case Lint.Node{Lint.Application{}, n, s, +kids, f}:
-      Lists.when(Lint.Node, calls.to(kids, target), Lint.Node{Lint.Application{}, n, s, kids, f})
+      Shared.Lists.when(
+        Lint.Node,
+        calls.to(kids, target),
+        Lint.Node{Lint.Application{}, n, s, kids, f}
+      )
     case Lint.Node{
       Lint.Annotation{},
       n,
@@ -268,7 +271,11 @@ def called(value: Lint.Node, target: String) -> Maybe<&2, Lint.Node>:
       Con{Lint.Node{Lint.Application{}, cn, cs, +kids, cf}, k},
       f
     }:
-      Lists.when(Lint.Node, calls.to(kids, target), Lint.Node{Lint.Application{}, cn, cs, kids, cf})
+      Shared.Lists.when(
+        Lint.Node,
+        calls.to(kids, target),
+        Lint.Node{Lint.Application{}, cn, cs, kids, cf}
+      )
     case _:
       None{}
 
@@ -289,7 +296,7 @@ def bound(+node: Lint.Node, +owner: Owner) -> Maybe<&2, Bound>:
         &2,
         Lint.Node,
         Bound,
-        call => Bound{from, trimmed(Strings.slice(text, from, end)), b, call},
+        call => Bound{from, trimmed(Shared.Strings.slice(text, from, end)), b, call},
         called(value, target)
       )
     case _ _:
@@ -388,17 +395,21 @@ def Run.add(bound: Maybe<&2, Bound>, owner: Owner, run: Run) -> Run:
         Run{
           [Bound{f, w, b, c}],
           [b],
-          Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)
+          Shared.Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)
         },
         Run{Bound{f, w, b, c} <> bounds, b <> binders, out}
       )
     case None{} Run{bounds, binders, out}:
-      Run{[], [], Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)}
+      Run{[], [], Shared.Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)}
 
 def Run.finding.end(run: Run, owner: Owner) -> List<&2, Lint.Finding>:
   match run:
     case Run{bounds, binders, out}:
-      List.reverse(&2, Lint.Finding, Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out))
+      List.reverse(
+        &2,
+        Lint.Finding,
+        Shared.Lists.onto(&2, Lint.Finding, Run.finding(bounds, owner), out)
+      )
 
 # The findings about the runs of lets that follow each other from `node`, a let, after `run`: each next let is the rest
 # of block of the one before, while its call uses no binder of the run.
@@ -424,7 +435,7 @@ def follows(path: List<&2, Lint.Above>, owner: Owner) -> Bool:
     case Con{Lint.Above{Lint.Node{Lint.Destructure{q}, n, s, +kids, f}, at}, rest}:
       U32.is_eq(
         (at + 1: U32),
-        U32.from_nat(Lists.length(&2, Lint.Node, kids))
+        U32.from_nat(Shared.Lists.length(&2, Lint.Node, kids))
       )
         && Maybe.is_some(&2, Bound, bound(Lint.Node{Lint.Destructure{q}, n, s, kids, f}, owner))
     case _:
@@ -456,7 +467,7 @@ def lets(head: Bool, node: Lint.Node, owner: Owner) -> List<&2, Lint.Finding>:
 def visit(+owner: Owner, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Lint.Finding>:
   match owner node:
     case Owner{target, name, io, text} Lint.Node{syntax, n, span, k, f}:
-      Lists.append(
+      Shared.Lists.append(
         &2,
         Lint.Finding,
         roots(
@@ -490,7 +501,7 @@ def defs(
       defs(
         rest,
         text,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

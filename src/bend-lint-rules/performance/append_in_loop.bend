@@ -6,8 +6,8 @@
 # reported. It knows Base's List.append and String.append (`++`), not other functions that copy
 # their first argument.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -30,7 +30,11 @@ def Append.of(+callee: String, +count: Nat) -> Maybe<&2, Append>:
     Maybe<&2, Append>,
     String.eq(callee, "List.append") && Nat.is_eq(count, 4n),
     Some{ListAppend{}},
-    Lists.when(Append, String.eq(callee, "String.append") && Nat.is_eq(count, 2n), StringAppend{})
+    Shared.Lists.when(
+      Append,
+      String.eq(callee, "String.append") && Nat.is_eq(count, 2n),
+      StringAppend{}
+    )
   )
 
 # Which argument an append copies.
@@ -181,7 +185,7 @@ def argument(
       f
     }:
       appended(
-        Append.of(callee, Lists.length(&2, Lint.Node, parts)),
+        Append.of(callee, Shared.Lists.length(&2, Lint.Node, parts)),
         parts,
         loop,
         name,
@@ -209,7 +213,7 @@ def arguments(
         loop,
         name,
         arg <> before,
-        Lists.onto(&2, Lint.Finding, argument(arg, loop, name, before, rest), out)
+        Shared.Lists.onto(&2, Lint.Finding, argument(arg, loop, name, before, rest), out)
       )
 
 def call.of(loop: Loop, kids: List<&2, Lint.Node>) -> List<&2, Lint.Finding>:
@@ -246,7 +250,7 @@ def defs(
       defs(
         rest,
         text,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

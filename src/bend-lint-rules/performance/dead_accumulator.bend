@@ -10,8 +10,8 @@
 # an erased parameter (`-acc`), keeps it there. Only the loop's own calls are read; a call of the loop
 # through another definition, or through a template, is not.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -107,7 +107,7 @@ def params(
         target,
         name,
         (at + 1: U32),
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.finding(

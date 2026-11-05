@@ -14,9 +14,8 @@
 # must be built twice, and sharing it counts references; it is skipped. Numbers are those of
 # performance/gpu_fit, as the callee's return type is written.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 import ./gpu_fit.bend as GpuFit
 import ./loop_invariant_call.bend as Invariant
@@ -144,7 +143,7 @@ def visit(+scope: Scope, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
             loops,
             t
           )
-            && returns_number(Names.find(Lint.Def, defs, t))
+            && returns_number(Shared.Names.find(Lint.Def, defs, t))
             && Lint.is_live(path)
             && Bool.not(is_guarded(path, False{})),
           Invariant.Owner{loops, target, name, fixed},
@@ -229,7 +228,7 @@ def judged(
         rest,
         c <> seen,
         loop,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.finding(

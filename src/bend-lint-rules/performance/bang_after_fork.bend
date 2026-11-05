@@ -12,10 +12,8 @@
 # no parallel let runs, or of one that returns Unit, is left to performance/gpu_fit and
 # performance/drop_in_bang: they ask to remove the `!`.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
-import ../../src/shared/names.bend as Names
-import ../../src/shared/sets.bend as Sets
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 import ./deep_call_in_fork.bend as Deep
 import ./gpu_fit.bend as GpuFit
 
@@ -57,11 +55,15 @@ def host.visit(
 def forks(nodes: List<&2, Lint.Node>, program: Program) -> Bool:
   match program:
     case Program{defs, under, bangs}:
-      Sets.has_any(Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes), under, False{})
+      Shared.Sets.has_any(
+        Lint.visit(~List<&2, U32>, ~String, ~host.visit, bangs, nodes),
+        under,
+        False{}
+      )
 
 # The nodes of a let (`kids`) that run before the rest of its block, its last node: its binders and values.
 def let.values(+kids: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
-  List.take(&2, Lint.Node, kids, Nat.sub(Lists.length(&2, Lint.Node, kids), 1n))
+  List.take(&2, Lint.Node, kids, Nat.sub(Shared.Lists.length(&2, Lint.Node, kids), 1n))
 
 # Whether the let of `kids` forks before the rest of its block, if the node is in it (`last`): it is a parallel let
 # (`parallel`), or a value of it forks.
@@ -138,8 +140,8 @@ def visit(
             bangs,
             end
           )
-            && Sets.has(under, t)
-            && Bool.not(GpuFit.is_drop(Names.find(Lint.Def, defs, t), t)),
+            && Shared.Sets.has(under, t)
+            && Bool.not(GpuFit.is_drop(Shared.Names.find(Lint.Def, defs, t), t)),
           args,
           path,
           Program{defs, under, bangs}

@@ -1,6 +1,5 @@
 import Base
-import ../shared/names.bend as Names
-import ../shared/strings.bend as Strings
+import ../shared.bend as Shared
 
 # Types
 # =====
@@ -269,10 +268,14 @@ def Json.word(+w: String) -> Json:
   Maybe.default(
     &2,
     Json,
-    Names.lookup(
+    Shared.Names.lookup(
       Json,
       w,
-      [Names.Named{"true", JTrue{}}, Names.Named{"false", JFalse{}}, Names.Named{"null", JNull{}}]
+      [
+        Shared.Names.Named{"true", JTrue{}},
+        Shared.Names.Named{"false", JFalse{}},
+        Shared.Names.Named{"null", JNull{}}
+      ]
     ),
     JNumber{w}
   )
@@ -419,4 +422,4 @@ def write(fuel: Nat, todo: List<&2, Piece>, out: List<&2, String>) -> List<&2, S
       write(f, pieces(v, rest), out)
 
 def show(v: Json) -> String:
-  Strings.onto(write(4294967295n, [PValue{v}], []), "")
+  Shared.Strings.onto(write(4294967295n, [PValue{v}], []), "")

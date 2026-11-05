@@ -98,8 +98,8 @@ names none, from the folder it runs in), and the nearest `bend-lint-rules/` up f
 
 bend-lint's own rules are on BendHub, as the package `bend-lint-rules` at bend-lint's version, with
 `.0` added. Name it in `packages`, then turn a rule on by its id, like
-`bend-lint-rules/layout/case`. Each file's header in [bend-lint-rules/](bend-lint-rules/) says what
-the rule reports, what its fix does, and its options.
+`bend-lint-rules/layout/case`. Each file's header in [src/bend-lint-rules/](src/bend-lint-rules/)
+says what the rule reports, what its fix does, and its options.
 
 ## Suppress findings
 

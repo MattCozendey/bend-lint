@@ -12,11 +12,7 @@
 # - A rule requests a fix as typed operations, and the linter plans them. Until Bend's checker is Bend, no fix is
 #   proven to keep the program: `--fix-dangerously` makes them all, and `--fix` makes none.
 import Base
-import ../shared/lists.bend as Lists
-import ../shared/names.bend as Names
-import ../shared/sets.bend as Sets
-import ../shared/strings.bend as Strings
-import ../shared/tables.bend as Tables
+import ../shared.bend as Shared
 
 # Program
 # =======
@@ -245,13 +241,13 @@ def Node.span(node: Maybe<&2, Node>) -> Maybe<&2, Span>:
 def Span.text(source: String, span: Maybe<&2, Span>) -> String:
   match span:
     case Some{Span{path, beg, end}}:
-      Strings.slice(source, beg, end)
+      Shared.Strings.slice(source, beg, end)
     case None{}:
       ""
 
 # The namespace of a global name: what comes before its first ":", or "" for Base and the checked file's own names.
 def Name.namespace(name: String) -> String:
-  Strings.before(name, ':')
+  Shared.Strings.before(name, ':')
 
 # Whether a parameter is written bare (`def f(x)`, filling a law): its quantity is the law's, which its node does not
 # give.
@@ -327,7 +323,17 @@ def visit.go(
         up,
         parent,
         (at + 1: U32),
-        visit.go(~C, ~A, ~f, kids, c, path, Some{node}, 0, Lists.onto(&2, A, f(c, path, node), out))
+        visit.go(
+          ~C,
+          ~A,
+          ~f,
+          kids,
+          c,
+          path,
+          Some{node},
+          0,
+          Shared.Lists.onto(&2, A, f(c, path, node), out)
+        )
       )
 
 # `f(c, path, node)` for each node of `nodes` and under them, parents first, in order: `path` holds the nodes above the
@@ -424,7 +430,7 @@ def is_live.go(path: List<&2, Above>, ok: Bool) -> Bool:
 def is_live(path: List<&2, Above>) -> Bool:
   is_live.go(path, True{})
 
-# The definitions of `nodes`, by the name the check gives them: read one with `Names.find`. Of two with one name, the
+# The definitions of `nodes`, by the name the check gives them: read one with `Shared.Names.find`. Of two with one name, the
 # later is kept.
 def definitions(nodes: List<&2, Node>, out: Map<&2, Maybe<&2, Node>>) -> Map<&2, Maybe<&2, Node>>:
   match nodes:
@@ -450,7 +456,7 @@ def parameter.go(
     case Nil{} None{}:
       None{}
     case Con{Node{Parameter{b, q}, n, s, k, f}, rest} None{}:
-      parameter.go(rest, Lists.when(Nat, U32.is_eq(b, binder), at), binder, 1n+at)
+      parameter.go(rest, Shared.Lists.when(Nat, U32.is_eq(b, binder), at), binder, 1n+at)
     case Con{node, rest} None{}:
       parameter.go(rest, None{}, binder, at)
 
@@ -477,8 +483,8 @@ def Severity.show(s: Severity) -> String:
     case Hint{}:
       "hint"
 
-def Severity.names() -> List<&2, Names.Named<Severity>>:
-  Names.table(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
+def Severity.names() -> List<&2, Shared.Names.Named<Severity>>:
+  Shared.Names.table(~Severity, ~Severity.show, [Error{}, Warning{}, Information{}, Hint{}])
 
 # An edit a fix asks for: replace a span's text; rename what the declaration written at `at` declares, with each of its
 # uses; or rename only its uses, to point them at a name the program declares already (to drop a duplicate import,
@@ -572,7 +578,7 @@ type Uses is Data:
   Uses{
     sources: List<&2, Source>,
     globals: Map<&2, List<&2, Node>>,
-    binders: Tables.Table<List<&2, Node>>,
+    binders: Shared.Tables.Table<List<&2, Node>>,
     imported: Imported
   }
 
@@ -583,7 +589,7 @@ def Uses.global.add(
 ) -> Map<&2, List<&2, Node>>:
   match used:
     case Some{t}:
-      Names.Group.add(Node, m, t, node)
+      Shared.Names.Group.add(Node, m, t, node)
     case None{}:
       m
 
@@ -591,22 +597,22 @@ def Uses.global(+u: Unit, +node: Node, m: Map<&2, List<&2, Node>>) -> Map<&2, Li
   Uses.global.add(Syntax.used(Node.syntax(node)), node, m)
 
 def Uses.binder.add(
-  +t: Tables.Table<List<&2, Node>>,
+  +t: Shared.Tables.Table<List<&2, Node>>,
   +b: U32,
   node: Node
-) -> Tables.Table<List<&2, Node>>:
-  Tables.Table.set(
+) -> Shared.Tables.Table<List<&2, Node>>:
+  Shared.Tables.Table.set(
     List<&2, Node>,
     t,
     b,
-    node <> Maybe.default(&2, List<&2, Node>, Tables.Table.get(List<&2, Node>, t, b), [])
+    node <> Maybe.default(&2, List<&2, Node>, Shared.Tables.Table.get(List<&2, Node>, t, b), [])
   )
 
 def Uses.binder(
   +u: Unit,
   +node: Node,
-  t: Tables.Table<List<&2, Node>>
-) -> Tables.Table<List<&2, Node>>:
+  t: Shared.Tables.Table<List<&2, Node>>
+) -> Shared.Tables.Table<List<&2, Node>>:
   match node:
     case Node{Variable{b}, n, s, k, f}:
       Uses.binder.add(t, b, node)
@@ -631,7 +637,7 @@ def Imported.own(nodes: List<&2, Node>, out: Set()) -> Set():
 def Imported.is_base(own: Set(), used: Maybe<&2, String>) -> Bool:
   match used:
     case Some{+name}:
-      String.is_empty(Name.namespace(name)) && Bool.not(Sets.has(own, name))
+      String.is_empty(Name.namespace(name)) && Bool.not(Shared.Sets.has(own, name))
     case None{}:
       False{}
 
@@ -644,14 +650,18 @@ def Imported.alias(
     case SNil{}:
       aliases
     case SCon{h, t}:
-      Names.Group.add(Node, aliases, SCon{h, t}, node)
+      Shared.Names.Group.add(Node, aliases, SCon{h, t}, node)
 
 def Imported.add(+own: Set(), +node: Node, uses: Imported) -> Imported:
   match node uses:
     case Node{syntax, name, s, k, f} Imported{aliases, base}:
       Imported{
-        Imported.alias(Strings.before(name, '.'), node, aliases),
-        Lists.push(Node, Lists.when(Node, Imported.is_base(own, Syntax.used(syntax)), node), base)
+        Imported.alias(Shared.Strings.before(name, '.'), node, aliases),
+        Shared.Lists.push(
+          Node,
+          Shared.Lists.when(Node, Imported.is_base(own, Syntax.used(syntax)), node),
+          base
+        )
       }
 
 def Imported.of(+nodes: List<&2, Node>) -> Imported:
@@ -677,7 +687,7 @@ def Declarations.namespace(
     case Nil{} None{}:
       ""
     case Con{Source{p, namespace, text, nodes}, rest} None{}:
-      Declarations.namespace(rest, path, Lists.when(String, String.eq(p, path), namespace))
+      Declarations.namespace(rest, path, Shared.Lists.when(String, String.eq(p, path), namespace))
 
 # The uses of an import, in order: of Base (`base`), or of its alias.
 def Declarations.imported(base: Bool, alias: String, imported: Imported) -> List<&2, Node>:
@@ -685,18 +695,18 @@ def Declarations.imported(base: Bool, alias: String, imported: Imported) -> List
     case True{} Imported{aliases, uses}:
       List.reverse(&2, Node, uses)
     case False{} Imported{aliases, uses}:
-      Names.Group.get(Node, aliases, alias)
+      Shared.Names.Group.get(Node, aliases, alias)
 
 def Declarations.bound(
   binder: Maybe<&2, U32>,
-  binders: Tables.Table<List<&2, Node>>
+  binders: Shared.Tables.Table<List<&2, Node>>
 ) -> List<&2, Node>:
   match binder:
     case Some{b}:
       List.reverse(
         &2,
         Node,
-        Maybe.default(&2, List<&2, Node>, Tables.Table.get(List<&2, Node>, binders, b), [])
+        Maybe.default(&2, List<&2, Node>, Shared.Tables.Table.get(List<&2, Node>, binders, b), [])
       )
     case None{}:
       []
@@ -708,7 +718,7 @@ def Declarations.declared(
 ) -> List<&2, Declaration>:
   match declares node uses:
     case Some{True{}} _ Uses{sources, globals, binders, imported}:
-      [Declaration{node, Names.Group.get(Node, globals, Node.target(node))}]
+      [Declaration{node, Shared.Names.Group.get(Node, globals, Node.target(node))}]
     case Some{False{}} Node{syntax, name, s, k, f} Uses{sources, globals, binders, imported}:
       Bool.pick(
         List<&2, Declaration>,
@@ -737,7 +747,7 @@ def Declarations.node(
       }
         <> out
     case _ _:
-      Lists.onto(
+      Shared.Lists.onto(
         &2,
         Declaration,
         Declarations.declared(Syntax.declares(Node.syntax(node)), node, uses),
@@ -769,11 +779,11 @@ def Declarations.tops(
             globals,
             fold(
               ~Unit,
-              ~Tables.Table<List<&2, Node>>,
+              ~Shared.Tables.Table<List<&2, Node>>,
               ~Uses.binder,
               Unit{},
               [top],
-              Tables.TLeaf{None{}}
+              Shared.Tables.TLeaf{None{}}
             ),
             imported
           },
@@ -884,7 +894,11 @@ def Def.params(nodes: List<&2, Node>, out: List<&2, Param>) -> List<&2, Param>:
     case Con{Node{Parameter{b, q}, n, s, kids, f}, rest}:
       Def.params(
         rest,
-        Lists.push(Param, Lists.when(Param, Quantity.is_runtime(q), Param{n, type_name(kids)}), out)
+        Shared.Lists.push(
+          Param,
+          Shared.Lists.when(Param, Quantity.is_runtime(q), Param{n, type_name(kids)}),
+          out
+        )
       )
     case Con{node, rest}:
       Def.params(rest, out)
@@ -968,7 +982,7 @@ def Program.defs.file(
     case Con{node, rest}:
       Program.defs.file(rest, out)
 
-# The definitions of the program's files, by the name the check gives them, onto `out`: read one with `Names.find`.
+# The definitions of the program's files, by the name the check gives them, onto `out`: read one with `Shared.Names.find`.
 def Program.defs(
   sources: List<&2, Source>,
   out: Map<&2, Maybe<&2, Def>>
@@ -990,7 +1004,11 @@ def Program.callers.if(found: Bool, t: String, callers: Set()) -> Set():
 def Program.callers.step(info: Maybe<&2, Def>, +callers: Set()) -> Set():
   match info:
     case Some{Def{+t, ps, forks, calls, r}}:
-      Program.callers.if(Sets.has_any(calls, callers, Sets.has(callers, t)), t, callers)
+      Program.callers.if(
+        Shared.Sets.has_any(calls, callers, Shared.Sets.has(callers, t)),
+        t,
+        callers
+      )
     case None{}:
       callers
 
@@ -1004,7 +1022,11 @@ def Program.callers.file(
     case Nil{}:
       callers
     case Con{Node{Definition{t, u}, n, s, k, f}, rest}:
-      Program.callers.file(rest, defs, Program.callers.step(Names.find(Def, defs, t), callers))
+      Program.callers.file(
+        rest,
+        defs,
+        Program.callers.step(Shared.Names.find(Def, defs, t), callers)
+      )
     case Con{node, rest}:
       Program.callers.file(rest, defs, callers)
 
@@ -1054,7 +1076,7 @@ type Here is Data:
     program: Program,
     source: Source,
     declarations: List<&2, Declaration>,
-    options: List<&2, Names.Named<Value>>
+    options: List<&2, Shared.Names.Named<Value>>
   }
 
 # What a program rule sees: the program (its files, hub packages aside); every declaration of its files, with their
@@ -1063,7 +1085,7 @@ type Whole is Data:
   Whole{
     program: Program,
     declarations: List<&2, Declaration>,
-    options: List<&2, Names.Named<Value>>
+    options: List<&2, Shared.Names.Named<Value>>
   }
 
 # The program from one of its files, built once for every file rule that runs on that file: its declarations, if a rule
@@ -1118,7 +1140,7 @@ def Here.declarations(here: Here) -> List<&2, Declaration>:
 def Here.option(here: Here, name: String) -> Maybe<&2, Value>:
   match here:
     case Here{program, source, declarations, options}:
-      Names.lookup(Value, name, options)
+      Shared.Names.lookup(Value, name, options)
 
 def Whole.declarations(whole: Whole) -> List<&2, Declaration>:
   match whole:
@@ -1133,7 +1155,7 @@ def Whole.sources(whole: Whole) -> List<&2, Source>:
 def Whole.option(whole: Whole, name: String) -> Maybe<&2, Value>:
   match whole:
     case Whole{program, declarations, options}:
-      Names.lookup(Value, name, options)
+      Shared.Names.lookup(Value, name, options)
 
 # Asking the checker
 # ==================

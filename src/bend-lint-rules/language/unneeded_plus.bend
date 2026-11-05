@@ -6,8 +6,8 @@
 # The `+` costs no speed: the compiler counts references from the uses, not from the `+`. Removing
 # 1,049 such `+` from Bend's slash boss demo, three-bodies and a raytracer left their C unchanged.
 import Base
-import ../../src/linter/lint.bend as Lint
-import ../../src/shared/lists.bend as Lists
+import ../../linter/lint.bend as Lint
+import ../../shared.bend as Shared
 
 # Types
 # =====
@@ -56,7 +56,7 @@ def matched.visit(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> Li
       Bool.pick(
         List<&2, U32>,
         Bool.not(
-          U32.is_eq((at + 1: U32), U32.from_nat(Lists.length(&2, Lint.Node, kids)))
+          U32.is_eq((at + 1: U32), U32.from_nat(Shared.Lists.length(&2, Lint.Node, kids)))
         )
           && is_constructed(kids),
         [b],
@@ -140,7 +140,7 @@ def judged(
         span,
         name,
         rest,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.finding(
@@ -175,7 +175,7 @@ def defs(
       defs(
         rest,
         values,
-        Lists.onto(
+        Shared.Lists.onto(
           &2,
           Lint.Finding,
           Lint.visit(

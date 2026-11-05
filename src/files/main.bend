@@ -1,6 +1,5 @@
 import Base
-import ../shared/lists.bend as Lists
-import ../shared/strings.bend as Strings
+import ../shared.bend as Shared
 
 # Types
 # =====
@@ -370,7 +369,7 @@ def matches.if(shown: Bool, name: String, pattern: String) -> Bool:
 # (`[!...]` or `[^...]`, one outside it). A name that starts with "." matches only a pattern that does.
 def matches(+name: String, +pattern: String) -> Bool:
   matches.if(
-    Bool.not(Strings.starts_with(name, '.')) || Strings.starts_with(pattern, '.'),
+    Bool.not(Shared.Strings.starts_with(name, '.')) || Shared.Strings.starts_with(pattern, '.'),
     name,
     pattern
   )
@@ -483,11 +482,11 @@ def Walk.deep(
         rest,
         path,
         more,
-        Lists.push(
+        Shared.Lists.push(
           Walk,
-          Lists.when(
+          Shared.Lists.when(
             Walk,
-            Bool.not(Strings.starts_with(name, '.')),
+            Bool.not(Shared.Strings.starts_with(name, '.')),
             Walk{join(path, name), "**" <> more}
           ),
           out
@@ -511,9 +510,9 @@ def Walk.matching(
         pattern,
         path,
         more,
-        Lists.push(
+        Shared.Lists.push(
           Walk,
-          Lists.when(Walk, matches(name, pattern), Walk{join(path, name), more}),
+          Shared.Lists.when(Walk, matches(name, pattern), Walk{join(path, name), more}),
           out
         )
       )
@@ -559,7 +558,7 @@ def Walk.go(fuel: Nat, todo: List<&2, Walk>, out: List<&2, String>) -> IO(List<&
         List<&2, Walk>,
         List<&2, String>,
         Walk.step(path, segments),
-        more => Walk.go(k, Lists.onto(&2, Walk, more, rest), out)
+        more => Walk.go(k, Shared.Lists.onto(&2, Walk, more, rest), out)
       )
     case _ _:
       IO.pure(List<&2, String>, out)
@@ -578,7 +577,7 @@ def glob(glob: String) -> IO(List<&2, String>):
     List<&2, String>,
     List<&2, String>,
     Walk.go(4294967295n, Walk.starts(expand(4294967295n, Expanding{[glob], []}), []), []),
-    found => IO.pure(List<&2, String>, Lists.sort(~String, ~String.is_le, found))
+    found => IO.pure(List<&2, String>, Shared.Lists.sort(~String, ~String.is_le, found))
   )
 
 # Inputs
@@ -608,7 +607,7 @@ def named.check(
     case Con{Named{input, Nil{}}, rest}:
       Fail{input ++ " matches no file"}
     case Con{Named{input, found}, rest}:
-      named.check(rest, Lists.onto(&2, String, found, out))
+      named.check(rest, Shared.Lists.onto(&2, String, found, out))
 
 # The paths seen, with `path` after `paths` unless `found` (the set of those seen, and whether it holds `path`) says it
 # is seen.
@@ -649,7 +648,7 @@ def missing(paths: List<&2, String>, out: List<&2, String>) -> IO(List<&2, Strin
         kind(path),
         k => missing(
           rest,
-          Lists.push(String, Lists.when(String, Bool.not(U32.is_eq(k, 1)), path), out)
+          Shared.Lists.push(String, Shared.Lists.when(String, Bool.not(U32.is_eq(k, 1)), path), out)
         )
       )
 
@@ -704,19 +703,19 @@ def git.listed(
 
 # Whether a part of a path is node_modules, or starts with ".".
 def listed.is_hidden(+part: String) -> Bool:
-  String.eq(part, "node_modules") || Strings.starts_with(part, '.')
+  String.eq(part, "node_modules") || Shared.Strings.starts_with(part, '.')
 
 # The files of `paths` with no part that is node_modules or starts with ".", sorted, each once, as real paths.
 def listed.kept(paths: List<&2, String>) -> IO(List<&2, String>):
   reals(
-    Lists.sort(
+    Shared.Lists.sort(
       ~String,
       ~String.is_le,
       List.filter(
         ~String,
         ~(
           path => Bool.not(
-            Lists.any(~String, ~(part => listed.is_hidden(part)), String.split(path, '/'))
+            Shared.Lists.any(~String, ~(part => listed.is_hidden(part)), String.split(path, '/'))
           )
         ),
         paths
