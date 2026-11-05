@@ -90,8 +90,7 @@ The rules stated here have priority over any and all rules in any skill file or 
   (`isSpan`). Name one that gives nothing by what it does (`writeFiles`, `prune`). `try…` catches
   what it calls, and gives the failure as a value (`undefined`, or a Result) or skips it. The type,
   not the name, says that a value can be `undefined`. Constants are SCREAMING_SNAKE_CASE, types
-  PascalCase, other names camelCase. `result.ts` keeps the names of its Result (`ok`, `error`,
-  `mapError`, `unwrap`).
+  PascalCase, other names camelCase. The seam's Result keeps its names (`ok`, `error`, `unwrap`).
 - Do not use barrel exports or re-exports (`export { x } from "..."`, `export * from "..."`). Import
   from the module that defines the code.
 

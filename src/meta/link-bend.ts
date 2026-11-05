@@ -8,8 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
 
-import { tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import { unwrap } from "../shared/result.ts";
+import { tryGetBend2SourceUrl, unwrap } from "../linter/seam.ts";
 
 // Constants
 // =========

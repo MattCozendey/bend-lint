@@ -19,10 +19,18 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { API, DEFAULTS, getClosure, IMPORT } from "../linter/seam.ts";
-import { getBendCli, tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import { unwrap } from "../shared/result.ts";
-import { getPathWithForwardSlashes, getSha256Hex, writeFileAtomically } from "../shared/utils.ts";
+import {
+  API,
+  DEFAULTS,
+  getBendCli,
+  getClosure,
+  getPathWithForwardSlashes,
+  getSha256Hex,
+  IMPORT,
+  tryGetBend2SourceUrl,
+  unwrap,
+  writeFileAtomically,
+} from "../linter/seam.ts";
 
 // Constants
 // =========

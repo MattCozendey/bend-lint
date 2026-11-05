@@ -20,9 +20,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { getNativePath, getProject, getRules, getRulesProgram } from "../linter/seam.ts";
-import { getBendCli, getClang, tryGetBend2SourceUrl } from "../shared/bend2.ts";
-import { unwrap } from "../shared/result.ts";
+import {
+  getBendCli,
+  getClang,
+  getNativePath,
+  getProject,
+  getRules,
+  getRulesProgram,
+  tryGetBend2SourceUrl,
+  unwrap,
+} from "../linter/seam.ts";
 
 // Types
 // =====
