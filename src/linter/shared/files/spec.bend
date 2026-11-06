@@ -6,6 +6,11 @@ law read:
   for file: File
   IO(Result<&2, &2, String, String>)
 
+# The real path of `path`: absolute, links resolved, "/" between its parts.
+law real:
+  for path: String
+  IO(Result<&1, &1, U32 & String, String>)
+
 # Whether `text` was written to the file at `path`, in place of its text.
 law write:
   for path: String

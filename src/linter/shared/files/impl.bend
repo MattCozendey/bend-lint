@@ -80,10 +80,12 @@ def kind(path: String) -> IO(U32):
   import "./effs/files.c"
   import "./effs/files.js"
 
-# The real path of `path`: absolute, links resolved, "/" between its parts.
 def real(path: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./effs/files.c"
   import "./effs/files.js"
+
+def Spec.real(path):
+  real(path)
 
 # The names in `text`, each ended by a NUL.
 def names(text: String) -> List<&2, String>:

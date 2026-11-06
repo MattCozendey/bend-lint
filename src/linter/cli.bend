@@ -307,7 +307,67 @@ def Parsed.of(folder: String, json: Maybe<&2, Json.Json>) -> Result<&2, &2, Stri
     case _:
       Fail{"not a JSON object"}
 
-# The config at `path`, if each of its entries is a file (`missing` lists those that are not); else the run ends.
+# The paths the server holds an overlay for (`--overlays`, see seam.ts), one a line in BEND_LINT_OVERLAYS: none, if it
+# gives none.
+def Overlays.of(given: Result<&1, &1, U32 & String, String>) -> List<&2, String>:
+  match given:
+    case Done{text}:
+      List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, '\n'))
+    case Fail{why}:
+      []
+
+# Whether `key` is one of `overlays`, or `found`.
+def Overlays.has(overlays: List<&2, String>, +key: String, found: Bool) -> Bool:
+  match overlays found:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{o, rest} False{}:
+      Overlays.has(rest, key, String.eq(o, key))
+
+# Whether an overlay gives the text of the file `name` in the folder whose real path is `real`: an overlay's key is
+# its folder's real path, then its name (see seam.ts).
+def Overlays.covers(
+  overlays: List<&2, String>,
+  real: Result<&1, &1, U32 & String, String>,
+  name: String
+) -> Bool:
+  match real:
+    case Done{folder}:
+      Overlays.has(overlays, folder ++ "/" ++ name, False{})
+    case Fail{why}:
+      False{}
+
+# The entries of `missing`, files not on disk, that no overlay gives a text either, onto `out` (last first).
+def Overlays.unseen(
+  +overlays: List<&2, String>,
+  missing: List<&2, String>,
+  +out: List<&2, String>
+) -> IO(List<&2, String>):
+  match missing:
+    case Nil{}:
+      IO.pure(List<&2, String>, List.reverse(&2, String, out))
+    case Con{+entry, rest}:
+      +name = Shared.Strings.after_last(entry, '/')
+      IO.bind(
+        Result<&1, &1, U32 & String, String>,
+        List<&2, String>,
+        Files.real(
+          Shared.Strings.take(
+            entry,
+            Nat.sub(String.length(entry), Nat.add(String.length(name), 1n))
+          )
+        ),
+        real => Overlays.unseen(
+          overlays,
+          rest,
+          Bool.pick(List<&2, String>, Overlays.covers(overlays, real, name), out, entry <> out)
+        )
+      )
+
+# The config at `path`, if each of its entries is a file or has an overlay (`missing` lists those that are neither);
+# else the run ends.
 def Config.entered(
   json: Bool,
   missing: List<&2, String>,
@@ -333,12 +393,11 @@ def Config.parsed(
 ) -> IO(Project):
   match parsed:
     case Done{Project{+entries, imports, rules}}:
-      IO.bind(
-        List<&2, String>,
-        Project,
-        Files.missing(entries, []),
-        missing => Config.entered(json, missing, path, Project{entries, imports, rules})
-      )
+      do IO<Project>:
+        missing: List<&2, String> <- Files.missing(entries, [])
+        given: Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_LINT_OVERLAYS")
+        unseen: List<&2, String> <- Overlays.unseen(Overlays.of(given), missing, [])
+        Config.entered(json, unseen, path, Project{entries, imports, rules})
     case Fail{why}:
       Error.end(Project, json, 2, path, "bend-lint: " ++ path ++ ": " ++ why)
 
@@ -3055,16 +3114,6 @@ def Paths.lint(
         File.lint(~rules, path, options, many),
         o => Paths.lint(~rules, rest, options, many, Outcome.add(total, o))
       )
-
-# The paths the server holds an overlay for (`--overlays`, see seam.ts), one a line in BEND_LINT_OVERLAYS: none, if it
-# gives none.
-def Overlays.of(given: Result<&1, &1, U32 & String, String>) -> List<&2, String>:
-  match given:
-    case Done{text}:
-      List.filter(~String, ~(n => Bool.not(String.is_empty(n))), String.split(text, '
-'))
-    case Fail{why}:
-      []
 
 # Stops a run that makes fixes (`fixes`) to files with overlays: a fix writes the file on disk, not the text it linted.
 def Overlays.fixing(json: Bool, fixes: Bool, overlays: List<&2, String>) -> IO(Unit):
