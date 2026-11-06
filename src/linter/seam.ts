@@ -245,6 +245,11 @@ const getBendLintCacheDir = (): URL =>
 const JAVASCRIPT_NOTE =
   "bend-lint: found no clang 14 or newer, so the rules run as JavaScript, about 3 to 8 times slower; install clang to speed them up";
 
+// What bend-lint says on a run whose rules it built as JavaScript while clang builds them in the
+// background (see getBuiltProgram).
+const BUILDING_NOTE =
+  "bend-lint: the rules run as JavaScript this time, about 3 to 8 times slower, while clang builds them in the background";
+
 // How the line starts that says the installed bend is another version.
 const VERSION_NOTE = "bend-lint: your bend is ";
 
@@ -482,6 +487,10 @@ const USED = 24 * 60 * 60 * 1000;
 
 // A prune stats each entry of its folder (about 0.1 s for 9000 entries), so not on every run.
 const PRUNE_EVERY = 24 * 60 * 60 * 1000;
+
+// How long a native build that a run started in the background may take before another run starts
+// it again (as when the first one stopped).
+const BUILDING = 10 * 60 * 1000;
 
 // Functions
 // =========
@@ -1992,19 +2001,13 @@ export const getNativePath = (source: string, dir: URL): string => {
   return nodePath.join(PROGRAMS_DIR, name + (process.platform === "win32" ? ".exe" : ""));
 };
 
-// The program the rules program `source` builds to, with the Bend in the bend2 folder `dir`:
-// native, if clang can build it, else JavaScript, until clang can. A build is kept, and used
-// again until a file the program imports, or the Bend that builds it, changes; its use keeps it
-// from prune (see USED). It goes to a folder of its own first, so a kept build is never partial,
-// and runs that build one program at once share one build.
-const getBuiltProgram = async (source: string, dir: URL): Promise<string> => {
-  const file = nodePath.resolve(source);
+// The build at `exe` (native, or JavaScript if it ends in .js) of the rules program at `file`, with
+// the Bend in the bend2 folder `dir`. A build is kept, and used again until a file the program
+// imports, or the Bend that builds it, changes; its use keeps it from prune (see USED). It goes to
+// a folder of its own first, so a kept build is never partial, and runs that build one program at
+// once share one build.
+const getBuild = async (file: string, exe: string, dir: URL): Promise<string> => {
   const from = nodePath.dirname(file);
-  const native = getNativePath(source, dir);
-  const exe =
-    nodeFs.existsSync(native) || getClang() !== undefined
-      ? native
-      : native.replace(/(\.exe)?$/, ".js");
   const kept = nodeFs.statSync(exe, { throwIfNoEntry: false });
   if (kept !== undefined) {
     if (Date.now() - kept.mtimeMs > USED) {
@@ -2020,7 +2023,7 @@ const getBuiltProgram = async (source: string, dir: URL): Promise<string> => {
     const bend = getBendCli(dir);
     const ran = await getCommandOutcome([...bend.cmd, file, "-o", out], from, bend.env);
     if (ran.code !== 0) {
-      throw new Error(`could not build ${source}:\n${ran.out}${ran.err}`);
+      throw new Error(`could not build ${file}:\n${ran.out}${ran.err}`);
     }
     try {
       nodeFs.renameSync(out, exe);
@@ -2033,6 +2036,41 @@ const getBuiltProgram = async (source: string, dir: URL): Promise<string> => {
     nodeFs.rmSync(part, { recursive: true, force: true });
   }
   return exe;
+};
+
+// Starts the native build of the rules program at `file` (its kept path `native`) in a process of
+// its own, which outlives this run, unless one started it in the last BUILDING.
+const startNativeBuild = (file: string, native: string): void => {
+  const marker = native + ".building";
+  const started = nodeFs.statSync(marker, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  if (Date.now() - started < BUILDING) {
+    return;
+  }
+  nodeFs.mkdirSync(PROGRAMS_DIR, { recursive: true });
+  tryGet(() => nodeFs.writeFileSync(marker, String(process.pid)));
+  spawn(process.execPath, [url.fileURLToPath(import.meta.url), "build", file], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  }).unref();
+};
+
+// The program the rules program `source` builds to, with the Bend in the bend2 folder `dir`:
+// native, if clang can build it, else JavaScript, until clang can. A native build takes clang a
+// while, so, unless `waits`, a run that finds none kept runs the JavaScript build (made in about a
+// second) and leaves the native one to a process of its own, for the runs after it: both builds
+// are of one program, so they find the same.
+const getBuiltProgram = async (source: string, dir: URL, waits: boolean): Promise<string> => {
+  const file = nodePath.resolve(source);
+  const native = getNativePath(source, dir);
+  const js = native.replace(/(\.exe)?$/, ".js");
+  if (nodeFs.existsSync(native) || (getClang() !== undefined && waits)) {
+    return getBuild(file, native, dir);
+  }
+  if (getClang() !== undefined) {
+    startNativeBuild(file, native);
+  }
+  return getBuild(file, js, dir);
 };
 
 // The answer to `check <path> <facts|syntax> <paths...>`: from the cache, if each file the check
@@ -2176,14 +2214,18 @@ const serve = async (
 
 // The checker, the rules program `named`, built first, and what to say first of the Bend bend-lint
 // uses (see bend2.ts). The checker comes first, so a drift stops the run before a build.
-const getRunSetup = async (named: string): Promise<[Checker, string, string[]]> => {
+const getRunSetup = async (named: string, waits: boolean): Promise<[Checker, string, string[]]> => {
   const dir = unwrap(await tryGetBend2SourceUrl());
   const checker = getChecker(dir);
   const [program, version] = await Promise.all([
-    getBuiltProgram(named, dir),
+    getBuiltProgram(named, dir, waits),
     getBendVersionNote(dir),
   ]);
-  const javascript = program.endsWith(".js") ? JAVASCRIPT_NOTE : undefined;
+  const javascript = !program.endsWith(".js")
+    ? undefined
+    : getClang() === undefined
+      ? JAVASCRIPT_NOTE
+      : BUILDING_NOTE;
   return [checker, program, [PINNED_BEND_NOTE, version, javascript].filter((n) => n !== undefined)];
 };
 
@@ -2386,6 +2428,15 @@ if (import.meta.main) {
   // down, not the machine.
   tryGet(() => os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL));
   const args = process.argv.slice(2);
+  // `bend-lint build <program>`: the native build a run started in the background (see
+  // getBuiltProgram), which says nothing.
+  if (args[0] === "build" && args[1] !== undefined) {
+    const dir = unwrap(await tryGetBend2SourceUrl());
+    const native = getNativePath(args[1], dir);
+    await getBuild(nodePath.resolve(args[1]), native, dir).catch(() => undefined);
+    tryGet(() => nodeFs.rmSync(native + ".building", { force: true }));
+    process.exit(0);
+  }
   if (args[0] === "init") {
     try {
       const { wrote, kept } = getInitFiles(process.cwd());
@@ -2414,7 +2465,7 @@ if (import.meta.main) {
       if (!relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
         getInitFiles(project).wrote.forEach((file) => console.log("bend-lint: wrote " + file));
         console.log(PREPARING);
-        await getRunSetup(getProjectProgram(project));
+        await getRunSetup(getProjectProgram(project), true);
       }
     } catch (e) {
       console.error("bend-lint: " + getErrorMessageFromUnknown(e) + "; its first run tries again");
@@ -2463,7 +2514,7 @@ if (import.meta.main) {
     .catch((e: unknown) =>
       endWithError(json, getErrorMessageFromUnknown(e), nodePath.join(project, CONFIG)),
     );
-  const [checker, program, notes] = await getRunSetup(named).catch((e: unknown) =>
+  const [checker, program, notes] = await getRunSetup(named, preparing).catch((e: unknown) =>
     endWithError(json, getErrorMessageFromUnknown(e)),
   );
   const setupMs = performance.now() - started;
