@@ -280,6 +280,15 @@ def Walk.done(w: Walk) -> List<&2, Located>:
     case Walk{pending, out}:
       out
 
+# The columns a character takes, `units` of UTF-16, before the text `rest`: none if it is a CR (`cr`) before an LF, as
+# the two end the line, and an editor places nothing between them.
+def Walk.width(units: U32, cr: Bool, rest: String) -> U32:
+  match rest:
+    case SCon{next, r}:
+      Bool.pick(U32, cr && Char.is_eq(next, '\n'), 0, units)
+    case SNil{}:
+      units
+
 # The offsets placed, one character of `text` at a time; offsets past its end are placed at its end.
 def Walk.go(text: String, +at: U32, +line: U32, column: U32, w: Walk) -> List<&2, Located>:
   match text w:
@@ -287,14 +296,21 @@ def Walk.go(text: String, +at: U32, +line: U32, column: U32, w: Walk) -> List<&2
       out
     case SNil{} Walk{pending, out}:
       Walk.done(Walk.emit(pending, True{}, 4294967295, line, column, out))
-    case SCon{+c, t} Walk{+pending, out}:
+    case SCon{+c, +t} Walk{+pending, out}:
       +ends = Char.is_eq(c, '\n')
       +l = Bool.pick(U32, ends, (line + 1: U32), line)
       +col = Bool.pick(
         U32,
         ends,
         1,
-        (column + Bool.pick(U32, U32.is_ge(Char.to_u32(c), 65536), 2, 1): U32)
+        (
+          column
+            + Walk.width(
+              Bool.pick(U32, U32.is_ge(Char.to_u32(c), 65536), 2, 1),
+              Char.is_eq(c, '\r'),
+              t
+            ): U32
+        )
       )
       Walk.go(
         t,
