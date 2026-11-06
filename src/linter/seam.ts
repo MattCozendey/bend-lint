@@ -305,8 +305,10 @@ const INIT_CONFIG =
     2,
   ) + "\n";
 
-// An import by a relative path: of a .bend file, or, quoted, of an effect's.
-export const IMPORT = /^\s*import\s+"?(\.\.?\/[^\s"]+)/gm;
+// An import of a local file, by any path Bend takes (relative, bare or absolute): of a .bend file,
+// or, quoted, of an effect's; but not Base, nor a file from BendHub (`name@version/...`,
+// `0x<hash>/...`).
+export const IMPORT = /^\s*import\s+"?(?!Base(?![\w./]))(?![^\s"/]*@)(?!0x[0-9a-f]+\/)([^\s"]+)/gm;
 
 // A drive letter that starts a path with `/`.
 const DRIVE = /^[A-Za-z]:(?=\/)/;
