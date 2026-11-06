@@ -6,19 +6,27 @@ import Base
 type Edit is Data:
   Edit{path: String, beg: U32, end: U32, text: String}
 
-# Spans that never touch (`Spans.touches`), by place: a balanced (AVL) tree, by start, then end; `height` counts its
-# levels. As spans never touch, their ends rise with their starts.
-type Spans is Data:
-  SLeaf{}
-  SNode{height: U32, left: Spans, beg: U32, end: U32, right: Spans}
+# Spans that never touch (`Spans.touches`).
+law Spans:
+  Data
+
+# No spans.
+law Spans.empty:
+  Spans
 
 # A place in a text: its line and its column, from 1. A column counts UTF-16 units, as editors do.
 type Position is Data:
   Position{line: U32, column: U32}
 
-# An offset in the file at `path`.
-type Place is Data:
-  Place{path: String, offset: U32}
+# An offset in a file.
+law Place:
+  Data
+
+# The offset `offset` in the file at `path`.
+law Place.of:
+  for path: String
+  for offset: U32
+  Place
 
 # The path of the file that `edit` changes.
 law Edit.path:

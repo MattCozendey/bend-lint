@@ -6,6 +6,32 @@ import ../shared/text/impl.bend as TextImpl
 import ../shared/text/spec.bend as Text
 import ./spec.bend as Spec
 
+type Action is Data:
+  Disable{}
+  Expect{}
+
+type Scope is Data:
+  WholeFile{}
+  Begin{}
+  End{}
+  NextLine{}
+  SameLine{}
+
+type Linted is Data:
+  Linted{path: String, text: String, known: List<&2, String>, ran: List<&2, String>}
+
+def Spec.Action():
+  Action
+
+def Spec.Scope():
+  Scope
+
+def Spec.Linted():
+  Linted
+
+def Spec.Linted.of(path, text, known, ran):
+  Linted{path, text, known, ran}
+
 # Scanning
 # ========
 type Glyph is Data:
@@ -233,8 +259,8 @@ def Spec.Scan.of(text):
 # file's comments.
 type Directive is Data:
   Directive{
-    action: Spec.Action,
-    scope: Spec.Scope,
+    action: Action,
+    scope: Scope,
     rule: String,
     severity: Maybe<&2, Lint.Severity>,
     comment: Spec.Comment,
@@ -248,32 +274,32 @@ type Said is Data:
 
 def Spec.Action.show(a):
   match a:
-    case Spec.Disable{}:
+    case Disable{}:
       "disable"
-    case Spec.Expect{}:
+    case Expect{}:
       "expect"
 
 def Spec.Scope.show(s):
   match s:
-    case Spec.WholeFile{}:
+    case WholeFile{}:
       "file"
-    case Spec.Begin{}:
+    case Begin{}:
       "begin"
-    case Spec.End{}:
+    case End{}:
       "end"
-    case Spec.NextLine{}:
+    case NextLine{}:
       "next"
-    case Spec.SameLine{}:
+    case SameLine{}:
       "line"
 
-def Action.names() -> List<&2, Shared.Names.Named<Spec.Action>>:
-  Shared.Names.table(~Spec.Action, ~Spec.Action.show, [Spec.Disable{}, Spec.Expect{}])
+def Action.names() -> List<&2, Shared.Names.Named<Action>>:
+  Shared.Names.table(~Action, ~Spec.Action.show, [Disable{}, Expect{}])
 
-def Scope.names() -> List<&2, Shared.Names.Named<Spec.Scope>>:
+def Scope.names() -> List<&2, Shared.Names.Named<Scope>>:
   Shared.Names.table(
-    ~Spec.Scope,
+    ~Scope,
     ~Spec.Scope.show,
-    [Spec.WholeFile{}, Spec.Begin{}, Spec.End{}, Spec.NextLine{}, Spec.SameLine{}]
+    [WholeFile{}, Begin{}, End{}, NextLine{}, SameLine{}]
   )
 
 def Severity.pinned(severity: Maybe<&2, Lint.Severity>) -> String:
@@ -316,8 +342,8 @@ def Draft.kind(parts: List<&2, String>) -> Maybe<&2, Spec.Keyword>:
   match parts:
     case Con{a, Con{s, Nil{}}}:
       do Maybe<&2, Spec.Keyword>:
-        action: Spec.Action <- Shared.Names.lookup(Spec.Action, a, Action.names())
-        scope: Spec.Scope <- Shared.Names.lookup(Spec.Scope, s, Scope.names())
+        action: Action <- Shared.Names.lookup(Action, a, Action.names())
+        scope: Scope <- Shared.Names.lookup(Scope, s, Scope.names())
         return Spec.Keyword{action, scope}
     case _:
       None{}
@@ -414,50 +440,46 @@ def Problem.pinned(pinned: Maybe<&2, String>) -> Maybe<&2, String>:
     case None{}:
       None{}
 
-def Problem.severity(action: Spec.Action, pinned: Bool, rule: String) -> Maybe<&2, String>:
+def Problem.severity(action: Action, pinned: Bool, rule: String) -> Maybe<&2, String>:
   match action pinned:
-    case Spec.Disable{} True{}:
+    case Disable{} True{}:
       Some{"A disable takes no severity."}
-    case Spec.Expect{} False{}:
+    case Expect{} False{}:
       Some{"An expect pins a severity: " ++ rule ++ "@..."}
     case _ _:
       None{}
 
-def Problem.reason(scope: Spec.Scope, reasons: List<&2, String>) -> Maybe<&2, String>:
+def Problem.reason(scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>:
   match scope reasons:
-    case Spec.End{} Nil{}:
+    case End{} Nil{}:
       None{}
-    case Spec.End{} _:
+    case End{} _:
       Some{"An end takes no reason; the begin has it."}
     case _ Con{r, more}:
       Shared.Lists.when(String, String.is_empty(r), "A reason is required, after `--`.")
     case _ Nil{}:
       Some{"A reason is required, after `--`."}
 
-def Problem.because(
-  action: Spec.Action,
-  scope: Spec.Scope,
-  reasons: List<&2, String>
-) -> Maybe<&2, String>:
+def Problem.because(action: Action, scope: Scope, reasons: List<&2, String>) -> Maybe<&2, String>:
   match action scope reasons:
-    case Spec.Disable{} Spec.End{} _:
+    case Disable{} End{} _:
       None{}
-    case Spec.Disable{} _ Con{r, Con{b, more}}:
+    case Disable{} _ Con{r, Con{b, more}}:
       Shared.Lists.when(
         String,
         String.is_empty(b),
         "Say why it is not an expect, after " ++ Draft.label()
       )
-    case Spec.Disable{} _ _:
+    case Disable{} _ _:
       Some{
         "A disable says why it is not an expect, after its reason: " ++ Draft.label() ++ " <why>"
       }
     case _ _ _:
       None{}
 
-def Problem.line(scope: Spec.Scope, trailing: Bool) -> Maybe<&2, String>:
+def Problem.line(scope: Scope, trailing: Bool) -> Maybe<&2, String>:
   match scope trailing:
-    case Spec.SameLine{} False{}:
+    case SameLine{} False{}:
       Some{"A line directive must follow code on its line."}
     case _ _:
       None{}
@@ -681,12 +703,12 @@ def Pairing.close(begin: Maybe<&2, Directive>, end: Directive, p: Pairing) -> Pa
 
 def Pairing.step(said: Said, p: Pairing) -> Pairing:
   match said p:
-    case Said{Directive{a, Spec.Begin{}, r, sev, c, i}} Pairing{open, closed, wrong}:
-      Pairing{Directive{a, Spec.Begin{}, r, sev, c, i} <> open, closed, wrong}
-    case Said{Directive{+a, Spec.End{}, +r, sev, c, i}} Pairing{+open, closed, wrong}:
+    case Said{Directive{a, Begin{}, r, sev, c, i}} Pairing{open, closed, wrong}:
+      Pairing{Directive{a, Begin{}, r, sev, c, i} <> open, closed, wrong}
+    case Said{Directive{+a, End{}, +r, sev, c, i}} Pairing{+open, closed, wrong}:
       Pairing.close(
         Open.latest(open, None{}, Spec.Action.show(a), r),
-        Directive{a, Spec.End{}, r, sev, c, i},
+        Directive{a, End{}, r, sev, c, i},
         Pairing{open, closed, wrong}
       )
     case _ _:
@@ -757,21 +779,21 @@ def Covering.of(
   last: U32
 ) -> Maybe<&2, Covering>:
   match said:
-    case Said{Directive{a, Spec.WholeFile{}, r, sev, c, i}}:
-      Some{Covering{Directive{a, Spec.WholeFile{}, r, sev, c, i}, 0, last}}
-    case Said{Directive{a, Spec.SameLine{}, r, sev, Spec.Comment{b, e, +l, t, body}, i}}:
-      Some{Covering{Directive{a, Spec.SameLine{}, r, sev, Spec.Comment{b, e, l, t, body}, i}, l, l}}
-    case Said{Directive{a, Spec.NextLine{}, r, sev, Spec.Comment{b, e, +l, t, body}, i}}:
+    case Said{Directive{a, WholeFile{}, r, sev, c, i}}:
+      Some{Covering{Directive{a, WholeFile{}, r, sev, c, i}, 0, last}}
+    case Said{Directive{a, SameLine{}, r, sev, Spec.Comment{b, e, +l, t, body}, i}}:
+      Some{Covering{Directive{a, SameLine{}, r, sev, Spec.Comment{b, e, l, t, body}, i}, l, l}}
+    case Said{Directive{a, NextLine{}, r, sev, Spec.Comment{b, e, +l, t, body}, i}}:
       Some{
         Covering.next(
-          Directive{a, Spec.NextLine{}, r, sev, Spec.Comment{b, e, l, t, body}, i},
+          Directive{a, NextLine{}, r, sev, Spec.Comment{b, e, l, t, body}, i},
           Lines.next_code(lines, None{}, 0, l)
         )
       }
-    case Said{Directive{a, Spec.Begin{}, r, sev, Spec.Comment{b, e, +l, t, body}, +i}}:
+    case Said{Directive{a, Begin{}, r, sev, Spec.Comment{b, e, +l, t, body}, +i}}:
       Some{
         Covering{
-          Directive{a, Spec.Begin{}, r, sev, Spec.Comment{b, e, l, t, body}, i},
+          Directive{a, Begin{}, r, sev, Spec.Comment{b, e, l, t, body}, i},
           l,
           Maybe.default(&2, U32, Closed.find(closed, None{}, i), last)
         }
@@ -799,14 +821,14 @@ def Covering.all(
       )
 
 def Covering.pins(
-  action: Spec.Action,
+  action: Action,
   pinned: Maybe<&2, Lint.Severity>,
   severity: Lint.Severity
 ) -> Bool:
   match action:
-    case Spec.Disable{}:
+    case Disable{}:
       True{}
-    case Spec.Expect{}:
+    case Expect{}:
       Severity.is_eq(pinned, Some{severity})
 
 # Whether a covering covers a finding of `rule` and `severity` on line `row`.
@@ -889,7 +911,7 @@ def Applied.go(
 
 def Unmet.add(
   used: Bool,
-  action: Spec.Action,
+  action: Action,
   rule: String,
   pinned: Maybe<&2, Lint.Severity>,
   span: Lint.Span,
@@ -898,7 +920,7 @@ def Unmet.add(
   match used action:
     case True{} _:
       out
-    case False{} Spec.Expect{}:
+    case False{} Expect{}:
       Lint.Found{
         "bend-lint/unmet-expectation",
         Lint.Finding{
@@ -913,7 +935,7 @@ def Unmet.add(
         }
       }
         <> out
-    case False{} Spec.Disable{}:
+    case False{} Disable{}:
       Lint.Found{
         "bend-lint/unused-disable",
         Lint.Finding{
@@ -978,24 +1000,24 @@ def Found.offsets(founds: List<&2, Lint.Found>, out: List<&2, U32>) -> List<&2, 
     }:
       Found.offsets(rest, beg <> out)
 
-def Linted.path(linted: Spec.Linted) -> String:
+def Linted.path(linted: Linted) -> String:
   match linted:
-    case Spec.Linted{path, text, known, ran}:
+    case Linted{path, text, known, ran}:
       path
 
-def Linted.text(linted: Spec.Linted) -> String:
+def Linted.text(linted: Linted) -> String:
   match linted:
-    case Spec.Linted{path, text, known, ran}:
+    case Linted{path, text, known, ran}:
       text
 
-def Linted.known(linted: Spec.Linted) -> List<&2, String>:
+def Linted.known(linted: Linted) -> List<&2, String>:
   match linted:
-    case Spec.Linted{path, text, known, ran}:
+    case Linted{path, text, known, ran}:
       known
 
-def Linted.ran(linted: Spec.Linted) -> List<&2, String>:
+def Linted.ran(linted: Linted) -> List<&2, String>:
   match linted:
-    case Spec.Linted{path, text, known, ran}:
+    case Linted{path, text, known, ran}:
       ran
 
 def Covering.keep(ran: Bool, c: Covering, out: List<&2, Covering>) -> List<&2, Covering>:
@@ -1029,7 +1051,7 @@ def done(
   coverings: List<&2, Covering>,
   unpaired: List<&2, Said>,
   saids: List<&2, Said>,
-  +linted: Spec.Linted
+  +linted: Linted
 ) -> Spec.Suppressed:
   match a:
     case Applied{kept, suppressed, used}:
@@ -1051,7 +1073,7 @@ def covered(
   +coverings: List<&2, Covering>,
   unpaired: List<&2, Said>,
   saids: List<&2, Said>,
-  +linted: Spec.Linted,
+  +linted: Linted,
   +founds: List<&2, Lint.Found>
 ) -> Spec.Suppressed:
   done(
@@ -1071,7 +1093,7 @@ def paired(
   p: Pairing,
   +saids: List<&2, Said>,
   +lines: List<&2, Bool>,
-  linted: Spec.Linted,
+  linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Spec.Suppressed:
   match p:
@@ -1093,21 +1115,21 @@ def paired(
 def said(
   +saids: List<&2, Said>,
   lines: List<&2, Bool>,
-  linted: Spec.Linted,
+  linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Spec.Suppressed:
   paired(Pairing.go(saids, Pairing{[], [], []}), saids, lines, linted, founds)
 
 def scanned(
   scanned: Spec.Scanned,
-  +linted: Spec.Linted,
+  +linted: Linted,
   founds: List<&2, Lint.Found>
 ) -> Spec.Suppressed:
   match scanned:
     case Spec.Scanned{comments, lines}:
       said(Said.all(comments, Linted.known(linted), 0, []), lines, linted, founds)
 
-def when(has: Bool, +linted: Spec.Linted, founds: List<&2, Lint.Found>) -> Spec.Suppressed:
+def when(has: Bool, +linted: Linted, founds: List<&2, Lint.Found>) -> Spec.Suppressed:
   match has:
     case True{}:
       scanned(Spec.Scan.of(Linted.text(linted)), linted, founds)

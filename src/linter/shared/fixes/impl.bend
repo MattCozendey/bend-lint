@@ -579,7 +579,7 @@ def Spotted.take(
 # Spans
 # -----
 def Spans.of(spans: Map<&2, Text.Spans>, path: String) -> Text.Spans:
-  Pair.snd(Map<&2, Text.Spans>, Text.Spans, Map.get(Text.Spans, Text.SLeaf{}, spans, path))
+  Pair.snd(Map<&2, Text.Spans>, Text.Spans, Map.get(Text.Spans, Text.Spans.empty, spans, path))
 
 def Spans.clashes(edits: List<&2, Text.Edit>, spans: Map<&2, Text.Spans>) -> Bool:
   match edits:

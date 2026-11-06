@@ -162,21 +162,13 @@ type Spec is Data:
 type Declared is Data:
   Declared{name: String, default: Value, spec: Spec}
 
-# What uses a file's imports: the nodes written with an alias's prefix (`U.two`, a fill `def U.law(x):`), by alias; and
-# those that use Base: a global name with no namespace that the file does not declare (last first).
-type Imported is Data:
-  Imported{aliases: Map<&2, List<&2, Node>>, base: List<&2, Node>}
+# What uses a file's imports.
+law Imported:
+  Data
 
-# What the declarations of a top-level declaration are read with: the program's files (one of them is what an import
-# loads), the uses of global names in the files the declarations are read in, by name, the uses of the declaration's
-# binders, by binder (each last first), and what uses its file's imports.
-type Uses is Data:
-  Uses{
-    sources: List<&2, Source>,
-    globals: Map<&2, List<&2, Node>>,
-    binders: Shared.Tables.Table<List<&2, Node>>,
-    imported: Imported
-  }
+# What the declarations of a top-level declaration are read with.
+law Uses:
+  Data
 
 # A runtime parameter of a definition: its name, and its type as one name ("" if it is not one name).
 type Param is Data:
@@ -218,10 +210,24 @@ type Question is Data:
   Same{a: TypeRef, b: TypeRef}
   Normal{of: TypeRef}
 
-type Answer is Data:
-  Shown{text: String}
-  Equal{same: Bool}
-  Normalized{handle: U32}
+# What the checker answers to a question.
+law Answer:
+  Data
+
+# The answer to a Show: the type, as `text` spells it.
+law Answer.shown:
+  for text: String
+  Answer
+
+# The answer to a Same: whether the two types are the same (`same`).
+law Answer.equal:
+  for same: Bool
+  Answer
+
+# The answer to a Normal: its normal form, by the number the checker gives it (`handle`).
+law Answer.normalized:
+  for handle: U32
+  Answer
 
 # A run so far: finished, or waiting for the answers to its questions, in order.
 type Step<-R: Type> is Type:

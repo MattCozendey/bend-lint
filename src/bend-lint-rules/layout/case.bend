@@ -6,6 +6,7 @@
 # | ------------------------------------------------- | ----------------- | ---------------------------- |
 # | type, constructor, import alias                   | PascalCase        | `Maybe`, `Some{}`, `M`       |
 # | def whose written return type ends in a sort      | PascalCase        | `IO`, `Pair`, `Set()`        |
+# | law whose statement ends in a sort                | PascalCase        | `law Game: Data`             |
 # | parameter or field whose written type ends in one | PascalCase        | `-A: Type`, `F: U32 -> Type` |
 # | law, other def, parameter or field                | snake_case        | `add_comm`, `from_list`, `n` |
 # | variable, lambda, forall, def without a return    | either            | `Big`, `small`               |
@@ -190,8 +191,8 @@ def wanted(+node: Lint.Node, namespace: String) -> Maybe<&2, Case>:
       Some{Pascal{}}
     case Lint.Node{Lint.Constructor{t}, name, s, k, f}:
       Some{Pascal{}}
-    case Lint.Node{Lint.Law{t}, name, s, k, f}:
-      Some{Snake{}}
+    case Lint.Node{Lint.Law{t}, name, s, kids, f}:
+      Some{returns(kids)}
     case Lint.Node{Lint.Definition{t, u}, name, s, kids, f}:
       Shared.Lists.when(Case, String.eq(Lint.Name.namespace(t), namespace), returns(kids))
     case Lint.Node{Lint.Parameter{b, q}, name, s, kids, f}:
@@ -210,8 +211,10 @@ def noun(syntax: Lint.Syntax, sort: Bool) -> String:
       "a type"
     case Lint.Constructor{t} _:
       "a constructor"
-    case Lint.Law{t} _:
-      "a law"
+    case Lint.Law{t} True{}:
+      "a law that states a type"
+    case Lint.Law{t} False{}:
+      "a law that does not state a type"
     case Lint.Definition{t, u} True{}:
       "a def that returns a type"
     case Lint.Definition{t, u} False{}:

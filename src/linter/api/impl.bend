@@ -2,6 +2,45 @@ import Base
 import ../../shared.bend as Shared
 import ./spec.bend as Spec
 
+# The nodes written with an alias's prefix (`U.two`, a fill `def U.law(x):`), by alias; and those that use Base: a
+# global name with no namespace that the file does not declare (last first).
+type Imported is Data:
+  Imported{aliases: Map<&2, List<&2, Spec.Node>>, base: List<&2, Spec.Node>}
+
+# The program's files (one of them is what an import loads), the uses of global names in the files the declarations
+# are read in, by name, the uses of the declaration's binders, by binder (each last first), and what uses its file's
+# imports.
+type Uses is Data:
+  Uses{
+    sources: List<&2, Spec.Source>,
+    globals: Map<&2, List<&2, Spec.Node>>,
+    binders: Shared.Tables.Table<List<&2, Spec.Node>>,
+    imported: Imported
+  }
+
+type Answer is Data:
+  Shown{text: String}
+  Equal{same: Bool}
+  Normalized{handle: U32}
+
+def Spec.Imported():
+  Imported
+
+def Spec.Uses():
+  Uses
+
+def Spec.Answer():
+  Answer
+
+def Spec.Answer.shown(text):
+  Shown{text}
+
+def Spec.Answer.equal(same):
+  Equal{same}
+
+def Spec.Answer.normalized(handle):
+  Normalized{handle}
+
 # Program
 # =======
 
@@ -384,10 +423,10 @@ def Imported.alias(
     case SCon{h, t}:
       Shared.Names.Group.add(Spec.Node, aliases, SCon{h, t}, node)
 
-def Imported.add(+own: Set(), +node: Spec.Node, uses: Spec.Imported) -> Spec.Imported:
+def Imported.add(+own: Set(), +node: Spec.Node, uses: Imported) -> Imported:
   match node uses:
-    case Spec.Node{syntax, name, s, k, f} Spec.Imported{aliases, base}:
-      Spec.Imported{
+    case Spec.Node{syntax, name, s, k, f} Imported{aliases, base}:
+      Imported{
         Imported.alias(Shared.Strings.before(name, '.'), node, aliases),
         Shared.Lists.push(
           Spec.Node,
@@ -396,14 +435,14 @@ def Imported.add(+own: Set(), +node: Spec.Node, uses: Spec.Imported) -> Spec.Imp
         )
       }
 
-def Imported.of(+nodes: List<&2, Spec.Node>) -> Spec.Imported:
+def Imported.of(+nodes: List<&2, Spec.Node>) -> Imported:
   Spec.fold(
     ~Set(),
-    ~Spec.Imported,
+    ~Imported,
     ~Imported.add,
     Imported.own(nodes, Set.new()),
     nodes,
-    Spec.Imported{Map.new(&2, List<&2, Spec.Node>), []}
+    Imported{Map.new(&2, List<&2, Spec.Node>), []}
   )
 
 # The namespace of the file at `path`, as the check names it (`found`, once found): "" for Base, or a file the check
@@ -422,15 +461,11 @@ def Declarations.namespace(
       Declarations.namespace(rest, path, Shared.Lists.when(String, String.eq(p, path), namespace))
 
 # The uses of an import, in order: of Base (`base`), or of its alias.
-def Declarations.imported(
-  base: Bool,
-  alias: String,
-  imported: Spec.Imported
-) -> List<&2, Spec.Node>:
+def Declarations.imported(base: Bool, alias: String, imported: Imported) -> List<&2, Spec.Node>:
   match base imported:
-    case True{} Spec.Imported{aliases, uses}:
+    case True{} Imported{aliases, uses}:
       List.reverse(&2, Spec.Node, uses)
-    case False{} Spec.Imported{aliases, uses}:
+    case False{} Imported{aliases, uses}:
       Shared.Names.Group.get(Spec.Node, aliases, alias)
 
 def Declarations.bound(
@@ -455,14 +490,12 @@ def Declarations.bound(
 def Declarations.declared(
   declares: Maybe<&2, Bool>,
   +node: Spec.Node,
-  uses: Spec.Uses
+  uses: Uses
 ) -> List<&2, Spec.Declaration>:
   match declares node uses:
-    case Some{True{}} _ Spec.Uses{sources, globals, binders, imported}:
+    case Some{True{}} _ Uses{sources, globals, binders, imported}:
       [Spec.Declaration{node, Shared.Names.Group.get(Spec.Node, globals, Spec.Node.target(node))}]
-    case Some{
-      False{}
-    } Spec.Node{syntax, name, s, k, f} Spec.Uses{sources, globals, binders, imported}:
+    case Some{False{}} Spec.Node{syntax, name, s, k, f} Uses{sources, globals, binders, imported}:
       Bool.pick(
         List<&2, Spec.Declaration>,
         String.eq(name, "_"),
@@ -474,12 +507,12 @@ def Declarations.declared(
 
 # A node's declaration, if it declares a name, with its uses, onto `out`.
 def Declarations.node(
-  +uses: Spec.Uses,
+  +uses: Uses,
   +node: Spec.Node,
   out: List<&2, Spec.Declaration>
 ) -> List<&2, Spec.Declaration>:
   match uses node:
-    case Spec.Uses{sources, globals, binders, imported} Spec.Node{Spec.Import{t}, name, s, k, f}:
+    case Uses{sources, globals, binders, imported} Spec.Node{Spec.Import{t}, name, s, k, f}:
       Spec.Declaration{
         node,
         Declarations.imported(
@@ -501,7 +534,7 @@ def Declarations.tops(
   nodes: List<&2, Spec.Node>,
   +sources: List<&2, Spec.Source>,
   +globals: Map<&2, List<&2, Spec.Node>>,
-  +imported: Spec.Imported,
+  +imported: Imported,
   out: List<&2, Spec.Declaration>
 ) -> List<&2, Spec.Declaration>:
   match nodes:
@@ -514,10 +547,10 @@ def Declarations.tops(
         globals,
         imported,
         Spec.fold(
-          ~Spec.Uses,
+          ~Uses,
           ~List<&2, Spec.Declaration>,
           ~Declarations.node,
-          Spec.Uses{
+          Uses{
             sources,
             globals,
             Spec.fold(
@@ -865,7 +898,7 @@ def Whole.option(whole: Spec.Whole, name: String) -> Maybe<&2, Spec.Value>:
 def ask.step(
   -R: Type,
   questions: List<&2, Spec.Question>,
-  k: List<&2, Spec.Answer> -> Spec.Step<R>
+  k: List<&2, Answer> -> Spec.Step<R>
 ) -> Spec.Step<R>:
   match questions:
     case Nil{}:
@@ -874,37 +907,37 @@ def ask.step(
       Spec.Pending{Con{q, rest}, k}
 
 # The answers to `questions`, in order, asked in one round; none asked, no round.
-def ask(questions: List<&2, Spec.Question>) -> Spec.Ask(List<&2, Spec.Answer>):
+def ask(questions: List<&2, Spec.Question>) -> Spec.Ask(List<&2, Answer>):
   R => k => ask.step(R, questions, k)
 
 def Spec.done(findings):
   Spec.Ask.pure(List<&2, Spec.Finding>, findings)
 
-def Answer.text(answers: List<&2, Spec.Answer>) -> String:
+def Answer.text(answers: List<&2, Answer>) -> String:
   match answers:
-    case Con{Spec.Shown{text}, rest}:
+    case Con{Shown{text}, rest}:
       text
     case _:
       ""
 
-def Answer.same(answers: List<&2, Spec.Answer>) -> Bool:
+def Answer.same(answers: List<&2, Answer>) -> Bool:
   match answers:
-    case Con{Spec.Equal{same}, rest}:
+    case Con{Equal{same}, rest}:
       same
     case _:
       False{}
 
 # `t` with the handle of its normal form, if the answers give one.
-def Answer.type(t: Spec.TypeRef, answers: List<&2, Spec.Answer>) -> Spec.TypeRef:
+def Answer.type(t: Spec.TypeRef, answers: List<&2, Answer>) -> Spec.TypeRef:
   match t answers:
-    case Spec.TypeRef{check, handle} Con{Spec.Normalized{h}, rest}:
+    case Spec.TypeRef{check, handle} Con{Normalized{h}, rest}:
       Spec.TypeRef{check, h}
     case _ _:
       t
 
 def show(t: Spec.TypeRef) -> Spec.Ask(String):
   Spec.Ask.bind(
-    List<&2, Spec.Answer>,
+    List<&2, Answer>,
     String,
     ask([Spec.Show{t}]),
     answers => Spec.Ask.pure(String, Answer.text(answers))
@@ -912,7 +945,7 @@ def show(t: Spec.TypeRef) -> Spec.Ask(String):
 
 def same(a: Spec.TypeRef, b: Spec.TypeRef) -> Spec.Ask(Bool):
   Spec.Ask.bind(
-    List<&2, Spec.Answer>,
+    List<&2, Answer>,
     Bool,
     ask([Spec.Same{a, b}]),
     answers => Spec.Ask.pure(Bool, Answer.same(answers))
@@ -920,7 +953,7 @@ def same(a: Spec.TypeRef, b: Spec.TypeRef) -> Spec.Ask(Bool):
 
 def normal(+t: Spec.TypeRef) -> Spec.Ask(Spec.TypeRef):
   Spec.Ask.bind(
-    List<&2, Spec.Answer>,
+    List<&2, Answer>,
     Spec.TypeRef,
     ask([Spec.Normal{t}]),
     answers => Spec.Ask.pure(Spec.TypeRef, Answer.type(t, answers))
@@ -936,18 +969,18 @@ def Question.shows(
     case Con{t, rest}:
       Question.shows(rest, Spec.Show{t} <> out)
 
-def Answer.texts(answers: List<&2, Spec.Answer>, out: List<&2, String>) -> List<&2, String>:
+def Answer.texts(answers: List<&2, Answer>, out: List<&2, String>) -> List<&2, String>:
   match answers:
     case Nil{}:
       List.reverse(&2, String, out)
-    case Con{Spec.Shown{text}, rest}:
+    case Con{Shown{text}, rest}:
       Answer.texts(rest, text <> out)
     case Con{a, rest}:
       Answer.texts(rest, "" <> out)
 
 def Spec.show_all(types):
   Spec.Ask.bind(
-    List<&2, Spec.Answer>,
+    List<&2, Answer>,
     List<&2, String>,
     ask(Question.shows(types, [])),
     answers => Spec.Ask.pure(List<&2, String>, Answer.texts(answers, []))

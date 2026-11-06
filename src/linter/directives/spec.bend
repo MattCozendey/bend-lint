@@ -12,17 +12,12 @@ type Scanned is Data:
   Scanned{comments: List<&2, Comment>, lines: List<&2, Bool>}
 
 # What a directive does: disable findings, or expect them.
-type Action is Data:
-  Disable{}
-  Expect{}
+law Action:
+  Data
 
 # How far a directive reaches: the whole file, from a begin to its end, the next line with code, or its own line.
-type Scope is Data:
-  WholeFile{}
-  Begin{}
-  End{}
-  NextLine{}
-  SameLine{}
+law Scope:
+  Data
 
 # A directive's word: what it does, and how far (`disable-next`).
 type Keyword is Data:
@@ -41,10 +36,18 @@ type Draft is Data:
 type Suppressed is Data:
   Suppressed{kept: List<&2, Lint.Found>, suppressed: List<&2, Lint.Found>}
 
-# A linted file: its path and text, the ids of the rules there are, and those of the rules that ran on it. A rule
-# turned off did not run, so its directives are never unused.
-type Linted is Data:
-  Linted{path: String, text: String, known: List<&2, String>, ran: List<&2, String>}
+# A linted file.
+law Linted:
+  Data
+
+# The file at `path`, whose text is `text`, linted: `known` holds the ids of the rules there are, and `ran` those of
+# the rules that ran on it. A rule turned off did not run, so its directives are never unused.
+law Linted.of:
+  for path: String
+  for text: String
+  for known: List<&2, String>
+  for ran: List<&2, String>
+  Linted
 
 # The comments of `text`, and which of its lines hold code.
 law Scan.of:

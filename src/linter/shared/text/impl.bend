@@ -2,6 +2,27 @@ import Base
 import ../../../shared.bend as Shared
 import ./spec.bend as Spec
 
+# By place: a balanced (AVL) tree, by start, then end; `height` counts its levels. As spans never touch, their ends
+# rise with their starts.
+type Spans is Data:
+  SLeaf{}
+  SNode{height: U32, left: Spans, beg: U32, end: U32, right: Spans}
+
+type Place is Data:
+  Place{path: String, offset: U32}
+
+def Spec.Spans():
+  Spans
+
+def Spec.Spans.empty():
+  SLeaf{}
+
+def Spec.Place():
+  Place
+
+def Spec.Place.of(path, offset):
+  Place{path, offset}
+
 # Edits
 # =====
 def Spec.Edit.path(edit):
@@ -31,78 +52,71 @@ def apply.go(edits: List<&2, Spec.Edit>, +rest: String, +at: U32, out: List<&2, 
 def Spec.apply(edits, text):
   apply.go(Shared.Lists.sort(~Spec.Edit, ~Edit.is_le, edits), text, 0, [])
 
-# Spec.Spans
+# Spans
 # =====
-def Spans.height(t: Spec.Spans) -> U32:
+def Spans.height(t: Spans) -> U32:
   match t:
-    case Spec.SLeaf{}:
+    case SLeaf{}:
       0
-    case Spec.SNode{h, l, b, e, r}:
+    case SNode{h, l, b, e, r}:
       h
 
 # The node over `l` and `r`, whose heights differ by one at most.
-def Spans.node(+l: Spec.Spans, b: U32, e: U32, +r: Spec.Spans) -> Spec.Spans:
+def Spans.node(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
   +hl = Spans.height(l)
   +hr = Spans.height(r)
-  Spec.SNode{(Bool.pick(U32, U32.is_ge(hl, hr), hl, hr) + 1: U32), l, b, e, r}
+  SNode{(Bool.pick(U32, U32.is_ge(hl, hr), hl, hr) + 1: U32), l, b, e, r}
 
 def Spans.lean_left.if(
   outer: Bool,
-  ll: Spec.Spans,
+  ll: Spans,
   lb: U32,
   le: U32,
-  lr: Spec.Spans,
+  lr: Spans,
   b: U32,
   e: U32,
-  r: Spec.Spans
-) -> Spec.Spans:
+  r: Spans
+) -> Spans:
   match outer lr:
-    case False{} Spec.SNode{h, lrl, lrb, lre, lrr}:
+    case False{} SNode{h, lrl, lrb, lre, lrr}:
       Spans.node(Spans.node(ll, lb, le, lrl), lrb, lre, Spans.node(lrr, b, e, r))
     case _ _:
       Spans.node(ll, lb, le, Spans.node(lr, b, e, r))
 
 # The node over `l` and `r`, where `l` is two levels higher: turned right, after its left turns left if its inner side
 # is the higher.
-def Spans.lean_left(l: Spec.Spans, b: U32, e: U32, r: Spec.Spans) -> Spec.Spans:
+def Spans.lean_left(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match l:
-    case Spec.SNode{h, +ll, lb, le, +lr}:
+    case SNode{h, +ll, lb, le, +lr}:
       Spans.lean_left.if(U32.is_ge(Spans.height(ll), Spans.height(lr)), ll, lb, le, lr, b, e, r)
-    case Spec.SLeaf{}:
-      Spans.node(Spec.SLeaf{}, b, e, r)
+    case SLeaf{}:
+      Spans.node(SLeaf{}, b, e, r)
 
 def Spans.lean_right.if(
   outer: Bool,
-  l: Spec.Spans,
+  l: Spans,
   b: U32,
   e: U32,
-  rl: Spec.Spans,
+  rl: Spans,
   rb: U32,
   re: U32,
-  rr: Spec.Spans
-) -> Spec.Spans:
+  rr: Spans
+) -> Spans:
   match outer rl:
-    case False{} Spec.SNode{h, rll, rlb, rle, rlr}:
+    case False{} SNode{h, rll, rlb, rle, rlr}:
       Spans.node(Spans.node(l, b, e, rll), rlb, rle, Spans.node(rlr, rb, re, rr))
     case _ _:
       Spans.node(Spans.node(l, b, e, rl), rb, re, rr)
 
 # The node over `l` and `r`, where `r` is two levels higher: the mirror of `lean_left`.
-def Spans.lean_right(l: Spec.Spans, b: U32, e: U32, r: Spec.Spans) -> Spec.Spans:
+def Spans.lean_right(l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match r:
-    case Spec.SNode{h, +rl, rb, re, +rr}:
+    case SNode{h, +rl, rb, re, +rr}:
       Spans.lean_right.if(U32.is_ge(Spans.height(rr), Spans.height(rl)), l, b, e, rl, rb, re, rr)
-    case Spec.SLeaf{}:
-      Spans.node(l, b, e, Spec.SLeaf{})
+    case SLeaf{}:
+      Spans.node(l, b, e, SLeaf{})
 
-def Spans.balance.if(
-  left: Bool,
-  right: Bool,
-  l: Spec.Spans,
-  b: U32,
-  e: U32,
-  r: Spec.Spans
-) -> Spec.Spans:
+def Spans.balance.if(left: Bool, right: Bool, l: Spans, b: U32, e: U32, r: Spans) -> Spans:
   match left right:
     case True{} _:
       Spans.lean_left(l, b, e, r)
@@ -112,7 +126,7 @@ def Spans.balance.if(
       Spans.node(l, b, e, r)
 
 # The node over `l` and `r`, balanced: their heights may differ by two.
-def Spans.balance(+l: Spec.Spans, b: U32, e: U32, +r: Spec.Spans) -> Spec.Spans:
+def Spans.balance(+l: Spans, b: U32, e: U32, +r: Spans) -> Spans:
   +hl = Spans.height(l)
   +hr = Spans.height(r)
   Spans.balance.if(U32.is_gt(hl, (hr + 1: U32)), U32.is_gt(hr, (hl + 1: U32)), l, b, e, r)
@@ -128,48 +142,48 @@ def Spans.cmp.of(starts: Cmp, e: U32, y: U32) -> Cmp:
 
 def Spec.Spans.cmp(t, b, e):
   match t:
-    case Spec.SNode{h, l, x, y, r}:
+    case SNode{h, l, x, y, r}:
       Spans.cmp.of(U32.cmp(b, x), e, y)
-    case Spec.SLeaf{}:
+    case SLeaf{}:
       GT{}
 
 def Spec.Spans.add(t, b, e, side):
   match t side:
-    case Spec.SLeaf{} _:
-      Spec.SNode{1, Spec.SLeaf{}, b, e, Spec.SLeaf{}}
-    case Spec.SNode{h, +l, x, y, r} LT{}:
+    case SLeaf{} _:
+      SNode{1, SLeaf{}, b, e, SLeaf{}}
+    case SNode{h, +l, x, y, r} LT{}:
       Spans.balance(Spec.Spans.add(l, b, e, Spec.Spans.cmp(l, b, e)), x, y, r)
-    case Spec.SNode{h, l, x, y, +r} _:
+    case SNode{h, l, x, y, +r} _:
       Spans.balance(l, x, y, Spec.Spans.add(r, b, e, Spec.Spans.cmp(r, b, e)))
 
 # Whether `t` holds the span from `b` to `e`; `side` is how it compares with the root's.
-def Spans.has(t: Spec.Spans, +b: U32, +e: U32, side: Cmp) -> Bool:
+def Spans.has(t: Spans, +b: U32, +e: U32, side: Cmp) -> Bool:
   match t side:
-    case Spec.SLeaf{} _:
+    case SLeaf{} _:
       False{}
-    case Spec.SNode{h, l, x, y, r} EQ{}:
+    case SNode{h, l, x, y, r} EQ{}:
       True{}
-    case Spec.SNode{h, +l, x, y, r} LT{}:
+    case SNode{h, +l, x, y, r} LT{}:
       Spans.has(l, b, e, Spec.Spans.cmp(l, b, e))
-    case Spec.SNode{h, l, x, y, +r} GT{}:
+    case SNode{h, l, x, y, +r} GT{}:
       Spans.has(r, b, e, Spec.Spans.cmp(r, b, e))
 
-def Spans.starts_before(t: Spec.Spans, e: U32) -> Bool:
+def Spans.starts_before(t: Spans, e: U32) -> Bool:
   match t:
-    case Spec.SNode{h, l, x, y, r}:
+    case SNode{h, l, x, y, r}:
       U32.is_lt(x, e)
-    case Spec.SLeaf{}:
+    case SLeaf{}:
       False{}
 
 # The end of the last span of `t` (by start, then end) that starts before `e`, or `found`. `before` says whether the
 # root's does. Its end is the furthest of theirs, as ends rise with starts.
-def Spans.last(t: Spec.Spans, +e: U32, found: Maybe<&2, U32>, before: Bool) -> Maybe<&2, U32>:
+def Spans.last(t: Spans, +e: U32, found: Maybe<&2, U32>, before: Bool) -> Maybe<&2, U32>:
   match t before:
-    case Spec.SLeaf{} _:
+    case SLeaf{} _:
       found
-    case Spec.SNode{h, l, x, y, +r} True{}:
+    case SNode{h, l, x, y, +r} True{}:
       Spans.last(r, e, Some{y}, Spans.starts_before(r, e))
-    case Spec.SNode{h, +l, x, y, r} False{}:
+    case SNode{h, +l, x, y, r} False{}:
       Spans.last(l, e, found, Spans.starts_before(l, e))
 
 def Spans.ends_after(last: Maybe<&2, U32>, b: U32) -> Bool:
@@ -179,14 +193,14 @@ def Spans.ends_after(last: Maybe<&2, U32>, b: U32) -> Bool:
     case None{}:
       False{}
 
-def Spans.touches.insertion(insertion: Bool, +t: Spec.Spans, +b: U32, +e: U32) -> Bool:
+def Spans.touches.insertion(insertion: Bool, +t: Spans, +b: U32, +e: U32) -> Bool:
   match insertion:
     case True{}:
       Spans.has(t, b, e, Spec.Spans.cmp(t, b, e))
     case False{}:
       False{}
 
-def Spans.touches.of(shares: Bool, t: Spec.Spans, +b: U32, +e: U32) -> Bool:
+def Spans.touches.of(shares: Bool, t: Spans, +b: U32, +e: U32) -> Bool:
   match shares:
     case True{}:
       True{}
@@ -326,13 +340,13 @@ def Spec.Place.at(places, path, offset):
 
 # The requests by file, each offset numbered by itself, onto `groups`.
 def places.group(
-  requests: List<&2, Spec.Place>,
+  requests: List<&2, Place>,
   groups: Map<&2, List<&2, Placed>>
 ) -> Map<&2, List<&2, Placed>>:
   match requests:
     case Nil{}:
       groups
-    case Con{Spec.Place{path, +offset}, rest}:
+    case Con{Place{path, +offset}, rest}:
       places.group(rest, Shared.Names.Group.add(Placed, groups, path, Placed{offset, offset}))
 
 # The places found in the file at `path`, by key, onto `out`.

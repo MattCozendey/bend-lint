@@ -928,11 +928,11 @@ def Question.fields(questions: List<&2, Lint.Question>, out: List<&2, String>) -
 def Answer.read(record: List<&2, String>) -> Maybe<&2, Lint.Answer>:
   match record:
     case Con{SCon{'s', SCon{'h', rest}}, Con{text, Nil{}}}:
-      Some{Lint.Shown{text}}
+      Some{Lint.Answer.shown(text)}
     case Con{SCon{'s', SCon{'a', rest}}, Con{same, Nil{}}}:
-      Some{Lint.Equal{String.eq(same, "true")}}
+      Some{Lint.Answer.equal(String.eq(same, "true"))}
     case Con{SCon{'n', rest}, Con{check, Con{handle, Nil{}}}}:
-      Maybe.map(&2, U32, Lint.Answer, h => Lint.Normalized{h}, U32.read(handle))
+      Maybe.map(&2, U32, Lint.Answer, h => Lint.Answer.normalized(h), U32.read(handle))
     case _:
       None{}
 
@@ -1902,7 +1902,7 @@ def report(
         ran,
         Report.add(
           Directives.apply(
-            Directives.Linted{path, text, known, ran},
+            Directives.Linted.of(path, text, known, ran),
             Shared.Lists.append(
               &2,
               Lint.Found,
@@ -1945,7 +1945,7 @@ def Edit.places(edits: List<&2, Text.Edit>, out: List<&2, Text.Place>) -> List<&
     case Nil{}:
       out
     case Con{Text.Edit{+path, beg, end, text}, rest}:
-      Edit.places(rest, Text.Place{path, end} <> Text.Place{path, beg} <> out)
+      Edit.places(rest, Text.Place.of(path, end) <> Text.Place.of(path, beg) <> out)
 
 def Fix.places(
   edits: List<&2, Maybe<&2, List<&2, Text.Edit>>>,
@@ -1971,7 +1971,7 @@ def Shown.more(
     case False{}:
       out
     case True{}:
-      Fix.places(edits, Text.Place{path, end} <> out)
+      Fix.places(edits, Text.Place.of(path, end) <> out)
 
 def Shown.places(
   +json: Bool,
@@ -1988,7 +1988,7 @@ def Shown.places(
       },
       rest
     }:
-      Shown.places(json, rest, Shown.more(json, path, end, edits, Text.Place{path, beg} <> out))
+      Shown.places(json, rest, Shown.more(json, path, end, edits, Text.Place.of(path, beg) <> out))
 
 def Found.line.at(path: String, at: Text.Position, said: String) -> String:
   match at:
