@@ -22,8 +22,9 @@ less. A caller bug has one of two causes:
 
 - `shared.bend` (optional, see feature layout): A self-contained module (its laws, proofs and tests
   live in it). It imports only Base and the `shared` of each layer on the path from it up to `src/`.
-- `spec.bend`: the full public interface, and the claims about it. It imports only Base and the
-  `shared` of each layer on the path from it up to `src/`. The user owns it.
+- `spec.bend`: the full public interface, and the claims about it. It imports only Base, the
+  `shared` of each layer on the path from it up to `src/`, and the `spec.bend` of each feature whose
+  names it uses (never an `impl.bend`). The user owns it.
 - `impl.bend`: imports `./spec.bend as Spec`. It has the code, fills each interface law, and proves
   each claim. You can rewrite it.
 - `tests.bend` (optional): the tests that the module earned (see Tests).
@@ -48,11 +49,11 @@ less. A caller bug has one of two causes:
     Game
   ```
 
-- A law mentions only Base, the `shared` modules that `spec.bend` imports, and names of `spec.bend`.
-  If a claim mentions `f`, `spec.bend` declares `f` and specifies it (by claims, or by a reference
-  def in `spec.bend`).
-- Keep each type opaque (`Data`). Give each field that a caller reads as a law
-  (`law player_x: for g: Game  Nat`). Give each value that a caller makes as a law (`law up: Move`).
+- A law mentions only Base, what `spec.bend` imports, and names of `spec.bend`. If a claim mentions
+  `f`, `spec.bend` declares `f` and specifies it (by claims, or by a reference def in `spec.bend`).
+- Keep a type opaque (`Data`) unless callers match on it: then its constructors are part of the
+  interface. Give each field that a caller reads as a law (`law player_x: for g: Game  Nat`). Give
+  each value that a caller makes as a law (`law up: Move`).
 - State each property that a caller relies on. Common misses:
   - one step at a time equals all steps at once;
   - the start value;

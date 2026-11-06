@@ -1,12 +1,12 @@
-# The fixes a run makes with `--fix-dangerously`: no fix is proven to keep the program until Bend's checker is Bend.
 import Base
-import ../shared.bend as Shared
-import ./api/impl.bend as LintImpl
-import ./api/spec.bend as Lint
-import ./shared/files/impl.bend as FilesImpl
-import ./shared/files/spec.bend as Files
-import ./shared/text/impl.bend as TextImpl
-import ./shared/text/spec.bend as Text
+import ../../../shared.bend as Shared
+import ../../api/impl.bend as LintImpl
+import ../../api/spec.bend as Lint
+import ../files/impl.bend as FilesImpl
+import ../files/spec.bend as Files
+import ../text/impl.bend as TextImpl
+import ../text/spec.bend as Text
+import ./spec.bend as Spec
 
 # Types
 # =====
@@ -667,23 +667,16 @@ def Works.go(
         )
       )
 
-def texts(sources: List<&2, Lint.Source>, out: Map<&2, String>) -> Map<&2, String>:
+def Spec.texts(sources, out):
   match sources:
     case Nil{}:
       out
     case Con{Lint.Source{path, namespace, text, nodes}, rest}:
-      texts(rest, Map.set(&2, String, out, path, text))
+      Spec.texts(rest, Map.set(&2, String, out, path, text))
 
-# The edits of each of `fixes`, in order; None for a fix the linter cannot make: an operation it refuses, an edit in a
-# file a fix may not edit, or a rename of a name the text does not write where a use is. Each file a rename changes is
-# read once, for all the fixes.
-def edits(
-  +fixes: List<&2, Lint.Fix>,
-  declarations: List<&2, Lint.Declaration>,
-  +sources: List<&2, Lint.Source>
-) -> List<&2, Maybe<&2, List<&2, Text.Edit>>>:
+def Spec.edits(fixes, declarations, sources):
   +works = Fix.works(fixes, Lookup.of(fixes, declarations, sources), 0, [])
-  +own = texts(Lint.Program.own(sources), Map.new(&2, String))
+  +own = Spec.texts(Lint.Program.own(sources), Map.new(&2, String))
   +groups = Shared.Names.Group.of(
     ~Spot,
     ~Spot.path,
@@ -720,7 +713,7 @@ def Plan.of(
   sources: List<&2, Lint.Source>
 ) -> Plan:
   Plan.fold(
-    edits(Plan.firsts(founds, []), declarations, sources),
+    Spec.edits(Plan.firsts(founds, []), declarations, sources),
     Plan{[], 0, Map.new(&2, Text.Spans)}
   )
 
@@ -835,14 +828,7 @@ def made(sources: List<&2, Lint.Source>, plan: Plan) -> IO(U32):
         )
         return n
 
-# Makes the fixes of `founds` (in order), if `fixing`, in the program's files (`sources`, whose declarations are
-# `declarations`); how many.
-def apply(
-  fixing: Bool,
-  founds: List<&2, Lint.Found>,
-  declarations: List<&2, Lint.Declaration>,
-  +sources: List<&2, Lint.Source>
-) -> IO(U32):
+def Spec.apply(fixing, founds, declarations, sources):
   match fixing:
     case False{}:
       IO.pure(U32, 0)

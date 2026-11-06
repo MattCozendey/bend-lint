@@ -3,10 +3,12 @@ import Base
 import ../shared.bend as Shared
 import ./api/impl.bend as LintImpl
 import ./api/spec.bend as Lint
-import ./directives.bend as Directives
-import ./fixes.bend as Fixes
+import ./directives/impl.bend as DirectivesImpl
+import ./directives/spec.bend as Directives
 import ./shared/files/impl.bend as FilesImpl
 import ./shared/files/spec.bend as Files
+import ./shared/fixes/impl.bend as FixesImpl
+import ./shared/fixes/spec.bend as Fixes
 import ./shared/json/impl.bend as JsonImpl
 import ./shared/json/spec.bend as Json
 import ./shared/text/impl.bend as TextImpl

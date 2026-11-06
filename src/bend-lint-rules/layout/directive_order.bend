@@ -6,7 +6,8 @@
 import Base
 import ../../linter/api/impl.bend as LintImpl
 import ../../linter/api/spec.bend as Lint
-import ../../linter/directives.bend as Directives
+import ../../linter/directives/impl.bend as DirectivesImpl
+import ../../linter/directives/spec.bend as Directives
 import ../../shared.bend as Shared
 
 # Types
