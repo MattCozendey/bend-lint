@@ -131,8 +131,8 @@ A rule is a file in `bend-lint-rules/`. It imports bend-lint's rule API from Ben
 
 ```
 import Base
-import bend-lint-api@0.2.2.0/linter/api/impl.bend as LintImpl
-import bend-lint-api@0.2.2.0/linter/api/spec.bend as Lint
+import bend-lint-api@0.3.0.0/linter/api/impl.bend as LintImpl
+import bend-lint-api@0.3.0.0/linter/api/spec.bend as Lint
 
 def rule() -> Lint.Rule:
   ...
