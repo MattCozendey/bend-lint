@@ -183,6 +183,10 @@ type Parsed = {
   start: number;
 };
 
+// A file a check parsed, with its key (the checker's version, the file's path and text, and its
+// imports' keys) and its closure (itself, the files it imports, and Base, as "").
+type Keyed = { file: Parsed; key: string; closure: Set<string> };
+
 // Where the spans a file's parser made are on disk: the parser, the text on disk, and, for an
 // offset the parser read, where it is on disk in UTF-16 units; and, for one of those, in code
 // points.
@@ -480,6 +484,10 @@ const FILES = new Map<unknown, number>();
 // entry: the requests of one entry share one check.
 const ANSWERED: Answered[] = [];
 const NUMBERS = new Map<string, number>();
+
+// The records of a file that no fact is on (see `getCheck`), by its key and namespace: each check
+// that parses the file so gives the same.
+const RECORDS = new Map<string, string[]>();
 
 const STALE = 7 * 24 * 60 * 60 * 1000;
 
@@ -1512,42 +1520,51 @@ const isSameType = (Bend: Bend, held: Held, a: Typed, b: Typed): boolean => {
 // entry in the scope of its body has, unless it is a parameter its signature declared (a law's fill
 // takes the law's); it is used as often as its judgment closed it. Of a node's facts that the
 // checker counts the same (same role, quantity and type), the first stays: pattern compilation
-// checks one term in several branches.
+// checks one term in several branches. A file's nodes come from `getTrees` (by its parser) once a
+// fact is read at a span of the file.
 const putFacts = (
   Bend: Bend,
   held: Held,
   own: string[],
   judgments: Map<LTerm, Judgment>,
   wanted: ReadonlySet<string | undefined> | undefined,
-  tops: Tree[],
+  getTrees: (file: unknown) => Tree[],
 ): void => {
   const { binders } = held;
   const origins = new Map<string, Tree[]>();
-  for (const top of tops) {
-    const mine = getPreorder([top], []);
-    const declarers = new Map<number, Tree>();
-    for (const o of mine) {
-      if (o.binder !== undefined && BINDS.has(o.syntax)) {
-        declarers.set(o.binder, o);
-      }
+  const indexed = new Set<unknown>();
+  const getNodesAt = (s: Span | undefined): Tree[] => {
+    if (s === undefined) {
+      return [];
     }
-    for (const o of mine) {
-      if (o.syntax === "Variable" && o.binder !== undefined) {
-        o.declarer = declarers.get(o.binder);
-      }
-      if (o.origin !== undefined) {
-        const key = getSpanKey(o.origin);
-        const known = origins.get(key);
-        if (known === undefined) {
-          origins.set(key, [o]);
-        } else {
-          known.push(o);
+    if (!indexed.has(s.file)) {
+      indexed.add(s.file);
+      for (const top of getTrees(s.file)) {
+        const mine = getPreorder([top], []);
+        const declarers = new Map<number, Tree>();
+        for (const o of mine) {
+          if (o.binder !== undefined && BINDS.has(o.syntax)) {
+            declarers.set(o.binder, o);
+          }
+        }
+        for (const o of mine) {
+          if (o.syntax === "Variable" && o.binder !== undefined) {
+            o.declarer = declarers.get(o.binder);
+          }
+          if (o.origin !== undefined) {
+            const key = getSpanKey(o.origin);
+            const known = origins.get(key);
+            if (known === undefined) {
+              origins.set(key, [o]);
+            } else {
+              known.push(o);
+            }
+          }
         }
       }
     }
-  }
-  const getNodesAt = (s: Span | undefined): Tree[] =>
-    s === undefined ? [] : (origins.get(getSpanKey(s)) ?? []);
+    return origins.get(getSpanKey(s)) ?? [];
+  };
   const getBinderNode = (s: Span | undefined, k: string): Tree | undefined =>
     getNodesAt(s).find((o) => BINDS.has(o.syntax) && o.name === k);
   const getEntry = (scope: Scope | undefined, level: number): Ann | undefined =>
@@ -1783,23 +1800,11 @@ const getUntemplated = (x: unknown, bok: Book): unknown => {
 // `getValidity`).
 const getValidPath = (key: string): string => nodePath.join(CHECKS_DIR, key + ".valid");
 
-// What Bend's check of `files` (in the order Bend parsed them) need not check again, by the book's
-// `order` of declarations, Base's before `from`. A file's key is the checker's `version`, its path
-// and text, and its imports' keys; its closure is itself, the files it imports, and Base (as "").
-// A file is checked as if alone when its closure holds the file of each fill of a law (a name
-// declared again) before it whose law its closure holds: the checker unfolds a law from its fill
-// on. `own` gives the key of each such file; `start` the first declaration of the first file that
-// the check must check: one not checked as if alone, or with no mark of its key, or whose facts are
-// `wanted` (by its namespace). A use of a mark keeps it from prune.
-const getValidity = (
-  version: string,
-  files: Parsed[],
-  order: string[],
-  from: number,
-  wanted: (ns: string) => boolean,
-): { start: number; own: string[] } => {
-  const known = new Map<string, { key: string; closure: Set<string> }>();
-  const keyed = files.map((file) => {
+// The keys of `files`, in the order Bend parsed them (a file's imports first), for the checker's
+// `version`.
+const getKeyed = (version: string, files: Parsed[]): Keyed[] => {
+  const known = new Map<string, Keyed>();
+  return files.map((file) => {
     const loads = file.loads.flatMap((l) => known.get(l.args[1] as string) ?? []);
     const one = {
       file,
@@ -1811,7 +1816,23 @@ const getValidity = (
     known.set(file.path, one);
     return one;
   });
-  const getOwner = (i: number): string => files.filter((f) => f.start <= i).at(-1)?.path ?? "";
+};
+
+// What Bend's check of the files `keyed` need not check again, by the book's `order` of
+// declarations, Base's before `from`. A file is checked as if alone when its closure holds the file
+// of each fill of a law (a name declared again) before it whose law its closure holds: the checker
+// unfolds a law from its fill on. `own` gives the key of each such file; `start` the first
+// declaration of the first file that the check must check: one not checked as if alone, or with no
+// mark of its key, or whose facts are `wanted` (by its namespace). A use of a mark keeps it from
+// prune.
+const getValidity = (
+  keyed: Keyed[],
+  order: string[],
+  from: number,
+  wanted: (ns: string) => boolean,
+): { start: number; own: string[] } => {
+  const getOwner = (i: number): string =>
+    keyed.filter((k) => k.file.start <= i).at(-1)?.file.path ?? "";
   const first = new Map<string, number>();
   const fills = order.flatMap((k, i) => {
     const at = first.get(k);
@@ -1820,7 +1841,7 @@ const getValidity = (
     }
     return at === undefined || i < from ? [] : [{ at: i, law: getOwner(at), filler: getOwner(i) }];
   });
-  const isOwn = ({ file, closure }: (typeof keyed)[number]): boolean =>
+  const isOwn = ({ file, closure }: Keyed): boolean =>
     fills.every(
       ({ at, law, filler }) => at >= file.start || closure.has(filler) || !closure.has(law),
     );
@@ -1859,7 +1880,7 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
   const judgments = new Map<LTerm, Judgment>();
-  let files: Parsed[] = [];
+  let keyed: Keyed[] = [];
   let wanted: Set<string | undefined> | undefined;
   let passed = false;
   READS.clear();
@@ -1867,7 +1888,7 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
   traceParsing(root);
   try {
     await Bend.book_load(book, getLoadPath(path), "", seen);
-    files = getParsedFiles(root.kids, []);
+    keyed = getKeyed(checker.version, getParsedFiles(root.kids, []));
     wanted =
       facts === undefined || facts.paths.length === 0
         ? undefined
@@ -1876,8 +1897,7 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
       traceJudgments(Bend, judgments);
     }
     const validity = getValidity(
-      checker.version,
-      files,
+      keyed,
       book.order,
       base.order.length,
       (ns) => facts !== undefined && (wanted === undefined || wanted.has(ns)),
@@ -1895,8 +1915,9 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
   } finally {
     untrace();
   }
-  const forest = files.map((file) => getFileTrees(file, book));
   const held: Held = { bok: book, types: [], binders: new Map() };
+  // The trees of the files that facts are on, by their parsers: facts build them as they need them.
+  const forest = new Map<unknown, Tree[]>();
   if (passed && facts !== undefined) {
     putFacts(
       Bend,
@@ -1904,15 +1925,28 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
       [...new Set(book.order.slice(base.order.length))],
       judgments,
       wanted,
-      forest.flat(),
+      (parser) => {
+        const file = keyed.find((k) => k.file.parser === parser)?.file;
+        const trees = forest.get(parser) ?? (file === undefined ? [] : getFileTrees(file, book));
+        forest.set(parser, trees);
+        return trees;
+      },
     );
   }
-  const program = files.flatMap((file, n) =>
-    forest[n].reduce(
+  const getRecords = (file: Parsed, trees: Tree[]): string[] =>
+    trees.reduce(
       (out, t) => getTreeRecords(t, held, out),
       [getRecord(["file", file.path, file.ns, file.text])],
-    ),
-  );
+    );
+  const program = keyed.flatMap(({ file, key }) => {
+    const trees = forest.get(file.parser);
+    if (trees !== undefined) {
+      return getRecords(file, trees);
+    }
+    const kept = RECORDS.get(key + "	" + file.ns) ?? getRecords(file, getFileTrees(file, book));
+    RECORDS.set(key + "	" + file.ns, kept);
+    return kept;
+  });
   const read = [...READS];
   COUNTS.checkerMs += performance.now() - start;
   return passed
