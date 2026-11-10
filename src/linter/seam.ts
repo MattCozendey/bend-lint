@@ -1324,7 +1324,7 @@ const getDeclarationTrees = (b: Builder, [head, ...frames]: Frame[]): Tree[] => 
       : [getDeclarationAt(b, "Definition", name, getDeclarationParts(b, head.kids))];
   }
   const syntax: Syntax =
-    head.name === "parse_fresh" && head.args[2] === "ctrs"
+    head.name === "parse_fresh" && (head.args[2] === "ctrs" || head.args[2] === b.book.ctrs)
       ? "Constructor"
       : b.book.tlds[head.out as string]?.$ === "ADT"
         ? "Datatype"
