@@ -2150,16 +2150,19 @@ const getBuiltProgram = async (source: string, dir: URL, waits: boolean): Promis
 // The answer to `check <path> <facts|syntax> <paths...>`: from the cache, if each file the check
 // read is unchanged, else from Bend, and a passed check goes to the cache (whole or not at all; a
 // cache that cannot be written is skipped). A passed check is numbered as before in this server,
-// or anew. What it holds is large, and only a question reads it, so it holds nothing.
+// or anew. A check that Bend made holds what it holds until `forget`, for the questions of its
+// rules; one from the cache holds nothing.
 const getCheckAnswer = async (checker: Checker, path: string, facts: Wanted): Promise<string> => {
   const file = getCachePath(checker, path, facts);
   let entry = getCachedEntry(file);
+  let held: Held | undefined;
   COUNTS[entry === undefined ? "checked" : "cached"] += 1;
   if (entry === undefined) {
     const made = await getCheck(checker, path, facts);
     if (made.held === undefined) {
       return made.answer;
     }
+    held = made.held;
     entry = {
       files: made.read.map(([p, text]) => [p, getSha256Hex(text)]),
       answer: made.answer,
@@ -2173,6 +2176,7 @@ const getCheckAnswer = async (checker: Checker, path: string, facts: Wanted): Pr
     known !== undefined && ANSWERED[known - 1].digest === entry.digest
       ? known
       : ANSWERED.push({ file, path, facts, digest: entry.digest, types: entry.types });
+  ANSWERED[number - 1].held ??= held;
   NUMBERS.set(file, number);
   return getNumberedAnswer(entry.answer, number);
 };
