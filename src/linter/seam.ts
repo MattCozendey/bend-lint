@@ -169,7 +169,8 @@ type Note = { role: "t" | "b"; type: Typed; quantity: Quant };
 
 // A file the check parsed: its path, its text on disk and as its parser read it (with its import
 // lines blank), its namespace and its import aliases (in order), the parser that read its
-// declarations, the loads of its imports, and the calls that parsed its declarations.
+// declarations, the loads of its imports, the calls that parsed its declarations, and where its
+// declarations start in the book's order.
 type Parsed = {
   path: string;
   text: string;
@@ -179,6 +180,7 @@ type Parsed = {
   parser: unknown;
   loads: Frame[];
   frames: Frame[];
+  start: number;
 };
 
 // Where the spans a file's parser made are on disk: the parser, the text on disk, and, for an
@@ -995,6 +997,7 @@ const getParsedFiles = (frames: Frame[], out: Parsed[]): Parsed[] => {
           parser: book.kids.find((f) => isFile(f.args[0]))?.args[0],
           loads,
           frames: book.kids,
+          start: load.out as number,
         });
       }
     });
@@ -1776,6 +1779,66 @@ const getUntemplated = (x: unknown, bok: Book): unknown => {
   );
 };
 
+// The mark, in the cache, that a passed check checked the file of `key` as if alone (see
+// `getValidity`).
+const getValidPath = (key: string): string => nodePath.join(CHECKS_DIR, key + ".valid");
+
+// What Bend's check of `files` (in the order Bend parsed them) need not check again, by the book's
+// `order` of declarations, Base's before `from`. A file's key is the checker's `version`, its path
+// and text, and its imports' keys; its closure is itself, the files it imports, and Base (as "").
+// A file is checked as if alone when its closure holds the file of each fill of a law (a name
+// declared again) before it whose law its closure holds: the checker unfolds a law from its fill
+// on. `own` gives the key of each such file; `start` the first declaration of the first file that
+// the check must check: one not checked as if alone, or with no mark of its key, or whose facts are
+// `wanted` (by its namespace). A use of a mark keeps it from prune.
+const getValidity = (
+  version: string,
+  files: Parsed[],
+  order: string[],
+  from: number,
+  wanted: (ns: string) => boolean,
+): { start: number; own: string[] } => {
+  const known = new Map<string, { key: string; closure: Set<string> }>();
+  const keyed = files.map((file) => {
+    const loads = file.loads.flatMap((l) => known.get(l.args[1] as string) ?? []);
+    const one = {
+      file,
+      key: getSha256Hex(
+        JSON.stringify([version, file.path, file.text, ...loads.map((l) => l.key)]),
+      ),
+      closure: new Set(["", file.path, ...loads.flatMap((l) => [...l.closure])]),
+    };
+    known.set(file.path, one);
+    return one;
+  });
+  const getOwner = (i: number): string => files.filter((f) => f.start <= i).at(-1)?.path ?? "";
+  const first = new Map<string, number>();
+  const fills = order.flatMap((k, i) => {
+    const at = first.get(k);
+    if (at === undefined) {
+      first.set(k, i);
+    }
+    return at === undefined || i < from ? [] : [{ at: i, law: getOwner(at), filler: getOwner(i) }];
+  });
+  const isOwn = ({ file, closure }: (typeof keyed)[number]): boolean =>
+    fills.every(
+      ({ at, law, filler }) => at >= file.start || closure.has(filler) || !closure.has(law),
+    );
+  return {
+    start:
+      keyed.find(
+        (one) =>
+          !isOwn(one) ||
+          wanted(one.file.ns) ||
+          tryGet(() => {
+            nodeFs.utimesSync(getValidPath(one.key), new Date(), new Date());
+            return true;
+          }) !== true,
+      )?.file.start ?? order.length,
+    own: keyed.filter(isOwn).map((one) => one.key),
+  };
+};
+
 // The path Bend loads a file at, as `seen` keeps it: real, with `/`; a file with an overlay, at its
 // key.
 const getLoadPath = (path: string): string =>
@@ -1787,7 +1850,8 @@ const getLoadPath = (path: string): string =>
 // and the check's number, here 0 (see `getNumberedAnswer`), or `failed` and each file it read;
 // then each file it parsed, if it loaded them: its path, namespace and text, then its nodes (see
 // `getTreeRecords`). A passed check gives the facts of the files at `facts.paths` (all, if none).
-// The hooks are global, so checks must not overlap.
+// Bend checks only the declarations that `getValidity` does not skip. The hooks are global, so
+// checks must not overlap.
 const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<Made> => {
   const start = performance.now();
   const { Bend, base } = await checker.getLoaded();
@@ -1795,19 +1859,32 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
   const seen = new Map<string, string | null>([[Bend.BASE_BEND, ""]]);
   const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
   const judgments = new Map<LTerm, Judgment>();
-  let loaded = false;
+  let files: Parsed[] = [];
+  let wanted: Set<string | undefined> | undefined;
   let passed = false;
   READS.clear();
   FILES.clear();
   traceParsing(root);
   try {
     await Bend.book_load(book, getLoadPath(path), "", seen);
-    loaded = true;
+    files = getParsedFiles(root.kids, []);
+    wanted =
+      facts === undefined || facts.paths.length === 0
+        ? undefined
+        : new Set(facts.paths.map((p) => seen.get(getLoadPath(p)) ?? undefined));
     if (facts !== undefined) {
       traceJudgments(Bend, judgments);
     }
-    Bend.book_valid(book, base.order.length);
+    const validity = getValidity(
+      checker.version,
+      files,
+      book.order,
+      base.order.length,
+      (ns) => facts !== undefined && (wanted === undefined || wanted.has(ns)),
+    );
+    Bend.book_valid(book, validity.start);
     passed = true;
+    validity.own.forEach((key) => tryGet(() => writeNewFileAtomically(getValidPath(key), "")));
   } catch (e) {
     // A check that fails gives no facts; `bend <file> --check-only` says why. What bend.ts throws
     // for the file is an Err; anything else is a fault of the checker or of this glue, not of the
@@ -1818,7 +1895,6 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
   } finally {
     untrace();
   }
-  const files = loaded ? getParsedFiles(root.kids, []) : [];
   const forest = files.map((file) => getFileTrees(file, book));
   const held: Held = { bok: book, types: [], binders: new Map() };
   if (passed && facts !== undefined) {
@@ -1827,9 +1903,7 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
       held,
       [...new Set(book.order.slice(base.order.length))],
       judgments,
-      facts.paths.length === 0
-        ? undefined
-        : new Set(facts.paths.map((p) => seen.get(getLoadPath(p)) ?? undefined)),
+      wanted,
       forest.flat(),
     );
   }
