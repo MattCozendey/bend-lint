@@ -22,12 +22,12 @@
     "typecheck": "bun ./src/meta/link-bend.ts && bun ./src/meta/typecheck.ts"
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.91.0",
+    "@oxlint/plugins": "1.93.0",
     "@types/bun": "1.4.4",
-    "oxfmt": "0.76.0",
-    "oxlint": "1.91.0",
+    "oxfmt": "0.78.0",
+    "oxlint": "1.93.0",
     "oxlint-tsgolint": "7.0.2006",
-    "typebox": "1.4.4",
+    "typebox": "1.4.6",
     "typescript": "7.0.2"
   },
   "engines": {
@@ -35,5 +35,5 @@
   },
   "packageManager": "bun@1.4.4",
   "bendRelease": "bendlang/bend/v2.0.39",
-  "bendWindows": "MattCozendey/bend/d38038df4c456f5c8421f3630787f6de91d6c724"
+  "bendWindows": "MattCozendey/bend/e6ebd86626aa7ac850bc634b8d4ee2aad997c6d5"
 }
