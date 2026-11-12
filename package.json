@@ -34,6 +34,6 @@
     "bun": "1.4.4"
   },
   "packageManager": "bun@1.4.4",
-  "bendRelease": "bendlang/bend/v2.0.39",
-  "bendWindows": "MattCozendey/bend/e6ebd86626aa7ac850bc634b8d4ee2aad997c6d5"
+  "bendRelease": "bendlang/bend/v2.0.40",
+  "bendWindows": "MattCozendey/bend/1d53fa845cb50e5d6d0d4946672a66653481140d"
 }
