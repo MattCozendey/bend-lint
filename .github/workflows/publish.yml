@@ -1,7 +1,12 @@
-# A pushed tag v<version> publishes the npm package of that version, by npm's
-# trusted publishing: npm trusts this workflow, so no token or one-time password
-# is needed. The BendHub packages are published by hand (bun run ship <folder>
-# --publish), as `bend login` lets it.
+# A pushed tag v<version> publishes bend-lint of that version: first its BendHub
+# packages, the rule API and the default rules (bun run ship <folder> --publish),
+# then the npm package, whose Bend files import the API from BendHub.
+#
+# BendHub takes the BendAI key that `bend login` writes to ~/.bend/bendai.json,
+# from the repository secret BENDAI_KEY. A version BendHub has already taken
+# fails the job, so a tag publishes once; to retry the npm job alone, re-run
+# only the failed jobs. npm publishes by trusted publishing: npm trusts this
+# workflow, so no token or one-time password is needed.
 name: Publish
 
 on:
@@ -9,7 +14,31 @@ on:
     tags: ["v*"]
 
 jobs:
+  bendhub:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: The tag names package.json's version
+        run: test "${GITHUB_REF_NAME#v}" = "$(jq -r .version package.json)"
+      # Without a key, bend would start a login in a browser and wait for it.
+      - name: Log in to BendHub
+        env:
+          BENDAI_KEY: ${{ secrets.BENDAI_KEY }}
+        run: |
+          test -n "$BENDAI_KEY" || { echo "the secret BENDAI_KEY is not set"; exit 1; }
+          umask 077
+          mkdir -p ~/.bend
+          jq -n --arg key "$BENDAI_KEY" '{key: $key, login: ""}' > ~/.bend/bendai.json
+      - run: bun run ship "$RUNNER_TEMP/ship" --publish
+
   npm:
+    needs: bendhub
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,8 +55,6 @@ jobs:
       - name: Trusted publishing needs npm 11.5.1 or newer
         run: npm install -g npm@^11.5.1
       - run: bun install --frozen-lockfile
-      - name: The tag names package.json's version
-        run: test "${GITHUB_REF_NAME#v}" = "$(jq -r .version package.json)"
       - run: bun run ship "$RUNNER_TEMP/ship"
       - run: npm publish
         working-directory: ${{ runner.temp }}/ship/npm
