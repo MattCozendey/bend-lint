@@ -2218,12 +2218,17 @@ def Shown.edits(
     case True{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
 
-# The declarations of the program's files (`sources`), if the run needs them: to show fixes, or to make them.
-def Declarations.of(need: Bool, sources: List<&2, Lint.Source>) -> List<&2, Lint.Declaration>:
-  match need:
-    case True{}:
+# The declarations of the program's files (`sources`), if the run needs them (`need`: to show fixes, or to make them)
+# and there are `fixes`: they cost as much as a lint of the file.
+def Declarations.of(
+  need: Bool,
+  fixes: List<&2, Lint.Fix>,
+  sources: List<&2, Lint.Source>
+) -> List<&2, Lint.Declaration>:
+  match need fixes:
+    case True{} Con{f, rest}:
       Lint.Whole.declarations(Lint.Whole.of(Lint.Program{sources}, True{}))
-    case False{}:
+    case _ _:
       []
 
 # Ending
@@ -2427,7 +2432,7 @@ def outcome(report: Report, +json: Bool, +fixing: Bool, program: Lint.Program) -
     case Report{kept, suppressed} Lint.Program{+sources}:
       +founds = List.reverse(&2, Lint.Found, kept)
       +all = Shared.Lists.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
-      +declarations = Declarations.of(json || fixing, sources)
+      +declarations = Declarations.of(json || fixing, Found.fixes(all, []), sources)
       +resolved = Resolved.of(all, Shown.edits(json, all, declarations, sources), [])
       +n = Shared.Lists.length(&2, Lint.Found, founds)
       +shown = List.reverse(
@@ -3186,10 +3191,11 @@ def files(json: Bool, inputs: List<&2, String>, overlays: List<&2, String>) -> I
 # Workers
 # -------
 
-# A run of several files that fixes none lints each in a worker: this program again, on that file alone
-# (`--worker`), with a heap of its own. As many workers run at once as `--jobs` says (see Jobs), two threads each, or one
-# if more than half the threads run, and the run shows what each found in the order of the files. A run that fixes lints its files here, one after another, as a fix
-# changes what the files after it read; so does a build to JavaScript, which runs one process at a time.
+# A run of several files lints each in a worker: this program again, on that file alone (`--worker`), with a heap of
+# its own. As many workers run at once as `--jobs` says (see Jobs), two threads each, or one if more than half the
+# threads run, and the run shows what each found in the order of the files. A run that fixes runs one worker at a time,
+# each after the one before it ends, as a fix changes what the files after it read. A build to JavaScript lints its
+# files here, one after another, as it runs one process at a time.
 #
 # A heap of its own matters as much as the threads. Bend's runtime gives back freed cells last freed first, so after a
 # big check is freed, the cells of the next ones scatter over the heap, and each costs a cache miss: in one process, a
@@ -3294,8 +3300,13 @@ def Worker.args(options: Options, path: String, threads: String) -> List<String>
         <> List.append(
           &1,
           String,
-          Worker.flag(shown, "--show-suppressed"),
-          List.append(&1, String, Worker.flag(json, "--json"), [path])
+          Worker.flag(Options.fixes(fixing), "--fix-dangerously"),
+          List.append(
+            &1,
+            String,
+            Worker.flag(shown, "--show-suppressed"),
+            List.append(&1, String, Worker.flag(json, "--json"), [path])
+          )
         )
 
 # Runs a worker once one of `slots` is free, then frees it.
@@ -3358,6 +3369,49 @@ def Slots.of(+count: U32) -> IO(Chan(Unit)):
     slots => Slots.filled(slots, U32.to_nat(count))
   )
 
+# What the workers of `paths` found, in order, after `total`: each runs, with `threads` threads, after the one before
+# it ends.
+def Workers.chain(
+  +program: String,
+  +options: Options,
+  +threads: String,
+  paths: List<&2, String>,
+  total: Outcome
+) -> IO(Outcome):
+  match paths:
+    case Nil{}:
+      IO.pure(Outcome, total)
+    case Con{path, rest}:
+      do IO<Outcome>:
+        ran: Ran() <- Process.run(
+          program,
+          Worker.args(options, path, threads),
+          "",
+          4294967295,
+          4294967295
+        )
+        o: Outcome <- Worker.outcome(ran)
+        Workers.chain(program, options, threads, rest, Outcome.add(total, o))
+
+# What the workers of `paths` found, in order: if the run fixes (`fixes`), one after another (see Workers); else
+# `count` at once, each with `threads` threads.
+def Workers.found(
+  fixes: Bool,
+  count: U32,
+  program: String,
+  options: Options,
+  threads: String,
+  paths: List<&2, String>
+) -> IO(Outcome):
+  match fixes:
+    case True{}:
+      Workers.chain(program, options, threads, paths, Outcome{0n, [], [], False{}, 0, []})
+    case False{}:
+      do IO<Outcome>:
+        slots: Chan(Unit) <- Slots.of(count)
+        workers: List<&2, Chan(Ran())> <- Workers.start(slots, program, options, threads, paths, [])
+        Workers.collect(workers, Outcome{0n, [], [], False{}, 0, []})
+
 # How many workers run at once on `threads` threads, one at least.
 def Jobs.count(jobs: Jobs, threads: U32) -> U32:
   match jobs:
@@ -3376,23 +3430,18 @@ def Workers.run(
   +threads: U32
 ) -> IO(Unit):
   match options:
-    case Options{inputs, fixing, shown, json, worker, jobs}:
-      +count = Jobs.count(jobs, threads)
+    case Options{inputs, +fixing, shown, json, worker, jobs}:
+      +fixes = Options.fixes(fixing)
+      +count = Bool.pick(U32, fixes, 1, Jobs.count(jobs, threads))
       do IO<Unit>:
-        slots: Chan(Unit) <- Slots.of(count)
-        workers: List<
-          &2,
-          Chan(
-            Ran()
-          )> <- Workers.start(
-          slots,
+        total: Outcome <- Workers.found(
+          fixes,
+          count,
           program,
           options,
           Bool.pick(String, U32.is_gt(count, U32.shr(threads)), "1", "2"),
-          paths,
-          []
+          paths
         )
-        total: Outcome <- Workers.collect(workers, Outcome{0n, [], [], False{}, 0, []})
         ended(options, total)
 
 # Lints `paths` in workers of `program`, as `options` say.
@@ -3413,15 +3462,11 @@ def Workers.is_native(+program: String) -> Bool:
       || String.ends_with(program, ".bend")
   )
 
-# Whether a run lints its files in workers: a run of several files, that fixes none, by a native build.
+# Whether a run lints its files in workers: a run of several files by a native build.
 def Workers.is_wanted(program: String, paths: List<&2, String>, options: Options) -> Bool:
   match options:
     case Options{inputs, fixing, shown, json, False{}, jobs}:
-      Bool.not(
-        Options.fixes(fixing)
-      )
-        && Workers.is_native(program)
-        && Nat.is_gt(Shared.Lists.length(&2, String, paths), 1n)
+      Workers.is_native(program) && Nat.is_gt(Shared.Lists.length(&2, String, paths), 1n)
     case _:
       False{}
 
