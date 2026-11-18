@@ -5,10 +5,10 @@
 # field, whose quantity also comes from its scrutinee's type, and a law's bare parameter. Two uses are
 # on one path unless they are in different cases of one `match`. Both values of a call count, so
 # `Bool.pick(T, c, x, x)` uses x twice. Uses in types, and in an argument for an erased parameter
-# (`-P`) of a definition of the check, are dead and do not count; an erased parameter of another
-# function (a lambda, a field) is not seen. A binder that a `match` takes apart is skipped: in a
-# case, it stands for the matched constructor. Bend's checker stops at its first error; this rule
-# reports every such binder at once.
+# (`-P`) of a definition of the check or of Base, are dead and do not count; an erased parameter of
+# another function (a lambda, a field) is not seen. A binder that a `match` takes apart is skipped:
+# in a case, it stands for the matched constructor. Bend's checker stops at its first error; this
+# rule reports every such binder at once.
 import Base
 import ../../linter/api/impl.bend as LintImpl
 import ../../linter/api/spec.bend as Lint
@@ -68,7 +68,7 @@ def scrutinee(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&
       []
 
 # Whether the nodes under `node`, which is live if `live`, are: a body is; a type is not (an equality, a function or
-# pair type, a type's arguments). An annotation's type is not either: see `scan`.
+# pair type, a type's arguments). An annotation's type, and a rewrite's motive, are not either: see `scan`.
 def is_live_inside(+node: Lint.Node, live: Bool) -> Bool:
   match node:
     case Lint.Node{Lint.Body{}, n, s, k, f}:
@@ -118,11 +118,13 @@ def Erased.of(sources: List<&2, Lint.Source>, out: Erased) -> Erased:
     case Con{Lint.Source{path, namespace, text, nodes}, rest} Erased{places}:
       Erased.of(rest, Erased{Erased.file(nodes, places)})
 
-# The places of the nodes under a node that are dead: an annotation's type, and the arguments of an application for the
-# erased parameters of the definition it calls.
+# The places of the nodes under a node that are dead: an annotation's type, a rewrite's motive, and the arguments of an
+# application for the erased parameters of the definition it calls.
 def Erased.dead(+node: Lint.Node, +erased: Erased) -> List<&2, U32>:
   match node erased:
     case Lint.Node{Lint.Annotation{}, n, s, k, f} _:
+      [1]
+    case Lint.Node{Lint.Rewrite{}, n, s, k, f} _:
       [1]
     case Lint.Node{
       Lint.Application{},
@@ -287,7 +289,10 @@ def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
   Lint.done(
     defs(
       Lint.Here.nodes(here),
-      Erased.of(Lint.Here.sources(here), Erased{Map.new(&2, Maybe<&2, List<&2, U32>>)}),
+      Erased.of(
+        Lint.Here.sources(here),
+        Erased{Erased.file(Lint.Here.base(here), Map.new(&2, Maybe<&2, List<&2, U32>>))}
+      ),
       []
     )
   )

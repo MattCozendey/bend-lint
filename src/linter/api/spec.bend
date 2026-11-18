@@ -105,8 +105,9 @@ type Node is Data:
 type Source is Data:
   Source{path: String, namespace: String, text: String, nodes: List<&2, Node>}
 
+# The files of a check, and Base's declarations (see `Here.base`).
 type Program is Data:
-  Program{sources: List<&2, Source>}
+  Program{sources: List<&2, Source>, base: List<&2, Node>}
 
 # A name a node declares, and the nodes that use it, in order.
 type Declaration is Data:
@@ -425,9 +426,9 @@ law is_pair:
   for kids: List<&2, Node>
   Bool
 
-# Whether a node below `path` is in live code: a definition's body, outside types: an annotation's type, an equality, a
-# function or pair type, a type's arguments. Types and equations are dead: the checker sees them, the program does not
-# run them.
+# Whether a node below `path` is in live code: a definition's body, outside types: an annotation's type, a rewrite's
+# motive, an equality, a function or pair type, a type's arguments. Types and equations are dead: the checker sees them,
+# the program does not run them.
 law is_live:
   for path: List<&2, Above>
   Bool
@@ -535,6 +536,12 @@ law Here.nodes:
 law Here.sources:
   for here: Here
   List<&2, Source>
+
+# Base's declarations, which no file of the check holds: each with its parameters and the type it gives, without its
+# body, and each constructor under its type.
+law Here.base:
+  for here: Here
+  List<&2, Node>
 
 law Here.declarations:
   for here: Here

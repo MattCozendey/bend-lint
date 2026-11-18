@@ -258,6 +258,8 @@ def is_live.go(path: List<&2, Spec.Above>, ok: Bool) -> Bool:
       True{}
     case Con{Spec.Above{Spec.Node{Spec.Annotation{}, n, s, k, f}, at}, rest} True{}:
       is_live.go(rest, U32.is_eq(at, 0))
+    case Con{Spec.Above{Spec.Node{Spec.Rewrite{}, n, s, k, f}, at}, rest} True{}:
+      is_live.go(rest, Bool.not(U32.is_eq(at, 1)))
     case Con{Spec.Above{Spec.Node{Spec.Application{}, n, s, k, f}, at}, rest} True{}:
       is_live.go(rest, Bool.not(Spec.is_pair(k)))
     case Con{Spec.Above{Spec.Node{Spec.Equality{}, n, s, k, f}, at}, rest} True{}:
@@ -834,14 +836,19 @@ def Spec.Program.callers(sources, defs, seeds):
 
 def Spec.Here.of(program, source, declare):
   match program:
-    case Spec.Program{+sources}:
-      Spec.Here{Spec.Program{sources}, source, Declarations.when(declare, [source], sources), []}
+    case Spec.Program{+sources, base}:
+      Spec.Here{
+        Spec.Program{sources, base},
+        source,
+        Declarations.when(declare, [source], sources),
+        []
+      }
 
 def Spec.Whole.of(program, declare):
   match program:
-    case Spec.Program{sources}:
+    case Spec.Program{sources, base}:
       +own = Spec.Program.own(sources)
-      Spec.Whole{Spec.Program{own}, Declarations.when(declare, own, own), []}
+      Spec.Whole{Spec.Program{own, base}, Declarations.when(declare, own, own), []}
 
 def Spec.Here.path(here):
   match here:
@@ -865,8 +872,13 @@ def Spec.Here.nodes(here):
 
 def Spec.Here.sources(here):
   match here:
-    case Spec.Here{Spec.Program{sources}, source, declarations, options}:
+    case Spec.Here{Spec.Program{sources, base}, source, declarations, options}:
       sources
+
+def Spec.Here.base(here):
+  match here:
+    case Spec.Here{Spec.Program{sources, base}, source, declarations, options}:
+      base
 
 def Spec.Here.declarations(here):
   match here:
@@ -885,7 +897,7 @@ def Spec.Whole.declarations(whole):
 
 def Whole.sources(whole: Spec.Whole) -> List<&2, Spec.Source>:
   match whole:
-    case Spec.Whole{Spec.Program{sources}, declarations, options}:
+    case Spec.Whole{Spec.Program{sources, base}, declarations, options}:
       sources
 
 def Whole.option(whole: Spec.Whole, name: String) -> Maybe<&2, Spec.Value>:

@@ -69,7 +69,8 @@ type Outcome = { code: number; out: string; err: string };
 
 type Bend = typeof BendModule;
 
-type Loaded = { Bend: Bend; base: Book };
+// Bend, Base's book, and the records of Base's declarations (see `getBaseRecords`).
+type Loaded = { Bend: Bend; base: Book; declarations: string };
 
 // What a check's answer depends on besides its files (this server, the patched bend.ts and Base,
 // as one digest), and Bend, loaded when a check or a question first needs it: an answer from the
@@ -844,6 +845,24 @@ const getShared = (): Shared => ({
   },
 });
 
+// The records of Base's declarations, parsed into `files`, each without its body: what rules read of
+// Base is what its declarations take and give (`Here.base` in spec.bend). A file's text is left
+// out, as no finding is in Base.
+const getBaseRecords = (files: Parsed[], book: Book): string => {
+  const held: Held = { bok: book, types: [], binders: new Map() };
+  return files
+    .flatMap((file) =>
+      getFileTrees(file, book)
+        .filter((t) => t.syntax !== "Import")
+        .reduce(
+          (out, t) =>
+            getTreeRecords({ ...t, kids: t.kids.filter((k) => k.syntax !== "Body") }, held, out),
+          [getRecord(["file", file.path, file.ns, ""])],
+        ),
+    )
+    .join("");
+};
+
 // The checker of the bend2 sources in `dir`. The patched bend.ts is written now, so a drift stops
 // the run at once; Bend loads, and checks Base, once, when first needed.
 const getChecker = (dir: URL): Checker => {
@@ -862,9 +881,15 @@ const getChecker = (dir: URL): Checker => {
         (globalThis as { BEND_LINT?: Shared }).BEND_LINT = getShared();
         const Bend = (await import(bend.href)) as Bend;
         const base = Bend.book_nil();
-        await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
+        const root: Frame = { name: "check", args: [], out: undefined, end: -1, kids: [] };
+        traceParsing(root);
+        try {
+          await Bend.book_load(base, Bend.BASE_BEND, "", new Map());
+        } finally {
+          untrace();
+        }
         Bend.book_valid(base, 0);
-        return { Bend, base };
+        return { Bend, base, declarations: getBaseRecords(getParsedFiles(root.kids, []), base) };
       })()),
   };
 };
@@ -2285,6 +2310,23 @@ const getForgetAnswer = (check: number): string => {
   return getRecord(["forgot"]);
 };
 
+// The answer to `base`: the records of Base's declarations (see `getBaseRecords`), from the cache
+// if there, as a run whose checks are all cached loads no Bend.
+const getBaseAnswer = async (checker: Checker): Promise<string> => {
+  const file = nodePath.join(CHECKS_DIR, getSha256Hex(checker.version + "\nbase") + ".base");
+  const kept = tryGet(() => {
+    const text = nodeFs.readFileSync(file, "utf8");
+    nodeFs.utimesSync(file, new Date(), new Date());
+    return text;
+  });
+  if (kept !== undefined) {
+    return kept;
+  }
+  const { declarations } = await checker.getLoaded();
+  tryGet(() => writeFileAtomically(file, declarations));
+  return declarations;
+};
+
 const getAnswer = async (checker: Checker, line: string): Promise<string> => {
   const [op, ...args] = line.split("\t").map(getUnescapedField);
   return op === "check" && args.length >= 2
@@ -2293,7 +2335,9 @@ const getAnswer = async (checker: Checker, line: string): Promise<string> => {
       ? getForgetAnswer(Number(args[0]))
       : op === "ask"
         ? getAskAnswer(checker, args)
-        : getRecord(["fail", "unknown request: " + line]);
+        : op === "base" && args.length === 0
+          ? getBaseAnswer(checker)
+          : getRecord(["fail", "unknown request: " + line]);
 };
 
 // Runs each request it is given after the one before ends: a program's workers ask at once, and

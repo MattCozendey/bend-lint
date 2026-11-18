@@ -941,30 +941,35 @@ def Reader.done.of(
   failed: Bool,
   check: Maybe<&2, U32>,
   read: List<&2, String>,
-  sources: List<&2, Lint.Source>
+  sources: List<&2, Lint.Source>,
+  base: List<&2, Lint.Node>
 ) -> Maybe<&2, Check>:
   match failed check sources:
     case False{} Some{n} _:
-      Some{Passed{Lint.Program{sources}, n}}
+      Some{Passed{Lint.Program{sources, base}, n}}
     case True{} _ Nil{}:
       Some{Failed{read, None{}}}
     case True{} _ parsed:
-      Some{Failed{read, Some{Lint.Program{parsed}}}}
+      Some{Failed{read, Some{Lint.Program{parsed, base}}}}
     case _ _ _:
       None{}
 
-# What an answer says, if it is one.
-def Reader.done(r: Reader) -> Maybe<&2, Check>:
+# What an answer says, if it is one, with Base's declarations (`base`).
+def Reader.done(r: Reader, base: List<&2, Lint.Node>) -> Maybe<&2, Check>:
   match r:
     case Reader{check, failed, read, sources, open, nodes, facts}:
       Reader.done.of(
         failed,
         check,
         List.reverse(&2, String, read),
-        List.reverse(&2, Lint.Source, Reader.close(open, nodes, sources))
+        List.reverse(&2, Lint.Source, Reader.close(open, nodes, sources)),
+        base
       )
     case Garbled{}:
       None{}
+
+def Reader.new() -> Reader:
+  Reader{None{}, False{}, [], [], None{}, [], []}
 
 # Questions
 # ---------
@@ -1038,15 +1043,43 @@ def Check.request(path: String, facts: Bool, wanted: List<&2, String>) -> List<&
     case False{}:
       ["check", path, "syntax"]
 
-# Checks the file at `path`: with `facts`, the checker's facts on the files at `wanted` (on each file, if none).
-def Check.file(path: String, facts: Bool, wanted: List<&2, String>) -> IO(Check):
+# Checks the file at `path`: with `facts`, the checker's facts on the files at `wanted` (on each file, if none). Its
+# program holds Base's declarations (`base`).
+def Check.file(
+  path: String,
+  facts: Bool,
+  wanted: List<&2, String>,
+  base: List<&2, Lint.Node>
+) -> IO(Check):
   IO.bind(
     List<&2, List<&2, String>>,
     Check,
     Wire.ask(Check.request(path, facts, wanted)),
-    records => Check.got(
-      Reader.done(Reader.go(records, Reader{None{}, False{}, [], [], None{}, [], []}))
-    )
+    records => Check.got(Reader.done(Reader.go(records, Reader.new()), base))
+  )
+
+# The nodes of `sources`, files read whole (the last first, as a Reader keeps them), in the files' order, before `out`.
+def Base.nodes(sources: List<&2, Lint.Source>, out: List<&2, Lint.Node>) -> List<&2, Lint.Node>:
+  match sources:
+    case Nil{}:
+      out
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+      Base.nodes(rest, Shared.Lists.append(&2, Lint.Node, nodes, out))
+
+def Base.got(r: Reader) -> IO(List<&2, Lint.Node>):
+  match r:
+    case Reader{check, failed, read, sources, open, nodes, facts}:
+      IO.pure(List<&2, Lint.Node>, Base.nodes(Reader.close(open, nodes, sources), []))
+    case Garbled{}:
+      IO.die(List<&2, Lint.Node>, 1, "bend-lint: the checker's answer is malformed")
+
+# Base's declarations, as the program of each check holds them (see `getBaseRecords` in seam.ts).
+def Base.declarations() -> IO(List<&2, Lint.Node>):
+  IO.bind(
+    List<&2, List<&2, String>>,
+    List<&2, Lint.Node>,
+    Wire.ask(["base"]),
+    records => Base.got(Reader.go(records, Reader.new()))
   )
 
 # Frees what the server holds for the passed check numbered `check`: no rule asks about its types again.
@@ -2195,16 +2228,16 @@ def Shown.edits(
     case True{}:
       Fixes.edits(Found.fixes(founds, []), declarations, sources)
 
-# The declarations of the program's files (`sources`), if the run needs them (`need`: to show fixes, or to make them)
-# and there are `fixes`: they cost as much as a lint of the file.
+# The declarations of `program`'s files, if the run needs them (`need`: to show fixes, or to make them) and there are
+# `fixes`: they cost as much as a lint of the file.
 def Declarations.of(
   need: Bool,
   fixes: List<&2, Lint.Fix>,
-  sources: List<&2, Lint.Source>
+  program: Lint.Program
 ) -> List<&2, Lint.Declaration>:
   match need fixes:
     case True{} Con{f, rest}:
-      Lint.Whole.declarations(Lint.Whole.of(Lint.Program{sources}, True{}))
+      Lint.Whole.declarations(Lint.Whole.of(program, True{}))
     case _ _:
       []
 
@@ -2406,10 +2439,14 @@ def Shown.printed(json: Bool, shown: List<&2, Shown>) -> List<&2, String>:
 # It fails if a finding that stays is an error.
 def outcome(report: Report, +json: Bool, +fixing: Bool, program: Lint.Program) -> IO(Outcome):
   match report program:
-    case Report{kept, suppressed} Lint.Program{+sources}:
+    case Report{kept, suppressed} Lint.Program{+sources, base}:
       +founds = List.reverse(&2, Lint.Found, kept)
       +all = Shared.Lists.append(&2, Lint.Found, founds, List.reverse(&2, Lint.Found, suppressed))
-      +declarations = Declarations.of(json || fixing, Found.fixes(all, []), sources)
+      +declarations = Declarations.of(
+        json || fixing,
+        Found.fixes(all, []),
+        Lint.Program{sources, base}
+      )
       +resolved = Resolved.of(all, Shown.edits(json, all, declarations, sources), [])
       +n = Shared.Lists.length(&2, Lint.Found, founds)
       +shown = List.reverse(
@@ -2676,7 +2713,7 @@ def Linting.files(
   program: Lint.Program
 ) -> List<&2, Lint.Source>:
   match checks program:
-    case 0n Lint.Program{sources}:
+    case 0n Lint.Program{sources, base}:
       linted(imports, path, sources)
     case _ _:
       []
@@ -2735,7 +2772,7 @@ def Linting.done(
   linting: Linting
 ) -> IO(Outcome):
   match linting:
-    case Linting{Lint.Program{+sources}, tagged, checks, +failing}:
+    case Linting{Lint.Program{+sources, base}, tagged, checks, +failing}:
       +abouts = About.all(rules, [])
       +on = About.on(abouts, settings, [])
       skips = Shared.Lists.append(
@@ -2766,7 +2803,7 @@ def Linting.done(
           About.ids(About.on(abouts, About.unchecked(failed, abouts, settings), []), []),
           json,
           fixing,
-          Lint.Program{sources}
+          Lint.Program{sources, base}
         )
         return Outcome.skip(o, skipped)
 
@@ -2813,7 +2850,7 @@ def Own.wanted(imports: Bool, path: String) -> List<&2, String>:
       [path]
 
 # Lints the named file (at `path`) after the checks of its entries: in its own check, with facts if `facts`, if it was
-# linted in none.
+# linted in none; the check's program holds Base's declarations (`base`).
 def Linting.ended(
   ~rules: List<&1, Rule>,
   +path: String,
@@ -2822,6 +2859,7 @@ def Linting.ended(
   json: Bool,
   fixing: Bool,
   facts: Bool,
+  base: List<&2, Lint.Node>,
   linting: Linting
 ) -> IO(Outcome):
   match linting:
@@ -2829,7 +2867,7 @@ def Linting.ended(
       IO.bind(
         Check,
         Outcome,
-        Check.file(path, facts, Own.wanted(imports, path)),
+        Check.file(path, facts, Own.wanted(imports, path), base),
         c => Own.checked(
           ~rules,
           path,
@@ -2846,7 +2884,7 @@ def Linting.ended(
 
 def Check.reads(path: String, +check: Check) -> Bool:
   match check:
-    case Passed{Lint.Program{sources}, c}:
+    case Passed{Lint.Program{sources, base}, c}:
       Maybe.is_some(&2, Lint.Source, Source.at(sources, None{}, path))
     case Failed{read, parsed}:
       List.contains(~String, ~String.eq, read, path)
@@ -2889,13 +2927,14 @@ def Entry.checked(
   Entry.checked.of(~rules, Check.reads(path, check), entry, check, path, settings, linting)
 
 # `linting` after the named file (at `path`) is linted in the checks of `entries` that read it, one at a time, each
-# with the facts of the file if `facts`.
+# with the facts of the file if `facts`, and with Base's declarations (`base`).
 def Entries.lint(
   ~rules: List<&1, Rule>,
   entries: List<&2, String>,
   +facts: Bool,
   +path: String,
   +settings: List<&2, Shared.Names.Named<Setting>>,
+  +base: List<&2, Lint.Node>,
   linting: Linting
 ) -> IO(Linting):
   match entries:
@@ -2903,9 +2942,9 @@ def Entries.lint(
       IO.pure(Linting, linting)
     case Con{+e, rest}:
       do IO<Linting>:
-        c: Check <- Check.file(e, facts, [path])
+        c: Check <- Check.file(e, facts, [path], base)
         l: Linting <- Entry.checked(~rules, e, c, path, settings, linting)
-        Entries.lint(~rules, rest, facts, path, settings, l)
+        Entries.lint(~rules, rest, facts, path, settings, base, l)
 
 # The entries to lint the named file in: none with `imports`, which lints it in its own check.
 def Entries.of(imports: Bool, entries: List<&2, String>) -> List<&2, String>:
@@ -2981,19 +3020,18 @@ def settled(
     ~About.needs_facts,
     About.on(About.all(rules, []), settings, [])
   )
-  IO.bind(
-    Linting,
-    Outcome,
-    Entries.lint(
+  do IO<Outcome>:
+    +base: List<&2, Lint.Node> <- Base.declarations()
+    linting: Linting <- Entries.lint(
       ~rules,
       Entries.of(imports, entries),
       facts,
       path,
       settings,
-      Linting{Lint.Program{[]}, [], 0n, []}
-    ),
-    linting => Linting.ended(~rules, path, imports, settings, json, fixing, facts, linting)
-  )
+      base,
+      Linting{Lint.Program{[], base}, [], 0n, []}
+    )
+    Linting.ended(~rules, path, imports, settings, json, fixing, facts, base, linting)
 
 # Lints the file at `path` as its config says: `many` says whether the run lints more than one file.
 def configured(
