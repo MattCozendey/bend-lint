@@ -2,7 +2,9 @@
 # `+` claims a reuse that never happens.
 # Heuristics: it reads how often the checker found each binder used, the most over its branches. A
 # binder that a match or a let takes apart is skipped: its `+` also makes its fields reusable. So is a
-# parameter of a definition used as a value (`OnFile{run}`): the type it must have can ask for the `+`.
+# parameter of a definition used as a value (`OnFile{run}`) in a file of the check: the type it must
+# have can ask for the `+`. A file that uses it so is seen only if the check reads it: list it in the
+# config's entries.
 # The `+` costs no speed: the compiler counts references from the uses, not from the `+`. Removing
 # 1,049 such `+` from Bend's slash boss demo, three-bodies and a raytracer left their C unchanged.
 import Base
@@ -13,8 +15,8 @@ import ../../shared.bend as Shared
 # Types
 # =====
 
-# What judging the binders of one definition reads: the definitions of the file used as values (named, not called), as
-# the check names them; the definition, as the check names it; and its binders that a match or a let takes apart.
+# What judging the binders of one definition reads: the definitions used as values (named, not called) in the files of
+# the check, as it names them; the definition, as the check names it; and its binders that a match or a let takes apart.
 type Owner is Data:
   Owner{values: List<&2, String>, target: String, matched: List<&2, U32>}
 
@@ -192,9 +194,24 @@ def defs(
     case Con{node, rest}:
       defs(rest, values, out)
 
+# The definitions used as values in `sources`, onto `out`.
+def values(sources: List<&2, Lint.Source>, out: List<&2, String>) -> List<&2, String>:
+  match sources:
+    case Nil{}:
+      out
+    case Con{Lint.Source{path, namespace, text, nodes}, rest}:
+      values(
+        rest,
+        Shared.Lists.append(
+          &2,
+          String,
+          Lint.visit(~Unit, ~String, ~value.visit, Unit{}, nodes),
+          out
+        )
+      )
+
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  +nodes = Lint.Here.nodes(here)
-  Lint.done(defs(nodes, Lint.visit(~Unit, ~String, ~value.visit, Unit{}, nodes), []))
+  Lint.done(defs(Lint.Here.nodes(here), values(Lint.Here.sources(here), []), []))
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{True{}, False{}}, [], Lint.OnFile{run}}

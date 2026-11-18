@@ -4,9 +4,11 @@
 # let's name written without `+`, which can be used once on each path. It leaves out a pattern's
 # field, whose quantity also comes from its scrutinee's type, and a law's bare parameter. Two uses are
 # on one path unless they are in different cases of one `match`. Both values of a call count, so
-# `Bool.pick(T, c, x, x)` uses x twice. Uses in types are dead and do not count. A binder that a
-# `match` takes apart is skipped: in a case, it stands for the matched constructor. Bend's checker
-# stops at its first error; this rule reports every such binder at once.
+# `Bool.pick(T, c, x, x)` uses x twice. Uses in types, and in an argument for an erased parameter
+# (`-P`) of a definition of the check, are dead and do not count; an erased parameter of another
+# function (a lambda, a field) is not seen. A binder that a `match` takes apart is skipped: in a
+# case, it stands for the matched constructor. Bend's checker stops at its first error; this rule
+# reports every such binder at once.
 import Base
 import ../../linter/api/impl.bend as LintImpl
 import ../../linter/api/spec.bend as Lint
@@ -24,13 +26,18 @@ type Once is Data:
 type Seen is Data:
   Seen{first: Maybe<&2, Lint.Span>, second: Maybe<&2, Lint.Span>}
 
+# The places, among the nodes of an application, of the arguments for each definition's erased parameters, by the name
+# the check gives the definition.
+type Erased is Data:
+  Erased{places: Map<&2, Maybe<&2, List<&2, U32>>>}
+
 # Functions
 # =========
 def message(+name: String) -> String:
   name
     ++ " is used again here, on the same path as an earlier use, but it is declared without `+`, so it can be used once on each path, and the check fails (\"consumed more than once\"). If its type is Data, write `+"
     ++ name
-    ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied. This is a false positive if one of the uses is an argument for an erased parameter (`-x`, as a proof's motive often is): that is dead code."
+    ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied."
 
 # The binders a definition declares that can be used once, as their syntax says for sure: a parameter written without
 # `+` (unless one is `bare`: its quantity is its law's), and a let's name written without `+`. A pattern's field is left
@@ -77,16 +84,60 @@ def is_live_inside(+node: Lint.Node, live: Bool) -> Bool:
     case _:
       live
 
+# The places of the erased parameters among a definition's nodes, from `at` (the first argument's), onto `out`.
+def Erased.params(nodes: List<&2, Lint.Node>, +at: U32, out: List<&2, U32>) -> List<&2, U32>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{Lint.Parameter{b, Lint.Erased{}}, n, s, k, f}, rest}:
+      Erased.params(rest, (at + 1: U32), at <> out)
+    case Con{Lint.Node{Lint.Parameter{b, q}, n, s, k, f}, rest}:
+      Erased.params(rest, (at + 1: U32), out)
+    case Con{node, rest}:
+      Erased.params(rest, at, out)
+
+def Erased.file(
+  nodes: List<&2, Lint.Node>,
+  out: Map<&2, Maybe<&2, List<&2, U32>>>
+) -> Map<&2, Maybe<&2, List<&2, U32>>>:
+  match nodes:
+    case Nil{}:
+      out
+    case Con{Lint.Node{Lint.Definition{t, u}, n, s, k, f}, rest}:
+      Erased.file(
+        rest,
+        Map.set(&2, Maybe<&2, List<&2, U32>>, out, t, Some{Erased.params(k, 1, [])})
+      )
+    case Con{node, rest}:
+      Erased.file(rest, out)
+
+def Erased.of(sources: List<&2, Lint.Source>, out: Erased) -> Erased:
+  match sources out:
+    case Nil{} _:
+      out
+    case Con{Lint.Source{path, namespace, text, nodes}, rest} Erased{places}:
+      Erased.of(rest, Erased{Erased.file(nodes, places)})
+
+# The places of the nodes under a node that are dead: an annotation's type, and the arguments of an application for the
+# erased parameters of the definition it calls.
+def Erased.dead(+node: Lint.Node, +erased: Erased) -> List<&2, U32>:
+  match node erased:
+    case Lint.Node{Lint.Annotation{}, n, s, k, f} _:
+      [1]
+    case Lint.Node{
+      Lint.Application{},
+      n,
+      s,
+      Con{Lint.Node{Lint.Reference{t}, rn, rs, rk, rf}, args},
+      f
+    } Erased{places}:
+      Maybe.default(&2, List<&2, U32>, Shared.Names.find(List<&2, U32>, places, t), [])
+    case _ _:
+      []
+
 def is_match(syntax: Lint.Syntax) -> Bool:
   match syntax:
     case Lint.Match{}:
-      True{}
-    case _:
-      False{}
-
-def is_annotation(syntax: Lint.Syntax) -> Bool:
-  match syntax:
-    case Lint.Annotation{}:
       True{}
     case _:
       False{}
@@ -110,14 +161,15 @@ def Seen.then(apart: Bool, seen: Seen, next: Seen) -> Seen:
       Seen{g, Maybe.or(&2, Lint.Span, s, t)}
 
 # The live uses of `b` among `nodes`, the nodes under one, after `seen`: `live` says whether they are live, `apart`
-# whether each is a path of its own (a match's), and `typed` whether only the first is live (an annotation's: the
-# second is a type); `at` counts the nodes.
+# whether each is a path of its own (a match's), and `dead` the places of those that are not (see `Erased.dead`);
+# `at` counts the nodes.
 def scan(
   nodes: List<&2, Lint.Node>,
   +b: U32,
+  +erased: Erased,
   +live: Bool,
   +apart: Bool,
-  +typed: Bool,
+  +dead: List<&2, U32>,
   +at: U32,
   seen: Seen
 ) -> Seen:
@@ -126,13 +178,14 @@ def scan(
       seen
     case Con{Lint.Node{+syntax, name, span, +kids, facts}, rest}:
       +node = {Lint.Node{syntax, name, span, kids, facts}: Lint.Node}
-      +here = live && Bool.not(typed && U32.is_gt(at, 0))
+      +here = live && Bool.not(List.contains(~U32, ~U32.is_eq, dead, at))
       scan(
         rest,
         b,
+        erased,
         live,
         apart,
-        typed,
+        dead,
         (at + 1: U32),
         Seen.then(
           apart,
@@ -144,9 +197,10 @@ def scan(
             scan(
               kids,
               b,
+              erased,
               is_live_inside(node, here),
               is_match(syntax),
-              is_annotation(syntax),
+              Erased.dead(node, erased),
               0,
               Seen{None{}, None{}}
             )
@@ -160,12 +214,18 @@ def finding(second: Seen, name: String) -> List<&2, Lint.Finding>:
       Lint.finding(Lint.Warning{}, True{}, s, message(name))
 
 # The finding about a binder of `owner` used twice on one path, unless a match takes it apart (`matched`).
-def judged(matched: Bool, owner: Lint.Node, b: U32, name: String) -> List<&2, Lint.Finding>:
+def judged(
+  matched: Bool,
+  owner: Lint.Node,
+  b: U32,
+  erased: Erased,
+  name: String
+) -> List<&2, Lint.Finding>:
   match matched:
     case True{}:
       []
     case False{}:
-      finding(scan([owner], b, False{}, False{}, False{}, 0, Seen{None{}, None{}}), name)
+      finding(scan([owner], b, erased, False{}, False{}, [], 0, Seen{None{}, None{}}), name)
 
 # The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes
 # apart (`matched`) is skipped.
@@ -173,6 +233,7 @@ def judge(
   +owner: Lint.Node,
   onces: List<&2, Once>,
   +matched: List<&2, U32>,
+  +erased: Erased,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match onces:
@@ -183,15 +244,20 @@ def judge(
         owner,
         rest,
         matched,
+        erased,
         Shared.Lists.onto(
           &2,
           Lint.Finding,
-          judged(List.contains(~U32, ~U32.is_eq, matched, b), owner, b, name),
+          judged(List.contains(~U32, ~U32.is_eq, matched, b), owner, b, erased, name),
           out
         )
       )
 
-def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Lint.Finding>:
+def defs(
+  nodes: List<&2, Lint.Node>,
+  +erased: Erased,
+  out: List<&2, Lint.Finding>
+) -> List<&2, Lint.Finding>:
   match nodes:
     case Nil{}:
       List.reverse(&2, Lint.Finding, out)
@@ -199,6 +265,7 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Li
       +owner = {Lint.Node{Lint.Definition{t, u}, n, s, k, f}: Lint.Node}
       defs(
         rest,
+        erased,
         judge(
           owner,
           Lint.visit(
@@ -209,14 +276,21 @@ def defs(nodes: List<&2, Lint.Node>, out: List<&2, Lint.Finding>) -> List<&2, Li
             [owner]
           ),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
+          erased,
           out
         )
       )
     case Con{node, rest}:
-      defs(rest, out)
+      defs(rest, erased, out)
 
 def run(+here: Lint.Here) -> Lint.Ask(List<&2, Lint.Finding>):
-  Lint.done(defs(Lint.Here.nodes(here), []))
+  Lint.done(
+    defs(
+      Lint.Here.nodes(here),
+      Erased.of(Lint.Here.sources(here), Erased{Map.new(&2, Maybe<&2, List<&2, U32>>)}),
+      []
+    )
+  )
 
 def rule() -> Lint.Rule:
   Lint.Rule{Lint.Needs{False{}, False{}}, [], Lint.OnFile{run}}
