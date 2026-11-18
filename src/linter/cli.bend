@@ -1548,48 +1548,25 @@ def File.all(
       ) File.all(~rules, d, Shared.Lists.deal(&2, Lint.Source, b), settings, program, declare)
       Shared.Lists.append(&1, Job, x, y)
 
-# The jobs of the program rules on the whole program of each check, numbered from `check`; `declare` says whether a
-# rule needs declarations.
+# The jobs of the program rules on the whole program of the check numbered `check`, if one is on (`whole`): else none,
+# and no whole program is built. `declare` says whether a rule needs declarations.
 def Check.jobs(
   ~rules: List<&1, Rule>,
-  programs: List<&2, Lint.Program>,
-  +settings: List<&2, Shared.Names.Named<Setting>>,
-  +path: String,
-  +declare: Bool,
-  +check: U32,
-  out: List<&1, Job>
-) -> List<&1, Job>:
-  match programs:
-    case Nil{}:
-      out
-    case Con{p, rest}:
-      Check.jobs(
-        ~rules,
-        rest,
-        settings,
-        path,
-        declare,
-        (check + 1: U32),
-        Shared.Lists.onto(
-          &1,
-          Job,
-          Rule.jobs(~rules, settings, AtProgram{Lint.Whole.of(p, declare), path, check}),
-          out
-        )
-      )
-
-# The jobs of the program rules on each check, if one is on (`whole`): else none, and no whole program is built.
-def Check.jobs.if(
-  ~rules: List<&1, Rule>,
   whole: Bool,
-  programs: List<&2, Lint.Program>,
+  program: Lint.Program,
   settings: List<&2, Shared.Names.Named<Setting>>,
   path: String,
-  declare: Bool
+  declare: Bool,
+  check: U32
 ) -> List<&1, Job>:
   match whole:
     case True{}:
-      Check.jobs(~rules, programs, settings, path, declare, 1, [])
+      Shared.Lists.onto(
+        &1,
+        Job,
+        Rule.jobs(~rules, settings, AtProgram{Lint.Whole.of(program, declare), path, check}),
+        []
+      )
     case False{}:
       []
 
@@ -2491,76 +2468,37 @@ def finish(
     program
   )
 
-# Gives `outcome` once the server frees the checks numbered `checks`.
-def forgotten(checks: List<&2, U32>, outcome: Outcome) -> IO(Outcome):
-  match checks:
-    case Nil{}:
-      IO.pure(Outcome, outcome)
-    case Con{c, rest}:
-      IO.bind(Unit, Outcome, Check.forget(c), done => forgotten(rest, outcome))
-
-# Lints `linted`, files of the first of `programs` (the checks of the named file, at `path`), with the rules the
-# config leaves on. Program rules run on each check; `partial` says whether an entry that reads the named file failed
-# its check.
-def lint(
+# What the rules the config leaves on find in `program`, of the check numbered `check` that the named file (at `path`)
+# is linted in: the program rules on it, and the file rules on `files`.
+def Check.found(
   ~rules: List<&1, Rule>,
-  +linted: List<&2, Lint.Source>,
+  files: List<&2, Lint.Source>,
   path: String,
-  +programs: List<&2, Lint.Program>,
-  partial: Bool,
-  +settings: List<&2, Shared.Names.Named<Setting>>,
-  json: Bool,
-  fixing: Bool
-) -> IO(Outcome):
-  +abouts = About.all(rules, [])
-  +on = About.on(abouts, settings, [])
+  +program: Lint.Program,
+  check: U32,
+  +settings: List<&2, Shared.Names.Named<Setting>>
+) -> IO(List<&2, Tagged>):
+  +on = About.on(About.all(rules, []), settings, [])
   +declare = Shared.Lists.any(~About, ~About.needs_declarations, on)
-  IO.bind(
-    List<&2, Tagged>,
-    Outcome,
-    Rounds.go(
-      budget(),
-      Round.hold(
-        Shared.Lists.append(
-          &1,
-          Job,
-          File.all(
-            ~rules,
-            3n,
-            Shared.Lists.deal(&2, Lint.Source, linted),
-            settings,
-            Maybe.default(
-              &2,
-              Lint.Program,
-              List.head(&2, Lint.Program, programs),
-              Lint.Program{[]}
-            ),
-            declare
-          ),
-          Check.jobs.if(
-            ~rules,
-            Shared.Lists.any(~About, ~About.is_whole, on),
-            programs,
-            settings,
-            path,
-            declare
-          )
-        ),
-        [],
-        []
-      )
-    ),
-    tagged => finish(
-      linted,
-      tagged,
-      Shared.Lists.length(&2, Lint.Program, programs),
-      About.modes(abouts, []),
-      partial,
-      About.ids(abouts, []),
-      About.ids(on, []),
-      json,
-      fixing,
-      Maybe.default(&2, Lint.Program, List.head(&2, Lint.Program, programs), Lint.Program{[]})
+  Rounds.go(
+    budget(),
+    Round.hold(
+      Shared.Lists.append(
+        &1,
+        Job,
+        File.all(~rules, 3n, Shared.Lists.deal(&2, Lint.Source, files), settings, program, declare),
+        Check.jobs(
+          ~rules,
+          Shared.Lists.any(~About, ~About.is_whole, on),
+          program,
+          settings,
+          path,
+          declare,
+          check
+        )
+      ),
+      [],
+      []
     )
   )
 
@@ -2581,16 +2519,11 @@ def Source.at(
         path
       )
 
-# The checks of the named file: the programs to lint it in (the first one's file rules run); the entries that read it
-# and failed their check; whether its own check failed (then the program is what it parsed, if it parsed the files);
-# and the checks to free after it.
-type Checks is Data:
-  Checks{
-    programs: List<&2, Lint.Program>,
-    failing: List<&2, String>,
-    failed: Bool,
-    forget: List<&2, U32>
-  }
+# What linting the named file found in the checks it was linted in so far: the first one's program (its file rules ran
+# in it, and its fixes go to it), what the rules found, tagged by check, how many checks, and the entries that read the
+# file and failed their check (last first).
+type Linting is Data:
+  Linting{first: Lint.Program, tagged: List<&2, Tagged>, checks: Nat, failing: List<&2, String>}
 
 # The files to lint: the named file (at `path`), or, with `imports`, every own file of its check.
 def linted(imports: Bool, path: String, sources: List<&2, Lint.Source>) -> List<&2, Lint.Source>:
@@ -2735,18 +2668,76 @@ def Outcome.skip(outcome: Outcome, skipped: List<&2, Json.Json>) -> Outcome:
     case Outcome{n, f, s, e, x, w}:
       Outcome{n, f, s, e, x, Shared.Lists.append(&2, Json.Json, skipped, w)}
 
-def checked(
+# The files the file rules run on in the next check, of `program`, after `checks` checks: the linted files of the first.
+def Linting.files(
+  checks: Nat,
+  imports: Bool,
+  path: String,
+  program: Lint.Program
+) -> List<&2, Lint.Source>:
+  match checks program:
+    case 0n Lint.Program{sources}:
+      linted(imports, path, sources)
+    case _ _:
+      []
+
+# The first check's program, after `checks` checks, if the next check is of `program`.
+def Linting.first(checks: Nat, first: Lint.Program, program: Lint.Program) -> Lint.Program:
+  match checks:
+    case 0n:
+      program
+    case 1n+k:
+      first
+
+# `linting` after the named file (at `path`) is linted in `program`, the next check that reads it.
+def Linting.add(
+  ~rules: List<&1, Rule>,
+  imports: Bool,
+  +path: String,
+  settings: List<&2, Shared.Names.Named<Setting>>,
+  +program: Lint.Program,
+  linting: Linting
+) -> IO(Linting):
+  match linting:
+    case Linting{first, tagged, +checks, failing}:
+      IO.bind(
+        List<&2, Tagged>,
+        Linting,
+        Check.found(
+          ~rules,
+          Linting.files(checks, imports, path, program),
+          path,
+          program,
+          U32.from_nat(1n+checks),
+          settings
+        ),
+        found => IO.pure(
+          Linting,
+          Linting{
+            Linting.first(checks, first, program),
+            Shared.Lists.append(&2, Tagged, tagged, found),
+            1n+checks,
+            failing
+          }
+        )
+      )
+
+# Says why rules did not run on the named file (at `path`), then prints what `linting` found in it and makes the fixes;
+# `failed` says whether its own check failed.
+def Linting.done(
   ~rules: List<&1, Rule>,
   +path: String,
   imports: Bool,
   +settings: List<&2, Shared.Names.Named<Setting>>,
   json: Bool,
   fixing: Bool,
-  checks: Checks
+  +failed: Bool,
+  linting: Linting
 ) -> IO(Outcome):
-  match checks:
-    case Checks{Con{Lint.Program{+sources}, rest}, +failing, +failed, forget}:
-      +on = About.on(About.all(rules, []), settings, [])
+  match linting:
+    case Linting{Lint.Program{+sources}, tagged, checks, +failing}:
+      +abouts = About.all(rules, [])
+      +on = About.on(abouts, settings, [])
       skips = Shared.Lists.append(
         &2,
         Skipped,
@@ -2756,7 +2747,7 @@ def checked(
           Skipped,
           unentered(
             failed,
-            failing,
+            List.reverse(&2, String, failing),
             About.ids(List.filter(~About, ~About.needs_every, on), []),
             path,
             []
@@ -2765,40 +2756,93 @@ def checked(
       )
       do IO<Outcome>:
         skipped: List<&2, Json.Json> <- Skipped.said(skips, [])
-        o: Outcome <- lint(
-          ~rules,
+        o: Outcome <- finish(
           linted(imports, path, sources),
-          path,
-          Lint.Program{sources} <> rest,
+          tagged,
+          checks,
+          About.modes(abouts, []),
           Bool.not(List.is_empty(&2, String, failing)),
-          About.unchecked(failed, About.all(rules, []), settings),
+          About.ids(abouts, []),
+          About.ids(About.on(abouts, About.unchecked(failed, abouts, settings), []), []),
           json,
-          fixing
+          fixing,
+          Lint.Program{sources}
         )
-        forgotten(forget, Outcome.skip(o, skipped))
-    case Checks{Nil{}, failing, failed, forget}:
+        return Outcome.skip(o, skipped)
+
+# The named file (at `path`) linted in its own check, as no entry that reads it passed its check. If the check fails,
+# the rules that need no facts run on what it parsed, if it parsed the files.
+def Own.checked(
+  ~rules: List<&1, Rule>,
+  +path: String,
+  +imports: Bool,
+  +settings: List<&2, Shared.Names.Named<Setting>>,
+  json: Bool,
+  fixing: Bool,
+  check: Check,
+  linting: Linting
+) -> IO(Outcome):
+  match check:
+    case Passed{p, c}:
+      do IO<Outcome>:
+        l: Linting <- Linting.add(~rules, imports, path, settings, p, linting)
+        Check.forget(c)
+        Linting.done(~rules, path, imports, settings, json, fixing, False{}, l)
+    case Failed{read, Some{p}}:
+      do IO<Outcome>:
+        l: Linting <- Linting.add(
+          ~rules,
+          imports,
+          path,
+          About.unchecked(True{}, About.all(rules, []), settings),
+          p,
+          linting
+        )
+        Linting.done(~rules, path, imports, settings, json, fixing, True{}, l)
+    case Failed{read, None{}}:
       do IO<Outcome>:
         skipped: List<&2, Json.Json> <- Skipped.said([Skipped{path, Unloaded{}}], [])
         return Outcome{0n, [], [], False{}, 0, skipped}
 
-# The named file's own check, as the checks to lint it in, after the entries that read it and failed (`failing`). If
-# it fails, the rules that need no facts run on what it parsed, if it parsed the files.
-def Check.own(failing: List<&2, String>, check: Check) -> Checks:
-  match check:
-    case Passed{p, c}:
-      Checks{[p], failing, False{}, [c]}
-    case Failed{read, parsed}:
-      Checks{
-        Maybe.default(
-          &2,
-          List<&2, Lint.Program>,
-          Maybe.map(&2, Lint.Program, List<&2, Lint.Program>, p => [p], parsed),
-          []
-        ),
-        failing,
-        True{},
-        []
-      }
+# The files whose facts the named file's own check gives: with `imports`, each; else its own.
+def Own.wanted(imports: Bool, path: String) -> List<&2, String>:
+  match imports:
+    case True{}:
+      []
+    case False{}:
+      [path]
+
+# Lints the named file (at `path`) after the checks of its entries: in its own check, with facts if `facts`, if it was
+# linted in none.
+def Linting.ended(
+  ~rules: List<&1, Rule>,
+  +path: String,
+  +imports: Bool,
+  settings: List<&2, Shared.Names.Named<Setting>>,
+  json: Bool,
+  fixing: Bool,
+  facts: Bool,
+  linting: Linting
+) -> IO(Outcome):
+  match linting:
+    case Linting{first, tagged, 0n, failing}:
+      IO.bind(
+        Check,
+        Outcome,
+        Check.file(path, facts, Own.wanted(imports, path)),
+        c => Own.checked(
+          ~rules,
+          path,
+          imports,
+          settings,
+          json,
+          fixing,
+          c,
+          Linting{first, tagged, 0n, failing}
+        )
+      )
+    case _:
+      Linting.done(~rules, path, imports, settings, json, fixing, False{}, linting)
 
 def Check.reads(path: String, +check: Check) -> Bool:
   match check:
@@ -2807,91 +2851,69 @@ def Check.reads(path: String, +check: Check) -> Bool:
     case Failed{read, parsed}:
       List.contains(~String, ~String.eq, read, path)
 
-# The check of `entry` sorted into `checks`: if it reads the named file, its program joins the programs (and the checks
-# to free), or, if it failed, the entry joins the failing ones.
-def Check.sort.step(reads: Bool, entry: String, check: Check, checks: Checks) -> Checks:
-  match reads check checks:
-    case True{} Passed{p, c} Checks{programs, failing, failed, forget}:
-      Checks{p <> programs, failing, failed, c <> forget}
-    case True{} Failed{read, parsed} Checks{programs, failing, failed, forget}:
-      Checks{programs, entry <> failing, failed, forget}
-    case False{} _ _:
-      checks
+# `linting` after the check of `entry`: if it reads the named file (at `path`), the file is linted in it, or, if it
+# failed, the entry joins the failing ones. The server frees a passed check once the file is linted in it, or at once
+# if it does not read the file.
+def Entry.checked.of(
+  ~rules: List<&1, Rule>,
+  reads: Bool,
+  entry: String,
+  check: Check,
+  path: String,
+  settings: List<&2, Shared.Names.Named<Setting>>,
+  linting: Linting
+) -> IO(Linting):
+  match reads check linting:
+    case True{} Passed{p, c} _:
+      do IO<Linting>:
+        l: Linting <- Linting.add(~rules, False{}, path, settings, p, linting)
+        Check.forget(c)
+        return l
+    case True{} Failed{read, parsed} Linting{first, tagged, checks, failing}:
+      IO.pure(Linting, Linting{first, tagged, checks, entry <> failing})
+    case False{} Passed{p, c} _:
+      do IO<Linting>:
+        Check.forget(c)
+        return linting
+    case False{} Failed{read, parsed} _:
+      IO.pure(Linting, linting)
 
-# The checks of `entries` (in order) that read the named file (at `path`): the programs of those that passed, and the
-# entries of those that failed.
-def Check.sort(
-  checks: List<&2, Check>,
-  entries: List<&2, String>,
+def Entry.checked(
+  ~rules: List<&1, Rule>,
+  entry: String,
+  +check: Check,
   +path: String,
-  sorted: Checks
-) -> Checks:
-  match checks entries sorted:
-    case Con{+c, rest} Con{e, more} _:
-      Check.sort(rest, more, path, Check.sort.step(Check.reads(path, c), e, c, sorted))
-    case _ _ Checks{programs, failing, failed, forget}:
-      Checks{
-        List.reverse(&2, Lint.Program, programs),
-        List.reverse(&2, String, failing),
-        failed,
-        forget
-      }
+  settings: List<&2, Shared.Names.Named<Setting>>,
+  linting: Linting
+) -> IO(Linting):
+  Entry.checked.of(~rules, Check.reads(path, check), entry, check, path, settings, linting)
 
-# The checks of `entries`, with the facts of the file at `path`, if `facts`.
-def Check.all(
+# `linting` after the named file (at `path`) is linted in the checks of `entries` that read it, one at a time, each
+# with the facts of the file if `facts`.
+def Entries.lint(
+  ~rules: List<&1, Rule>,
   entries: List<&2, String>,
   +facts: Bool,
   +path: String,
-  out: List<&2, Check>
-) -> IO(List<&2, Check>):
+  +settings: List<&2, Shared.Names.Named<Setting>>,
+  linting: Linting
+) -> IO(Linting):
   match entries:
     case Nil{}:
-      IO.pure(List<&2, Check>, List.reverse(&2, Check, out))
-    case Con{e, rest}:
-      IO.bind(
-        Check,
-        List<&2, Check>,
-        Check.file(e, facts, [path]),
-        c => Check.all(rest, facts, path, c <> out)
-      )
+      IO.pure(Linting, linting)
+    case Con{+e, rest}:
+      do IO<Linting>:
+        c: Check <- Check.file(e, facts, [path])
+        l: Linting <- Entry.checked(~rules, e, c, path, settings, linting)
+        Entries.lint(~rules, rest, facts, path, settings, l)
 
-# The checks to lint the named file in: those of the entries that read it and passed; if none, its own.
-def Check.chosen(sorted: Checks, +path: String, facts: Bool) -> IO(Checks):
-  match sorted:
-    case Checks{Nil{}, failing, failed, forget}:
-      IO.bind(
-        Check,
-        Checks,
-        Check.file(path, facts, [path]),
-        c => IO.pure(Checks, Check.own(failing, c))
-      )
-    case _:
-      IO.pure(Checks, sorted)
-
-# The checks to lint the named file (at `path`) in: with `imports` or no entries, its own; else those `Check.chosen`
-# picks. A check gives the facts of the files it lints: the named one, or, with `imports`, each.
-def Check.of(imports: Bool, entries: List<&2, String>, +path: String, +facts: Bool) -> IO(Checks):
-  match imports entries:
-    case False{} Con{+e, +es}:
-      IO.bind(
-        List<&2, Check>,
-        Checks,
-        Check.all(Con{e, es}, facts, path, []),
-        checks => Check.chosen(
-          Check.sort(checks, Con{e, es}, path, Checks{[], [], False{}, []}),
-          path,
-          facts
-        )
-      )
-    case True{} _:
-      IO.bind(Check, Checks, Check.file(path, facts, []), c => IO.pure(Checks, Check.own([], c)))
-    case False{} Nil{}:
-      IO.bind(
-        Check,
-        Checks,
-        Check.file(path, facts, [path]),
-        c => IO.pure(Checks, Check.own([], c))
-      )
+# The entries to lint the named file in: none with `imports`, which lints it in its own check.
+def Entries.of(imports: Bool, entries: List<&2, String>) -> List<&2, String>:
+  match imports:
+    case True{}:
+      []
+    case False{}:
+      entries
 
 def Options.checked(json: Bool, problem: Maybe<&2, String>) -> IO(Unit):
   match problem:
@@ -2954,16 +2976,23 @@ def settled(
   entries: List<&2, String>,
   +settings: List<&2, Shared.Names.Named<Setting>>
 ) -> IO(Outcome):
+  +facts = Shared.Lists.any(
+    ~About,
+    ~About.needs_facts,
+    About.on(About.all(rules, []), settings, [])
+  )
   IO.bind(
-    Checks,
+    Linting,
     Outcome,
-    Check.of(
-      imports,
-      entries,
+    Entries.lint(
+      ~rules,
+      Entries.of(imports, entries),
+      facts,
       path,
-      Shared.Lists.any(~About, ~About.needs_facts, About.on(About.all(rules, []), settings, []))
+      settings,
+      Linting{Lint.Program{[]}, [], 0n, []}
     ),
-    checks => checked(~rules, path, imports, settings, json, fixing, checks)
+    linting => Linting.ended(~rules, path, imports, settings, json, fixing, facts, linting)
   )
 
 # Lints the file at `path` as its config says: `many` says whether the run lints more than one file.
