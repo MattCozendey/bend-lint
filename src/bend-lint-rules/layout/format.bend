@@ -1679,10 +1679,33 @@ def Split.apply(
     case End{} State{seq, sp}:
       Split.end(tab, base, State{seq, sp})
 
+# A part's lines start at the column of its first tree: a line after a comment in it (a directive before a parameter)
+# keeps the part's indentation.
+def Seq.anchor(+n: Tree, s: Seq) -> Seq:
+  match s:
+    case Seq{out, chain, None{}, levels, skip}:
+      Seq{
+        out,
+        chain,
+        None{},
+        Bool.pick(List<&2, U32>, is_newline(n), levels, [Token.col(first(n))]),
+        skip
+      }
+    case _:
+      s
+
 def Split.visit(+n: Tree, d: Doc, +rest: List<&2, Tree>, tab: U32, base: U32, st: State) -> State:
   match st:
     case State{seq, +sp}:
-      Split.apply(Split.act(n, rest, sp), n, d, rest, tab, base, State{seq, Split.comments(n, sp)})
+      Split.apply(
+        Split.act(n, rest, sp),
+        n,
+        d,
+        rest,
+        tab,
+        base,
+        State{Seq.anchor(n, seq), Split.comments(n, sp)}
+      )
 
 def should_drop(parts: List<&2, Part>) -> Bool:
   match parts:
@@ -1701,27 +1724,36 @@ def drop_parts(parts: List<&2, Part>, go: Bool) -> List<&2, Part>:
     case Nil{} _:
       Nil{}
 
-def content.sep(comment: Bool, acc: List<&2, Doc>) -> List<&2, Doc>:
-  match comment:
-    case True{}:
+# What goes before a part: a line break after a part that ends in a comment (its comma is before the comment); else a
+# comma, then a line break if a part of the group has a comment (`comments`), so each part keeps its own line.
+def content.sep(comment: Bool, comments: Bool, acc: List<&2, Doc>) -> List<&2, Doc>:
+  match comment comments:
+    case True{} _:
       Con{hard(0), acc}
-    case False{}:
+    case False{} True{}:
+      Con{hard(0), Con{text(",", 1), acc}}
+    case False{} False{}:
       Con{soft(" ", 1), Con{text(",", 1), acc}}
 
-def content.go(parts: List<&2, Part>, comment: Bool, acc: List<&2, Doc>) -> List<&2, Doc>:
+def content.go(
+  parts: List<&2, Part>,
+  comment: Bool,
+  +comments: Bool,
+  acc: List<&2, Doc>
+) -> List<&2, Doc>:
   match parts:
     case Nil{}:
       acc
     case Con{Part{d, newlines, next}, rest}:
-      content.go(rest, next, Con{d, content.sep(comment, acc)})
+      content.go(rest, next, comments, Con{d, content.sep(comment, comments, acc)})
 
 # The parts' docs with their separators, last first.
-def content(parts: List<&2, Part>) -> List<&2, Doc>:
+def content(parts: List<&2, Part>, comments: Bool) -> List<&2, Doc>:
   match parts:
     case Nil{}:
       []
     case Con{Part{d, newlines, comment}, rest}:
-      content.go(rest, comment, [d])
+      content.go(rest, comment, comments, [d])
 
 def opening(comments: Bool) -> Doc:
   match comments:
@@ -1746,7 +1778,9 @@ def Split.doc(open: Token, +close: Token, tab: U32, st: State) -> Doc:
               cat(
                 [
                   opening(comments),
-                  cat_rev(content(List.reverse(&2, Part, drop_parts(parts, should_drop(parts)))))
+                  cat_rev(
+                    content(List.reverse(&2, Part, drop_parts(parts, should_drop(parts))), comments)
+                  )
                 ]
               ),
               tab
