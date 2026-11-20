@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "1.94.0",
-    "@types/bun": "1.4.4",
+    "@types/bun": "1.4.5",
     "oxfmt": "0.79.0",
     "oxlint": "1.94.0",
     "oxlint-tsgolint": "7.0.2007",
@@ -35,5 +35,5 @@
   },
   "packageManager": "bun@1.4.4",
   "bendRelease": "bendlang/bend/v2.0.40",
-  "bendWindows": "MattCozendey/bend/f9e539f792dbeabdf38c3ec920e25f5c73427349"
+  "bendWindows": "MattCozendey/bend/0d24ee59c8b6eac389e0dfdc4a457925cfcee097"
 }
