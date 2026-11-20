@@ -4,17 +4,20 @@
 #
 # BendHub takes the BendAI key that `bend login` writes to ~/.bend/bendai.json,
 # from the repository secret BENDAI_KEY. A version BendHub has already taken
-# fails the job, so a tag publishes once; to retry the npm job alone, re-run
-# only the failed jobs. npm publishes by trusted publishing: npm trusts this
-# workflow, so no token or one-time password is needed.
+# fails the job, so a tag publishes once. To publish npm alone (after the BendHub
+# packages are published by hand, or to retry), run this workflow by hand on the
+# tag. npm publishes by trusted publishing: npm trusts this workflow, so no token
+# or one-time password is needed.
 name: Publish
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 jobs:
   bendhub:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,6 +42,10 @@ jobs:
 
   npm:
     needs: bendhub
+    # A skipped bendhub job (a run by hand) does not skip this one.
+    if:
+      ${{ !cancelled() && (needs.bendhub.result == 'success' || github.event_name ==
+      'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,6 +59,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: The tag names package.json's version
+        run: test "${GITHUB_REF_NAME#v}" = "$(jq -r .version package.json)"
       - name: Trusted publishing needs npm 11.5.1 or newer
         run: npm install -g npm@^11.5.1
       - run: bun install --frozen-lockfile
