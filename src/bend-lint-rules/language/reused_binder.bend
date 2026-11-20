@@ -55,6 +55,25 @@ def Once.of(+bare: Bool, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<
     case _ _:
       []
 
+# The binders that the variables among the nodes use: a binder used fewer than twice gives no finding.
+def variable(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
+  match node:
+    case Lint.Node{Lint.Variable{b}, n, s, k, f}:
+      [b]
+    case _:
+      []
+
+# Whether `b` is among `used` at least `more` more times: a finding needs two uses, so a binder used fewer than twice in
+# its definition is not scanned.
+def is_used(used: List<&2, U32>, +b: U32, more: Nat) -> Bool:
+  match used more:
+    case _ 0n:
+      True{}
+    case Nil{} 1n+m:
+      False{}
+    case Con{x, rest} 1n+m:
+      is_used(rest, b, Nat.add(Bool.pick(Nat, U32.is_eq(x, b), 0n, 1n), m))
+
 # The binders a match takes apart: the variables right under it, its scrutinees. In a case, they stand for the matched
 # constructor.
 def scrutinee(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
@@ -215,19 +234,21 @@ def finding(second: Seen, name: String) -> List<&2, Lint.Finding>:
     case Seen{f, s}:
       Lint.finding(Lint.Warning{}, True{}, s, message(name))
 
-# The finding about a binder of `owner` used twice on one path, unless a match takes it apart (`matched`).
+# The finding about a binder of `owner` used twice on one path, unless a match takes it apart (`matched`) or it is used
+# fewer than twice (`twice`).
 def judged(
   matched: Bool,
+  twice: Bool,
   owner: Lint.Node,
   b: U32,
   erased: Erased,
   name: String
 ) -> List<&2, Lint.Finding>:
-  match matched:
-    case True{}:
-      []
-    case False{}:
+  match matched twice:
+    case False{} True{}:
       finding(scan([owner], b, erased, False{}, False{}, [], 0, Seen{None{}, None{}}), name)
+    case _ _:
+      []
 
 # The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes
 # apart (`matched`) is skipped.
@@ -235,6 +256,7 @@ def judge(
   +owner: Lint.Node,
   onces: List<&2, Once>,
   +matched: List<&2, U32>,
+  +used: List<&2, U32>,
   +erased: Erased,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
@@ -246,11 +268,19 @@ def judge(
         owner,
         rest,
         matched,
+        used,
         erased,
         Shared.Lists.onto(
           &2,
           Lint.Finding,
-          judged(List.contains(~U32, ~U32.is_eq, matched, b), owner, b, erased, name),
+          judged(
+            List.contains(~U32, ~U32.is_eq, matched, b),
+            is_used(used, b, 2n),
+            owner,
+            b,
+            erased,
+            name
+          ),
           out
         )
       )
@@ -278,6 +308,7 @@ def defs(
             [owner]
           ),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
+          Lint.visit(~Unit, ~U32, ~variable, Unit{}, [owner]),
           erased,
           out
         )

@@ -116,8 +116,14 @@ type Traced = (...args: unknown[]) => unknown;
 type Hook = (f: Traced, args: unknown[]) => unknown;
 
 // What the server shares with its copy of bend.ts on globalThis: the fs and path the copy uses,
-// and, once the copy loads, its setter of hooks.
-type Shared = { fs: object; path: object; setHook?: (name: string, hook?: Hook) => void };
+// which declarations its book_valid checks (by their place in the book's order), and, once the copy
+// loads, its setter of hooks.
+type Shared = {
+  fs: object;
+  path: object;
+  setHook?: (name: string, hook?: Hook) => void;
+  checks: (i: number) => boolean;
+};
 
 // A traced call that a Frame KEPT: its name, arguments and result, where the parser is after it
 // (-1 if it failed, or has no parser), and the calls it made that it KEPT.
@@ -328,11 +334,24 @@ const DRIVE = /^[A-Za-z]:(?=\/)/;
 // A name as a file writes it: `[A-Za-z_]`, then `[A-Za-z0-9_.]`.
 const NAME = /^[A-Za-z_][\w.]*/;
 
-// The edits that make bend.ts use the fs and path the server Shares. The copy is never
-// type-checked, so it needs no types.
+// The edits that make bend.ts use the fs and path the server Shares, and check, past `done`, only
+// the declarations the server's `checks` names. The copy is never type-checked, so it needs no
+// types.
 const EDITS: Edit[] = [
   ['import * as fs from "node:fs";', "const { fs } = globalThis.BEND_LINT;"],
   ['import * as path from "node:path";', "const { path } = globalThis.BEND_LINT;"],
+  [
+    "export function book_valid(book: Book, done: number = 0): void {",
+    "export function book_valid(book: Book, done: number = 0): void {\n  const { checks } = globalThis.BEND_LINT;",
+  ],
+  [
+    '    if (tld.$ === "ADT") {\n      if (i >= done) {',
+    '    if (tld.$ === "ADT") {\n      if (i >= done && checks(i)) {',
+  ],
+  [
+    "    if (i >= done) {\n      if (fin && tld.v === null",
+    "    if (i >= done && checks(i)) {\n      if (fin && tld.v === null",
+  ],
 ];
 
 // The functions of bend.ts whose calls the server sees while Bend loads a check's files: those that
@@ -843,6 +862,7 @@ const getShared = (): Shared => ({
     resolve: (...ps: string[]): string => getPathWithForwardSlashes(nodePath.resolve(...ps)),
     posix: { ...nodePath.posix, resolve: getResolvedPosixPath, relative: getRelativePosixPath },
   },
+  checks: () => true,
 });
 
 // The records of Base's declarations, parsed into `files`, each without its body: what rules read of
@@ -1843,19 +1863,19 @@ const getKeyed = (version: string, files: Parsed[]): Keyed[] => {
   });
 };
 
-// What Bend's check of the files `keyed` need not check again, by the book's `order` of
-// declarations, Base's before `from`. A file is checked as if alone when its closure holds the file
-// of each fill of a law (a name declared again) before it whose law its closure holds: the checker
-// unfolds a law from its fill on. `own` gives the key of each such file; `start` the first
-// declaration of the first file that the check must check: one not checked as if alone, or with no
-// mark of its key, or whose facts are `wanted` (by its namespace). A use of a mark keeps it from
-// prune.
+// What Bend's check of the files `keyed` must check, by the book's `order` of declarations, Base's
+// before `from`. A file is checked as if alone when its closure holds the file of each fill of a law
+// (a name declared again) before it whose law its closure holds: the checker unfolds a law from its
+// fill on. `own` gives the key of each such file; `checks`, each declaration of a file that the
+// check must check: one not checked as if alone, or with no mark of its key, or whose facts are
+// `wanted` (by its namespace); `start`, the first such. A file the check need not check, it skips
+// wherever it is, as one before `start`. A use of a mark keeps it from prune.
 const getValidity = (
   keyed: Keyed[],
   order: string[],
   from: number,
   wanted: (ns: string) => boolean,
-): { start: number; own: string[] } => {
+): { start: number; own: string[]; checks: (i: number) => boolean } => {
   const getOwner = (i: number): string =>
     keyed.filter((k) => k.file.start <= i).at(-1)?.file.path ?? "";
   const first = new Map<string, number>();
@@ -1870,18 +1890,23 @@ const getValidity = (
     fills.every(
       ({ at, law, filler }) => at >= file.start || closure.has(filler) || !closure.has(law),
     );
+  const needs = keyed.map(
+    (one) =>
+      !isOwn(one) ||
+      wanted(one.file.ns) ||
+      tryGet(() => {
+        nodeFs.utimesSync(getValidPath(one.key), new Date(), new Date());
+        return true;
+      }) !== true,
+  );
+  const checked = new Uint8Array(order.length);
+  keyed.forEach((one, n) =>
+    checked.fill(needs[n] ? 1 : 0, one.file.start, keyed[n + 1]?.file.start ?? order.length),
+  );
   return {
-    start:
-      keyed.find(
-        (one) =>
-          !isOwn(one) ||
-          wanted(one.file.ns) ||
-          tryGet(() => {
-            nodeFs.utimesSync(getValidPath(one.key), new Date(), new Date());
-            return true;
-          }) !== true,
-      )?.file.start ?? order.length,
+    start: keyed.find((_, n) => needs[n])?.file.start ?? order.length,
     own: keyed.filter(isOwn).map((one) => one.key),
+    checks: (i) => checked[i] === 1,
   };
 };
 
@@ -1927,7 +1952,13 @@ const getCheck = async (checker: Checker, path: string, facts: Wanted): Promise<
       base.order.length,
       (ns) => facts !== undefined && (wanted === undefined || wanted.has(ns)),
     );
-    Bend.book_valid(book, validity.start);
+    const shared = (globalThis as { BEND_LINT?: Shared }).BEND_LINT!;
+    shared.checks = validity.checks;
+    try {
+      Bend.book_valid(book, validity.start);
+    } finally {
+      shared.checks = () => true;
+    }
     passed = true;
     validity.own.forEach((key) => tryGet(() => writeNewFileAtomically(getValidPath(key), "")));
   } catch (e) {
