@@ -1866,10 +1866,10 @@ const getKeyed = (version: string, files: Parsed[]): Keyed[] => {
 // What Bend's check of the files `keyed` must check, by the book's `order` of declarations, Base's
 // before `from`. A file is checked as if alone when its closure holds the file of each fill of a law
 // (a name declared again) before it whose law its closure holds: the checker unfolds a law from its
-// fill on. `own` gives the key of each such file that the check checks, or need not; `checks`, each
-// declaration the check must check: one of a file not checked as if alone, or with no mark of its
-// key, or whose facts are `wanted` (by its namespace), and none after the last file `wanted`, whose
-// facts nothing after it changes; `start`, the first such. A use of a mark keeps it from prune.
+// fill on. `own` gives the key of each such file; `checks`, each declaration of a file that the
+// check must check: one not checked as if alone, or with no mark of its key, or whose facts are
+// `wanted` (by its namespace); `start`, the first such. A file the check need not check, it skips
+// wherever it is, as one before `start`. A use of a mark keeps it from prune.
 const getValidity = (
   keyed: Keyed[],
   order: string[],
@@ -1890,9 +1890,6 @@ const getValidity = (
     fills.every(
       ({ at, law, filler }) => at >= file.start || closure.has(filler) || !closure.has(law),
     );
-  const ends = keyed.map((_, n) => keyed[n + 1]?.file.start ?? order.length);
-  const last = keyed.reduce((at, one, n) => (wanted(one.file.ns) ? n : at), -1);
-  const end = last === -1 ? order.length : ends[last]!;
   const needs = keyed.map(
     (one) =>
       !isOwn(one) ||
@@ -1904,11 +1901,11 @@ const getValidity = (
   );
   const checked = new Uint8Array(order.length);
   keyed.forEach((one, n) =>
-    checked.fill(needs[n] ? 1 : 0, one.file.start, Math.min(ends[n]!, end)),
+    checked.fill(needs[n] ? 1 : 0, one.file.start, keyed[n + 1]?.file.start ?? order.length),
   );
   return {
-    start: keyed.find((_, n) => needs[n] && keyed[n]!.file.start < end)?.file.start ?? order.length,
-    own: keyed.filter((one, n) => ends[n]! <= end && isOwn(one)).map((one) => one.key),
+    start: keyed.find((_, n) => needs[n])?.file.start ?? order.length,
+    own: keyed.filter(isOwn).map((one) => one.key),
     checks: (i) => checked[i] === 1,
   };
 };

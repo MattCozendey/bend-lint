@@ -17,10 +17,9 @@ import ../../shared.bend as Shared
 # Types
 # =====
 
-# A binder that can be used once: its number, its name, and its scope, the node it is declared under, with whether that
-# node is live (see `is_live_at`). Its uses are all under its scope, so `scan` reads the scope, not the whole definition.
+# A binder that can be used once: its number, and its name.
 type Once is Data:
-  Once{binder: U32, name: String, scope: Lint.Node, live: Bool}
+  Once{binder: U32, name: String}
 
 # The live uses of one binder among some nodes: the first, and the first that an earlier one on its path precedes, if
 # any. Two uses are on one path unless a match parts them: its cases, and its scrutinees, are each a path of their own.
@@ -32,10 +31,6 @@ type Seen is Data:
 type Erased is Data:
   Erased{places: Map<&2, Maybe<&2, List<&2, U32>>>}
 
-# What a look for binders needs: whether the definition's parameters are a law's (`bare`), and the erased places.
-type Looking is Data:
-  Looking{bare: Bool, erased: Erased}
-
 # Functions
 # =========
 def message(+name: String) -> String:
@@ -43,6 +38,41 @@ def message(+name: String) -> String:
     ++ " is used again here, on the same path as an earlier use, but it is declared without `+`, so it can be used once on each path, and the check fails (\"consumed more than once\"). If its type is Data, write `+"
     ++ name
     ++ "` where it is declared (it then carries a reference count at run time); else use it once: a function, an array or an IO handle can never be copied."
+
+# The binders a definition declares that can be used once, as their syntax says for sure: a parameter written without
+# `+` (unless one is `bare`: its quantity is its law's), and a let's name written without `+`. A pattern's field is left
+# out: its quantity also comes from its scrutinee's type (a field of a `List<&2, A>` is reusable), which the rule cannot
+# see.
+def Once.of(+bare: Bool, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Once>:
+  match path node:
+    case _ Lint.Node{Lint.Parameter{b, Lint.Once{}}, name, s, k, f}:
+      Bool.pick(List<&2, Once>, bare, [], [Once{b, name}])
+    case Con{
+      Lint.Above{Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, at},
+      up
+    } Lint.Node{Lint.PatternVariable{b, Lint.Once{}}, name, s, k, f}:
+      [Once{b, name}]
+    case _ _:
+      []
+
+# The binders that the variables among the nodes use: a binder used fewer than twice gives no finding.
+def variable(+u: Unit, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, U32>:
+  match node:
+    case Lint.Node{Lint.Variable{b}, n, s, k, f}:
+      [b]
+    case _:
+      []
+
+# Whether `b` is among `used` at least `more` more times: a finding needs two uses, so a binder used fewer than twice in
+# its definition is not scanned.
+def is_used(used: List<&2, U32>, +b: U32, more: Nat) -> Bool:
+  match used more:
+    case _ 0n:
+      True{}
+    case Nil{} 1n+m:
+      False{}
+    case Con{x, rest} 1n+m:
+      is_used(rest, b, Nat.add(Bool.pick(Nat, U32.is_eq(x, b), 0n, 1n), m))
 
 # The binders a match takes apart: the variables right under it, its scrutinees. In a case, they stand for the matched
 # constructor.
@@ -133,58 +163,6 @@ def is_match(syntax: Lint.Syntax) -> Bool:
     case _:
       False{}
 
-# Whether the node that `path` leads to (the nodes above it, innermost first) is live, as `scan` finds it from the
-# definition down: the definition is not, and each node under it is as its parent makes it (`is_live_inside`), unless
-# it is at one of its parent's dead places (`Erased.dead`).
-def is_live_at(path: List<&2, Lint.Above>, +erased: Erased) -> Bool:
-  match path:
-    case Nil{}:
-      False{}
-    case Con{Lint.Above{+parent, at}, up}:
-      is_live_inside(
-        parent,
-        is_live_at(up, erased)
-      )
-        && Bool.not(List.contains(~U32, ~U32.is_eq, Erased.dead(parent, erased), at))
-
-# A parameter that can be used once, of a definition whose parameters are a law's if `bare`: none, as its quantity is
-# its law's.
-def Once.parameter(
-  bare: Bool,
-  b: U32,
-  name: String,
-  scope: Lint.Node,
-  up: List<&2, Lint.Above>,
-  erased: Erased
-) -> List<&2, Once>:
-  match bare:
-    case True{}:
-      []
-    case False{}:
-      [Once{b, name, scope, is_live_at(up, erased)}]
-
-# The binders a definition declares that can be used once, as their syntax says for sure: a parameter written without
-# `+` (unless one is `bare`: its quantity is its law's), whose scope is the definition, and a let's name written without
-# `+`, whose scope is its let. A pattern's field is left out: its quantity also comes from its scrutinee's type (a field
-# of a `List<&2, A>` is reusable), which the rule cannot see.
-def Once.of(+looking: Looking, +path: List<&2, Lint.Above>, +node: Lint.Node) -> List<&2, Once>:
-  match looking path node:
-    case Looking{
-      bare,
-      erased
-    } Con{Lint.Above{scope, at}, up} Lint.Node{Lint.Parameter{b, Lint.Once{}}, name, s, k, f}:
-      Once.parameter(bare, b, name, scope, up, erased)
-    case Looking{
-      bare,
-      erased
-    } Con{
-      Lint.Above{Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, at},
-      up
-    } Lint.Node{Lint.PatternVariable{b, Lint.Once{}}, name, s, k, f}:
-      [Once{b, name, Lint.Node{Lint.Destructure{q}, pn, ps, pk, pf}, is_live_at(up, erased)}]
-    case _ _ _:
-      []
-
 # What a node's uses of `b` are: its own, if it is a live use, else `under`'s, those under it.
 def Seen.of(+node: Lint.Node, b: U32, live: Bool, under: Seen) -> Seen:
   match node live:
@@ -256,42 +234,53 @@ def finding(second: Seen, name: String) -> List<&2, Lint.Finding>:
     case Seen{f, s}:
       Lint.finding(Lint.Warning{}, True{}, s, message(name))
 
-# The finding about a binder used twice on one path in its scope, which is live if `live`, unless a match takes it apart
-# (`matched`).
+# The finding about a binder of `owner` used twice on one path, unless a match takes it apart (`matched`) or it is used
+# fewer than twice (`twice`).
 def judged(
   matched: Bool,
+  twice: Bool,
+  owner: Lint.Node,
   b: U32,
-  scope: Lint.Node,
-  live: Bool,
   erased: Erased,
   name: String
 ) -> List<&2, Lint.Finding>:
-  match matched:
-    case True{}:
+  match matched twice:
+    case False{} True{}:
+      finding(scan([owner], b, erased, False{}, False{}, [], 0, Seen{None{}, None{}}), name)
+    case _ _:
       []
-    case False{}:
-      finding(scan([scope], b, erased, live, False{}, [], 0, Seen{None{}, None{}}), name)
 
-# The finding about each of `onces`, binders of a definition, used twice on one path, onto `out`; a binder a match takes
+# The finding about each of `onces`, binders of `owner`, used twice on one path, onto `out`; a binder a match takes
 # apart (`matched`) is skipped.
 def judge(
+  +owner: Lint.Node,
   onces: List<&2, Once>,
   +matched: List<&2, U32>,
+  +used: List<&2, U32>,
   +erased: Erased,
   out: List<&2, Lint.Finding>
 ) -> List<&2, Lint.Finding>:
   match onces:
     case Nil{}:
       out
-    case Con{Once{+b, name, scope, live}, rest}:
+    case Con{Once{+b, name}, rest}:
       judge(
+        owner,
         rest,
         matched,
+        used,
         erased,
         Shared.Lists.onto(
           &2,
           Lint.Finding,
-          judged(List.contains(~U32, ~U32.is_eq, matched, b), b, scope, live, erased, name),
+          judged(
+            List.contains(~U32, ~U32.is_eq, matched, b),
+            is_used(used, b, 2n),
+            owner,
+            b,
+            erased,
+            name
+          ),
           out
         )
       )
@@ -310,14 +299,16 @@ def defs(
         rest,
         erased,
         judge(
+          owner,
           Lint.visit(
-            ~Looking,
+            ~Bool,
             ~Once,
             ~Once.of,
-            Looking{Shared.Lists.any(~Lint.Node, ~Lint.Node.is_bare, k), erased},
+            Shared.Lists.any(~Lint.Node, ~Lint.Node.is_bare, k),
             [owner]
           ),
           Lint.visit(~Unit, ~U32, ~scrutinee, Unit{}, [owner]),
+          Lint.visit(~Unit, ~U32, ~variable, Unit{}, [owner]),
           erased,
           out
         )
